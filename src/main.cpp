@@ -1,10 +1,13 @@
 // LoRaTrace RX — Phase 1 bring-up (DESIGN.md §9, step 1)
 //
 // Scope, deliberately: RadioLib talking to the SX1262 on its own SPI host,
-// IO-expander antenna switch confirmed, hardcoded RX on the Meshtastic
-// LongFast (US) channel, detections printed to Serial. No task/queue
-// architecture, no GPS, no SD, no UI yet — CLAUDE.md is explicit that
-// those wait until this bring-up step is proven on real hardware.
+// IO-expander antenna switch confirmed, RX on the Meshtastic LongFast (US)
+// channel by default — optionally overridden from an SD config file for
+// non-default regional presets (config.h) — detections printed to Serial.
+// No task/queue architecture, no GPS, no full SD logging, no UI yet —
+// CLAUDE.md is explicit that those wait until this bring-up step is
+// proven on real hardware. The SD config read is a narrow, deliberate
+// exception: a one-shot boot-time read, not the Logger task.
 //
 // UNTESTED ON HARDWARE: written and reasoned through against RadioLib's
 // documented API and the M5Stack/PI4IOE5V6408 facts recorded in
@@ -21,12 +24,21 @@
 
 #include "board_pins.h"
 #include "channel_plans.h"
+#include "config.h"
 #include "version.h"
 
 // Dedicated SPI host for the SX1262, isolated from the display bus
-// (DESIGN.md §1: shared-bus display refreshes jitter CAD timing).
+// (DESIGN.md §1: shared-bus display refreshes jitter CAD timing). Also
+// shared with the microSD card (PIN_SD_CS) — see board_pins.h; SD and
+// radio never touch the bus concurrently in this phase, only sequentially
+// during setup(), so that sharing is safe here even though it'll need
+// real arbitration once Phase 2 makes both active at once.
 SPIClass radioSPI(FSPI);
 SX1262 radio = new Module(PIN_LORA_NSS, PIN_LORA_IRQ, PIN_LORA_RST, PIN_LORA_BUSY, radioSPI);
+
+// Meshtastic LongFast (US) unless overridden by /loratrace/config.txt on
+// SD — see config.h/config.cpp and sd-template/loratrace/config.txt.
+ChannelParams activeChannel = CHANNEL_MESHTASTIC_LONGFAST_US;
 
 volatile bool packetReady = false;
 
@@ -81,11 +93,16 @@ void setup() {
 
     radioSPI.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, PIN_LORA_NSS);
 
+    // Optional channel override, e.g. for regional presets like
+    // MeshOregon that don't run vanilla Meshtastic US LongFast. Fails
+    // safe to the hardcoded default above if SD/file/values aren't good.
+    loadChannelConfigFromSD(activeChannel, PIN_SD_CS, radioSPI);
+
     int state = radio.begin(
-        CHANNEL_MESHTASTIC_LONGFAST_US.freq_mhz,
-        CHANNEL_MESHTASTIC_LONGFAST_US.bw_khz,
-        CHANNEL_MESHTASTIC_LONGFAST_US.sf,
-        CHANNEL_MESHTASTIC_LONGFAST_US.cr_denom
+        activeChannel.freq_mhz,
+        activeChannel.bw_khz,
+        activeChannel.sf,
+        activeChannel.cr_denom
     );
 
     if (state != RADIOLIB_ERR_NONE) {
@@ -94,9 +111,14 @@ void setup() {
         while (true) delay(1000);
     }
     Serial.println(F("SX1262 initialized."));
-    Serial.print(F("Locked to Meshtastic LongFast (US): "));
-    Serial.print(CHANNEL_MESHTASTIC_LONGFAST_US.freq_mhz, 3);
-    Serial.println(F(" MHz"));
+    Serial.print(F("Active channel: "));
+    Serial.print(activeChannel.freq_mhz, 3);
+    Serial.print(F(" MHz, SF"));
+    Serial.print(activeChannel.sf);
+    Serial.print(F(", BW"));
+    Serial.print(activeChannel.bw_khz, 1);
+    Serial.print(F("kHz, CR4/"));
+    Serial.println(activeChannel.cr_denom);
 
     radio.setDio1Action(onPacketReceived);
 

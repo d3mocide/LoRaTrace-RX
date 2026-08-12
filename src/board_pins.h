@@ -23,9 +23,10 @@ constexpr int8_t PIN_LORA_RST  = 3;
 constexpr int8_t PIN_IOEXP_SDA = 8;
 constexpr int8_t PIN_IOEXP_SCL = 9;
 
-// I2C address 0x43 is the PI4IOE5V6408's documented default (ADDR pin tied
-// low); confirmed against ESPHome's pi4ioe5v6408 component docs, not yet
-// bench-verified against this specific board.
+// I2C address 0x43, confirmed two ways: ESPHome's pi4ioe5v6408 component
+// docs (generic default), and directly silkscreened on the Cap LoRa-1262
+// module itself ("PI4IO ADDR:0x43") per its official pin-diagram image —
+// about as confirmed as a value can be without a multimeter on the board.
 constexpr uint8_t IOEXP_I2C_ADDR = 0x43;
 
 // Register map + bit polarity cross-checked against an independent
@@ -43,12 +44,35 @@ constexpr uint8_t IOEXP_REG_INPUT_STATUS = 0x0F; // read-only input levels
 
 constexpr uint8_t IOEXP_ANT_SWITCH_BIT = 0; // P0 — antenna path enable
 
-// --- GPS (AT6668) — NMEA over UART. Not wired up until Phase 2. ---
+// --- GPS — NMEA over UART. Not wired up until Phase 2. ---
+// DESIGN.md names the chip "AT6668"; M5Stack's own Cap LoRa-1262 docs and
+// pin diagram say "ATGM336H" — a naming discrepancy worth fixing in
+// DESIGN.md, doesn't affect these pins (plain NMEA over UART either way).
+// G13/G15 confirmed directly against the Cap LoRa-1262 docs pin table and
+// its official pin-diagram image, not just DESIGN.md's own table.
 constexpr int8_t PIN_GPS_RX = 13; // ESP32 RX <- GPS TX
 constexpr int8_t PIN_GPS_TX = 15; // ESP32 TX -> GPS RX
 constexpr uint32_t GPS_BAUD = 115200;
 
-// --- microSD — bus TBD. Pins intentionally omitted. ---
-// DESIGN.md §7 flags "SPI or SDMMC, confirm host" as an unresolved item on
-// this board revision. Don't guess a pin assignment here; fill in once
-// confirmed against real hardware (see PROGRESS.md open questions).
+// --- microSD — SPI, sharing the SAME bus as the SX1262 above. ---
+// Confirmed by cross-checking two of M5Stack's own official docs pages
+// directly (Cardputer-Adv base unit's microSD table, and the Cap
+// LoRa-1262's own SPI pin table + its printed pin-diagram image): SD is
+// CS=G12/SCK=G40/MOSI=G14/MISO=G39, the SX1262 is NSS=G5 on the identical
+// SCK/MOSI/MISO — one shared physical bus via chip-select, not two
+// independent hosts. The Cardputer-Adv docs state outright that the
+// microSD interface shares pins with the EXT/Cap expansion connector,
+// which is the connector the LoRa Cap plugs into — that's the actual
+// mechanism, not a numeric coincidence. Resolves DESIGN.md §7's "SPI or
+// SDMMC?" question in favor of SPI, shared. Still not confirmed with an
+// actual continuity/multimeter check on this exact board, but this is
+// well-sourced now, not a guess.
+//
+// Implication for Phase 2: since these are the same physical wires, SD
+// and radio SPI transactions can't truly happen concurrently no matter
+// which core issues them — moving SD to a Core 0 task avoids the *radio
+// task's own code* blocking on SD, but doesn't remove the need for actual
+// bus arbitration (e.g. a mutex around the shared SPIClass) once both are
+// active at once. Flagged in PROGRESS.md; not solved here.
+constexpr int8_t PIN_SD_CS = 12;
+// SCK/MOSI/MISO: reuse PIN_LORA_SCK / PIN_LORA_MOSI / PIN_LORA_MISO.

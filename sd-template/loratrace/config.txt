@@ -1,0 +1,20 @@
+# LoRaTrace RX — channel config
+#
+# Copy this whole loratrace/ folder to the root of your SD card. On boot,
+# LoRaTrace RX reads this file and uses it to override the built-in
+# Meshtastic LongFast (US) default (906.875MHz / SF11 / BW250kHz / CR4:8).
+#
+# No SD card, no loratrace/ folder, a missing/unreadable file, or an
+# out-of-range value all fail safe back to that hardcoded default — a bad
+# line here just gets a warning on serial and gets skipped, it won't brick
+# the boot.
+#
+# Uncomment/edit the lines below with your local mesh's actual settings
+# (e.g. a regional preset like MeshOregon) — check your own node's radio
+# config, don't guess. Lines starting with # are ignored. All four keys
+# are optional; any you omit keep the hardcoded default for that field.
+
+# freq_mhz=906.875
+# sf=11
+# bw_khz=250.0
+# cr_denom=8

@@ -6,14 +6,17 @@ source, `DESIGN.md` is the "why" source. Don't let them drift.
 
 ## Current status (2026-08-12)
 
-Phase 0 (project scaffold) complete. Phase 1 (RadioLib bring-up) code
-**confirmed to build cleanly** (`pio run`, `esp32-s3-devkitc-1`,
-RadioLib 7.7.1: 312KB flash / 20.3KB static RAM) but **not yet run on real
+Phase 0 (project scaffold) complete. Phase 1 (RadioLib bring-up, now
+including optional SD-based channel config) code **confirmed to build
+cleanly** (`pio run -e cardputer-adv`, `esp32-s3-devkitc-1`, RadioLib
+7.7.1: 384KB flash / 20.6KB static RAM) but **not yet run on real
 hardware** — this environment has no board attached. A clean build rules
 out compile-time API mismatches; it says nothing about whether the SPI/I2C
 wiring, register values, or radio behavior are actually correct. Treat
 runtime behavior in `src/` as reasoned-through-but-unverified until
-someone flashes it and reports back.
+someone flashes it and reports back. CI now includes a rolling
+`dev-latest` release for grabbing a Launcher-installable `.bin` without
+tagging — see Decisions log.
 
 ## Build-order checklist
 
@@ -35,6 +38,14 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         version drift possible)
   - [ ] Bench-verify RX against a known live Meshtastic LongFast (US)
         transmitter — RSSI/SNR should be plausible, not just non-crashing
+  - [ ] Confirm SD-based channel config actually loads: drop
+        `sd-template/loratrace/` onto the SD card with real values (e.g.
+        MeshOregon's), confirm the boot banner reports the overridden
+        channel, not the hardcoded default
+  - [ ] Confirm PIN_SD_CS (12) + shared SCK40/MISO39/MOSI14 actually mount
+        the SD card — now sourced directly from Cardputer-Adv + Cap
+        LoRa-1262's own official docs/pin diagram (see DESIGN.md §7), just
+        not yet bench-confirmed with real hardware
 - [ ] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta)
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
@@ -48,8 +59,28 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       Meshtastic-compat example)
 - [ ] MeshCore's encryption/PSK scheme (don't assume it mirrors
       Meshtastic's default-channel PSK model)
-- [ ] microSD bus on this board revision — SPI or SDMMC, shared host with
-      display or not
+- [x] microSD bus on this board revision — SPI, confirmed shared with the
+      radio (not the display). **Finding (2026-08-12), well-sourced:**
+      cross-checked M5Stack's official docs for both halves directly
+      (Cardputer-Adv's own microSD pin table + the Cap LoRa-1262's own SPI
+      pin table and printed pin-diagram image) — identical SCK/MOSI/MISO,
+      distinct CS, and the Cardputer-Adv docs state outright that microSD
+      shares pins with the EXT/Cap expansion connector. An initial hastier
+      fetch of these same pages produced a scrambled, self-contradictory
+      table (worth remembering as a caution about trusting single-pass doc
+      scraping for anything pin-critical) — corrected via a stricter
+      verbatim-quote re-fetch and a photo of the module's own diagram. See
+      DESIGN.md §7 for the full note. Still not confirmed with an actual
+      continuity/multimeter check on this board — that's the only thing
+      left to close this out completely.
+- [ ] Whether SD and the radio sharing one physical SPI bus needs explicit
+      arbitration (e.g. a mutex around the shared `SPIClass`) once Phase 2
+      makes both active concurrently across Core 0/Core 1 — the FreeRTOS
+      queue moves the radio *task's* code off SD, but doesn't remove the
+      electrical fact that two devices on one bus can't transact at the
+      same instant. Not a Phase 1 problem (config load and radio.begin()
+      happen sequentially in setup(), nothing concurrent yet) — flagging
+      now so Phase 2's radio_task/logger_task design accounts for it.
 - [ ] CAD `symNum` tuning — needs bench testing against Semtech AN1200.48
 - [ ] 868–923MHz front-end rolloff near 923MHz — empirical RSSI floor
       sweep once hardware is in hand
@@ -121,13 +152,57 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   written. Note: `pio run` alone builds *all* environments including
   `native`, which has nothing to build outside `pio test` — always use
   `pio run -e cardputer-adv` (README/CI already do).
+- **2026-08-12** — Added a rolling `dev-latest` release to `build.yml`:
+  every push to `main` force-moves a `dev-latest` git tag and
+  updates/republishes a prerelease at that tag with a fixed-filename
+  binary (`LoRaTraceRX-dev.bin`), so there's always a stable, no-login
+  download URL for SD-drop/Launcher testing without waiting on a version
+  tag. Separate from `release.yml`'s versioned `vX.Y.Z` releases, which
+  stay manual/deliberate. **Unverified**: this is the first time the
+  workflow exists, so it hasn't actually fired on a real push yet — the
+  `softprops/action-gh-release` update-in-place behavior for a re-used tag
+  is a well-established pattern for this action, but confirm the first
+  run actually updates `dev-latest` rather than erroring.
+- **2026-08-12** — Added SD-based channel config
+  (`src/config.h`/`config.cpp`, path `/loratrace/config.txt`,
+  `sd-template/loratrace/config.txt` as the copyable example) so operators
+  running non-default regional presets (e.g. MeshOregon) can override
+  freq/SF/BW/CR without a rebuild. Scoped narrowly: one-shot boot-time SD
+  read before `radio.begin()`, not the general Phase 2 settings/Logger
+  architecture — this was pulled forward because it was blocking real
+  testing tonight, not because Phase 1's scope changed otherwise. Values
+  are bounds-checked (868-928MHz, SF5-12, CR5-8) and rejected
+  field-by-field with a warning rather than applied blind, since a bad
+  frequency/SF here means silently hearing nothing. Confirmed
+  build-clean; SD mount itself is unverified pending the `PIN_SD_CS`
+  hardware check above. This closes out the "no config schema decided
+  yet" note in the previous entry.
+- **2026-08-12** — Re-verified the SD/radio shared-bus finding against
+  M5Stack's official docs directly (Cardputer-Adv microSD table + Cap
+  LoRa-1262 SPI table, both re-fetched with a stricter verbatim-quote
+  prompt after a first, hastier attempt produced a scrambled and
+  internally-contradictory pin table — that error is worth remembering,
+  not just fixing). User-supplied photo of the Cap LoRa-1262's printed pin
+  diagram independently confirmed the SX1262 pins, the antenna-switch
+  I2C address (0x43, now primary-source-confirmed, silkscreened on the
+  module), and GPS UART pins. One correction found: DESIGN.md called the
+  GPS chip "AT6668," official docs/diagram say "ATGM336H" — fixed, naming
+  only, no pin/code impact. `board_pins.h` and DESIGN.md §1/§7 updated
+  with the stronger sourcing.
 
 ## Next steps
 
-1. Get this scaffold onto real hardware; resolve the Phase 1 checklist
-   above.
+1. Get this scaffold onto real hardware — planned route is SD-drop into
+   an existing Launcher install (`LoRaTraceRX-dev.bin` from the rolling
+   release) rather than direct USB flash, so it doesn't disturb the
+   current Launcher setup. Serial monitor still works normally over USB
+   for observing boot output either way. Resolve the Phase 1 checklist
+   above, including the new SD-config items.
 2. Once radio RX is confirmed live, empirically resolve the microSD bus
    question — it's the one Phase 2 blocker that can't be reasoned through
-   from docs alone.
+   from docs alone. Tonight's SD-config test is a first real data point
+   for this even before Phase 2 starts.
 3. Start Phase 2 (task/queue architecture) only after Phase 1 is bench-
-   confirmed, per CLAUDE.md's explicit build-order instruction.
+   confirmed, per CLAUDE.md's explicit build-order instruction. Phase 2's
+   radio_task/logger_task split needs to account for the shared-SPI-bus
+   finding above, not just cross-core task separation.
