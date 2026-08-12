@@ -150,16 +150,94 @@ full load (radio + GPS + SD + display all running) before deciding WiFi is
 in scope at all. This phase is explicitly allowed to conclude "not on this
 hardware, or not simultaneously with the display."
 
-## Suggested versioning
+## Distribution
+
+Two install paths, both real, serving different audiences:
+
+- **Direct flash (`pio run --target upload`)** — the dev-iteration path.
+  Fastest feedback loop, direct serial access for debugging. Primary
+  method through Phases 1–2 while bring-up is still being bench-verified.
+- **SD-drop via [bmorcelli/Launcher](https://github.com/bmorcelli/Launcher)**
+  — the preferred *end-user* install method once builds are stable.
+  Matches BRAND.md's "field instrument, not a laptop-tethered tool"
+  positioning: swap firmware without reflashing.
+
+This costs us nothing extra to support. Launcher installs a plain
+PlatformIO app binary (`.pio/build/cardputer-adv/firmware.bin`, standard
+ESP32 image starting with the `0xE9` magic byte) straight off a FAT32 SD
+card — no merged image, no manifest. Launcher's own dynamic partition
+manager carves out or resizes an OTA app slot to fit whatever we hand it.
+
+**Confirmed:** returning from a running LoRaTrace RX build back to
+Launcher is a manual restart + button combo — not something our firmware
+needs to implement. No return-to-launcher hook belongs in `ui_task`.
+
+**Follows from this:** Launcher owns the flash partition table, not our
+static `platformio.ini` partition CSV — that only governs direct-flash
+installs. Any state we want to survive a user switching firmwares back
+and forth (settings, last-used profile, calibration data) has to live on
+SD, not in a custom NVS/data partition, since a custom partition isn't
+guaranteed to survive a later Launcher install. This is already
+DESIGN.md's "SD is the datastore" philosophy — see PROGRESS.md decisions
+log — it just now extends to config, not only detection logs.
+
+**Binary size:** no documented hard ceiling was found for how much flash
+Launcher leaves free per app on an 8MB device, especially once Launcher
+itself plus other installed firmwares share the same flash (that's the
+whole point of a multi-firmware launcher — see PROGRESS.md open
+questions). Rather than target an arbitrary number like "under 4MB,"
+treat it as an ongoing discipline: keep the binary as lean as the feature
+set allows, and measure the real number instead of assuming one.
+
+- **Measured, not estimated:** the Phase 1 scaffold (RadioLib + IO-expander
+  init, no GPS/SD/display/WiFi yet) compiles to **312KB** — 9.5% of the
+  ~3.19MB app partition our own `default_8MB.csv` direct-flash scheme
+  allocates (`pio run`, logged in CI now — see below). Adding SD, GPS
+  parsing, and a display library will grow this, but from a 312KB
+  baseline there's a lot of room before size becomes a real constraint
+  either for direct flash or for coexisting with Launcher + other apps.
+- **WiFi is the one feature with a real size lever**, same as it's the one
+  feature with the real RAM lever (`lwIP` + the WiFi driver stack is
+  typically the single biggest chunk of a "full" Arduino-ESP32 build).
+  That's one more reason it's gated behind Phase 6's go/no-go, not a
+  given.
+- `RadioLib` compiles in support for many radio families by default;
+  disabling the ones we don't use (`RADIOLIB_EXCLUDE_*` build flags, only
+  SX126x needed here) is a cheap, real size reduction worth doing before
+  Phase 6, not just a nice-to-have.
+- CI now measures the actual `firmware.bin` size on every build (see
+  below) — track it there instead of trusting an estimate.
+
+## Versioning
+
+Formalizes the phase-mapped table below into an actual scheme CI and bug
+reports can use.
+
+- **Format:** `vMAJOR.MINOR.PATCH` (e.g. `v0.2.1`). MAJOR.MINOR tracks the
+  build-order phase reached; PATCH increments for fixes that don't add new
+  phase scope.
+- **Source of truth:** `src/version.h` (`FIRMWARE_VERSION`), printed on
+  the boot banner (Serial now, on-device UI once Phase 6 exists). A bug
+  report against a specific build should always be traceable to this
+  string.
+- **Release trigger:** pushing a `vX.Y.Z` git tag. `src/version.h` should
+  be bumped to match *before* tagging — CI doesn't currently cross-check
+  the two, so a mismatch is a review-time catch, not an automated one.
+- **CI:** `.github/workflows/build.yml` runs `pio run` (+ `pio test`) on
+  every push/PR — catches build breaks before they land, independent of
+  tagging. `.github/workflows/release.yml` runs only on a `vX.Y.Z` tag
+  push: builds, renames the output to `LoRaTraceRX-<version>.bin`
+  (Launcher/SD-drop-friendly naming, per its "use simple characters" SD
+  guidance), and attaches it to a GitHub Release.
 
 | Version | Corresponds to |
 |---|---|
-| v0.1 | Phase 1 (serial bring-up) |
-| v0.2 | Phase 2 (MVP-Beta: Meshtastic War Drive complete) |
-| v0.3 | Phase 3 (MeshCore) |
-| v0.4 | Phase 4 (discovery sweep) |
-| v0.5 | Phase 5 (energy sweep: Reticulum + General Exploration) |
-| v1.0 | Phase 6 (UI polish, WiFi upload decision made, all 4 profiles stable) |
+| v0.1.x | Phase 1 (serial bring-up) |
+| v0.2.x | Phase 2 (MVP-Beta: Meshtastic War Drive complete) |
+| v0.3.x | Phase 3 (MeshCore) |
+| v0.4.x | Phase 4 (discovery sweep) |
+| v0.5.x | Phase 5 (energy sweep: Reticulum + General Exploration) |
+| v1.0.x | Phase 6 (UI polish, WiFi upload decision made, all 4 profiles stable) |
 
 ## Non-goals
 

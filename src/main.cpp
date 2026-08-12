@@ -21,6 +21,7 @@
 
 #include "board_pins.h"
 #include "channel_plans.h"
+#include "version.h"
 
 // Dedicated SPI host for the SX1262, isolated from the display bus
 // (DESIGN.md §1: shared-bus display refreshes jitter CAD timing).
@@ -68,7 +69,9 @@ void setup() {
     unsigned long t0 = millis();
     while (!Serial && millis() - t0 < 3000) {}
 
-    Serial.println(F("LoRaTrace RX v0.1 — phase 1 bring-up"));
+    Serial.print(F("LoRaTrace RX v"));
+    Serial.print(FIRMWARE_VERSION);
+    Serial.println(F(" — phase 1 bring-up"));
 
     if (!initAntennaSwitch()) {
         Serial.println(F("FATAL: IO expander (antenna switch) init failed — no ACK on I2C. Radio would be silent even if this continued."));

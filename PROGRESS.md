@@ -7,17 +7,23 @@ source, `DESIGN.md` is the "why" source. Don't let them drift.
 ## Current status (2026-08-12)
 
 Phase 0 (project scaffold) complete. Phase 1 (RadioLib bring-up) code
-written but **not yet run on real hardware** — this environment has no
-board attached. Treat everything in `src/` as reasoned-through-but-
-unverified until someone flashes it and reports back.
+**confirmed to build cleanly** (`pio run`, `esp32-s3-devkitc-1`,
+RadioLib 7.7.1: 312KB flash / 20.3KB static RAM) but **not yet run on real
+hardware** — this environment has no board attached. A clean build rules
+out compile-time API mismatches; it says nothing about whether the SPI/I2C
+wiring, register values, or radio behavior are actually correct. Treat
+runtime behavior in `src/` as reasoned-through-but-unverified until
+someone flashes it and reports back.
 
 ## Build-order checklist
 
 Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 
 - [x] **Phase 0** — platformio.ini, pin map, RF tables, phase-1 code, docs
-- [ ] **Phase 1** — RadioLib bring-up (code exists, hardware-untested)
-  - [ ] Flash to real Cardputer-Adv + Cap LoRa-1262 and confirm it builds
+- [ ] **Phase 1** — RadioLib bring-up (builds clean, hardware-untested)
+  - [x] Confirm `pio run` builds successfully (312KB flash / 20.3KB RAM,
+        `esp32-s3-devkitc-1`, RadioLib 7.7.1)
+  - [ ] Flash to real Cardputer-Adv + Cap LoRa-1262 and confirm it runs
   - [ ] Confirm `esp32-s3-devkitc-1` board def actually matches this
         board's flash/pin config (no dedicated PlatformIO board def found)
   - [ ] Confirm PI4IOE5V6408 I2C address (0x43) and register map
@@ -52,6 +58,19 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 - [ ] Real `ESP.getFreeHeap()` under load — every "no PSRAM" risk call in
       ROADMAP.md is provisional until this number exists
 
+## Open questions — Launcher distribution
+
+- [ ] Exact button combo for the manual-restart-into-Launcher path.
+      Confirmed to exist (2026-08-12), specific keys not yet recorded —
+      note it in this file once known, and consider printing it on the
+      boot banner/UI so it's not tribal knowledge.
+- [ ] How much flash Launcher's own footprint (bootloader + its app
+      partition + any data/SPIFFS it keeps) leaves free for user-installed
+      apps on an 8MB device, especially with multiple firmwares installed
+      side by side. No documented number found — see ROADMAP.md
+      Distribution section for the size budget reasoning used in the
+      meantime.
+
 ## Decisions log
 
 - **2026-08-12** — Board id: used `esp32-s3-devkitc-1` in `platformio.ini`.
@@ -75,6 +94,33 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   component docs and a from-datasheet MicroPython driver, not the primary
   Diodes datasheet — flagged for hardware verification, not treated as
   ground truth.
+- **2026-08-12** — Confirmed (user): returning from a Launcher-installed
+  app to Launcher itself is a manual restart + button combo, not a
+  software hook our firmware needs to implement. No return-to-launcher
+  code needed in `main.cpp`/future `ui_task`.
+- **2026-08-12** — Settings/config get persisted to a folder on the SD
+  card, not flash NVS. Rationale: Launcher owns the flash partition table
+  dynamically per installed app (see ROADMAP.md Distribution section), so
+  a custom NVS/data partition isn't guaranteed to survive the user
+  swapping firmwares. This is also just the existing DESIGN.md philosophy
+  ("SD is the datastore, RAM is a relay buffer") extended to config, not a
+  new pattern. No config schema/format decided yet — deferred until
+  something actually needs to be configurable (Phase 2+ profile selection
+  persistence being the likely first case).
+- **2026-08-12** — Added `src/version.h` as the single source of truth for
+  `FIRMWARE_VERSION`, printed on the boot banner. Added CI
+  (`.github/workflows/build.yml`: `pio run -e cardputer-adv` +
+  `pio test -e native` on every push/PR) and a tag-triggered release
+  workflow (`release.yml`: `vX.Y.Z` tag -> builds, renames to
+  `LoRaTraceRX-<version>.bin`, opens a **draft** GitHub Release — draft on
+  purpose, since hardware verification is still pending and nothing should
+  auto-publish yet). Added `[env:native]` to `platformio.ini` for
+  host-based unit tests (no ESP32 toolchain needed) and a first real test
+  (`test/test_channel_plans/`) validating the RF constants are in-band and
+  don't collide — both verified to actually pass in this session, not just
+  written. Note: `pio run` alone builds *all* environments including
+  `native`, which has nothing to build outside `pio test` — always use
+  `pio run -e cardputer-adv` (README/CI already do).
 
 ## Next steps
 

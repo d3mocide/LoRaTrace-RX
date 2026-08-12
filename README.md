@@ -24,7 +24,13 @@ run on hardware. See `PROGRESS.md` for the live checklist.
 PlatformIO + Arduino framework:
 
 ```
-pio run
-pio run --target upload
+pio run -e cardputer-adv
+pio run -e cardputer-adv --target upload
 pio device monitor
+```
+
+Unit tests (host-native, no board needed):
+
+```
+pio test -e native
 ```

@@ -40,7 +40,13 @@ src/
   [ ] ui_task.cpp / .h           # keyboard + display (phase 6)
   [x] channel_plans.h            # per-profile RF param tables (see DESIGN.md §3)
   [x] board_pins.h               # pin map + IO-expander register constants (not in original proposal, see PROGRESS.md decisions log)
+  [x] version.h                  # FIRMWARE_VERSION, single source for boot banner + release tags
   [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 4+)
+test/
+  [x] test_channel_plans/        # host-native unit tests, pio test -e native
+.github/workflows/
+  [x] build.yml                  # pio run + pio test on every push/PR
+  [x] release.yml                # vX.Y.Z tag -> draft GitHub Release with Launcher-ready .bin
 [x] platformio.ini
 [x] DESIGN.md
 [x] ROADMAP.md
