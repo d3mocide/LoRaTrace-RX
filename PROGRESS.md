@@ -43,8 +43,9 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         MeshOregon's), confirm the boot banner reports the overridden
         channel, not the hardcoded default
   - [ ] Confirm PIN_SD_CS (12) + shared SCK40/MISO39/MOSI14 actually mount
-        the SD card — sourced from the base Cardputer's docs, not
-        bench-confirmed on Cardputer-Adv + Cap LoRa-1262 (see DESIGN.md §7)
+        the SD card — now sourced directly from Cardputer-Adv + Cap
+        LoRa-1262's own official docs/pin diagram (see DESIGN.md §7), just
+        not yet bench-confirmed with real hardware
 - [ ] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta)
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
@@ -58,12 +59,20 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       Meshtastic-compat example)
 - [ ] MeshCore's encryption/PSK scheme (don't assume it mirrors
       Meshtastic's default-channel PSK model)
-- [ ] microSD bus on this board revision — SPI or SDMMC, shared host with
-      display or not. **Partial finding (2026-08-12):** M5Stack's base
-      Cardputer SD example uses SCK40/MISO39/MOSI14/CS12 — same
-      SCK/MISO/MOSI as our own SX1262 pins, so SD very likely shares the
-      radio's SPI bus (not the display's). Still needs bench confirmation
-      on this exact board — see DESIGN.md §7 for the full note.
+- [x] microSD bus on this board revision — SPI, confirmed shared with the
+      radio (not the display). **Finding (2026-08-12), well-sourced:**
+      cross-checked M5Stack's official docs for both halves directly
+      (Cardputer-Adv's own microSD pin table + the Cap LoRa-1262's own SPI
+      pin table and printed pin-diagram image) — identical SCK/MOSI/MISO,
+      distinct CS, and the Cardputer-Adv docs state outright that microSD
+      shares pins with the EXT/Cap expansion connector. An initial hastier
+      fetch of these same pages produced a scrambled, self-contradictory
+      table (worth remembering as a caution about trusting single-pass doc
+      scraping for anything pin-critical) — corrected via a stricter
+      verbatim-quote re-fetch and a photo of the module's own diagram. See
+      DESIGN.md §7 for the full note. Still not confirmed with an actual
+      continuity/multimeter check on this board — that's the only thing
+      left to close this out completely.
 - [ ] Whether SD and the radio sharing one physical SPI bus needs explicit
       arbitration (e.g. a mutex around the shared `SPIClass`) once Phase 2
       makes both active concurrently across Core 0/Core 1 — the FreeRTOS
@@ -168,6 +177,18 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   build-clean; SD mount itself is unverified pending the `PIN_SD_CS`
   hardware check above. This closes out the "no config schema decided
   yet" note in the previous entry.
+- **2026-08-12** — Re-verified the SD/radio shared-bus finding against
+  M5Stack's official docs directly (Cardputer-Adv microSD table + Cap
+  LoRa-1262 SPI table, both re-fetched with a stricter verbatim-quote
+  prompt after a first, hastier attempt produced a scrambled and
+  internally-contradictory pin table — that error is worth remembering,
+  not just fixing). User-supplied photo of the Cap LoRa-1262's printed pin
+  diagram independently confirmed the SX1262 pins, the antenna-switch
+  I2C address (0x43, now primary-source-confirmed, silkscreened on the
+  module), and GPS UART pins. One correction found: DESIGN.md called the
+  GPS chip "AT6668," official docs/diagram say "ATGM336H" — fixed, naming
+  only, no pin/code impact. `board_pins.h` and DESIGN.md §1/§7 updated
+  with the stronger sourcing.
 
 ## Next steps
 

@@ -11,7 +11,10 @@ exploration.
 flash, no PSRAM**, 1.14" ST7789V2 LCD (240×135), 56-key keyboard, microSD slot.
 
 **Radio:** Cap LoRa-1262 — SX1262, 868–923MHz tuned front end, FSK/GFSK/MSK/
-LoRa/OOK, external RP-SMA antenna, onboard GNSS (AT6668, NMEA UART).
+LoRa/OOK, external RP-SMA antenna, onboard GNSS (ATGM336H per M5Stack's
+official Cap LoRa-1262 docs/pin diagram — this doc previously said
+"AT6668"; naming correction only, NMEA UART either way, no pin/code
+impact).
 
 **Resource implication:** no PSRAM means ~512KB SRAM total, shared with the
 RTOS and whatever else is linked in. Realistic free heap is probably 250–380KB
@@ -24,10 +27,10 @@ SD promptly rather than accumulating.
 
 | Peripheral | Interface | Pins | Task owner |
 |---|---|---|---|
-| SX1262 | dedicated SPI | NSS G5, SCK G40, MOSI G14, MISO G39, IRQ G4, BUSY G6, RST G3 | Radio task |
-| PI4IOE5V6408 IO expander | I2C | SDA G8, SCL G9 | Boot init only |
-| GPS (AT6668) | UART @ 115200 8N1 | RX G13, TX G15 | GPS task |
-| microSD | SPI or SDMMC (confirm host) | internal | Logger task |
+| SX1262 | SPI (shared with microSD, see below) | NSS G5, SCK G40, MOSI G14, MISO G39, IRQ G4, BUSY G6, RST G3 | Radio task |
+| PI4IOE5V6408 IO expander | I2C, addr 0x43 | SDA G8, SCL G9 | Boot init only |
+| GPS (ATGM336H) | UART @ 115200 8N1 | RX G13, TX G15 | GPS task |
+| microSD | SPI, same bus as SX1262 (CS G12, shared SCK/MOSI/MISO — §7) | CS G12 | Logger task |
 | ST7789V2 LCD + keyboard | SPI + GPIO matrix | internal | UI task |
 
 **Startup requirement:** the antenna path is gated by an IO expander — **P0 on
@@ -36,7 +39,11 @@ nothing regardless of firmware correctness. This is a one-time init step, not
 a per-RX toggle.
 
 **Bus isolation:** give the SX1262 its own SPI host, separate from the
-display. Display refresh transactions on a shared bus will jitter CAD timing.
+display. Display refresh transactions on a shared bus will jitter CAD
+timing. Note this is isolation from the *display* specifically — SD
+shares the SX1262's bus by hardware design (§7), which is a different,
+real constraint on Logger task timing; don't assume "own SPI host" means
+isolated from SD too.
 
 **Frequency coverage caveat:** the module's RF front end is tuned 868–923MHz.
 US ISM is 902–928MHz. The top ~5MHz of the US band (923–928) is outside the
@@ -160,20 +167,27 @@ source-level verification, not a scraped number.
       Meshtastic's default-channel PSK model — MeshCore's own docs
       explicitly warn against importing Meshtastic preset assumptions.
 - [ ] **microSD bus** — SPI or SDMMC, and whether it shares a host with the
-      display, on this specific Cardputer-Adv revision. **Partial finding
-      (2026-08-12, unverified on this exact board):** M5Stack's own base
-      Cardputer SD example documents SD SPI pins SCK40/MISO39/MOSI14/CS12
-      — the SCK/MISO/MOSI match this doc's own SX1262 pins exactly (§1
-      table), strongly suggesting SD and the LoRa radio share one physical
-      SPI bus via chip-select, not two independent hosts. Doesn't appear
-      to share with the display. Still needs bench confirmation on the
-      actual Cardputer-Adv + Cap LoRa-1262 combination, and has a real
-      consequence for §1's "radio task never blocks on SD" rule: moving SD
-      to a Core 0 task prevents the radio task's *own code* from blocking,
-      but doesn't remove the need for bus-level arbitration (e.g. a mutex
-      around the shared SPI peripheral) once both are active concurrently
-      — the FreeRTOS queue alone doesn't solve that. Tracked further in
-      PROGRESS.md.
+      display, on this specific Cardputer-Adv revision. **Finding
+      (2026-08-12), well-sourced but not bench-confirmed:** cross-checked
+      M5Stack's own official docs pages directly — the Cardputer-Adv
+      base unit's microSD pin table (CS=G12/SCK=G40/MOSI=G14/MISO=G39) and
+      the Cap LoRa-1262's own SPI pin table + printed pin-diagram image
+      (NSS=G5/SCK=G40/MOSI=G14/MISO=G39, matching this doc's §1 table).
+      Identical SCK/MOSI/MISO, distinct CS — SD and the LoRa radio share
+      one physical SPI bus. The Cardputer-Adv docs state outright that the
+      microSD interface shares pins with the EXT/Cap expansion connector,
+      which is the connector the LoRa Cap plugs into — that's the actual
+      mechanism, not a numeric coincidence. Doesn't appear to share with
+      the display. (Note: an initial, hastier fetch of these same pages
+      produced a scrambled/self-contradictory pin table — re-fetched with
+      a stricter "quote verbatim" prompt and cross-checked against a
+      photo of the module's own printed diagram before trusting it.)
+      Real consequence for §1's "radio task never blocks on SD" rule:
+      moving SD to a Core 0 task prevents the radio task's *own code* from
+      blocking, but doesn't remove the need for bus-level arbitration
+      (e.g. a mutex around the shared SPI peripheral) once both are active
+      concurrently — the FreeRTOS queue alone doesn't solve that. Tracked
+      further in PROGRESS.md.
 - [ ] **CAD `symNum` tuning** — the 2-symbol dwell estimates in the prior
       sketch are ballpark; real false-positive/miss tradeoff needs bench
       testing against Semtech's AN1200.48 guidance.
