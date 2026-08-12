@@ -25,19 +25,26 @@ Assuming PlatformIO + Arduino framework + RadioLib for the SX126x driver —
 flag if you'd rather use ESP-IDF directly or a different driver; nothing
 here depends on that choice except the specific API calls.
 
-## Proposed layout (not yet created)
+## Proposed layout
+
+`[x]` created, `[ ]` proposed but deferred until its build-order phase
+(DESIGN.md §9) — see ROADMAP.md/PROGRESS.md for why the task/queue files
+aren't scaffolded yet.
 
 ```
 src/
-  main.cpp
-  radio_task.cpp / .h        # mission-profile state machine, owns SX1262
-  gps_task.cpp / .h          # NMEA parse, last-fix mutex
-  logger_task.cpp / .h       # dequeue, GPS-stamp, batched SD writes
-  ui_task.cpp / .h           # keyboard + display
-  channel_plans.h            # per-profile RF param tables (see DESIGN.md §3)
-  fingerprint.h              # post-hoc protocol classification (§6)
-platformio.ini
-DESIGN.md
+  [x] main.cpp                   # phase 1: direct bring-up, not yet a task
+  [ ] radio_task.cpp / .h        # mission-profile state machine, owns SX1262 (phase 2)
+  [ ] gps_task.cpp / .h          # NMEA parse, last-fix mutex (phase 2)
+  [ ] logger_task.cpp / .h       # dequeue, GPS-stamp, batched SD writes (phase 2)
+  [ ] ui_task.cpp / .h           # keyboard + display (phase 6)
+  [x] channel_plans.h            # per-profile RF param tables (see DESIGN.md §3)
+  [x] board_pins.h               # pin map + IO-expander register constants (not in original proposal, see PROGRESS.md decisions log)
+  [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 4+)
+[x] platformio.ini
+[x] DESIGN.md
+[x] ROADMAP.md
+[x] PROGRESS.md
 ```
 
 ## House rules
@@ -54,9 +61,12 @@ DESIGN.md
 
 ## Status
 
-Design complete (see DESIGN.md). No code written yet. Build order is
-DESIGN.md §9 — start with phase 1 (RadioLib bring-up, hardcoded Meshtastic
-RX, print to serial) before touching the task/queue architecture.
+Design complete (see DESIGN.md). Project scaffold + Phase 1 bring-up code
+exist (`platformio.ini`, `src/`) but are not yet verified on real
+hardware. Build order is DESIGN.md §9 — start with phase 1 (RadioLib
+bring-up, hardcoded Meshtastic RX, print to serial) before touching the
+task/queue architecture. See PROGRESS.md for the live build checklist and
+ROADMAP.md for phase-by-phase scope.
 
 ## Related context
 
