@@ -1,4 +1,4 @@
-# LoRa Wardrive — Design Doc
+# LoRaTrace — Design Doc
 
 RX-only LoRa/sub-GHz wardriving firmware for the M5Stack Cap LoRa-1262 (SX1262)
 riding on a Cardputer-Adv (ESP32-S3). GPS-tagged detection logging across four
