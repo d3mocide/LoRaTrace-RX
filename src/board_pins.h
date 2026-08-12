@@ -48,7 +48,21 @@ constexpr int8_t PIN_GPS_RX = 13; // ESP32 RX <- GPS TX
 constexpr int8_t PIN_GPS_TX = 15; // ESP32 TX -> GPS RX
 constexpr uint32_t GPS_BAUD = 115200;
 
-// --- microSD — bus TBD. Pins intentionally omitted. ---
-// DESIGN.md §7 flags "SPI or SDMMC, confirm host" as an unresolved item on
-// this board revision. Don't guess a pin assignment here; fill in once
-// confirmed against real hardware (see PROGRESS.md open questions).
+// --- microSD — SPI, sharing the SAME bus as the SX1262 above. ---
+// M5Stack's own Cardputer SD example (github.com/m5stack/M5Cardputer)
+// documents SD_SPI_SCK_PIN=40 / MISO=39 / MOSI=14 — identical to
+// PIN_LORA_SCK/MISO/MOSI above. That's a strong signal this is one
+// physical SPI bus shared via chip-select, not two independent buses
+// (matches M5Stack's Cap/Unit expansion-bus pattern). Resolves DESIGN.md
+// §7's "SPI or SDMMC?" question in favor of SPI, shared — but this is
+// sourced from the base Cardputer's documented pinout, not bench-confirmed
+// against this exact Cardputer-Adv + Cap LoRa-1262 combination.
+//
+// Implication for Phase 2: since these are the same physical wires, SD
+// and radio SPI transactions can't truly happen concurrently no matter
+// which core issues them — moving SD to a Core 0 task avoids the *radio
+// task's own code* blocking on SD, but doesn't remove the need for actual
+// bus arbitration (e.g. a mutex around the shared SPIClass) once both are
+// active at once. Flagged in PROGRESS.md; not solved here.
+constexpr int8_t PIN_SD_CS = 12;
+// SCK/MOSI/MISO: reuse PIN_LORA_SCK / PIN_LORA_MOSI / PIN_LORA_MISO.

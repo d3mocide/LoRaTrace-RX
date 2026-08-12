@@ -160,7 +160,20 @@ source-level verification, not a scraped number.
       Meshtastic's default-channel PSK model — MeshCore's own docs
       explicitly warn against importing Meshtastic preset assumptions.
 - [ ] **microSD bus** — SPI or SDMMC, and whether it shares a host with the
-      display, on this specific Cardputer-Adv revision.
+      display, on this specific Cardputer-Adv revision. **Partial finding
+      (2026-08-12, unverified on this exact board):** M5Stack's own base
+      Cardputer SD example documents SD SPI pins SCK40/MISO39/MOSI14/CS12
+      — the SCK/MISO/MOSI match this doc's own SX1262 pins exactly (§1
+      table), strongly suggesting SD and the LoRa radio share one physical
+      SPI bus via chip-select, not two independent hosts. Doesn't appear
+      to share with the display. Still needs bench confirmation on the
+      actual Cardputer-Adv + Cap LoRa-1262 combination, and has a real
+      consequence for §1's "radio task never blocks on SD" rule: moving SD
+      to a Core 0 task prevents the radio task's *own code* from blocking,
+      but doesn't remove the need for bus-level arbitration (e.g. a mutex
+      around the shared SPI peripheral) once both are active concurrently
+      — the FreeRTOS queue alone doesn't solve that. Tracked further in
+      PROGRESS.md.
 - [ ] **CAD `symNum` tuning** — the 2-symbol dwell estimates in the prior
       sketch are ballpark; real false-positive/miss tradeoff needs bench
       testing against Semtech's AN1200.48 guidance.

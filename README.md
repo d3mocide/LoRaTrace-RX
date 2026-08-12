@@ -16,8 +16,9 @@ general LoRa/spectrum exploration.
 
 ## Status
 
-Phase 1 (RadioLib bring-up, hardcoded Meshtastic RX) scaffolded, not yet
-run on hardware. See `PROGRESS.md` for the live checklist.
+Phase 1 (RadioLib bring-up, Meshtastic RX with optional SD channel
+override) scaffolded, not yet run on hardware. See `PROGRESS.md` for the
+live checklist.
 
 ## Build
 
@@ -34,3 +35,32 @@ Unit tests (host-native, no board needed):
 ```
 pio test -e native
 ```
+
+## Install without flashing (M5Launcher)
+
+If your Cardputer-Adv already runs
+[bmorcelli/Launcher](https://github.com/bmorcelli/Launcher), you don't
+need to touch USB flashing at all:
+
+1. Download the latest build:
+   `https://github.com/d3mocide/LoRaTrace-RX/releases/download/dev-latest/LoRaTraceRX-dev.bin`
+   (rebuilt automatically from `main` on every merge — check that release's
+   notes for the commit it came from). Tagged, more-stable versions are on
+   the [Releases page](https://github.com/d3mocide/LoRaTrace-RX/releases).
+2. Copy the `.bin` onto a FAT32 SD card.
+3. In Launcher: SD → select the file → Install.
+4. To get back to Launcher afterward: manual restart + button combo (not
+   a software hook this firmware implements).
+
+Serial output still works normally over USB while running under Launcher
+— `pio device monitor` to watch the boot banner and any `[RX]`/`[config]`
+lines.
+
+## Configuration
+
+By default LoRaTrace RX locks to Meshtastic LongFast (US):
+906.875MHz / SF11 / BW250kHz / CR4:8. To use a non-default regional preset
+(e.g. MeshOregon), copy `sd-template/loratrace/` to the root of your SD
+card and edit `config.txt` with your mesh's actual values — see that
+file's comments for the format. A missing card, missing file, or
+out-of-range values all fail safe back to the hardcoded default.

@@ -41,12 +41,15 @@ src/
   [x] channel_plans.h            # per-profile RF param tables (see DESIGN.md §3)
   [x] board_pins.h               # pin map + IO-expander register constants (not in original proposal, see PROGRESS.md decisions log)
   [x] version.h                  # FIRMWARE_VERSION, single source for boot banner + release tags
+  [x] config.h / .cpp            # boot-time SD channel-config override (not in original proposal, see PROGRESS.md decisions log)
   [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 4+)
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native
 .github/workflows/
-  [x] build.yml                  # pio run + pio test on every push/PR
+  [x] build.yml                  # pio run + pio test on every push/PR + rolling dev-latest release
   [x] release.yml                # vX.Y.Z tag -> draft GitHub Release with Launcher-ready .bin
+sd-template/loratrace/
+  [x] config.txt                 # copy-to-SD-card example for the channel config override
 [x] platformio.ini
 [x] DESIGN.md
 [x] ROADMAP.md

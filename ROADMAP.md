@@ -168,6 +168,17 @@ ESP32 image starting with the `0xE9` magic byte) straight off a FAT32 SD
 card — no merged image, no manifest. Launcher's own dynamic partition
 manager carves out or resizes an OTA app slot to fit whatever we hand it.
 
+**In practice, SD-drop is already the primary test path**, not just the
+eventual end-user one — it's how this gets tested on hardware that's
+already running a Launcher install the operator doesn't want to disturb
+with a direct USB flash. CI reflects that: every merge to `main` publishes
+a rolling `dev-latest` prerelease at a stable URL
+(`LoRaTraceRX-dev.bin` — see Versioning below) specifically so there's
+always a current build to drop on the card without waiting on a version
+tag. Direct flash remains useful when iterating fast enough that even the
+CI round-trip is overhead, or for the deepest debugging (upload errors,
+brick recovery).
+
 **Confirmed:** returning from a running LoRaTrace RX build back to
 Launcher is a manual restart + button combo — not something our firmware
 needs to implement. No return-to-launcher hook belongs in `ui_task`.
@@ -228,7 +239,17 @@ reports can use.
   tagging. `.github/workflows/release.yml` runs only on a `vX.Y.Z` tag
   push: builds, renames the output to `LoRaTraceRX-<version>.bin`
   (Launcher/SD-drop-friendly naming, per its "use simple characters" SD
-  guidance), and attaches it to a GitHub Release.
+  guidance), and attaches it to a **draft** GitHub Release.
+- **Rolling dev build, separate from the tagged scheme:** every push to
+  `main` also force-moves a `dev-latest` tag and republishes a prerelease
+  there with a fixed filename (`LoRaTraceRX-dev.bin`) — a stable,
+  no-tagging-required download for day-to-day hardware testing. It's
+  explicitly *not* versioned or draft-gated the way real releases are:
+  it can be broken, it reflects whatever's on `main` at that moment, and
+  its own release notes point back at the exact commit. Cutting a real
+  `vX.Y.Z` tag is a separate, deliberate step for when a phase is actually
+  bench-verified — see PROGRESS.md for current status before trusting
+  either.
 
 | Version | Corresponds to |
 |---|---|
