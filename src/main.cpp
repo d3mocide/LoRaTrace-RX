@@ -158,6 +158,21 @@ bool initAntennaSwitch() {
 }
 
 void setup() {
+    // Cardputer-ADV note recorded in board_pins.h (bmorcelli/Launcher's own
+    // board notes): GPIO5 (PIN_LORA_NSS) needs to be driven high during
+    // early GPIO init on this revision to avoid SD-mount interference from
+    // the I2C device cluster on G8/G9 (antenna-switch IO-expander +
+    // keyboard controller share those pins). Left as a no-op there since
+    // our first hardware boot mounted SD fine without it. 2026-08-22's
+    // second Launcher SD-drop boot then hit exactly that symptom (SD
+    // `sdCommand(): crc error` / `GO_IDLE_STATE failed`), so applying it
+    // now, ahead of any I2C or SPI access — otherwise NSS stays a floating
+    // input (RadioLib doesn't configure it until radio.begin(), which runs
+    // after the SD read) for that whole window. Hypothesis, not confirmed;
+    // needs a reflash to know if it actually fixes the mount failure.
+    pinMode(PIN_LORA_NSS, OUTPUT);
+    digitalWrite(PIN_LORA_NSS, HIGH);
+
     Serial.begin(115200);
     unsigned long t0 = millis();
     while (!Serial && millis() - t0 < 3000) {}
