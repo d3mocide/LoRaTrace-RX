@@ -37,9 +37,16 @@ findings — see checklist/Decisions log:
   exercised — falls back safely to the hardcoded default exactly as
   designed, and the user's edited `config.txt` was left untouched on the
   card (mount failure happens before the file is ever opened). A
-  hypothesis fix is now applied in `main.cpp` (untested — see Decisions
-  log) targeting a GPIO5/`PIN_LORA_NSS` timing note already on record in
-  `board_pins.h`.
+  hypothesis fix (drive GPIO5/`PIN_LORA_NSS` high before any I2C/SPI
+  access, per a note already on record in `board_pins.h`) was applied and
+  merged as PR 4.
+- **Update:** the next boot after that merge mounted cleanly and applied
+  the SD override end-to-end — `Active channel: 918.500 MHz, SF8,
+  BW125.0kHz, CR4/5`, the user's actual MeshOregon-style settings. **The
+  SD-config override path is now confirmed working.** SD-mount
+  reliability itself is a good sign but not fully closed — the user
+  reports the earlier mount failure happened "for every bin," which points
+  more toward card seating/hardware than firmware timing.
 - `/loratrace/config.txt` is now auto-created (pre-filled with the current
   defaults) on the first card this firmware sees, instead of requiring an
   operator to hand-copy `sd-template/loratrace/` themselves.
@@ -48,6 +55,13 @@ findings — see checklist/Decisions log:
   CLAUDE.md's Phase 6 UI gate, not the `ui_task`. See Decisions log for
   why, and for the researched fix to the separate "can't get back to
   Launcher" problem this was raised alongside.
+
+**Only remaining fully-unverified item in Phase 1's checklist:** RX of a
+live packet with plausible RSSI/SNR (no `[RX]` line seen in any session
+yet) — see Next steps. The device's active channel right now is the
+user's own MeshOregon-style SD override (918.5MHz/SF8/BW125/CR4:5), not
+the hardcoded Meshtastic US LongFast default — worth remembering when
+picking a transmitter/mesh to test against.
 
 CI includes a rolling `dev-latest` release for grabbing a
 Launcher-installable `.bin` without tagging — see Decisions log.
@@ -103,19 +117,21 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         `updateRxSplash()`), so this can be confirmed from the screen
         alone — build-clean, untested on hardware like the rest of
         tonight's additions
-  - [ ] Confirm SD-based channel config actually loads: drop
+  - [x] Confirm SD-based channel config actually loads: drop
         `sd-template/loratrace/` onto the SD card with real values (e.g.
         MeshOregon's), confirm the boot banner reports the overridden
         channel, not the hardcoded default. 2026-08-22: card wasn't
         carrying `config.txt` yet, only the "not found, using built-in
-        default" fallback had been exercised. 2026-08-22 (later same day):
-        user edited `config.txt` to real override values and reflashed,
-        but the override still didn't apply — root cause was the SD mount
-        itself failing that boot (`GO_IDLE_STATE failed`, see checklist
-        item below and Decisions log), not the config-parsing logic; the
-        edited file was left untouched on the card (fails safe as
-        designed). Still open, now blocked on the SD-mount reliability
-        item below
+        default" fallback had been exercised. Same day, a later attempt hit
+        an SD-mount failure before the file could even be read (see
+        checklist item below and Decisions log) — override still didn't
+        apply, but fails-safe held (edited file left untouched). **Closed
+        2026-08-22 (after the PR 4 merge + GPIO5/NSS fix):** serial now
+        shows `[config] Applied channel override from
+        /loratrace/config.txt` followed by `Active channel: 918.500 MHz,
+        SF8, BW125.0kHz, CR4/5` — exactly the MeshOregon-style values the
+        user configured. End-to-end SD-config override path confirmed
+        working on real hardware
   - [x] Confirm PIN_SD_CS (12) + shared SCK40/MISO39/MOSI14 actually mount
         the SD card — now sourced directly from Cardputer-Adv + Cap
         LoRa-1262's own official docs/pin diagram (see DESIGN.md §7).
@@ -127,9 +143,15 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         reliable. Leading hypothesis: the GPIO5/`PIN_LORA_NSS` early-init
         timing note already on record in `board_pins.h` (from
         bmorcelli/Launcher's own Cardputer-ADV notes) — a fix driving that
-        pin high before any I2C/SPI access is now applied in `main.cpp`,
-        untested. Needs a reflash + repeat boot to know if it actually
-        closes this out
+        pin high before any I2C/SPI access applied in `main.cpp`.
+        **Update, same day, after the fix merged (PR 4):** next boot
+        mounted and read the SD card cleanly (`[config] Applied channel
+        override...`, no CRC errors) — a positive data point for the fix,
+        but not conclusive: per the user, the mount failure "does that for
+        every bin," i.e. seemingly independent of which firmware is
+        running, which points more toward card seating/a marginal card
+        than firmware timing. Treat SD-mount reliability as still an open
+        watch item, not fully closed, despite this clean run
   - [ ] Bench-verify auto-created `/loratrace/config.txt`: confirm it
         actually appears on a blank card after first boot, pre-filled with
         the current defaults, and that editing it and rebooting overrides
@@ -556,6 +578,31 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     Launcher's own screen), and interrupting Launcher's boot window showed
     its screen but didn't actually stop LoRaTrace RX from continuing to
     boot.
+- **2026-08-22** — PR 4 (GPIO5/`PIN_LORA_NSS`-high-early fix + this doc's
+  updates) merged. Next Launcher SD-drop boot's serial log, read line by
+  line: Launcher's own pre-boot lines (`initialize TCA8418 at address
+  0x34`, `SDCARD mounted successfully`, its app-menu enumeration listing
+  both `porkchop-onepork.1-6` and `LoRaTraceRX-dev (2)`) confirm Launcher
+  itself is still installed and functional on this device — resolves the
+  earlier open question about whether the direct-USB flash a few tests ago
+  might have overwritten it. Our own firmware then mounted the SD card
+  cleanly with no CRC errors, and printed `[config] Applied channel
+  override from /loratrace/config.txt` followed by `Active channel:
+  918.500 MHz, SF8, BW125.0kHz, CR4/5` — the exact MeshOregon-style values
+  the user configured at the start of this session. **This is the first
+  end-to-end confirmation of the SD-config override path**, closing that
+  checklist item. Per the user, though, the earlier mount failure "does
+  that for every bin" regardless of firmware — so this clean run is a good
+  sign for the GPIO5 fix but not proof the underlying SD reliability
+  concern is fully gone; see the caveat on the PIN_SD_CS checklist item.
+  Other lines matched expected/already-explained noise: `esp_core_dump_flash:
+  Incorrect size of core dump image` (different garbage number than last
+  time, -20771073 vs. the earlier 18023945 — consistent with "leftover
+  flash bytes at that partition offset," not a new issue) and the
+  `spiAttachMISO()` HSPI warning (already explained as benign). Free heap
+  338660 bytes this boot — within the same rough range as prior boots
+  (~338-367KB), consistent with normal heap-layout jitter rather than a
+  leak.
 - **2026-08-22** — Also added, confirmed with the user first since it's a
   further step past what the boot splash covered (its first genuinely
   `loop()`-updated content beyond the heartbeat dot, not just a one-shot
@@ -569,34 +616,33 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 
 ## Next steps
 
-1. Reflash (either path — direct USB or Launcher SD-drop both now confirmed
-   working) with the GPIO5/`PIN_LORA_NSS`-high-early hypothesis fix
-   (`main.cpp`, applied 2026-08-22, untested) and repeat the SD-mount boot
-   a few times to see whether the `crc error`/`GO_IDLE_STATE failed`
-   symptom actually goes away or was unrelated (marginal card seating,
-   etc.) — this is now the blocker on the SD-config-override test below.
-2. Edit `/loratrace/config.txt` to a real regional preset (e.g. MeshOregon's
-   values) again once SD mounting is reliable, reboot, and confirm the boot
-   banner (serial and splash both) reports the overridden channel instead
-   of the hardcoded default — the user's edits from the failed-mount test
-   are still sitting untouched on the card, ready to retry.
-3. Get a photo of the boot-splash screen-clear glitch (which edge/how much
+1. Keep an eye on SD-mount reliability over more boots/power cycles even
+   though the GPIO5 fix's first test came back clean — the user's own
+   report that the earlier failure happened "for every bin" suggests card
+   seating/hardware, not something firmware alone can promise to fix. No
+   action needed unless it recurs.
+2. Get a photo of the boot-splash screen-clear glitch (which edge/how much
    of Launcher's old screen stays visible) to actually root-cause it,
    rather than guessing at `board_pins.h`'s IPS offset/width/height
    constants blind.
-4. Re-test the Launcher-return keypress with more care (hold through the
+3. Re-test the Launcher-return keypress with more care (hold through the
    reset rather than tap, per the polling-interval finding already on
    record; also try the "Boot to Launcher" Settings toggle) to figure out
    whether the "screen appears but firmware keeps booting anyway" report is
    a timing/process issue or something that needs more investigation.
-5. Get the device near a known-live Meshtastic LongFast (US) transmitter
+4. Get the device near a known-live Meshtastic LongFast (US) transmitter
    and confirm at least one `[RX]` line with plausible RSSI/SNR — the last
    fully-unverified item in the Phase 1 checklist, and the real proof the
-   antenna path is RF-correct, not just I2C-correct.
-6. Start Phase 2 (task/queue architecture) only after the above land, per
+   antenna path is RF-correct, not just I2C-correct. Note the active
+   channel is currently the user's MeshOregon override (918.5MHz/SF8/
+   BW125/CR4:5) from their SD config, not the hardcoded Meshtastic US
+   LongFast default — pick a live transmitter/mesh matching whichever
+   channel is actually active at test time, or temporarily remove/rename
+   `config.txt` to fall back to the hardcoded default.
+5. Start Phase 2 (task/queue architecture) only after the above land, per
    CLAUDE.md's explicit build-order instruction. Phase 2's
    radio_task/logger_task split needs to account for the shared-SPI-bus
-   finding above (mount confirmed possible, not yet reliable), not just
-   cross-core task separation. The boot splash added tonight stays
-   setup()-only until Phase 6's `ui_task` — don't grow it into ad hoc UI
-   logic in the meantime.
+   finding above (mount + override confirmed working; concurrent-access
+   arbitration is not), not just cross-core task separation. The boot
+   splash added tonight stays setup()-only until Phase 6's `ui_task` —
+   don't grow it into ad hoc UI logic in the meantime.
