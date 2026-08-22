@@ -166,8 +166,15 @@ source-level verification, not a scraped number.
 - [ ] **MeshCore's encryption/PSK scheme.** Don't assume it mirrors
       Meshtastic's default-channel PSK model — MeshCore's own docs
       explicitly warn against importing Meshtastic preset assumptions.
-- [ ] **microSD bus** — SPI or SDMMC, and whether it shares a host with the
-      display, on this specific Cardputer-Adv revision. **Finding
+- [x] **microSD bus** — SPI or SDMMC, and whether it shares a host with the
+      display, on this specific Cardputer-Adv revision. **Bench-confirmed
+      (2026-08-22):** first real-hardware boot log shows `SD.begin(PIN_SD_CS,
+      radioSPI)` succeeding on the shared bus (the code takes a visibly
+      different, "no SD card detected" path when the mount itself fails —
+      the log instead shows the *file-not-found* path, which is only
+      reachable after a successful mount). Bus-level arbitration for
+      concurrent access (next paragraph) is still unverified — this only
+      confirms the sequential setup()-time mount works. **Finding
       (2026-08-12), well-sourced but not bench-confirmed:** cross-checked
       M5Stack's own official docs pages directly — the Cardputer-Adv
       base unit's microSD pin table (CS=G12/SCK=G40/MOSI=G14/MISO=G39) and

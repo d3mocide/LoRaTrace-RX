@@ -4,17 +4,24 @@ Living document. Update this alongside code changes — it's the "what's
 actually true right now" source, `ROADMAP.md` is the "what's the plan"
 source, `DESIGN.md` is the "why" source. Don't let them drift.
 
-## Current status (2026-08-12)
+## Current status (2026-08-22)
 
 Phase 0 (project scaffold) complete. Phase 1 (RadioLib bring-up, now
 including optional SD-based channel config) code **confirmed to build
 cleanly** (`pio run -e cardputer-adv`, `esp32-s3-devkitc-1`, RadioLib
-7.7.1: 384KB flash / 20.6KB static RAM) but **not yet run on real
-hardware** — this environment has no board attached. A clean build rules
-out compile-time API mismatches; it says nothing about whether the SPI/I2C
-wiring, register values, or radio behavior are actually correct. Treat
-runtime behavior in `src/` as reasoned-through-but-unverified until
-someone flashes it and reports back. CI now includes a rolling
+7.7.1: 384KB flash / 20.6KB static RAM) and, as of tonight, **boots
+successfully on real hardware** (SD-dropped via Launcher, not direct USB
+flash): antenna-switch IO-expander init, SX1262 init over FSPI, and
+`radio.startReceive()` all succeed, landing on the hardcoded Meshtastic
+LongFast (US) default (906.875MHz/SF11/BW250/CR4:8), and the microSD card
+mounts successfully on the shared bus. See the 2026-08-22 Decisions log
+entry for the full read of that boot log, including why some of its
+noisier lines (a reset-reason banner and a core-dump-partition warning)
+are not evidence of a firmware crash. **Still unverified:** actual receipt
+of a live Meshtastic packet (no `[RX]` line yet — device was listening,
+nothing decoded during that session) and the SD-based config override
+path (no `/loratrace/config.txt` was on the card yet, so only the
+"file not found" fallback has been exercised). CI includes a rolling
 `dev-latest` release for grabbing a Launcher-installable `.bin` without
 tagging — see Decisions log.
 
@@ -23,29 +30,49 @@ tagging — see Decisions log.
 Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 
 - [x] **Phase 0** — platformio.ini, pin map, RF tables, phase-1 code, docs
-- [ ] **Phase 1** — RadioLib bring-up (builds clean, hardware-untested)
+- [ ] **Phase 1** — RadioLib bring-up (builds clean, boots on hardware,
+      packet RX + SD-config override still unverified)
   - [x] Confirm `pio run` builds successfully (312KB flash / 20.3KB RAM,
         `esp32-s3-devkitc-1`, RadioLib 7.7.1)
-  - [ ] Flash to real Cardputer-Adv + Cap LoRa-1262 and confirm it runs
+  - [x] Flash to real Cardputer-Adv + Cap LoRa-1262 and confirm it runs
+        (2026-08-22, via Launcher SD-drop of `LoRaTraceRX-dev.bin` — see
+        Decisions log for the boot log read)
   - [ ] Confirm `esp32-s3-devkitc-1` board def actually matches this
         board's flash/pin config (no dedicated PlatformIO board def found)
-  - [ ] Confirm PI4IOE5V6408 I2C address (0x43) and register map
+        — still open: the 2026-08-22 boot was a Launcher sideload, which
+        uses Launcher's own partition table, not this repo's
+        `platformio.ini`/`default_8MB.csv` (see ROADMAP.md Distribution
+        section) — direct USB flash with this exact board def is still
+        untested
+  - [x] Confirm PI4IOE5V6408 I2C address (0x43) and register map
         (0x03/0x05/0x07) against real hardware — sourced from a
-        third-party driver, not the primary Diodes datasheet directly
-  - [ ] Confirm FSPI is actually free (not claimed by the display bus)
-  - [ ] Confirm RadioLib 7.7.x `SX1262::begin()` / `setDio1Action()`
+        third-party driver, not the primary Diodes datasheet directly.
+        2026-08-22: init completed without hitting the "FATAL: IO expander
+        init failed" hang, i.e. all three I2C writes ACKed at 0x43. Confirms
+        the *I2C register-write* path; still doesn't confirm the antenna
+        path is RF-correct (that needs an actual received packet)
+  - [x] Confirm FSPI is actually free (not claimed by the display bus) —
+        2026-08-22: `radio.begin()` returned `RADIOLIB_ERR_NONE`, which
+        requires working SPI read/write to the SX1262
+  - [x] Confirm RadioLib 7.7.x `SX1262::begin()` / `setDio1Action()`
         signatures match what's in `main.cpp` (pinned by `^7.7.1`, minor
-        version drift possible)
+        version drift possible) — 2026-08-22: confirmed at runtime too
+        (`begin()` and `startReceive()` both returned `RADIOLIB_ERR_NONE`
+        on real hardware), not just at compile time
   - [ ] Bench-verify RX against a known live Meshtastic LongFast (US)
-        transmitter — RSSI/SNR should be plausible, not just non-crashing
+        transmitter — RSSI/SNR should be plausible, not just non-crashing.
+        2026-08-22: device reached "Listening..." but no `[RX]` line was
+        seen in that session — still open
   - [ ] Confirm SD-based channel config actually loads: drop
         `sd-template/loratrace/` onto the SD card with real values (e.g.
         MeshOregon's), confirm the boot banner reports the overridden
-        channel, not the hardcoded default
-  - [ ] Confirm PIN_SD_CS (12) + shared SCK40/MISO39/MOSI14 actually mount
+        channel, not the hardcoded default. 2026-08-22: card wasn't
+        carrying `config.txt` yet, only the "not found, using built-in
+        default" fallback has been exercised — still open
+  - [x] Confirm PIN_SD_CS (12) + shared SCK40/MISO39/MOSI14 actually mount
         the SD card — now sourced directly from Cardputer-Adv + Cap
-        LoRa-1262's own official docs/pin diagram (see DESIGN.md §7), just
-        not yet bench-confirmed with real hardware
+        LoRa-1262's own official docs/pin diagram (see DESIGN.md §7).
+        2026-08-22: confirmed on real hardware — see Decisions log
 - [ ] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta)
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
@@ -189,20 +216,63 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   GPS chip "AT6668," official docs/diagram say "ATGM336H" — fixed, naming
   only, no pin/code impact. `board_pins.h` and DESIGN.md §1/§7 updated
   with the stronger sourcing.
+- **2026-08-22** — First real-hardware boot (via Launcher SD-drop, not
+  direct USB flash). Two back-to-back serial captures, read line by line:
+  - Both show a clean run through to `Listening...`: antenna-switch
+    IO-expander init succeeded (no FATAL hang), `SX1262 initialized.` with
+    the default Meshtastic LongFast (US) channel active
+    (906.875MHz/SF11/BW250/CR4:8), and no crash/reboot loop. This is the
+    first empirical confirmation of I2C@0x43 register writes, FSPI
+    availability, and RadioLib 7.7.x's runtime behavior on this exact
+    board — see checklist above for which specific items this closes out.
+  - Both also show `[config] /loratrace/config.txt not found — using
+    built-in default channel.` — this is `config.cpp`'s *file-not-found*
+    message, only reachable after `SD.begin(PIN_SD_CS, radioSPI)` already
+    returned true (the "no SD card detected (or mount failed)" message is
+    a distinct branch). That means the microSD card **mounted
+    successfully** on the shared SPI bus — real hardware confirmation of
+    the DESIGN.md §7 finding, not just docs. The override itself is still
+    unverified since no `config.txt` was on the card.
+  - The second capture starts from a true power-on and includes boot noise
+    worth recording so it isn't mistaken for a firmware bug later:
+    `rst:0x15 (USB_UART_CHIP_RESET)` is the normal reset every native-USB-
+    CDC ESP32-S3 does when a serial terminal opens the port (DTR toggle) —
+    expected given `ARDUINO_USB_CDC_ON_BOOT=1`, not a crash signature.
+    `E (103) esp_core_dump_flash: Incorrect size of core dump image:
+    18023945` is a stock ESP-IDF boot-time sanity check
+    (`components/espcoredump`) finding non-erased, non-core-dump-shaped
+    data at whatever flash offset the currently-active partition table
+    calls "coredump" — non-fatal, and boot continues immediately after it.
+    Likely explanation given the sideload path: Launcher owns the actual
+    running partition table on a sideloaded install (ROADMAP.md
+    Distribution section), which doesn't necessarily line up with this
+    repo's own `default_8MB.csv`, so this offset can hold leftover bytes
+    from whatever else has occupied flash there. Not produced by any code
+    in this repo (confirmed via grep — no match for the message text or
+    `esp_core_dump`/`esp_reset_reason` anywhere in `src/`). Likewise,
+    `[boot] Turned on because (1= POWERON_RESET or 5==ESP_RST_DEEPSLEEP)
+    --> 21` does not appear anywhere in this repo either — it's printed by
+    Launcher itself before chain-loading `LoRaTraceRX-dev.bin`, not by our
+    code (also worth noting: `21` isn't a value `esp_reset_reason_t`
+    defines, reinforcing that this is Launcher's own, unrelated enum, not
+    an ESP-IDF reset reason our code would ever need to interpret).
+  - Net: no evidence of a firmware crash or panic anywhere in this log.
+    Real gaps still open: no `[RX]` line (no live packet decoded this
+    session) and the SD-config override path untested. See Next steps.
 
 ## Next steps
 
-1. Get this scaffold onto real hardware — planned route is SD-drop into
-   an existing Launcher install (`LoRaTraceRX-dev.bin` from the rolling
-   release) rather than direct USB flash, so it doesn't disturb the
-   current Launcher setup. Serial monitor still works normally over USB
-   for observing boot output either way. Resolve the Phase 1 checklist
-   above, including the new SD-config items.
-2. Once radio RX is confirmed live, empirically resolve the microSD bus
-   question — it's the one Phase 2 blocker that can't be reasoned through
-   from docs alone. Tonight's SD-config test is a first real data point
-   for this even before Phase 2 starts.
-3. Start Phase 2 (task/queue architecture) only after Phase 1 is bench-
-   confirmed, per CLAUDE.md's explicit build-order instruction. Phase 2's
+1. Drop `sd-template/loratrace/config.txt` (edited to a real regional
+   preset, e.g. MeshOregon's values) onto the SD card already confirmed
+   mounting, reboot, and confirm the boot banner reports the overridden
+   channel instead of the hardcoded default — closes the one remaining
+   untested part of the SD-config path.
+2. Get the device near a known-live Meshtastic LongFast (US) transmitter
+   and confirm at least one `[RX]` line with plausible RSSI/SNR — the
+   last unverified item in the Phase 1 checklist, and the real proof the
+   antenna path is RF-correct, not just I2C-correct.
+3. Start Phase 2 (task/queue architecture) only after both of the above
+   land, per CLAUDE.md's explicit build-order instruction. Phase 2's
    radio_task/logger_task split needs to account for the shared-SPI-bus
-   finding above, not just cross-core task separation.
+   finding above (mount confirmed; concurrent-access arbitration is not),
+   not just cross-core task separation.
