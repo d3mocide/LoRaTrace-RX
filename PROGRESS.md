@@ -21,9 +21,12 @@ override path.
 
 Same-day follow-up work, **confirmed to build cleanly** (`pio run -e
 cardputer-adv`, `esp32-s3-devkitc-1`: RadioLib 7.7.1 + GFX Library for
-Arduino 1.4.0, 406KB flash / 20.6KB static RAM) but **not yet flashed to
-hardware** — same "reasoned-through-but-unverified" status the rest of
-Phase 1 carried before tonight's first boot:
+Arduino 1.4.0, 406KB flash / 20.6KB static RAM) and **now also flashed to
+hardware** (second Launcher SD-drop, same day): the boot-status splash
+renders on the real ST7789 and `/loratrace/config.txt` gets auto-created on
+the SD card, both per user report. Still open: heartbeat-dot blink not
+separately confirmed, and the config file still needs editing + a reboot to
+confirm an override actually takes effect (see checklist/Next steps):
 - `/loratrace/config.txt` is now auto-created (pre-filled with the current
   defaults) on the first card this firmware sees, instead of requiring an
   operator to hand-copy `sd-template/loratrace/` themselves.
@@ -91,14 +94,20 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [ ] Bench-verify auto-created `/loratrace/config.txt`: confirm it
         actually appears on a blank card after first boot, pre-filled with
         the current defaults, and that editing it and rebooting overrides
-        the active channel — added 2026-08-22, build-clean, untested on
-        hardware
-  - [ ] Bench-verify the boot-status splash actually renders on the real
+        the active channel — added 2026-08-22, build-clean. 2026-08-22
+        (later same day): auto-create confirmed via Launcher SD-drop (user
+        report: "the SDCard config built") — the file-creation half of
+        this item is done. Still open: editing that file to a real
+        override and rebooting to confirm the active channel actually
+        changes (Next steps #3)
+  - [x] Bench-verify the boot-status splash actually renders on the real
         ST7789 panel — pins/IPS offsets/rotation are sourced from
         bmorcelli/Launcher's confirmed-working Cardputer-ADV config, not
         independently bench-verified here (board_pins.h). Added 2026-08-22,
-        build-clean, untested on hardware. Includes confirming the
-        bottom-right heartbeat dot actually blinks (added same day)
+        build-clean. 2026-08-22 (later same day): confirmed via Launcher
+        SD-drop (user report: "the GUI came up") — panel renders and is
+        legible, not blank/garbled. Heartbeat-dot blink specifically not
+        separately confirmed by that report
 - [ ] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta)
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
