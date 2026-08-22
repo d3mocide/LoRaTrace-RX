@@ -21,9 +21,25 @@ override path.
 
 Same-day follow-up work, **confirmed to build cleanly** (`pio run -e
 cardputer-adv`, `esp32-s3-devkitc-1`: RadioLib 7.7.1 + GFX Library for
-Arduino 1.4.0, 406KB flash / 20.6KB static RAM) but **not yet flashed to
-hardware** — same "reasoned-through-but-unverified" status the rest of
-Phase 1 carried before tonight's first boot:
+Arduino 1.4.0, 406KB flash / 20.6KB static RAM) and **now also flashed to
+hardware** two more ways, same day: a direct USB flash (`pio run --target
+upload`, first time this repo's own board def/partition table has run
+outside a Launcher sideload — user confirmed it booted with serial output),
+and a second Launcher SD-drop, whose full serial capture surfaced two new
+findings — see checklist/Decisions log:
+- The boot-status splash renders and is legible, but doesn't fully clear
+  the physical panel: returning from Launcher's own UI leaves visible
+  remnants of Launcher's screen behind LoRaTrace's splash ("kind of
+  glitched," per user report) — likely the untested IPS offset/rotation
+  constants in `board_pins.h`, not yet root-caused.
+- That same boot's SD mount **failed** (`sdCommand(): crc error` /
+  `GO_IDLE_STATE failed`), so the SD-config override still couldn't be
+  exercised — falls back safely to the hardcoded default exactly as
+  designed, and the user's edited `config.txt` was left untouched on the
+  card (mount failure happens before the file is ever opened). A
+  hypothesis fix is now applied in `main.cpp` (untested — see Decisions
+  log) targeting a GPIO5/`PIN_LORA_NSS` timing note already on record in
+  `board_pins.h`.
 - `/loratrace/config.txt` is now auto-created (pre-filled with the current
   defaults) on the first card this firmware sees, instead of requiring an
   operator to hand-copy `sd-template/loratrace/` themselves.
@@ -48,13 +64,22 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [x] Flash to real Cardputer-Adv + Cap LoRa-1262 and confirm it runs
         (2026-08-22, via Launcher SD-drop of `LoRaTraceRX-dev.bin` — see
         Decisions log for the boot log read)
-  - [ ] Confirm `esp32-s3-devkitc-1` board def actually matches this
+  - [x] Confirm `esp32-s3-devkitc-1` board def actually matches this
         board's flash/pin config (no dedicated PlatformIO board def found)
-        — still open: the 2026-08-22 boot was a Launcher sideload, which
-        uses Launcher's own partition table, not this repo's
+        — the first 2026-08-22 boot was a Launcher sideload, which uses
+        Launcher's own partition table, not this repo's own
         `platformio.ini`/`default_8MB.csv` (see ROADMAP.md Distribution
-        section) — direct USB flash with this exact board def is still
-        untested
+        section). 2026-08-22 (later same day): direct USB flash (`pio run
+        --target upload`) succeeded — `esptool` identified the chip
+        correctly (ESP32-S3 QFN56 rev v0.2, 8MB flash) and wrote
+        bootloader + partition table + app cleanly at offsets
+        0x0/0x8000/0x10000, meaning this repo's own board def/partition
+        table is now actually running on the device, not Launcher's. User
+        confirmed it booted with serial output; the specific log from that
+        boot wasn't captured/pasted in this session (a later Launcher
+        SD-drop boot was captured instead — see Decisions log), so this is
+        closed on a lighter-weight user report than the fully-logged
+        boots, not a captured transcript
   - [x] Confirm PI4IOE5V6408 I2C address (0x43) and register map
         (0x03/0x05/0x07) against real hardware — sourced from a
         third-party driver, not the primary Diodes datasheet directly.
@@ -83,22 +108,64 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         MeshOregon's), confirm the boot banner reports the overridden
         channel, not the hardcoded default. 2026-08-22: card wasn't
         carrying `config.txt` yet, only the "not found, using built-in
-        default" fallback has been exercised — still open
+        default" fallback had been exercised. 2026-08-22 (later same day):
+        user edited `config.txt` to real override values and reflashed,
+        but the override still didn't apply — root cause was the SD mount
+        itself failing that boot (`GO_IDLE_STATE failed`, see checklist
+        item below and Decisions log), not the config-parsing logic; the
+        edited file was left untouched on the card (fails safe as
+        designed). Still open, now blocked on the SD-mount reliability
+        item below
   - [x] Confirm PIN_SD_CS (12) + shared SCK40/MISO39/MOSI14 actually mount
         the SD card — now sourced directly from Cardputer-Adv + Cap
         LoRa-1262's own official docs/pin diagram (see DESIGN.md §7).
-        2026-08-22: confirmed on real hardware — see Decisions log
+        2026-08-22: confirmed on real hardware — see Decisions log.
+        **Caveat added 2026-08-22 (later same day):** a second Launcher
+        SD-drop boot failed to mount the same card at all (`sdCommand():
+        crc error` repeated, then `GO_IDLE_STATE failed` /
+        `f_mount failed: (3)`) — so mounting is proven possible but not yet
+        reliable. Leading hypothesis: the GPIO5/`PIN_LORA_NSS` early-init
+        timing note already on record in `board_pins.h` (from
+        bmorcelli/Launcher's own Cardputer-ADV notes) — a fix driving that
+        pin high before any I2C/SPI access is now applied in `main.cpp`,
+        untested. Needs a reflash + repeat boot to know if it actually
+        closes this out
   - [ ] Bench-verify auto-created `/loratrace/config.txt`: confirm it
         actually appears on a blank card after first boot, pre-filled with
         the current defaults, and that editing it and rebooting overrides
-        the active channel — added 2026-08-22, build-clean, untested on
-        hardware
-  - [ ] Bench-verify the boot-status splash actually renders on the real
+        the active channel — added 2026-08-22, build-clean. 2026-08-22
+        (later same day): auto-create confirmed via Launcher SD-drop (user
+        report: "the SDCard config built") — the file-creation half of
+        this item is done. Still open: editing that file to a real
+        override and rebooting to confirm the active channel actually
+        changes (Next steps #3)
+  - [x] Bench-verify the boot-status splash actually renders on the real
         ST7789 panel — pins/IPS offsets/rotation are sourced from
         bmorcelli/Launcher's confirmed-working Cardputer-ADV config, not
         independently bench-verified here (board_pins.h). Added 2026-08-22,
-        build-clean, untested on hardware. Includes confirming the
-        bottom-right heartbeat dot actually blinks (added same day)
+        build-clean. 2026-08-22 (later same day): confirmed via Launcher
+        SD-drop (user report: "the GUI came up") — panel renders and is
+        legible, not blank/garbled. Heartbeat-dot blink specifically not
+        separately confirmed by that report. **Caveat, same day, second
+        Launcher SD-drop test:** renders, but doesn't clear the *whole*
+        physical panel — remnants of Launcher's own screen stay visible
+        behind/around LoRaTrace's splash ("kind of glitched," per user
+        report). See new checklist item below — closing this one on
+        "renders and is legible," tracking the incomplete clear
+        separately since it's a distinct, more specific defect
+  - [ ] Fix/root-cause the boot-status splash not clearing the full
+        physical panel (found 2026-08-22, second Launcher SD-drop test —
+        see above and Decisions log). `initDisplay()` does call
+        `tft->fillScreen(SPLASH_BG)` right after `tft->begin()`, so the
+        leading hypothesis is that `TFT_PANEL_WIDTH`/`TFT_PANEL_HEIGHT` or
+        the landscape IPS column/row offsets in `board_pins.h` (already
+        flagged TODO(verify), sourced from Launcher's config rather than
+        independently bench-verified) don't actually cover this panel's
+        full visible window at rotation 1, leaving a border `fillScreen`
+        never touches. Not yet root-caused or fixed — needs either a photo
+        of the glitch (which edge/how much is left uncleared tells us
+        whether it's an offset or a width/height mismatch) or bench
+        experimentation
 - [ ] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta)
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
@@ -173,6 +240,19 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       was architecturally right — the missing piece was purely this
       operational detail, now printed on our own boot banner too (see
       Decisions log and `main.cpp`).
+      **Contradicting report, 2026-08-22 (later same day):** user says
+      interrupting boot shows Launcher's screen briefly, but the firmware
+      keeps booting anyway rather than staying in Launcher's menu. Not yet
+      root-caused — open questions include whether the key was held
+      through the reset vs. tapped once (the polling-interval finding
+      below says holding is what reliably works), whether the "Boot to
+      Launcher" toggle was tried, and whether the display-glitch bug above
+      makes a partially-drawn Launcher screen look like it "showed" when
+      the keypress window had actually already closed. Needs more detail
+      before treating this as a firmware or Launcher bug rather than
+      timing/process — this finding was research against Launcher's own
+      source, not invalidated by one report, but also not proven against
+      real behavior yet either
 - [ ] How much flash Launcher's own footprint (bootloader + its app
       partition + any data/SPIFFS it keeps) leaves free for user-installed
       apps on an 8MB device, especially with multiple firmwares installed
@@ -413,6 +493,69 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   default or an SD override (`main.cpp`, next to the existing `[config]`
   serial messages), so the SD-config test below doesn't need a serial
   connection open to confirm it worked.
+- **2026-08-22** — Direct USB flash (`pio run --target upload`, Windows/
+  VSCode), first time this repo's own board def/partition table has run on
+  real hardware instead of a Launcher sideload. `esptool` output: chip
+  correctly identified as ESP32-S3 (QFN56) rev v0.2, Embedded Flash 8MB
+  (GD), and bootloader + partition table + app all wrote and verified
+  cleanly at the standard offsets (0x0/0x8000/0x10000). Note: those same
+  offsets are almost certainly where Launcher's own bootloader/partition
+  table lived, so this flash likely overwrote Launcher on this device
+  rather than coexisting with it — not confirmed, but worth knowing before
+  assuming Launcher is still reachable without reflashing it separately.
+  User confirmed the firmware booted with serial output afterward; that
+  specific log wasn't pasted into this session (see the Launcher SD-drop
+  capture below instead), so this closes the board-def checklist item on a
+  verbal user report, a lighter bar than the fully-logged boots elsewhere
+  in this doc.
+- **2026-08-22** — Second Launcher SD-drop test (of a build now including
+  the boot splash and auto-created config), full serial capture read line
+  by line:
+  - `[E][esp32-hal-spi.c:215] spiAttachMISO(): HSPI Does not have default
+    pins on ESP32S3!` — benign noise, not a failure: `initDisplay()` calls
+    `tftSPI.begin(PIN_TFT_SCLK, -1, PIN_TFT_MOSI, PIN_TFT_CS)`, explicitly
+    passing `-1` for MISO since the display is write-only; ESP32-S3 has no
+    real HSPI/VSPI (SPI is GPIO-matrix-routed on SPI2/SPI3 hosts), so the
+    Arduino core's default-pin lookup for the `HSPI` enum has nothing valid
+    to report and logs this as an `E`-level line even though nothing failed
+    — boot continues immediately after it and the splash goes on to render.
+    Confirmed by the boot proceeding normally in the same log, not by
+    reading the core's source — worth doing that read if this ever needs
+    silencing rather than just explaining.
+  - `Antenna switch: P0 driven high.` then immediately three
+    `sdCommand(): crc error` lines, then `GO_IDLE_STATE failed` and
+    `f_mount failed: (3) The physical drive cannot work` — the SD card
+    failed to mount this boot, unlike the first hardware boot's clean
+    mount. `[config] No SD card detected (or mount failed) — using
+    built-in default channel.` confirms `config.cpp` correctly took the
+    fails-safe branch rather than crashing or reading garbage. This is the
+    same symptom (SD-mount interference from the shared-I2C-bus device
+    cluster) that bmorcelli/Launcher's own Cardputer-ADV notes already
+    flagged as needing GPIO5 (`PIN_LORA_NSS`) driven high during early GPIO
+    init — recorded in `board_pins.h` on 2026-08-12 but not acted on then,
+    since the first hardware boot hadn't hit it. Applied now in `main.cpp`
+    `setup()`, before any I2C or SPI access: `pinMode(PIN_LORA_NSS,
+    OUTPUT); digitalWrite(PIN_LORA_NSS, HIGH);`. **Hypothesis, not
+    confirmed** — needs a reflash and repeat boot(s) to know whether it
+    actually fixes the mount reliability or the CRC errors were coincidence
+    (marginal card seating, etc.).
+  - User had edited `/loratrace/config.txt` to real override values ahead
+    of this boot; since the mount failed before the file was ever opened,
+    the override didn't apply (expected, given the above) **and** the
+    user's edits were left completely untouched on the card — confirms
+    `loadChannelConfigFromSD()`'s fails-safe design does what it's supposed
+    to (never touches the file it can't successfully read), this was not a
+    config-parsing bug.
+  - Rest of the log matched the first hardware boot: `SX1262 initialized.`,
+    default channel active, `Listening...`, `Free heap: 366756 bytes` (up
+    from the earlier ~360KB range boot-to-boot, consistent with normal
+    heap-layout jitter, not a leak signal on its own).
+  - Two further findings from this same test round, not yet root-caused —
+    see their own checklist/open-question entries above: the boot splash
+    doesn't clear the whole physical panel (leaves visible remnants of
+    Launcher's own screen), and interrupting Launcher's boot window showed
+    its screen but didn't actually stop LoRaTrace RX from continuing to
+    boot.
 - **2026-08-22** — Also added, confirmed with the user first since it's a
   further step past what the boot splash covered (its first genuinely
   `loop()`-updated content beyond the heartbeat dot, not just a one-shot
@@ -426,29 +569,34 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 
 ## Next steps
 
-1. Flash tonight's build (`LoRaTraceRX-dev.bin` once CI republishes it, or
-   direct flash) and confirm: the boot splash actually renders correctly
-   on the real ST7789 (text legible, right orientation, nothing clipped —
-   pins/offsets are sourced, not bench-verified); a blank SD card gets
-   `/loratrace/config.txt` auto-created with the current defaults on
-   first boot.
-2. Try the researched Launcher fix for real: press a key during Launcher's
-   ~5s boot window (or flip its Settings -> "Boot to Launcher" toggle) and
-   confirm it actually lands back in the Launcher menu — closes the loop
-   on the "stuck, can't switch firmware" report this session investigated.
-3. Edit the now-auto-created `/loratrace/config.txt` to a real regional
-   preset (e.g. MeshOregon's values), reboot, and confirm the boot banner
-   (serial and splash both) reports the overridden channel instead of the
-   hardcoded default — closes the one remaining untested part of the
-   SD-config path.
-4. Get the device near a known-live Meshtastic LongFast (US) transmitter
-   and confirm at least one `[RX]` line with plausible RSSI/SNR — the
-   last unverified item in the Phase 1 checklist, and the real proof the
+1. Reflash (either path — direct USB or Launcher SD-drop both now confirmed
+   working) with the GPIO5/`PIN_LORA_NSS`-high-early hypothesis fix
+   (`main.cpp`, applied 2026-08-22, untested) and repeat the SD-mount boot
+   a few times to see whether the `crc error`/`GO_IDLE_STATE failed`
+   symptom actually goes away or was unrelated (marginal card seating,
+   etc.) — this is now the blocker on the SD-config-override test below.
+2. Edit `/loratrace/config.txt` to a real regional preset (e.g. MeshOregon's
+   values) again once SD mounting is reliable, reboot, and confirm the boot
+   banner (serial and splash both) reports the overridden channel instead
+   of the hardcoded default — the user's edits from the failed-mount test
+   are still sitting untouched on the card, ready to retry.
+3. Get a photo of the boot-splash screen-clear glitch (which edge/how much
+   of Launcher's old screen stays visible) to actually root-cause it,
+   rather than guessing at `board_pins.h`'s IPS offset/width/height
+   constants blind.
+4. Re-test the Launcher-return keypress with more care (hold through the
+   reset rather than tap, per the polling-interval finding already on
+   record; also try the "Boot to Launcher" Settings toggle) to figure out
+   whether the "screen appears but firmware keeps booting anyway" report is
+   a timing/process issue or something that needs more investigation.
+5. Get the device near a known-live Meshtastic LongFast (US) transmitter
+   and confirm at least one `[RX]` line with plausible RSSI/SNR — the last
+   fully-unverified item in the Phase 1 checklist, and the real proof the
    antenna path is RF-correct, not just I2C-correct.
-5. Start Phase 2 (task/queue architecture) only after the above land, per
+6. Start Phase 2 (task/queue architecture) only after the above land, per
    CLAUDE.md's explicit build-order instruction. Phase 2's
    radio_task/logger_task split needs to account for the shared-SPI-bus
-   finding above (mount confirmed; concurrent-access arbitration is not),
-   not just cross-core task separation. The boot splash added tonight
-   stays setup()-only until Phase 6's `ui_task` — don't grow it into
-   ad hoc UI logic in the meantime.
+   finding above (mount confirmed possible, not yet reliable), not just
+   cross-core task separation. The boot splash added tonight stays
+   setup()-only until Phase 6's `ui_task` — don't grow it into ad hoc UI
+   logic in the meantime.
