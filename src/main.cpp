@@ -174,7 +174,8 @@ void setup() {
     // Optional channel override, e.g. for regional presets like
     // MeshOregon that don't run vanilla Meshtastic US LongFast. Fails
     // safe to the hardcoded default above if SD/file/values aren't good.
-    loadChannelConfigFromSD(activeChannel, PIN_SD_CS, radioSPI);
+    bool sdOverrideApplied = loadChannelConfigFromSD(activeChannel, PIN_SD_CS, radioSPI);
+    splashLine(sdOverrideApplied ? F("Config: SD override") : F("Config: default"));
 
     int state = radio.begin(
         activeChannel.freq_mhz,
@@ -215,6 +216,16 @@ void setup() {
     Serial.println(F("Listening..."));
     splashY += SPLASH_LINE_H / 2;
     splashLine(F("Listening..."));
+
+    // PROGRESS.md/ROADMAP.md/DESIGN.md all flag real ESP.getFreeHeap()
+    // (vs. the 250-380KB paper estimate, no-PSRAM chip) as an open
+    // question blocking every later "does this fit in RAM" call — this
+    // is the cheapest possible way to start closing it out.
+    uint32_t freeHeap = ESP.getFreeHeap();
+    Serial.print(F("Free heap: "));
+    Serial.print(freeHeap);
+    Serial.println(F(" bytes"));
+    splashLine("Heap: " + String(freeHeap) + "B");
 
     // Launcher (bmorcelli/Launcher, SD-drop install path — ROADMAP.md
     // Distribution) auto-reboots into whatever ran last unless a key is

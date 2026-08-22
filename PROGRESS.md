@@ -136,7 +136,12 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 - [ ] Exact per-slot frequency spacing for Meshtastic's 104 US slots —
       pull the real table from firmware source, don't infer from BW alone
 - [ ] Real `ESP.getFreeHeap()` under load — every "no PSRAM" risk call in
-      ROADMAP.md is provisional until this number exists
+      ROADMAP.md is provisional until this number exists. 2026-08-22: a
+      boot-time snapshot now prints to serial and the splash
+      (`main.cpp`, right after "Listening...") — still just a baseline at
+      idle, not "under load," and still needs real hardware to produce an
+      actual number. Closing this out fully needs a reading while the
+      radio's actively receiving, once that's testable too.
 
 ## Open questions — Launcher distribution
 
@@ -396,6 +401,14 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   timing. Passed on to the user as the practical fix; the durable fix is
   still the "Boot to Launcher" Settings toggle documented above, once
   they've caught the window one time to reach Settings and flip it.
+- **2026-08-22** — Two small additions ahead of the next hardware test
+  round, packed into the same PR rather than costing a separate
+  flash/test cycle: a boot-time `ESP.getFreeHeap()` snapshot (serial +
+  splash), a first real data point for the open heap question above; and
+  a splash line reporting whether the active channel is the hardcoded
+  default or an SD override (`main.cpp`, next to the existing `[config]`
+  serial messages), so the SD-config test below doesn't need a serial
+  connection open to confirm it worked.
 
 ## Next steps
 
