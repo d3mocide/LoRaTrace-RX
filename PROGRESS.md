@@ -175,19 +175,22 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         report). See new checklist item below — closing this one on
         "renders and is legible," tracking the incomplete clear
         separately since it's a distinct, more specific defect
-  - [ ] Fix/root-cause the boot-status splash not clearing the full
+  - [x] Fix/root-cause the boot-status splash not clearing the full
         physical panel (found 2026-08-22, second Launcher SD-drop test —
-        see above and Decisions log). `initDisplay()` does call
-        `tft->fillScreen(SPLASH_BG)` right after `tft->begin()`, so the
-        leading hypothesis is that `TFT_PANEL_WIDTH`/`TFT_PANEL_HEIGHT` or
-        the landscape IPS column/row offsets in `board_pins.h` (already
-        flagged TODO(verify), sourced from Launcher's config rather than
-        independently bench-verified) don't actually cover this panel's
-        full visible window at rotation 1, leaving a border `fillScreen`
-        never touches. Not yet root-caused or fixed — needs either a photo
-        of the glitch (which edge/how much is left uncleared tells us
-        whether it's an offset or a width/height mismatch) or bench
-        experimentation
+        see above and Decisions log). User photo showed the *entire lower
+        portion* of the panel still displaying Launcher's own boot graphic
+        untouched — not a minor border, a large chunk of the screen.
+        **Root-caused against the actual GFX Library for Arduino v1.4.0
+        source** (`Arduino_TFT.cpp` `setRotation()`, fetched and read, not
+        guessed): `Arduino_ST7789`'s two offset pairs aren't "pair 1 =
+        portrait, pair 2 = landscape" as the old `board_pins.h` comment
+        assumed — at rotation 1 (what we use) `_yStart` comes from
+        `COL_OFFSET2`, which `main.cpp` never supplied, so it defaulted to
+        0 instead of 53. Fixed by passing all four offset constants to the
+        constructor (`main.cpp`) and rewrote the `board_pins.h` comment
+        with the actual per-rotation mapping. Build-clean; **not yet
+        bench-tested** — needs a reflash and a new photo to confirm the
+        glitch is actually gone, not just theoretically explained
 - [ ] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta)
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
@@ -614,6 +617,34 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   readout, not interactive UI" boundary the heartbeat dot and SD/heap
   status lines already sit on.
 
+- **2026-08-22** — Root-caused and fixed the boot-splash screen-clear
+  glitch, from a user-supplied photo showing Launcher's own boot graphic
+  still filling the panel's lower portion behind LoRaTrace's splash text.
+  Fetched and read `moononournation/Arduino_GFX`'s actual v1.4.0 source
+  (`Arduino_TFT.cpp` `setRotation()`) rather than guessing at the offset
+  constants: `Arduino_ST7789`'s two `(col,row)` offset-pair parameters are
+  not "pair 1 for portrait rotations, pair 2 for landscape" as this repo's
+  own `board_pins.h` comment previously claimed (written 2026-08-22 earlier
+  the same day, based on how Launcher's confirmed-working config was read,
+  not the library's own logic). The real `setRotation()` switch mixes one
+  value from each pair per rotation; at rotation 1 (the only one this
+  firmware uses), `_yStart` comes from `COL_OFFSET2` specifically —
+  `main.cpp` only ever passed the "landscape" pair into the constructor's
+  *first* slot, so `col_offset2`/`row_offset2` silently defaulted to 0,
+  and `_yStart` came out 0 instead of the needed 53. `fillScreen()` then
+  cleared a window that didn't line up with the panel's actual visible
+  glass, leaving the mismatched region showing whatever was drawn there
+  before (Launcher's graphic). Fix: pass all four offset constants
+  (`TFT_COL_OFFSET_PORTRAIT`, `TFT_ROW_OFFSET_PORTRAIT`,
+  `TFT_COL_OFFSET_LANDSCAPE`, `TFT_ROW_OFFSET_LANDSCAPE`, in that order) to
+  the constructor in `main.cpp`; corrected the `board_pins.h` comment to
+  document the library's real per-rotation mapping so this doesn't get
+  re-broken later. The four numeric values themselves were already
+  correct (they match the well-known offset table for this common ST7789
+  135x240 IPS panel, e.g. as used in TTGO T-Display projects) — only the
+  constructor call was wrong. Build-clean; **untested on hardware**, needs
+  a reflash and a fresh photo to confirm.
+
 ## Next steps
 
 1. Keep an eye on SD-mount reliability over more boots/power cycles even
@@ -621,10 +652,9 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
    report that the earlier failure happened "for every bin" suggests card
    seating/hardware, not something firmware alone can promise to fix. No
    action needed unless it recurs.
-2. Get a photo of the boot-splash screen-clear glitch (which edge/how much
-   of Launcher's old screen stays visible) to actually root-cause it,
-   rather than guessing at `board_pins.h`'s IPS offset/width/height
-   constants blind.
+2. Reflash with the screen-offset fix (`main.cpp`/`board_pins.h`, applied
+   2026-08-22, untested) and get a fresh photo to confirm the panel now
+   clears fully instead of leaving Launcher's old graphic visible.
 3. Re-test the Launcher-return keypress with more care (hold through the
    reset rather than tap, per the polling-interval finding already on
    record; also try the "Boot to Launcher" Settings toggle) to figure out
