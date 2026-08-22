@@ -31,7 +31,8 @@ SD promptly rather than accumulating.
 | PI4IOE5V6408 IO expander | I2C, addr 0x43 | SDA G8, SCL G9 | Boot init only |
 | GPS (ATGM336H) | UART @ 115200 8N1 | RX G13, TX G15 | GPS task |
 | microSD | SPI, same bus as SX1262 (CS G12, shared SCK/MOSI/MISO — §7) | CS G12 | Logger task |
-| ST7789V2 LCD + keyboard | SPI + GPIO matrix | internal | UI task |
+| ST7789V2 LCD | SPI, own host, isolated from the radio/SD bus above | DC G34, CS G37, SCK G36, MOSI G35, RST G33, BL G38 | UI task (Phase 6); boot-status splash only for now — PROGRESS.md |
+| Keyboard | Cardputer-ADV: TCA8418 I2C controller, addr 0x34, same SDA/SCL (G8/G9) as the IO expander above, different address — not the plain GPIO matrix the base (non-ADV) Cardputer uses | G8/G9 (ADV) | UI task (Phase 6, not wired up yet) |
 
 **Startup requirement:** the antenna path is gated by an IO expander — **P0 on
 the PI4IOE5V6408 must be driven high once at boot** or the radio hears
@@ -204,6 +205,13 @@ source-level verification, not a scraped number.
       ~250kHz apart is a reasonable inference from LongFast's own channel
       bandwidth, but pull the real table from firmware source rather than
       deriving it.
+- [ ] **ST7789V2 LCD pins/panel offsets (§1 table)** — sourced 2026-08-22
+      from `bmorcelli/Launcher`'s own confirmed-working Cardputer/
+      Cardputer-ADV build config (`boards/m5stack-cardputer/platformio.ini`
+      in that repo — device name is literally "M5Stack Cardputer & ADV",
+      i.e. one shared display config for both variants), not derived or
+      guessed. Not independently bench-verified against this board yet —
+      see PROGRESS.md's boot-status-splash entry and Phase 1 checklist.
 
 ## 8. SD log schema
 

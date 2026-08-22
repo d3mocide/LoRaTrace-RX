@@ -7,23 +7,34 @@ source, `DESIGN.md` is the "why" source. Don't let them drift.
 ## Current status (2026-08-22)
 
 Phase 0 (project scaffold) complete. Phase 1 (RadioLib bring-up, now
-including optional SD-based channel config) code **confirmed to build
-cleanly** (`pio run -e cardputer-adv`, `esp32-s3-devkitc-1`, RadioLib
-7.7.1: 384KB flash / 20.6KB static RAM) and, as of tonight, **boots
-successfully on real hardware** (SD-dropped via Launcher, not direct USB
-flash): antenna-switch IO-expander init, SX1262 init over FSPI, and
-`radio.startReceive()` all succeed, landing on the hardcoded Meshtastic
-LongFast (US) default (906.875MHz/SF11/BW250/CR4:8), and the microSD card
-mounts successfully on the shared bus. See the 2026-08-22 Decisions log
-entry for the full read of that boot log, including why some of its
-noisier lines (a reset-reason banner and a core-dump-partition warning)
-are not evidence of a firmware crash. **Still unverified:** actual receipt
-of a live Meshtastic packet (no `[RX]` line yet — device was listening,
-nothing decoded during that session) and the SD-based config override
-path (no `/loratrace/config.txt` was on the card yet, so only the
-"file not found" fallback has been exercised). CI includes a rolling
-`dev-latest` release for grabbing a Launcher-installable `.bin` without
-tagging — see Decisions log.
+including optional SD-based channel config) **boots successfully on real
+hardware** (SD-dropped via Launcher, not direct USB flash): antenna-switch
+IO-expander init, SX1262 init over FSPI, and `radio.startReceive()` all
+succeed, landing on the hardcoded Meshtastic LongFast (US) default
+(906.875MHz/SF11/BW250/CR4:8), and the microSD card mounts successfully on
+the shared bus. See the first 2026-08-22 Decisions log entry for the full
+read of that boot log, including why some of its noisier lines (a
+reset-reason banner and a core-dump-partition warning) are not evidence of
+a firmware crash. **Still unverified on hardware:** actual receipt of a
+live Meshtastic packet (no `[RX]` line yet) and the SD-based config
+override path.
+
+Same-day follow-up work, **confirmed to build cleanly** (`pio run -e
+cardputer-adv`, `esp32-s3-devkitc-1`: RadioLib 7.7.1 + GFX Library for
+Arduino 1.4.0, 406KB flash / 20.6KB static RAM) but **not yet flashed to
+hardware** — same "reasoned-through-but-unverified" status the rest of
+Phase 1 carried before tonight's first boot:
+- `/loratrace/config.txt` is now auto-created (pre-filled with the current
+  defaults) on the first card this firmware sees, instead of requiring an
+  operator to hand-copy `sd-template/loratrace/` themselves.
+- A boot-status splash now draws to the ST7789 LCD, mirroring the serial
+  banner (including FATAL messages) — a narrow, one-shot exception to
+  CLAUDE.md's Phase 6 UI gate, not the `ui_task`. See Decisions log for
+  why, and for the researched fix to the separate "can't get back to
+  Launcher" problem this was raised alongside.
+
+CI includes a rolling `dev-latest` release for grabbing a
+Launcher-installable `.bin` without tagging — see Decisions log.
 
 ## Build-order checklist
 
@@ -73,6 +84,16 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         the SD card — now sourced directly from Cardputer-Adv + Cap
         LoRa-1262's own official docs/pin diagram (see DESIGN.md §7).
         2026-08-22: confirmed on real hardware — see Decisions log
+  - [ ] Bench-verify auto-created `/loratrace/config.txt`: confirm it
+        actually appears on a blank card after first boot, pre-filled with
+        the current defaults, and that editing it and rebooting overrides
+        the active channel — added 2026-08-22, build-clean, untested on
+        hardware
+  - [ ] Bench-verify the boot-status splash actually renders on the real
+        ST7789 panel — pins/IPS offsets/rotation are sourced from
+        bmorcelli/Launcher's confirmed-working Cardputer-ADV config, not
+        independently bench-verified here (board_pins.h). Added 2026-08-22,
+        build-clean, untested on hardware
 - [ ] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta)
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
@@ -118,10 +139,30 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 
 ## Open questions — Launcher distribution
 
-- [ ] Exact button combo for the manual-restart-into-Launcher path.
-      Confirmed to exist (2026-08-12), specific keys not yet recorded —
-      note it in this file once known, and consider printing it on the
-      boot banner/UI so it's not tribal knowledge.
+- [x] Exact button combo for the manual-restart-into-Launcher path.
+      **Resolved (2026-08-22), read directly from bmorcelli/Launcher's own
+      source** (`src/main.cpp` `setup()`, not a guess or an issue-thread
+      summary): on every reset, Launcher itself boots first and waits
+      `2000 + bootToApp*3000` ms (bootToApp defaults `true`, i.e. **5
+      seconds**) while polling for a keypress, printing "Press the button
+      to enter the Launcher!" over serial every ~500ms during that window.
+      Press *any* key (Sel/Enter goes straight to the menu; a digit
+      1-9/0 boots that numbered slot directly; anything else opens the
+      app-picker) before the window closes and you land in Launcher's
+      menu; do nothing and `launcherBootCurrentApp()` chain-boots straight
+      back into whatever ran last (LoRaTrace RX) — which reads as "stuck,
+      can't get back to Launcher without reflashing" if that ~5s window is
+      missed. **Durable fix, no firmware change needed on our side:**
+      Launcher's own Settings menu has a "Boot to Launcher" toggle
+      (`src/settings.cpp`) — enabling it sets `bootToApp = false`, and
+      `launcherBootCurrentApp()`/`launcherBootInstalledAppOrShowMenu()`
+      both hard-return `false` whenever `!bootToApp`, so Launcher always
+      stops at its own menu on reset instead of auto-chaining an app,
+      until the toggle is flipped back off. Confirms the 2026-08-12
+      decision below ("not something our firmware needs to implement")
+      was architecturally right — the missing piece was purely this
+      operational detail, now printed on our own boot banner too (see
+      Decisions log and `main.cpp`).
 - [ ] How much flash Launcher's own footprint (bootloader + its app
       partition + any data/SPIFFS it keeps) leaves free for user-installed
       apps on an 8MB device, especially with multiple firmwares installed
@@ -259,20 +300,87 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - Net: no evidence of a firmware crash or panic anywhere in this log.
     Real gaps still open: no `[RX]` line (no live packet decoded this
     session) and the SD-config override path untested. See Next steps.
+- **2026-08-22** — Investigated the "can't get back to Launcher without
+  reflashing" report by cloning `bmorcelli/Launcher` (read-only) and
+  reading its actual boot logic rather than guessing. Full finding
+  recorded under "Open questions — Launcher distribution" above. While in
+  there, also found (informational only, no action taken): Cardputer ADV
+  uses a TCA8418 I2C keyboard controller (addr 0x34) on the *same* SDA/SCL
+  pins (G8/G9) this repo already uses for the PI4IOE5V6408 antenna switch
+  (0x43) — normal shared-I2C-bus usage, not a conflict, and our own boot
+  log already shows the antenna-switch writes succeeding on real hardware.
+  Their Cardputer-ADV notes separately mention GPIO5 (== `PIN_LORA_NSS`
+  here) needing to be driven high during early GPIO init on that revision
+  to avoid SD-mount interference from that same I2C device cluster — noted
+  in `board_pins.h` for future reference, not acted on, since our own SD
+  mount and radio init both already succeeded without it in the captured
+  boot log.
+- **2026-08-22** — `/loratrace/config.txt` is now auto-created (pre-filled
+  with the current defaults) the first time this firmware sees a card that
+  doesn't have one, instead of requiring an operator to hand-copy
+  `sd-template/loratrace/` over themselves (`src/config.cpp`
+  `writeDefaultConfig()`, gated behind `SD.exists()` so it never touches a
+  file that's already there). Also fixes the noisy
+  `[E][vfs_api.cpp] open(): ... does not exist, no permits for creation`
+  line seen in the first hardware boot log's second capture — that came
+  from opening a nonexistent file in read mode; after the first boot with
+  a card, the file exists, so that path isn't hit again.
+  `sd-template/loratrace/` stays around as an offline/reference copy.
+  Build-clean; not yet bench-tested (needs a blank card through a real
+  boot — see Phase 1 checklist).
+- **2026-08-22** — Added a boot-status splash on the ST7789 LCD
+  (`main.cpp` `splashLine()`/`initDisplay()`), mirroring the serial
+  banner's milestones one line at a time as `setup()` reaches them,
+  including the FATAL branches — so a hard failure shows on-screen too,
+  not just over serial. **Explicit, narrow exception to CLAUDE.md's Phase
+  1 Status text ("no UI yet")**, made at the user's direct request after
+  the first hardware boot "looked like a brick" without a serial
+  connection open, confirmed with the user before writing any code. Scoped
+  the same way the SD-config read was: one-shot, setup()-only, no keyboard
+  reading, no menus, no redraw loop — `ui_task.cpp` and real interactivity
+  still wait for Phase 6. Pins, panel size, and the IPS column/row offset
+  pairs (`board_pins.h`) are sourced from `bmorcelli/Launcher`'s own
+  confirmed-working Cardputer/Cardputer-ADV config
+  (`boards/m5stack-cardputer/platformio.ini` in that repo), not guessed —
+  same sourcing discipline as the rest of this project's hardware facts,
+  though still flagged TODO(verify) until bench-tested here specifically.
+  Library: `moononournation/GFX Library for Arduino`, **pinned to exactly
+  `1.4.0`, not caret-ranged** — actually ran `pio run -e cardputer-adv`
+  (not just reasoned through) and found releases from ~1.5 onward require
+  `esp32-hal-periman.h`, which only exists on Arduino-ESP32 core 3.x; this
+  project's unpinned `platform = espressif32` currently resolves to core
+  2.0.17, and 1.4.0 confirmed building clean against it. Also used the
+  same real build to confirm both `pio run -e cardputer-adv` and `pio test
+  -e native` still pass after all of tonight's changes, not just the
+  display piece. Own SPI host (HSPI), pins fully disjoint from
+  radioSPI/SD's FSPI pins — keeps DESIGN.md §1's bus-isolation rule intact
+  rather than adding a third device to the already-shared radio/SD bus.
 
 ## Next steps
 
-1. Drop `sd-template/loratrace/config.txt` (edited to a real regional
-   preset, e.g. MeshOregon's values) onto the SD card already confirmed
-   mounting, reboot, and confirm the boot banner reports the overridden
-   channel instead of the hardcoded default — closes the one remaining
-   untested part of the SD-config path.
-2. Get the device near a known-live Meshtastic LongFast (US) transmitter
+1. Flash tonight's build (`LoRaTraceRX-dev.bin` once CI republishes it, or
+   direct flash) and confirm: the boot splash actually renders correctly
+   on the real ST7789 (text legible, right orientation, nothing clipped —
+   pins/offsets are sourced, not bench-verified); a blank SD card gets
+   `/loratrace/config.txt` auto-created with the current defaults on
+   first boot.
+2. Try the researched Launcher fix for real: press a key during Launcher's
+   ~5s boot window (or flip its Settings -> "Boot to Launcher" toggle) and
+   confirm it actually lands back in the Launcher menu — closes the loop
+   on the "stuck, can't switch firmware" report this session investigated.
+3. Edit the now-auto-created `/loratrace/config.txt` to a real regional
+   preset (e.g. MeshOregon's values), reboot, and confirm the boot banner
+   (serial and splash both) reports the overridden channel instead of the
+   hardcoded default — closes the one remaining untested part of the
+   SD-config path.
+4. Get the device near a known-live Meshtastic LongFast (US) transmitter
    and confirm at least one `[RX]` line with plausible RSSI/SNR — the
    last unverified item in the Phase 1 checklist, and the real proof the
    antenna path is RF-correct, not just I2C-correct.
-3. Start Phase 2 (task/queue architecture) only after both of the above
-   land, per CLAUDE.md's explicit build-order instruction. Phase 2's
+5. Start Phase 2 (task/queue architecture) only after the above land, per
+   CLAUDE.md's explicit build-order instruction. Phase 2's
    radio_task/logger_task split needs to account for the shared-SPI-bus
    finding above (mount confirmed; concurrent-access arbitration is not),
-   not just cross-core task separation.
+   not just cross-core task separation. The boot splash added tonight
+   stays setup()-only until Phase 6's `ui_task` — don't grow it into
+   ad hoc UI logic in the meantime.

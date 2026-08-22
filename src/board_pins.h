@@ -76,3 +76,47 @@ constexpr uint32_t GPS_BAUD = 115200;
 // active at once. Flagged in PROGRESS.md; not solved here.
 constexpr int8_t PIN_SD_CS = 12;
 // SCK/MOSI/MISO: reuse PIN_LORA_SCK / PIN_LORA_MOSI / PIN_LORA_MISO.
+
+// --- ST7789V2 LCD (135x240, IPS) — own SPI host, isolated from the ---
+// --- radio/SD bus above (DESIGN.md §1: shared-bus display refreshes ---
+// --- jitter CAD timing; this is the isolation that rule is about).  ---
+// DESIGN.md §1's hardware table listed this as "internal" (unspecified)
+// pending Phase 6. Pulled forward here for the Phase 1 boot-status splash
+// (PROGRESS.md decisions log) — pins and IPS column/row offsets are NOT
+// independently bench-verified against this board; they're taken directly
+// from a project confirmed working on real Cardputer/Cardputer-ADV
+// hardware (bmorcelli/Launcher, boards/m5stack-cardputer/platformio.ini,
+// which explicitly targets "M5Stack Cardputer & ADV" as one env), not
+// guessed or derived. TODO(verify) once this splash is bench-tested here.
+constexpr int8_t PIN_TFT_MOSI = 35;
+constexpr int8_t PIN_TFT_SCLK = 36;
+constexpr int8_t PIN_TFT_CS   = 37;
+constexpr int8_t PIN_TFT_DC   = 34;
+constexpr int8_t PIN_TFT_RST  = 33;
+constexpr int8_t PIN_TFT_BL   = 38; // backlight, driven digital HIGH (no dimming yet)
+
+constexpr int16_t TFT_PANEL_WIDTH  = 135;
+constexpr int16_t TFT_PANEL_HEIGHT = 240;
+// Arduino_GFX's Arduino_ST7789 constructor takes two (col,row) offset pairs
+// for this panel's IPS glass — one for portrait rotations (0/2), one for
+// landscape (1/3). Values below, again, are Launcher's confirmed-working
+// ones, not independently derived.
+constexpr uint8_t TFT_COL_OFFSET_PORTRAIT  = 52;
+constexpr uint8_t TFT_ROW_OFFSET_PORTRAIT  = 40;
+constexpr uint8_t TFT_COL_OFFSET_LANDSCAPE = 53;
+constexpr uint8_t TFT_ROW_OFFSET_LANDSCAPE = 40;
+
+// --- PI4IOE5V6408 also shares this device's I2C bus with a TCA8418 ---
+// --- keyboard controller (addr 0x34) on Cardputer ADV specifically  ---
+// --- (base Cardputer uses a plain GPIO matrix instead) — same SDA/SCL ---
+// --- pins (G8/G9) as IOEXP_I2C_ADDR above, different device address. ---
+// Not a conflict (that's normal shared-I2C-bus operation, confirmed by
+// this repo's own first hardware boot: antenna-switch init succeeded, see
+// PROGRESS.md). Noted here because bmorcelli/Launcher's own Cardputer-ADV
+// notes (boards/m5stack-cardputer/CardputerADV.md) flag that, on this
+// board revision, GPIO5 needs to be driven HIGH during early GPIO init to
+// avoid SD-mount interference from this same I2C device cluster — GPIO5
+// is PIN_LORA_NSS here. No action taken: our own boot log already shows
+// both the antenna-switch I2C writes and the SD mount succeeding without
+// that workaround, so it isn't blocking us in practice. Recorded in case
+// SD/radio flakiness ever shows up later and this is worth revisiting.
