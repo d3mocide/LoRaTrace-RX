@@ -182,6 +182,13 @@ brick recovery).
 **Confirmed:** returning from a running LoRaTrace RX build back to
 Launcher is a manual restart + button combo — not something our firmware
 needs to implement. No return-to-launcher hook belongs in `ui_task`.
+**2026-08-22, confirmed against Launcher's own source (not a guess):** the
+combo is "press any key during Launcher's own ~5s post-reset boot window,
+before it auto-chains back into whatever ran last" — or, to remove the
+timing pressure entirely, enable Launcher's own Settings → "Boot to
+Launcher" toggle, which makes it always stop at its menu on reset instead
+of auto-booting the last app. See PROGRESS.md "Open questions — Launcher
+distribution" for the full read of Launcher's boot logic.
 
 **Follows from this:** Launcher owns the flash partition table, not our
 static `platformio.ini` partition CSV — that only governs direct-flash
@@ -207,6 +214,10 @@ set allows, and measure the real number instead of assuming one.
   parsing, and a display library will grow this, but from a 312KB
   baseline there's a lot of room before size becomes a real constraint
   either for direct flash or for coexisting with Launcher + other apps.
+  **2026-08-22 update:** adding the boot-status splash's display library
+  (GFX Library for Arduino) plus SD's own footprint brought this to
+  **406KB** (12.2% of the same partition) — a real +94KB data point, not
+  an estimate, confirming there's still plenty of headroom.
 - **WiFi is the one feature with a real size lever**, same as it's the one
   feature with the real RAM lever (`lwIP` + the WiFi driver stack is
   typically the single biggest chunk of a "full" Arduino-ESP32 build).

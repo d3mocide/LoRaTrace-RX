@@ -80,12 +80,62 @@ bool applyConfigLine(const String &rawLine, ChannelParams &params) {
     return false;
 }
 
+// Writes `defaults` out to CHANNEL_CONFIG_PATH as an active (uncommented)
+// config, so the file is a valid, loadable config in its own right from the
+// moment it's created — not just a commented-out template the operator has
+// to uncomment first. Assumes CHANNEL_CONFIG_DIR already exists. Returns
+// false (logging why) if the SD card won't accept the write, e.g. read-only.
+bool writeDefaultConfig(const ChannelParams &defaults) {
+    File f = SD.open(CHANNEL_CONFIG_PATH, FILE_WRITE);
+    if (!f) {
+        Serial.print(F("[config] Could not create "));
+        Serial.print(CHANNEL_CONFIG_PATH);
+        Serial.println(F(" (SD may be read-only) — using built-in default channel."));
+        return false;
+    }
+
+    f.println(F("# LoRaTrace RX — channel config"));
+    f.println(F("#"));
+    f.println(F("# Auto-created on first boot with an SD card present, set to the"));
+    f.println(F("# built-in Meshtastic LongFast (US) default. Edit the values below for"));
+    f.println(F("# your local mesh (e.g. a regional preset like MeshOregon) — check your"));
+    f.println(F("# own node's radio config, don't guess. Lines starting with # are"));
+    f.println(F("# ignored. An out-of-range value is rejected with a warning on serial"));
+    f.println(F("# and skipped, not applied — it won't brick the boot."));
+    f.println();
+    f.print(F("freq_mhz="));
+    f.println(defaults.freq_mhz, 3);
+    f.print(F("sf="));
+    f.println(defaults.sf);
+    f.print(F("bw_khz="));
+    f.println(defaults.bw_khz, 1);
+    f.print(F("cr_denom="));
+    f.println(defaults.cr_denom);
+    f.close();
+    return true;
+}
+
 } // namespace
 
 bool loadChannelConfigFromSD(ChannelParams &params, int8_t csPin, SPIClass &spi) {
     if (!SD.begin(csPin, spi)) {
         Serial.println(F("[config] No SD card detected (or mount failed) — using built-in default channel."));
         return false;
+    }
+
+    // First card ever seen by this firmware: create /loratrace/config.txt
+    // with the current defaults so operators have a file to edit in place,
+    // instead of needing to hand-copy sd-template/loratrace/ themselves.
+    if (!SD.exists(CHANNEL_CONFIG_DIR)) {
+        SD.mkdir(CHANNEL_CONFIG_DIR);
+    }
+    if (!SD.exists(CHANNEL_CONFIG_PATH)) {
+        if (writeDefaultConfig(params)) {
+            Serial.print(F("[config] Created default "));
+            Serial.print(CHANNEL_CONFIG_PATH);
+            Serial.println(F(" — using built-in default channel."));
+        }
+        return false; // file we just wrote matches `params` already — nothing to apply
     }
 
     File f = SD.open(CHANNEL_CONFIG_PATH);

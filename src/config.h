@@ -11,6 +11,11 @@
 // Fails safe: missing SD card, missing file, or bad values fall back to
 // whatever ChannelParams the caller already had (the hardcoded default in
 // channel_plans.h) rather than hanging or radioing on a garbage frequency.
+//
+// First card seen by this firmware gets /loratrace/config.txt created
+// automatically, pre-filled with the current defaults — an operator edits
+// that file in place rather than hand-copying sd-template/loratrace/
+// themselves. sd-template/ stays around as an offline reference/example.
 
 #include <SPI.h>
 
@@ -19,10 +24,14 @@
 // SD path, matching BRAND.md's /loratrace/ namespace convention. See
 // sd-template/loratrace/config.txt for the format, comments, and a
 // working example.
+constexpr const char *CHANNEL_CONFIG_DIR = "/loratrace";
 constexpr const char *CHANNEL_CONFIG_PATH = "/loratrace/config.txt";
 
-// Mounts SD on `spi`/`csPin` and, if /loratrace/config.txt exists, applies
-// any recognized keys on top of `params` (in place). Out-of-range values
+// Mounts SD on `spi`/`csPin`. Creates /loratrace/config.txt pre-filled with
+// `params` if it doesn't exist yet (first card seen by this firmware), then
+// — once the file exists, whether just-created or from a prior boot — opens
+// it and applies any recognized keys on top of `params` (in place).
+// Out-of-range values
 // (outside the module's 868-928MHz tuned range, SF 5-12, CR 5-8 — DESIGN.md
 // §1/§3) are rejected field-by-field with a warning rather than applied.
 // Returns true if at least one field was overridden from the file, false

@@ -49,8 +49,14 @@ need to touch USB flashing at all:
    the [Releases page](https://github.com/d3mocide/LoRaTrace-RX/releases).
 2. Copy the `.bin` onto a FAT32 SD card.
 3. In Launcher: SD → select the file → Install.
-4. To get back to Launcher afterward: manual restart + button combo (not
-   a software hook this firmware implements).
+4. To get back to Launcher afterward: reset the device and press any key
+   during Launcher's own ~5s boot window (it prints "Press the button to
+   enter the Launcher!" over serial while waiting) — miss it and Launcher
+   auto-boots straight back into whatever ran last. To skip that timing
+   window entirely, enable Launcher's own Settings → "Boot to Launcher"
+   toggle; it then always stops at its menu on reset until you turn it
+   back off. Not a software hook this firmware implements — see
+   `PROGRESS.md` for how this was confirmed against Launcher's own source.
 
 Serial output still works normally over USB while running under Launcher
 — `pio device monitor` to watch the boot banner and any `[RX]`/`[config]`
@@ -59,8 +65,20 @@ lines.
 ## Configuration
 
 By default LoRaTrace RX locks to Meshtastic LongFast (US):
-906.875MHz / SF11 / BW250kHz / CR4:8. To use a non-default regional preset
-(e.g. MeshOregon), copy `sd-template/loratrace/` to the root of your SD
-card and edit `config.txt` with your mesh's actual values — see that
-file's comments for the format. A missing card, missing file, or
-out-of-range values all fail safe back to the hardcoded default.
+906.875MHz / SF11 / BW250kHz / CR4:8. The first time it boots with an SD
+card that doesn't already have one, it creates `/loratrace/config.txt` on
+the card pre-filled with those defaults — just edit that file in place for
+a non-default regional preset (e.g. MeshOregon) and reboot. See the file's
+own comments for the format. (`sd-template/loratrace/` still exists if you
+want to prepare a card offline before ever booting the device with it.) A
+missing card, a read-only card, or out-of-range values all fail safe back
+to the hardcoded default.
+
+## Display
+
+Boot progress (firmware version, antenna-switch/radio status, active
+channel, and any FATAL error) is also shown on the built-in LCD, not just
+over serial — a one-shot status splash, not an interactive UI (that's
+Phase 6). See `PROGRESS.md` if it doesn't render correctly on your unit;
+the panel pins/offsets are sourced from a reference project, not
+independently bench-verified by this repo yet.
