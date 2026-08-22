@@ -48,9 +48,19 @@ SPIClass tftSPI(HSPI);
 Arduino_DataBus *tftBus = new Arduino_HWSPI(
     PIN_TFT_DC, PIN_TFT_CS, PIN_TFT_SCLK, PIN_TFT_MOSI, -1 /* MISO unused, display is write-only */, &tftSPI
 );
+// Arduino_ST7789's setRotation() (GFX Library for Arduino v1.4.0,
+// Arduino_TFT.cpp) does NOT use offset pair 1 for portrait and pair 2 for
+// landscape as board_pins.h previously assumed — at rotation 1 (what we
+// use) it takes _xStart from ROW_OFFSET1 and _yStart from COL_OFFSET2,
+// mixing one value from each pair. Passing only the "landscape" values
+// into pair 1 left col_offset2/row_offset2 at their default of 0, so
+// _yStart came out 0 instead of 53 — fillScreen() then cleared a window
+// that didn't match the panel's actual visible glass, leaving Launcher's
+// last-drawn screen visible in the untouched region (confirmed from a
+// user photo 2026-08-22). All four offsets are needed; see board_pins.h.
 Arduino_GFX *tft = new Arduino_ST7789(
     tftBus, PIN_TFT_RST, /* rotation= */ 1, /* ips= */ true, TFT_PANEL_WIDTH, TFT_PANEL_HEIGHT,
-    TFT_COL_OFFSET_LANDSCAPE, TFT_ROW_OFFSET_LANDSCAPE
+    TFT_COL_OFFSET_PORTRAIT, TFT_ROW_OFFSET_PORTRAIT, TFT_COL_OFFSET_LANDSCAPE, TFT_ROW_OFFSET_LANDSCAPE
 );
 bool displayReady = false;
 int16_t splashY = 0;

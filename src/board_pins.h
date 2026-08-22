@@ -97,10 +97,26 @@ constexpr int8_t PIN_TFT_BL   = 38; // backlight, driven digital HIGH (no dimmin
 
 constexpr int16_t TFT_PANEL_WIDTH  = 135;
 constexpr int16_t TFT_PANEL_HEIGHT = 240;
-// Arduino_GFX's Arduino_ST7789 constructor takes two (col,row) offset pairs
-// for this panel's IPS glass — one for portrait rotations (0/2), one for
-// landscape (1/3). Values below, again, are Launcher's confirmed-working
-// ones, not independently derived.
+// Arduino_GFX's Arduino_ST7789 constructor takes two (col,row) offset
+// pairs for this panel's IPS glass. **Not** "pair 1 for portrait, pair 2
+// for landscape" as originally assumed here — checked against the actual
+// GFX Library for Arduino v1.4.0 source (Arduino_TFT.cpp setRotation())
+// 2026-08-22 after a real screen-clear glitch, and its switch statement
+// mixes one value from each pair for the landscape rotations:
+//   rotation 0: xStart=COL_OFFSET1,   yStart=ROW_OFFSET1
+//   rotation 1: xStart=ROW_OFFSET1,   yStart=COL_OFFSET2   <- ours
+//   rotation 2: xStart=COL_OFFSET2,   yStart=ROW_OFFSET2
+//   rotation 3: xStart=ROW_OFFSET2,   yStart=COL_OFFSET1
+// So `main.cpp` must pass all four constants below (col_offset1,
+// row_offset1, col_offset2, row_offset2, in that order) even though only
+// rotation 1 is ever used — omitting the second pair silently defaults it
+// to 0, which is exactly what caused the glitch. The two PORTRAIT/
+// LANDSCAPE-named pairs below are really "rotation-0 set" and
+// "rotation-2 set" in the library's terms; the names are kept because the
+// numeric values match the well-known offset table for this common
+// ST7789 135x240 IPS panel (also used in e.g. TTGO T-Display) once fed
+// into the constructor correctly. Values still sourced from Launcher's
+// confirmed-working config, not independently derived from a datasheet.
 constexpr uint8_t TFT_COL_OFFSET_PORTRAIT  = 52;
 constexpr uint8_t TFT_ROW_OFFSET_PORTRAIT  = 40;
 constexpr uint8_t TFT_COL_OFFSET_LANDSCAPE = 53;
