@@ -93,7 +93,8 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         ST7789 panel — pins/IPS offsets/rotation are sourced from
         bmorcelli/Launcher's confirmed-working Cardputer-ADV config, not
         independently bench-verified here (board_pins.h). Added 2026-08-22,
-        build-clean, untested on hardware
+        build-clean, untested on hardware. Includes confirming the
+        bottom-right heartbeat dot actually blinks (added same day)
 - [ ] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta)
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
@@ -355,6 +356,46 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   display piece. Own SPI host (HSPI), pins fully disjoint from
   radioSPI/SD's FSPI pins — keeps DESIGN.md §1's bus-isolation rule intact
   rather than adding a third device to the already-shared radio/SD bus.
+- **2026-08-22** — Follow-up from the boot-status splash: the splash is
+  fully static once `setup()` returns (`loop()` never touches `tft`), so
+  it stays on screen indefinitely showing whatever the last drawn line
+  was — it does not flash briefly and disappear. That's also its weakness:
+  a genuine hang (stuck in a FATAL `while(true)` loop, or wedged before
+  ever reaching `loop()`) looks pixel-identical to a healthy idle screen.
+  Added `heartbeatTick()` (`main.cpp`): a small dot in the bottom-right
+  corner toggled every ~500ms, called from the top of `loop()` — freezes
+  right alongside everything else if `loop()` stops running, which is the
+  point, not a bug to fix. Still passive (no keyboard reading), so it
+  doesn't cross the same CLAUDE.md Phase 6 boundary the splash itself was
+  already granted an exception for.
+- **2026-08-22** — Investigated "flipping the physical power switch does
+  nothing, firmware just keeps running." Confirmed against M5Stack's own
+  Cardputer-ADV docs (charging requires the switch ON; standby current
+  with the switch OFF is ~0.23uA, i.e. genuinely off) plus a full read of
+  every board-init path in `bmorcelli/Launcher`'s Cardputer/ADV code — no
+  GPIO anywhere reads this switch. Conclusion, MEDIUM confidence (docs +
+  absence-of-evidence in Launcher's source, not a schematic): the switch
+  sits in the *battery* path only: OFF stops charging and stops the
+  battery powering anything, but USB power (bench testing, exactly how
+  this has been tested so far) feeds the regulator directly regardless of
+  switch position, so the MCU never sees the switch move at all — not a
+  firmware bug, nothing to "respect" in code, because there's no signal
+  reaching the firmware to respect. Only affects standalone battery
+  operation, unplugged from USB. If what's actually wanted is a
+  keyboard-triggered manual sleep/power-down *while on USB* for bench
+  testing, that's a different, real feature — but it needs keyboard
+  reading, which is a new crossing of the Phase 6 UI boundary beyond what
+  the boot splash was already granted, so it needs its own go/no-go before
+  writing it, same as the splash did.
+- **2026-08-22** — Investigated "Launcher goes by so fast we can't stop
+  it." Same root cause as the Launcher return-to-menu finding above (the
+  ~5s `bootToApp` window) — Launcher polls for a keypress every ~10ms
+  (`vTaskDelay(pdMS_TO_TICKS(10))` in its input loop), so *holding a key
+  down through the reset* (rather than watching the screen and reacting
+  after the fact) reliably catches that window regardless of exact
+  timing. Passed on to the user as the practical fix; the durable fix is
+  still the "Boot to Launcher" Settings toggle documented above, once
+  they've caught the window one time to reach Settings and flip it.
 
 ## Next steps
 

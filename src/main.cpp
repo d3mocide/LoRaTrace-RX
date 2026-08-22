@@ -94,6 +94,25 @@ bool initDisplay() {
     return true;
 }
 
+// Toggles a small dot in the bottom-right corner every ~500ms. The splash
+// above is otherwise fully static once setup() finishes, which makes a
+// genuinely hung device (stuck in a FATAL while(true) loop, or wedged
+// somewhere before ever reaching loop()) look identical to a healthy idle
+// one on screen. This only ever ticks from inside loop() — it freezes
+// right alongside everything else if loop() stops running, which is the
+// point: it's a liveliness signal for the whole firmware, not decoration.
+// Still passive/non-interactive — no keyboard reading, not the ui_task.
+void heartbeatTick() {
+    if (!displayReady) return;
+    static unsigned long lastToggle = 0;
+    static bool dotOn = false;
+    unsigned long now = millis();
+    if (now - lastToggle < 500) return;
+    lastToggle = now;
+    dotOn = !dotOn;
+    tft->fillCircle(tft->width() - 8, tft->height() - 8, 3, dotOn ? SPLASH_FG : SPLASH_BG);
+}
+
 // Drive P0 on the PI4IOE5V6408 high once at boot. Without this the radio
 // is silent regardless of everything else being correct (DESIGN.md §1).
 // Every register is written explicitly rather than relying on power-on
@@ -209,6 +228,8 @@ void setup() {
 }
 
 void loop() {
+    heartbeatTick();
+
     if (!packetReady) return;
     packetReady = false;
 
