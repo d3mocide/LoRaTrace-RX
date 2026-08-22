@@ -54,6 +54,7 @@ Arduino_GFX *tft = new Arduino_ST7789(
 );
 bool displayReady = false;
 int16_t splashY = 0;
+int16_t rxLineY = 0; // Y of the reserved "Last RX" line, set once in setup()
 constexpr uint16_t SPLASH_BG = 0x0000;  // RGB565 black
 constexpr uint16_t SPLASH_FG = 0xFFFF;  // RGB565 white
 constexpr uint16_t SPLASH_ERR = 0xF800; // RGB565 red
@@ -77,6 +78,19 @@ void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
     tft->setCursor(4, splashY);
     tft->println(msg);
     splashY += SPLASH_LINE_H;
+}
+
+// Redraws the one reserved "Last RX" line in place, each time a packet is
+// decoded — the only splash content loop() updates beyond the heartbeat
+// dot. fillRect first because print() doesn't erase whatever a previous,
+// possibly-longer line left behind. Still one fixed line, no scrolling
+// log, no interactivity.
+void updateRxSplash(size_t len, float rssi, float snr) {
+    if (!displayReady) return;
+    tft->fillRect(0, rxLineY, tft->width(), SPLASH_LINE_H, SPLASH_BG);
+    tft->setTextColor(SPLASH_FG, SPLASH_BG);
+    tft->setCursor(4, rxLineY);
+    tft->print("RX len=" + String(len) + " rssi=" + String(rssi, 0) + " snr=" + String(snr, 0));
 }
 
 // Brings up the ST7789 so setup()'s progress is visible without a serial
@@ -217,6 +231,12 @@ void setup() {
     splashY += SPLASH_LINE_H / 2;
     splashLine(F("Listening..."));
 
+    // Reserve one line for the last received packet, updated in place by
+    // updateRxSplash() from loop() — the only splash content that changes
+    // after setup(), besides the heartbeat dot.
+    rxLineY = splashY;
+    splashLine(F("RX: none yet"));
+
     // PROGRESS.md/ROADMAP.md/DESIGN.md all flag real ESP.getFreeHeap()
     // (vs. the 250-380KB paper estimate, no-PSRAM chip) as an open
     // question blocking every later "does this fit in RAM" call — this
@@ -254,13 +274,16 @@ void loop() {
     int state = radio.readData(buf, len);
 
     if (state == RADIOLIB_ERR_NONE) {
+        float rssi = radio.getRSSI();
+        float snr = radio.getSNR();
         Serial.print(F("[RX] len="));
         Serial.print(len);
         Serial.print(F(" rssi="));
-        Serial.print(radio.getRSSI());
+        Serial.print(rssi);
         Serial.print(F("dBm snr="));
-        Serial.print(radio.getSNR());
+        Serial.print(snr);
         Serial.println(F("dB"));
+        updateRxSplash(len, rssi, snr);
     } else {
         Serial.print(F("[RX] read error, code "));
         Serial.println(state);

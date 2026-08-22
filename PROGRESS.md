@@ -73,7 +73,11 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [ ] Bench-verify RX against a known live Meshtastic LongFast (US)
         transmitter — RSSI/SNR should be plausible, not just non-crashing.
         2026-08-22: device reached "Listening..." but no `[RX]` line was
-        seen in that session — still open
+        seen in that session — still open. Same day: a received packet
+        now also updates a reserved splash line in place (`main.cpp`
+        `updateRxSplash()`), so this can be confirmed from the screen
+        alone — build-clean, untested on hardware like the rest of
+        tonight's additions
   - [ ] Confirm SD-based channel config actually loads: drop
         `sd-template/loratrace/` onto the SD card with real values (e.g.
         MeshOregon's), confirm the boot banner reports the overridden
@@ -409,6 +413,16 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   default or an SD override (`main.cpp`, next to the existing `[config]`
   serial messages), so the SD-config test below doesn't need a serial
   connection open to confirm it worked.
+- **2026-08-22** — Also added, confirmed with the user first since it's a
+  further step past what the boot splash covered (its first genuinely
+  `loop()`-updated content beyond the heartbeat dot, not just a one-shot
+  `setup()` draw): a reserved "RX: none yet" splash line, overwritten in
+  place with `len`/`rssi`/`snr` each time a packet decodes
+  (`updateRxSplash()`). Lets the upcoming live-Meshtastic RX bench test be
+  confirmed from the screen alone, no tethered laptop needed. Still one
+  fixed line, no scrolling log, no keyboard/menus — the same "passive
+  readout, not interactive UI" boundary the heartbeat dot and SD/heap
+  status lines already sit on.
 
 ## Next steps
 
