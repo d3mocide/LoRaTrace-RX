@@ -206,8 +206,10 @@ void setup() {
     } else if (!uiKeyboardReady()) {
         Serial.println(F("WARN: TCA8418 keyboard not detected — UI pages will auto-advance."));
     }
-
-    Serial.println(F("To return to Launcher: press any key during its ~5s boot window, or enable its Settings -> \"Boot to Launcher\" toggle."));
+    // The Launcher-return hint that used to print here is gone: it is static
+    // documentation, identical on every boot, and it belongs in the README's
+    // M5Launcher section (where it already is) rather than in a log an
+    // operator scans for what this particular run is doing.
 }
 
 void loop() {
