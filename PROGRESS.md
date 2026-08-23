@@ -1272,6 +1272,51 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     UART noise; worth a second look if it scales with detection traffic,
     which would point at bus or interrupt contention rather than the wire.
 
+- **2026-08-23 (hardware) — v0.2.4, 5-minute monitored run: clock fix and
+  metric split both confirmed; two things flagged for follow-up, neither
+  blocking.**
+  - **Clock-from-time-alone confirmed exactly as designed.**
+    `[gps] system clock set from GPS: 2026-8-23 15:24 UTC` fires while the
+    status line right before AND after it still reads `fix=none` — the
+    clock was set with no position fix ever having landed this run. That is
+    precisely the scenario the fix exists for (GPS has time long before it
+    has a fix) and this is the first hardware evidence it works.
+  - **`maxflush`/`maxhealth` split holds up.** `maxflush=0ms` while
+    `flushes=0`, both climb together and independently afterward
+    (`maxflush` 27→29ms tracking detection flushes, `maxhealth` 26→40ms
+    tracking health rows on its own clock) — no more of the "flushes=0
+    maxflush=26ms" contradiction from the previous boot.
+  - **Zero `qdrop`/`busmiss` for the full 5 minutes**, heap flat at
+    312796/308204 after initial settling, `rows`/`flushes` batching
+    correctly (8 detections in 6 flushes). No regressions.
+  - **Detections arrived as a burst**: `rx` 2→4→6→8 across three consecutive
+    5s ticks, consistent with the original/rebroadcast pairing documented
+    from the Phase 1 capture.
+  - **No fix the entire run** (`fix=none` throughout, `sats` never used).
+    Almost certainly bench/indoor conditions — an operator monitoring
+    serial in real time is not driving. Flagged rather than assumed: this
+    run does not, by itself, exercise the "GPS fix acquired" leg of
+    ROADMAP.md's Phase 2 exit criterion. That still needs an outdoor run.
+  - **`nmea_bad_crc` rate roughly doubled during the detection burst.**
+    Baseline is ~0.5-0.6% of sentences (nmea 80→1850, badcrc 0→10). During
+    the burst window, while `flushes` climbed 2→6 (nmea 2163→2900), badcrc
+    went 11→20 — about 1.2%, roughly 2x baseline — then settled back to
+    ~0.46% afterward (2900→5070). Small and non-blocking (GPS never had a
+    fix to lose this run regardless), but a real, quantified correlation
+    between active SD-flush bus activity and corrupted NMEA sentences,
+    worth watching once a live wardrive has both GPS fixes and steady
+    detection traffic at the same time — that is the condition this run
+    couldn't test.
+  - **Open question, not yet resolved: this boot reports `run=5`.** The
+    CSVs pulled two captures ago were also `run0005`, fully written
+    (`rows=2`). If that folder is still on the card, the scan should have
+    found `highest=5` and claimed `run0006` — reusing 5 is only correct if
+    `run0005` was deleted after its data was pulled (then `highest=4`,
+    `next=5`, which is the intended "reuse only the highest, never a
+    middle gap" behaviour). Asked the operator to confirm rather than
+    assume either way, since this is the newest and least-exercised piece
+    of the scan logic.
+
 ## Next steps
 
 Phase 2 has no blocking unknowns left. Everything below is verification or
