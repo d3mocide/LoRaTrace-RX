@@ -240,6 +240,8 @@ void writeSessionRow(const char *reason) {
     s.ttff_s = firstFix == 0 ? 0 : firstFix / 1000;
     s.nmea_sentences = gpsSentenceCount();
     s.nmea_bad_crc = gpsChecksumErrorCount();
+    s.gps_max_loop_gap_ms = gpsMaxLoopGapMs();
+    s.gps_oversize_drops = gpsOversizeDropCount();
 
     s.rx = radioPacketCount();
     s.crc_errors = radioCrcErrorCount();
