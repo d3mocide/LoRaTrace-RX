@@ -19,13 +19,13 @@
 
 #include <Arduino.h>
 #include <SPI.h>
-#include <Wire.h>
 #include <RadioLib.h>
 #include <Arduino_GFX_Library.h>
 
 #include "board_pins.h"
 #include "channel_plans.h"
 #include "config.h"
+#include "io_expander.h"
 #include "version.h"
 
 // Dedicated SPI host for the SX1262, isolated from the display bus
@@ -137,36 +137,6 @@ void heartbeatTick() {
     tft->fillCircle(tft->width() - 8, tft->height() - 8, 3, dotOn ? SPLASH_FG : SPLASH_BG);
 }
 
-// Drive P0 on the PI4IOE5V6408 high once at boot. Without this the radio
-// is silent regardless of everything else being correct (DESIGN.md §1).
-// Every register is written explicitly rather than relying on power-on
-// defaults — see board_pins.h for the verify status of this register map.
-bool initAntennaSwitch() {
-    Wire.begin(PIN_IOEXP_SDA, PIN_IOEXP_SCL);
-
-    const uint8_t antMask = 1 << IOEXP_ANT_SWITCH_BIT;
-
-    // P0 = output, leave other pins as inputs.
-    Wire.beginTransmission(IOEXP_I2C_ADDR);
-    Wire.write(IOEXP_REG_IO_DIRECTION);
-    Wire.write(antMask);
-    if (Wire.endTransmission() != 0) return false;
-
-    // Disable high-Z on P0 so the output actually drives the pin.
-    Wire.beginTransmission(IOEXP_I2C_ADDR);
-    Wire.write(IOEXP_REG_HIGH_Z);
-    Wire.write(static_cast<uint8_t>(~antMask)); // 0 = not high-Z for P0
-    if (Wire.endTransmission() != 0) return false;
-
-    // Drive P0 high.
-    Wire.beginTransmission(IOEXP_I2C_ADDR);
-    Wire.write(IOEXP_REG_OUTPUT_STATE);
-    Wire.write(antMask);
-    if (Wire.endTransmission() != 0) return false;
-
-    return true;
-}
-
 void setup() {
     // Cardputer-ADV note recorded in board_pins.h (bmorcelli/Launcher's own
     // board notes): GPIO5 (PIN_LORA_NSS) needs to be driven high during
@@ -199,14 +169,16 @@ void setup() {
     splashLine(String("v") + FIRMWARE_VERSION + " -- phase 1");
     splashY += SPLASH_LINE_H / 2; // small gap under the title
 
-    if (!initAntennaSwitch()) {
-        Serial.println(F("FATAL: IO expander (antenna switch) init failed — no ACK on I2C. Radio would be silent even if this continued."));
-        splashLine(F("FATAL: antenna switch"), SPLASH_ERR);
-        splashLine(F("(IO-expander I2C failed)"), SPLASH_ERR);
+    // P0 high: enables the RF antenna switch AND powers the GPS module
+    // (io_expander.h). Shared with the GPS probe so the two can't drift.
+    if (!ioExpanderInit()) {
+        Serial.println(F("FATAL: IO expander init failed — no ACK on I2C. Radio would be silent (and GPS unpowered) even if this continued."));
+        splashLine(F("FATAL: IO expander"), SPLASH_ERR);
+        splashLine(F("(antenna + GPS power)"), SPLASH_ERR);
         while (true) delay(1000);
     }
-    Serial.println(F("Antenna switch: P0 driven high."));
-    splashLine(F("Antenna switch: OK"));
+    Serial.println(F("IO expander: P0 high (antenna switch + GPS power)."));
+    splashLine(F("IO expander: OK"));
 
     radioSPI.begin(PIN_LORA_SCK, PIN_LORA_MISO, PIN_LORA_MOSI, PIN_LORA_NSS);
 

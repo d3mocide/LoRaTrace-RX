@@ -1,94 +1,115 @@
 // LoRaTrace RX — standalone GPS bring-up probe.
 //
-// NOT part of the Phase 1 firmware and NOT the Phase 2 gps_task. This is a
-// deliberately dumb, self-contained smoke test for one question: does the
-// GPS module on this board actually talk to us on the pins board_pins.h
-// claims, and does it eventually produce a fix?
-//
-// Why a separate build env rather than a few lines bolted into main.cpp:
-// the 2026-08-23 sync-word bug is the argument. Radio RX went unverified
-// for days because it was entangled with everything else booting; the
-// lesson is to bring each piece of hardware up alone, where its failure
-// mode is unambiguous. This also keeps the working RX firmware untouched —
-// nothing here can perturb radio timing, because none of it is compiled
-// into that build.
+// NOT part of the Phase 1/2 firmware. This is a deliberately dumb,
+// self-contained smoke test for one question: does the GPS module actually
+// talk to us, and does it eventually produce a fix?
 //
 // Build/flash:  pio run -e gps-probe --target upload
 // Return to the real firmware:  pio run -e cardputer-adv --target upload
 //
+// History worth keeping, because it shaped this file (PROGRESS.md
+// 2026-08-23): the first version isolated itself from the rest of the boot
+// sequence so its failure mode would be unambiguous — and thereby skipped
+// the IO-expander init, which is what *powers the GPS*. It reported zero
+// bytes and blamed wiring. Two lessons are baked in below:
+//
+//   * Power and clocks are not variables worth isolating. Bring them up.
+//   * When two sources disagree about a pin, don't pick one and ask the
+//     operator to reflash if it's wrong — test both and report which works.
+//     M5Stack's docs table and their own example code contradict each other
+//     on GPS RX/TX polarity (see board_pins.h), so this probe A/Bs them.
+//
 // What to look for on serial at 115200:
-//   * Raw NMEA sentences ($GPGGA / $GNGGA / $GPRMC / $GNRMC ...) within a
-//     second or two of boot. If NOTHING appears, it's wiring/pins/baud,
-//     not satellites — see the troubleshooting notes at the bottom.
-//   * "sentences=N" climbing. Traffic proves the UART is right even with
-//     zero satellites; a cold module indoors will happily emit empty
-//     sentences for a long time.
-//   * FIX ACQUIRED, once GGA reports a non-zero fix quality. Cold start
-//     under open sky is typically minutes, and indoors may be never — a
-//     window or outdoors is the honest test.
+//   * "IO expander: OK" — the GPS is powered. If this fails, nothing else
+//     below means anything.
+//   * Raw NMEA ($GPGGA / $GNGGA / $GPRMC / $GNRMC ...) within a second or
+//     two, and a "WORKING PIN ORDER" banner naming which mapping produced
+//     it. Put that mapping in board_pins.h.
+//   * "sentences=N" climbing. Traffic proves the UART even with zero
+//     satellites; a cold module indoors emits empty sentences for a long
+//     time.
+//   * FIX ACQUIRED, once a fix is reported. Cold start under open sky is
+//     typically minutes; indoors may be never.
 
 #include <Arduino.h>
 
 #include "board_pins.h"
+#include "gps_parse.h"
+#include "io_expander.h"
+#include "nmea.h"
 #include "version.h"
 
 namespace {
 
 HardwareSerial gps(1); // UART1; UART0 is the USB-CDC console
 
+// How long to listen on one pin ordering before trying the other. Long
+// enough that a slow-starting module isn't mistaken for a wrong pinout.
+constexpr uint32_t PIN_TRIAL_MS = 8000;
+
+struct PinOrder {
+    int8_t rx;
+    int8_t tx;
+    const char *label;
+};
+
+// Primary first: M5Stack's own working example code says the ESP32 receives
+// on G15. The alternate is their docs table's reading, already shown to
+// produce silence on 2026-08-23 — kept so the probe proves it rather than
+// assuming it.
+const PinOrder PIN_ORDERS[] = {
+    {PIN_GPS_RX, PIN_GPS_TX, "RX=G15 TX=G13 (M5Stack example code)"},
+    {PIN_GPS_RX_ALT, PIN_GPS_TX_ALT, "RX=G13 TX=G15 (M5Stack docs table)"},
+};
+constexpr size_t PIN_ORDER_COUNT = sizeof(PIN_ORDERS) / sizeof(PIN_ORDERS[0]);
+
+size_t activeOrder = 0;
+uint32_t orderStartedMs = 0;
+bool orderLatched = false; // stop switching once bytes arrive
+
 unsigned long sentenceCount = 0;
-unsigned long lastReport = 0;
+unsigned long badChecksumCount = 0;
+uint32_t lastReport = 0;
 bool sawAnyByte = false;
 bool sawFix = false;
+bool expanderOk = false;
 
-// One NMEA sentence, accumulated without dynamic allocation (CLAUDE.md: no
-// large heap buffers). NMEA sentences are capped at 82 chars by spec;
-// oversize input is discarded rather than grown into.
-char line[96];
+GpsFix fix;
+
+char line[NMEA_MAX_SENTENCE];
 size_t lineLen = 0;
 
-// Pulls field `index` (0 = the "$GPGGA" tag itself) out of an NMEA sentence
-// into `out`. Returns false if the field doesn't exist. Deliberately hand
-// rolled: pulling in TinyGPS++ for a bring-up probe would mean the probe
-// could fail because of a library, which defeats its purpose.
-bool nmeaField(const char *s, uint8_t index, char *out, size_t outSize) {
-    uint8_t field = 0;
-    size_t w = 0;
-    for (const char *p = s;; p++) {
-        if (*p == ',' || *p == '\0' || *p == '*') {
-            if (field == index) {
-                out[w] = '\0';
-                return true;
-            }
-            field++;
-            w = 0;
-            if (*p == '\0' || *p == '*') return false;
-            continue;
-        }
-        if (field == index && w + 1 < outSize) out[w++] = *p;
-    }
+void startOrder(size_t idx) {
+    activeOrder = idx;
+    orderStartedMs = millis();
+    gps.end();
+    gps.begin(GPS_BAUD, SERIAL_8N1, PIN_ORDERS[idx].rx, PIN_ORDERS[idx].tx);
+    Serial.print(F("\n[probe] Listening with "));
+    Serial.println(PIN_ORDERS[idx].label);
 }
 
-// GGA field 6 is fix quality: 0 = no fix, 1 = GPS, 2 = DGPS, ...
-// RMC field 2 is status: 'A' = active/valid, 'V' = void.
-void inspectSentence(const char *s) {
-    char buf[16];
-    const bool isGGA = (strstr(s, "GGA") != nullptr);
-    const bool isRMC = (strstr(s, "RMC") != nullptr);
-
-    if (isGGA && nmeaField(s, 6, buf, sizeof(buf)) && buf[0] != '\0' && buf[0] != '0') {
-        char sats[16] = "?";
-        nmeaField(s, 7, sats, sizeof(sats));
-        if (!sawFix) {
-            Serial.print(F("\n*** FIX ACQUIRED *** quality="));
-            Serial.print(buf);
-            Serial.print(F(" satellites="));
-            Serial.println(sats);
-            sawFix = true;
-        }
+void handleSentence(const char *s) {
+    // gpsApplySentence rejects bad checksums, so count them separately —
+    // a stream of checksum failures means the UART is *nearly* right
+    // (plausible baud, noisy line) rather than wrong, which is a very
+    // different diagnosis from silence.
+    if (!nmeaChecksumValid(s)) {
+        badChecksumCount++;
+        return;
     }
-    if (isRMC && nmeaField(s, 2, buf, sizeof(buf)) && buf[0] == 'A' && !sawFix) {
-        Serial.println(F("\n*** RMC reports a valid fix ***"));
+    sentenceCount++;
+    gpsApplySentence(fix, s, millis());
+
+    if (!sawFix && fix.has_position) {
+        Serial.println(F("\n*** FIX ACQUIRED ***"));
+        Serial.print(F("  lat="));
+        Serial.print(fix.lat, 6);
+        Serial.print(F(" lon="));
+        Serial.print(fix.lon, 6);
+        Serial.print(F(" quality="));
+        Serial.print(fix.fix_quality);
+        Serial.print(F(" sats="));
+        Serial.println(fix.satellites);
         sawFix = true;
     }
 }
@@ -97,35 +118,51 @@ void inspectSentence(const char *s) {
 
 void setup() {
     Serial.begin(115200);
-    unsigned long t0 = millis();
+    uint32_t t0 = millis();
     while (!Serial && millis() - t0 < 3000) {}
 
     Serial.print(F("LoRaTrace GPS probe v"));
     Serial.println(FIRMWARE_VERSION);
-    Serial.print(F("UART1 RX=G"));
-    Serial.print(PIN_GPS_RX);
-    Serial.print(F(" TX=G"));
-    Serial.print(PIN_GPS_TX);
-    Serial.print(F(" baud="));
-    Serial.println(GPS_BAUD);
-    Serial.println(F("Raw NMEA follows. Silence here means wiring/baud, not satellites."));
+
+    // THE thing the first version of this probe got wrong. P0 on the
+    // PI4IOE5V6408 powers the GPS as well as switching the RF antenna path,
+    // so without this the module is simply off and every UART reading below
+    // is meaningless.
+    expanderOk = ioExpanderInit();
+    if (expanderOk) {
+        Serial.println(F("IO expander: OK — P0 high (GPS powered, antenna switch enabled)."));
+    } else {
+        Serial.println(F("IO expander: FAILED — no I2C ACK at 0x43."));
+        Serial.println(F("  The GPS is almost certainly unpowered; UART silence below is expected"));
+        Serial.println(F("  and is NOT evidence about the pin mapping. Fix this first."));
+    }
+
+    Serial.print(F("Baud "));
+    Serial.print(GPS_BAUD);
+    Serial.println(F(" 8N1. Will A/B both documented pin orders until bytes appear."));
     Serial.println(F("----------------------------------------------------------------"));
 
-    gps.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+    startOrder(0);
     lastReport = millis();
 }
 
 void loop() {
     while (gps.available()) {
         char c = (char)gps.read();
-        sawAnyByte = true;
+        if (!sawAnyByte) {
+            sawAnyByte = true;
+            orderLatched = true;
+            Serial.print(F("\n*** WORKING PIN ORDER: "));
+            Serial.print(PIN_ORDERS[activeOrder].label);
+            Serial.println(F(" ***"));
+            Serial.println(F("    Put this mapping in board_pins.h if it isn't already."));
+        }
         Serial.write(c); // raw passthrough — the primary evidence
 
         if (c == '\n' || c == '\r') {
             if (lineLen > 0) {
                 line[lineLen] = '\0';
-                sentenceCount++;
-                inspectSentence(line);
+                handleSentence(line);
                 lineLen = 0;
             }
             continue;
@@ -137,27 +174,45 @@ void loop() {
         }
     }
 
-    // Periodic heartbeat so a silent module is obviously silent rather than
-    // just looking like a quiet one.
-    unsigned long now = millis();
+    uint32_t now = millis();
+
+    // Rotate pin orderings until something speaks.
+    if (!orderLatched && PIN_ORDER_COUNT > 1 && (now - orderStartedMs) >= PIN_TRIAL_MS) {
+        startOrder((activeOrder + 1) % PIN_ORDER_COUNT);
+    }
+
     if (now - lastReport >= 5000) {
         lastReport = now;
         Serial.print(F("\n[probe] t="));
         Serial.print(now / 1000);
-        Serial.print(F("s sentences="));
+        Serial.print(F("s order="));
+        Serial.print(PIN_ORDERS[activeOrder].label);
+        Serial.print(F(" sentences="));
         Serial.print(sentenceCount);
+        Serial.print(F(" badcrc="));
+        Serial.print(badChecksumCount);
         Serial.print(F(" fix="));
         Serial.println(sawFix ? F("YES") : F("no"));
 
         if (!sawAnyByte) {
-            Serial.println(F("[probe] No bytes at all from the GPS UART. In order of likelihood:"));
-            Serial.println(F("  1. RX/TX swapped — try PIN_GPS_RX/PIN_GPS_TX exchanged in board_pins.h"));
-            Serial.println(F("  2. Wrong baud — many NMEA modules are 9600, not 115200; try GPS_BAUD=9600"));
-            Serial.println(F("  3. Module unpowered or held in reset (check the Cap's own power/enable)"));
-            Serial.println(F("  Satellites are NOT a candidate: an unlocked module still emits empty sentences."));
+            if (!expanderOk) {
+                Serial.println(F("[probe] Still no bytes — but the IO expander failed, so the GPS"));
+                Serial.println(F("        is unpowered. Chase the I2C failure, not the UART."));
+            } else {
+                Serial.println(F("[probe] No bytes on either pin order yet. Remaining suspects:"));
+                Serial.println(F("  1. Baud — 115200 is documented, but some modules ship at 9600."));
+                Serial.println(F("     Try GPS_BAUD=9600 in board_pins.h."));
+                Serial.println(F("  2. Cap not fully seated (the GPS shares the same connector)."));
+                Serial.println(F("  3. Module held in reset / a dead ceramic antenna feed."));
+                Serial.println(F("  Satellites are NOT a candidate: an unlocked module still emits"));
+                Serial.println(F("  empty sentences continuously."));
+            }
+        } else if (badChecksumCount > 0 && sentenceCount == 0) {
+            Serial.println(F("[probe] Bytes arriving but every sentence fails checksum — that's a"));
+            Serial.println(F("        baud mismatch or a noisy line, not a wiring fault."));
         } else if (!sawFix) {
-            Serial.println(F("[probe] UART is good (bytes arriving). No fix yet — that's antenna/sky,"));
-            Serial.println(F("        not wiring. Cold start outdoors is typically minutes; indoors may never."));
+            Serial.println(F("[probe] UART is good. No fix yet — that's antenna/sky, not wiring."));
+            Serial.println(F("        Cold start outdoors is typically minutes; indoors may never."));
         }
     }
 }
