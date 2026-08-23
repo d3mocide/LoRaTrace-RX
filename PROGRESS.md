@@ -225,7 +225,22 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         with the actual per-rotation mapping. Build-clean; **not yet
         bench-tested** — needs a reflash and a new photo to confirm the
         glitch is actually gone, not just theoretically explained
-- [ ] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta)
+- [~] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta).
+      **Written 2026-08-23, not yet hardware-verified.** All three tasks,
+      the cross-core queue, the shared-SPI mutex, and the batched CSV logger
+      exist; 26 host tests cover every pure-logic path. What's outstanding
+      is the part only hardware can answer:
+  - [ ] GPS produces an actual fix on this board (never yet achieved — see
+        the probe findings in the Decisions log; P0 power + pin polarity
+        were both wrong on the first attempt)
+  - [ ] An unattended multi-hour run: detections logged with correct
+        lat/lon, `qdrop`/`rowdrop` staying at zero, no heap exhaustion.
+        The `[status]` serial line reports exactly these counters so the
+        exit criteria are checkable rather than assumed
+  - [ ] `maxflush` (worst SD bus hold) measured under real traffic — this
+        is the number that says whether batch sizing is starving the radio.
+        If it approaches the inter-packet gap, shrink `BATCH_BUF_SIZE`
+        rather than deepening the queue
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
 - [ ] **Phase 5** — `ENERGY_SWEEP`
@@ -859,6 +874,60 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   because of a library — unit-tested on the host against real GGA/RMC
   samples under ASan+UBSan, including no-fix sentences, `*`-terminated
   fields, and out-of-range indices.
+
+- **2026-08-23 — GPS probe found two faults, one of them self-inflicted.**
+  The probe reported zero UART bytes. That was a *useful* zero: a baud
+  mismatch produces garbage bytes, so silence ruled baud out immediately and
+  pointed at power or pins.
+  - **Primary cause: the probe never powered the GPS.** PI4IOE5V6408 P0
+    doesn't only switch the RF antenna path — M5Stack's own Arduino example
+    for this Cap drives expander pin 0 high to enable **GPS power**, and the
+    LoRa868 Cap (which has no GPS) omits the call entirely. `main.cpp` set
+    P0; the probe didn't, precisely *because* it had been written to isolate
+    itself from the rest of the boot sequence. The isolation instinct was
+    right; including the power rail in it was not. Extracted to
+    `io_expander.cpp` and shared by both binaries so they can't drift again.
+  - **Secondary: M5Stack contradicts itself on GPS RX/TX polarity.** Their
+    docs PinMap reads `GPS_TX -> G13` (host receives on G13, what
+    `board_pins.h` had); their tutorial's working example says
+    `RXPin = 15`. Empirically G13 saw nothing. Rather than pick one and make
+    an operator reflash to test the other, the probe now **A/Bs both
+    orderings every 8s** and prints which produces bytes. `board_pins.h`
+    adopts the example-code ordering and records the contradiction, since
+    this project has already been burned once by a scraped pin table.
+  - Probe also now shares `nmea.h`/`gps_parse.h` with the GPS task, so it
+    validates checksums and reports real fix data instead of carrying a
+    private parser — and exercises the same code the firmware depends on.
+- **2026-08-23 — Phase 2 built.** Three tasks per DESIGN.md §2, a 32-deep
+  cross-core queue of ~36B records, and the shared-bus arbitration that
+  DESIGN.md §7 flagged as an open question before Phase 2 could start:
+  - **`spi_bus.h/.cpp`** now owns both the `SPIClass` and a FreeRTOS
+    **mutex** (not a binary semaphore — priority inheritance is the point:
+    without it the radio task can block behind a mid-priority task that
+    isn't even using SPI, and on this board that means lost packets).
+  - **`radio_task`** (Core 1, prio 3) does the whole SX1262 transaction
+    inside one short critical section, reading RSSI/SNR and re-arming RX
+    *before* releasing — carrying forward the Phase 1 ordering fix. If the
+    queue is full it drops and counts rather than waiting: a receiver that
+    stalls to preserve a log row is strictly worse than one that misses it.
+  - **`logger_task`** (Core 0, prio 2) batches rows into ~2KB and writes
+    open/append/close per flush. Sizing rationale: the goal is **short**
+    flushes, not rare ones. The SX1262 FIFO gives roughly one packet-time of
+    slack, so many small bus holds beat occasional large ones — which is
+    also why the buffer is 2KB and not 32KB. Open-per-flush because this
+    device gets turned off by being unplugged.
+  - **`gps_task`** (Core 0, prio 1) parses into a local and publishes under
+    a mutex, keeping the critical section to one struct copy.
+  - A stale GPS fix is treated as no fix (10s max age): at driving speed
+    that's already ~250m of error, and an empty coordinate is more honest
+    than a confidently wrong one. Same reasoning as refusing to render a
+    no-fix as `0,0`.
+  - Everything decision-shaped lives in pure headers (`detection.h`,
+    `nmea.h`, `gps_parse.h`) so **26 host tests** cover it. The
+    `test_detection` fixtures are the real packets captured off-air on
+    2026-08-23, including an original/rebroadcast pair — so a regression in
+    header parsing produces a concrete wrong answer about real traffic
+    rather than an abstract failure.
 
 ## Next steps
 

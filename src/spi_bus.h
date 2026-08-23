@@ -25,11 +25,22 @@
 //     failure — a missed packet is far better than a wedged receiver.
 
 #include <Arduino.h>
+#include <SPI.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-// Creates the mutex. Call once from setup() before starting any task.
-// Returns false if the mutex could not be allocated.
+// The one SPIClass for the radio+SD bus. Owned here rather than in main.cpp
+// so that the bus object and the mutex guarding it are impossible to use
+// separately — every consumer (radio task, logger task, boot-time config
+// read) reaches for the same pair.
+//
+// The display is deliberately NOT on this bus: it has its own host (HSPI)
+// with disjoint pins, which is what DESIGN.md §1's isolation rule is about.
+SPIClass &sharedSpi();
+
+// Creates the mutex and begins the SPI peripheral on the shared pins. Call
+// once from setup() before starting any task. Returns false if the mutex
+// could not be allocated.
 bool spiBusInit();
 
 // Blocks up to `timeout` ticks for exclusive use of the shared bus.

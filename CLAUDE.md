@@ -33,18 +33,27 @@ aren't scaffolded yet.
 
 ```
 src/
-  [x] main.cpp                   # phase 1: direct bring-up, not yet a task
-  [ ] radio_task.cpp / .h        # mission-profile state machine, owns SX1262 (phase 2)
-  [ ] gps_task.cpp / .h          # NMEA parse, last-fix mutex (phase 2)
-  [ ] logger_task.cpp / .h       # dequeue, GPS-stamp, batched SD writes (phase 2)
+  [x] main.cpp                   # phase 2: orchestrator — boot order, then starts tasks
+  [x] radio_task.cpp / .h        # HOME_LISTEN, owns SX1262, Core 1, never blocks
+  [x] gps_task.cpp / .h          # NMEA parse, last-fix mutex, Core 0
+  [x] logger_task.cpp / .h       # dequeue, GPS-stamp, batched SD writes, Core 0
   [ ] ui_task.cpp / .h           # keyboard + display (phase 6)
   [x] channel_plans.h            # per-profile RF param tables (see DESIGN.md §3)
   [x] board_pins.h               # pin map + IO-expander register constants (not in original proposal, see PROGRESS.md decisions log)
   [x] version.h                  # FIRMWARE_VERSION, single source for boot banner + release tags
   [x] config.h / .cpp            # boot-time SD channel-config override (not in original proposal, see PROGRESS.md decisions log)
   [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 4+)
+  --- added during phase 2, not in the original proposal ---
+  [x] detection.h                # the ~36B queue record + Meshtastic header parse + §8 CSV
+  [x] nmea.h                     # NMEA primitives (field split, checksum, coord conversion)
+  [x] gps_parse.h                # GpsFix + gpsApplySentence(), pure so it's host-testable
+  [x] spi_bus.h / .cpp           # mutex + SPIClass for the bus SD and the SX1262 SHARE
+  [x] io_expander.h / .cpp       # PI4IOE5V6408 P0: antenna switch AND GPS power
+  [x] gps_probe.cpp              # standalone GPS bring-up sketch ([env:gps-probe])
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native
+  [x] test_detection/            # queue-record + CSV, fixtures are REAL captured packets
+  [x] test_gps_parse/            # NMEA -> fix, mostly about REFUSING a bad position
 .github/workflows/
   [x] build.yml                  # pio run + pio test on every push/PR + rolling dev-latest release
   [x] release.yml                # vX.Y.Z tag -> draft GitHub Release with Launcher-ready .bin
@@ -78,12 +87,25 @@ sd-template/loratrace/
 
 ## Status
 
-Design complete (see DESIGN.md). Project scaffold + Phase 1 bring-up code
-exist (`platformio.ini`, `src/`) but are not yet verified on real
-hardware. Build order is DESIGN.md §9 — start with phase 1 (RadioLib
-bring-up, hardcoded Meshtastic RX, print to serial) before touching the
-task/queue architecture. See PROGRESS.md for the live build checklist and
-ROADMAP.md for phase-by-phase scope.
+**Phase 1 complete and hardware-verified** (2026-08-23): radio, antenna
+path, SD config override, display, and protocol-correct Meshtastic RX all
+confirmed on real hardware. Heap stable under load (~338KB, no leak).
+
+**Phase 2 written, not yet hardware-verified**: the task/queue architecture,
+GPS task, and batched SD logger exist and build, and all pure logic is
+covered by host tests — but no multi-hour unattended run has happened yet,
+which is the actual exit criterion (ROADMAP.md). GPS in particular has
+never produced a fix on this board; use `[env:gps-probe]` to bring it up
+standalone before debugging it through the task.
+
+Two hard-won rules from Phase 1, worth not relearning:
+- **The IO expander's P0 powers the GPS as well as switching the RF antenna
+  path.** A "dead" GPS or a silent radio is often just this.
+- **A wrong sync word is silent, not loud** — the radio simply never
+  interrupts, while still hearing unrelated traffic that matches.
+
+Build order is DESIGN.md §9. See PROGRESS.md for the live build checklist
+and ROADMAP.md for phase-by-phase scope.
 
 ## Related context
 
