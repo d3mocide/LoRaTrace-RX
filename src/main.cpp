@@ -292,29 +292,52 @@ void loop() {
     uint8_t buf[256];
     size_t len = radio.getPacketLength();
     if (len == 0 || len > sizeof(buf)) {
+        // Previously a silent drop — logged now because a promiscuous
+        // sniffer needs every DIO1 event accounted for, not just the ones
+        // that decode cleanly (see PROGRESS.md 2026-08-23 missed-packet
+        // investigation).
+        Serial.print(F("[RX] dropped, bad length "));
+        Serial.println(len);
         radio.startReceive();
         return;
     }
 
     int state = radio.readData(buf, len);
 
+    // Read stats and re-arm RX before any Serial/display I/O below. Once
+    // DIO1 fires the chip is out of Rx Continuous until startReceive() runs
+    // again, so every microsecond spent printing/drawing here is a window
+    // where a back-to-back packet (mesh relay, another node) goes unheard
+    // — exactly the "sent 3, only 1 logged" symptom from bench testing next
+    // to a live MeshOregon node (PROGRESS.md 2026-08-23). RSSI/SNR still
+    // have to be read first: GetPacketStatus holds stats for the *last*
+    // packet, and a new one arriving right after re-arming would overwrite
+    // them before this line gets to read it. This narrows the deaf window
+    // to a couple of SPI transactions; it doesn't eliminate it — that needs
+    // the Core-1 radio task from DESIGN.md §9 phase 2.
+    float rssi = 0, snr = 0;
     if (state == RADIOLIB_ERR_NONE) {
-        float rssi = radio.getRSSI();
-        float snr = radio.getSNR();
+        rssi = radio.getRSSI();
+        snr = radio.getSNR();
+    }
+    radio.startReceive();
+
+    if (state == RADIOLIB_ERR_NONE) {
         Serial.print(F("[RX] len="));
         Serial.print(len);
         Serial.print(F(" rssi="));
         Serial.print(rssi);
         Serial.print(F("dBm snr="));
         Serial.print(snr);
-        Serial.println(F("dB"));
+        Serial.print(F("dB data="));
+        for (size_t i = 0; i < len; i++) {
+            if (buf[i] < 0x10) Serial.print('0');
+            Serial.print(buf[i], HEX);
+        }
+        Serial.println();
         updateRxSplash(len, rssi, snr);
     } else {
         Serial.print(F("[RX] read error, code "));
         Serial.println(state);
     }
-
-    // No GPS/SD fusion yet (Phase 2) — this is a serial-only smoke test
-    // of the radio path per DESIGN.md §9 step 1.
-    radio.startReceive();
 }

@@ -56,12 +56,15 @@ findings — see checklist/Decisions log:
   why, and for the researched fix to the separate "can't get back to
   Launcher" problem this was raised alongside.
 
-**Only remaining fully-unverified item in Phase 1's checklist:** RX of a
-live packet with plausible RSSI/SNR (no `[RX]` line seen in any session
-yet) — see Next steps. The device's active channel right now is the
-user's own MeshOregon-style SD override (918.5MHz/SF8/BW125/CR4:5), not
-the hardcoded Meshtastic US LongFast default — worth remembering when
-picking a transmitter/mesh to test against.
+**2026-08-23 update:** live `[RX]` confirmed on hardware — see Decisions
+log — closing the last fully-unverified item in Phase 1's checklist. That
+same test also surfaced a real gap (RX re-armed too late, after Serial/
+display I/O, widening the window for missed back-to-back packets) which
+has a fix applied but not yet bench-tested — see Next steps. The device's
+active channel right now is the user's own MeshOregon-style SD override
+(918.5MHz/SF8/BW125/CR4:5), not the hardcoded Meshtastic US LongFast
+default — worth remembering when picking a transmitter/mesh to test
+against.
 
 CI includes a rolling `dev-latest` release for grabbing a
 Launcher-installable `.bin` without tagging — see Decisions log.
@@ -109,14 +112,23 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         version drift possible) — 2026-08-22: confirmed at runtime too
         (`begin()` and `startReceive()` both returned `RADIOLIB_ERR_NONE`
         on real hardware), not just at compile time
-  - [ ] Bench-verify RX against a known live Meshtastic LongFast (US)
+  - [x] Bench-verify RX against a known live Meshtastic LongFast (US)
         transmitter — RSSI/SNR should be plausible, not just non-crashing.
         2026-08-22: device reached "Listening..." but no `[RX]` line was
         seen in that session — still open. Same day: a received packet
         now also updates a reserved splash line in place (`main.cpp`
         `updateRxSplash()`), so this can be confirmed from the screen
         alone — build-clean, untested on hardware like the rest of
-        tonight's additions
+        tonight's additions. **Closed 2026-08-23:** first live `[RX]`
+        lines seen on real hardware — three packets (len 103/50/50, rssi
+        -28/-58/-28dBm, snr ~13-14dB), plausible values, no crash. Tested
+        against the user's actual MeshOregon-style channel (the SD
+        override — see Current status), not the hardcoded Meshtastic
+        LongFast US default, so this closes the substance of the item
+        (the RX chain decodes real over-the-air LoRa packets with
+        plausible RSSI/SNR) rather than its literal Meshtastic-US wording.
+        See Decisions log for the follow-up "sent 3, only 1 logged"
+        investigation this immediately surfaced.
   - [x] Confirm SD-based channel config actually loads: drop
         `sd-template/loratrace/` onto the SD card with real values (e.g.
         MeshOregon's), confirm the boot banner reports the overridden
@@ -645,6 +657,64 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   constructor call was wrong. Build-clean; **untested on hardware**, needs
   a reflash and a fresh photo to confirm.
 
+- **2026-08-23** — First live `[RX]` lines on real hardware: three packets
+  (`len=103 rssi=-28.00dBm snr=14.00dB`, `len=50 rssi=-58.00dBm
+  snr=13.25dB`, `len=50 rssi=-28.00dBm snr=14.25dB`), captured on the
+  user's own MeshOregon-style channel override (918.5MHz/SF8/BW125/CR4:5),
+  not the hardcoded Meshtastic US default — closes the last fully-
+  unverified Phase 1 checklist item (see above). Confirms the whole chain
+  end-to-end on real hardware for the first time: antenna-switch path,
+  FSPI wiring, DIO1 IRQ, and RadioLib's decode — and, since packets
+  decoded with a clean CRC (no `[RX] read error` lines) and plausible SNR,
+  implicitly confirms the sync word matches too, which CLAUDE.md flags as
+  otherwise-unverified.
+  - Immediate follow-up: the user sent 3 known test messages from a node
+    physically next to the sniffer and only recognized 1 of the 3 logged
+    lines as a match — "they just seem to be grabbing random messages."
+    Two things are true at once here, and the investigation only
+    confirms the first for certain:
+    1. This is a promiscuous sniffer on a shared regional mesh channel by
+       design (CLAUDE.md/DESIGN.md) — it will log other MeshOregon
+       traffic (other nodes, relay/rebroadcast copies of the user's own
+       messages) alongside the user's own sends, so a mismatch between
+       "messages sent" and "lines logged" is partly expected, not
+       automatically a bug. The -58dBm line among two -28dBm lines is the
+       likely "someone else's/relayed packet" candidate, given the node
+       under test was sitting right next to the sniffer.
+    2. Root-caused a real gap in `main.cpp`'s `loop()`: `radio.startReceive()`
+       to re-arm Rx Continuous ran *after* all the Serial/display I/O for
+       the previous packet (multiple `Serial.print` calls plus a TFT
+       `fillRect`/`print` splash update), not right after `readData()`.
+       The SX1262 is out of Rx Continuous from the DIO1 IRQ until
+       `startReceive()` runs again, so that whole print/draw window was a
+       "deaf" period — a back-to-back packet (mesh relay traffic, or the
+       user's own next test message arriving during that window) would be
+       silently missed. Compounding it: the `len == 0 || len >
+       sizeof(buf)` branch called `startReceive()` but never logged
+       anything, so a dropped-for-bad-length packet left no trace at all,
+       making "how many DIO1 events actually fired" unanswerable from the
+       serial log alone.
+  - Fix applied (`main.cpp` `loop()`): capture RSSI/SNR into locals and
+    call `radio.startReceive()` immediately after `readData()` returns,
+    *before* any Serial/display output — shrinks the deaf window to a
+    couple of SPI transactions instead of the full print/draw path.
+    RSSI/SNR still have to be read before the re-arm, not after:
+    `GetPacketStatus` reports stats for the *last* packet, and a new one
+    arriving right after `startReceive()` would overwrite them first.
+    Also: the bad-length branch now logs `[RX] dropped, bad length N`
+    instead of silently discarding, and successful decodes now print a
+    hex dump of the payload so future correlation between "line in the
+    log" and "message actually sent" doesn't have to rely on length/RSSI
+    alone. This narrows the miss window; it does not eliminate it — a
+    print- and draw-free path only comes with the Core-1 radio task from
+    DESIGN.md §9 phase 2, which is explicitly out of scope for Phase 1.
+    Build-clean by inspection (RadioLib/Arduino calls already used
+    elsewhere in this file, no new APIs); **not yet bench-tested** — needs
+    a reflash and a repeat of the 3-message bench test, ideally comparing
+    payload hex across runs to tell "actually missed" apart from "that was
+    someone else's packet" with more confidence than length/RSSI alone
+    gave this session.
+
 ## Next steps
 
 1. Keep an eye on SD-mount reliability over more boots/power cycles even
@@ -660,15 +730,13 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
    record; also try the "Boot to Launcher" Settings toggle) to figure out
    whether the "screen appears but firmware keeps booting anyway" report is
    a timing/process issue or something that needs more investigation.
-4. Get the device near a known-live Meshtastic LongFast (US) transmitter
-   and confirm at least one `[RX]` line with plausible RSSI/SNR — the last
-   fully-unverified item in the Phase 1 checklist, and the real proof the
-   antenna path is RF-correct, not just I2C-correct. Note the active
-   channel is currently the user's MeshOregon override (918.5MHz/SF8/
-   BW125/CR4:5) from their SD config, not the hardcoded Meshtastic US
-   LongFast default — pick a live transmitter/mesh matching whichever
-   channel is actually active at test time, or temporarily remove/rename
-   `config.txt` to fall back to the hardcoded default.
+4. Reflash with the 2026-08-23 loop() re-arm-before-print fix and the new
+   hex payload dump, then repeat the "3 known test messages sent next to
+   the sniffer" bench test. Compare the logged payload hex across runs to
+   separate "own message, actually missed" from "that log line was someone
+   else's packet on the shared MeshOregon channel" — the previous session
+   had length/RSSI as the only signal, which wasn't enough to tell those
+   apart with confidence.
 5. Start Phase 2 (task/queue architecture) only after the above land, per
    CLAUDE.md's explicit build-order instruction. Phase 2's
    radio_task/logger_task split needs to account for the shared-SPI-bus
