@@ -22,6 +22,15 @@
 // Live traffic makes this sharper than it looks: Meshtastic rebroadcasts
 // mean packets frequently arrive in pairs milliseconds apart (PROGRESS.md
 // 2026-08-23), so back-to-back RX is the common case, not the rare one.
+//
+// This task writes two files, both inside THIS RUN's own directory —
+// /loratrace/runNNNN/ (run_log.h). One wardrive is one folder, so a drive
+// can be copied, shared or deleted as a unit instead of being carved out of
+// one ever-growing file:
+//   detections.csv — the mission data, DESIGN.md §8 schema
+//   session.csv    — one health row a minute (session_log.h), so an
+//                    unattended run leaves evidence of whether it held up
+//                    instead of only evidence of what it heard
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -39,5 +48,16 @@ bool loggerSdReady();
 uint32_t loggerRowsWritten();
 uint32_t loggerRowsDropped();  // dequeued but unwritable (no SD, format fail)
 uint32_t loggerFlushCount();
-uint32_t loggerMaxFlushMs();   // worst-case bus hold; the number that decides
-                               // whether batch sizing is hurting the radio
+uint32_t loggerMaxFlushMs();   // worst DETECTION-flush bus hold; the number
+                               // that decides whether batch sizing is
+                               // hurting the radio
+uint32_t loggerMaxSessionMs(); // worst HEALTH-row bus hold. Tracked apart
+                               // from the flush metric so a once-a-minute
+                               // instrumentation write can never be mistaken
+                               // for evidence that batching needs retuning.
+                               // Worst hold overall = max of the two.
+uint32_t loggerSessionRows();  // health rows committed to this run's session.csv
+
+// This power-on's run index, or 0 before SD has mounted. Matches the
+// runNNNN directory the logs are being written into.
+uint16_t loggerRunIndex();

@@ -251,11 +251,159 @@ Meshtastic's value is now verified from upstream firmware source and set in
 
 ## 8. SD log schema
 
-`timestamp_utc, lat, lon, fix_quality, profile, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, classification, decoded, channel_or_node_id, raw_len`
+**One wardrive is one directory.** Each power-on claims the next free
+`/loratrace/runNNNN/` and writes both its files there:
+
+```
+/loratrace/
+  config.txt              channel override, not a run artifact
+  run0001/
+    detections.csv
+    session.csv
+  run0002/
+    ...
+```
+
+A drive can then be copied, shared, imported or deleted as a unit. The
+alternative — one continuous file every power-on appends to — is durable but
+not usable: the operations an operator actually performs on a drive all
+become text-editing chores.
+
+**Why an index rather than a timestamp in the name.** The name must be
+decided the moment logging starts, and at that moment the device does not
+know the time: absolute time comes from GPS, this board has no verified RTC,
+and a cold TTFF is tens of seconds at best. Timestamp naming would mean
+either delaying file creation (losing every packet heard during TTFF) or
+renaming later (leaving a provisional name behind on any power cut before
+the rename). An index is knowable immediately, needs no clock, and is stable
+under power loss. The wall clock still reaches the card — recorded *inside*
+the run on the first health row that has a fix — which dates the run without
+ever having gated its creation on a clock.
+
+The next index comes from scanning the card for the highest `runNNNN`, not
+from a stored counter: the listing is the truth, it cannot drift, and there
+is no mutable state to corrupt on a power cut. Scanning for the highest (not
+the first gap) means a deleted run's number is never silently reused.
+
+Both files below live inside that run directory.
+
+### 8.1 `detections.csv` — the mission data
+
+`timestamp_utc, lat, lon, fix_quality, profile, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, classification, decoded, channel_or_node_id, raw_len, rx_uptime_ms, run`
+
+`rx_uptime_ms` is device uptime at the moment of reception. It is the only
+time reference a detection heard *before the first GPS fix* has — those rows
+carry an empty `timestamp_utc` and empty coordinates, and without uptime
+they could not be placed in time at all. It also exposes queue backlog (a
+row whose GPS stamp is much later than its uptime was stamped late) and is
+the join key to `session.csv`.
 
 `ENERGY_SWEEP` data gets threshold-filtered against a rolling noise floor
 before logging — don't dump every sweep point, only peaks, or the card fills
 fast for near-zero value.
+
+### 8.2 `session.csv` — the run's own vital signs
+
+`timestamp_utc, uptime_s, reason, lat, lon, sats, sats_in_view, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, max_session_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run`
+
+One row per minute, plus a `reason=boot` row when the card comes up.
+
+This exists because §9 phase 2's exit criterion is an *unattended* run — no
+dropped packets attributable to SD latency, no heap exhaustion over hours.
+Every counter that settles that claim was already exposed for the serial
+status line and the on-screen pages, and both need someone watching. A
+device driven around on battery and unplugged at the end kept no record of
+its own health, so the one run the criterion actually describes was the one
+run whose result couldn't be read.
+
+Two fields carry more weight than the rest:
+
+- **`heap_min`** is the low-water mark since boot, not the sample. A
+  once-a-minute reading walks straight past a transient trough, and the
+  trough is what ends a long run.
+- **`reason`** makes session boundaries visible in a file that many runs
+  append to. Without it, a power cycle mid-drive reads as counters
+  spontaneously resetting — a firmware fault, rather than someone catching
+  the USB cable.
+- **`sats_in_view` alongside `sats`.** The used count stays 0 for the whole
+  acquisition window, so a row reading `sats=0 fix_type=1` is identical
+  whether the antenna sees twelve satellites or is unplugged. In view is the
+  leading indicator and the difference between "wait" and "go outside".
+- **`max_flush_ms` and `max_session_ms` are separate on purpose.** The
+  first is the worst detection-flush bus hold, the second the worst
+  health-row hold. Both are real costs to the radio, so the worst hold
+  overall is the max of the two — but only the first says anything about
+  whether batch sizing needs retuning. Merged, a once-a-minute
+  instrumentation write reads as evidence against the batch buffer.
+- **`logger_stack_free`** is the logger task's stack high-water mark. That
+  task owns the card and now has a deeper call path than it did, and a
+  stack overflow there loses the whole run silently — so the size is
+  reported by the run rather than argued about beforehand.
+
+Costs about 180 rows on a three-hour drive: nothing next to the detection
+log, and one extra short bus hold a minute is far under the noise floor of
+the flushes already happening.
+
+### 8.3 How the files behave across runs
+
+Within a run, both files are **append-only and survive power cycles.** The
+header is written once, only when the file does not already exist; every
+subsequent write is an append. Nothing truncates or overwrites, so a card
+accumulates every run it has ever seen until someone deletes the folders.
+
+A card **reseated mid-drive rejoins the same run** rather than splitting one
+drive across two folders — the run is resolved once per power-on, not once
+per mount. The gap is still recorded honestly, as `sd` going down and back
+in that run's own health rows.
+
+**Every reset claims a run, including a USB one.** Attaching a serial
+monitor toggles DTR and resets the board, so bench sessions accumulate run
+folders holding a single health row and no detections. That is the honest
+consequence of "a run is a power-on" and is left alone rather than papered
+over: such runs are trivially identifiable (`rx=0`, one row) and cost a few
+hundred bytes. A Phase 6 start/stop gate would make the run boundary an
+operator decision instead, at which point this stops happening.
+
+Absolute time comes from GPS, because this board has no verified RTC. That
+has one consequence worth stating plainly: **rows written before the first
+fix of a run carry an empty `timestamp_utc`.** The boot row essentially
+always does, since SD mounts seconds after power-on and a cold TTFF is tens
+of seconds at best.
+
+GPS time also sets the **device system clock**, once per power-on, as soon
+as a sentence carries a plausible UTC date — gated on time alone, not on a
+position fix, because GPS has the time long before it has a fix and waiting
+would leave the files wrong for the whole acquisition window. Without it the
+system clock never leaves the epoch and FAT stamps every file 1980, which
+makes a card of runs impossible to order by anything but its contents.
+
+Two limits worth knowing. Files **created** before the clock is set keep
+their 1980 creation date — that includes the run directory and both CSVs,
+since they are created at mount. Their modification time corrects on the
+first append after the clock is set, so a run that ever saw GPS ends up with
+a truthful mtime. And a run in which GPS never supplies a date keeps 1980
+throughout: inherent without an RTC.
+
+That does not lose the session, because `uptime_s` is on every row:
+
+- **Anchor a run in absolute time** with any row that has both fields —
+  wall-clock start = `timestamp_utc - uptime_s`. Every row of that run then
+  resolves, including the ones written before the fix landed.
+- **Separate runs within the file** by the `reason=boot` rows, and by
+  `uptime_s` resetting to a small number. Without those markers a mid-drive
+  power cycle would read as counters spontaneously resetting.
+- **Join the two files** on uptime: a detection's `rx_uptime_ms` falls
+  between two `session.csv` rows' `uptime_s`, which says what the radio,
+  SD and heap were doing when that packet arrived.
+- **Concatenate runs safely** using the `run` column both files carry. It is
+  redundant with the directory a file sits in, right up until several runs
+  are merged for analysis — at which point every row's uptime has restarted
+  at zero, and without it the merged data is silently ambiguous about which
+  drive a row came from.
+
+A run in which the GPS never fixes at all has no absolute time anywhere —
+inherent without an RTC, not a logging bug. It is still fully ordered and
+still self-describing via uptime.
 
 ## 9. Build order
 

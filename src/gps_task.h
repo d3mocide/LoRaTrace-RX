@@ -27,3 +27,17 @@ bool gpsGetFix(GpsFix &out, TickType_t timeout);
 // Diagnostics for the periodic status line.
 uint32_t gpsSentenceCount();
 uint32_t gpsChecksumErrorCount();
+
+// millis() at the first position fix since power-on, or 0 if there has not
+// been one yet. Time-to-first-fix is an operational number for a wardriver
+// — it says how long after switching on the track becomes usable — and it
+// can only be measured across a whole session, so it is recorded as the
+// session runs rather than reconstructed afterwards.
+uint32_t gpsFirstFixMillis();
+
+// True once GPS UTC has been adopted as the device's system clock. Until
+// then every file written to SD carries FAT's 1980 epoch rather than a real
+// date, so this is what says whether the card's own timestamps mean
+// anything. Set from time alone, not position — GPS has the time long
+// before it has a fix.
+bool gpsSystemTimeSet();

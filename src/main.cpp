@@ -206,8 +206,10 @@ void setup() {
     } else if (!uiKeyboardReady()) {
         Serial.println(F("WARN: TCA8418 keyboard not detected — UI pages will auto-advance."));
     }
-
-    Serial.println(F("To return to Launcher: press any key during its ~5s boot window, or enable its Settings -> \"Boot to Launcher\" toggle."));
+    // The Launcher-return hint that used to print here is gone: it is static
+    // documentation, identical on every boot, and it belongs in the README's
+    // M5Launcher section (where it already is) rather than in a log an
+    // operator scans for what this particular run is doing.
 }
 
 void loop() {
@@ -245,8 +247,17 @@ void loop() {
     Serial.print(loggerFlushCount());
     Serial.print(F(" maxflush="));
     Serial.print(loggerMaxFlushMs());
+    // Separate from maxflush on purpose: the health writer's bus holds are
+    // instrumentation, and folding them in makes the flush number lie about
+    // batch sizing (first hardware run printed flushes=0 maxflush=26ms).
+    Serial.print(F("ms maxhealth="));
+    Serial.print(loggerMaxSessionMs());
     Serial.print(F("ms sd="));
     Serial.print(loggerSdReady() ? F("ok") : F("DOWN"));
+    Serial.print(F(" health="));
+    Serial.print(loggerSessionRows());
+    Serial.print(F(" run="));
+    Serial.print(loggerRunIndex());
     Serial.print(F(" | nmea="));
     Serial.print(gpsSentenceCount());
     Serial.print(F(" badcrc="));
@@ -262,5 +273,9 @@ void loop() {
         Serial.print(F("none"));
     }
     Serial.print(F(" | heap="));
-    Serial.println(ESP.getFreeHeap());
+    Serial.print(ESP.getFreeHeap());
+    // The trough, not just the sample: a 5s status line can walk right past
+    // a transient dip, and the dip is what actually ends a long run.
+    Serial.print(F(" heapmin="));
+    Serial.println(ESP.getMinFreeHeap());
 }

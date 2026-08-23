@@ -105,7 +105,11 @@ up on the serial monitor with plausible RSSI/SNR.
 **Blocking unknowns:** none functionally — but the IO-expander register
 map and SPI host assignment (see PROGRESS.md) are unverified against real
 hardware and are the first suspects if the radio stays silent.
-**Status:** code written, **not yet run on hardware.**
+**Status:** **complete, hardware-verified 2026-08-23.** Both suspects above
+were real: expander P0 turned out to power the GPS as well as the antenna
+switch, and the sync word had to be sourced from upstream rather than
+guessed. Live Meshtastic frames decoded with well-formed headers, and heap
+stayed flat under sustained RX.
 
 ### Phase 2 — `HOME_LISTEN` + task/queue architecture + GPS + SD (= MVP-Beta)
 **Goal:** the smallest genuinely useful field tool.
@@ -115,8 +119,16 @@ detections batched to SD per the §8 log schema.
 **Exit criteria:** unattended run — power on, GPS fix acquired, detections
 logged with correct lat/lon, no dropped packets attributable to SD
 latency, no crash from heap exhaustion over a multi-hour run.
-**Blocking unknowns:** microSD bus (SPI vs SDMMC) must be confirmed before
-the logger task's driver/pins are final.
+**Blocking unknowns:** none left. microSD is confirmed on the shared SPI
+bus (arbitrated by `spi_bus.h`), and GPS reached a fix on hardware
+2026-08-23 — the last piece that had never been proven.
+**Status:** built; **the exit criterion is now the only thing outstanding.**
+Every component works on hardware individually. What has not happened is
+the multi-hour unattended run itself, which is the whole point of the
+criterion — an architecture that survives a bench session and one that
+survives three hours of real traffic on battery are different claims.
+`session.csv` (DESIGN.md §8.2) exists so that run can be judged from the
+card afterwards instead of requiring someone to watch a console.
 
 ### Phase 3 — MeshCore profile
 **Deliverable:** same `HOME_LISTEN` engine, MeshCore US-narrow table
