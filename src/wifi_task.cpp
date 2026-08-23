@@ -258,6 +258,26 @@ void stopAp() {
     Serial.println(F("[wifi] AP stopped."));
 }
 
+// Logs a connect/disconnect the moment the station count changes, rather
+// than leaving it as something only visible by comparing two /api/status
+// polls (or the WIFI page) by eye. Polled here (edge-detected against the
+// last-seen count) rather than via WiFi.onEvent(): that callback runs
+// outside this task's context, and every other piece of state in this file
+// is deliberately kept to this one task's own loop — one less cross-context
+// question to answer for a feature this small. At a 2ms loop interval while
+// the AP is active, an actual connect/disconnect is caught well within
+// human-noticeable time.
+uint8_t lastClientCount = 0;
+
+void logClientCountChanges() {
+    const uint8_t clients = (uint8_t)WiFi.softAPgetStationNum();
+    if (clients == lastClientCount) return;
+    Serial.print(clients > lastClientCount ? F("[wifi] client connected, ") : F("[wifi] client disconnected, "));
+    Serial.print(clients);
+    Serial.println(F(" total"));
+    lastClientCount = clients;
+}
+
 void wifiTask(void *) {
     for (;;) {
         if (apRequested && !apActive) {
@@ -267,11 +287,16 @@ void wifiTask(void *) {
         }
 
         if (apActive) {
+            logClientCountChanges();
             server.handleClient();
             vTaskDelay(pdMS_TO_TICKS(2));
         } else {
             // Nothing to do while off — this task is the lowest priority in
             // the system and should cost as close to zero as possible then.
+            // Reset so the next AP session starts from a clean baseline
+            // rather than comparing against whatever the count was when
+            // this one was toggled off.
+            lastClientCount = 0;
             vTaskDelay(pdMS_TO_TICKS(200));
         }
     }

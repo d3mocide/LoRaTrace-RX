@@ -1753,24 +1753,67 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     "smallest thing that's actually useful" call the rest of Phase 2
     followed). None were in scope for what was asked.
 
+- **2026-08-23 (later same day) — Phase 3 go/no-go: closed, on real
+  hardware, first try.** User flashed v0.3.0 and connected a browser to the
+  AP. Real numbers, not estimates:
+  - **Heap cost of the AP itself: ~55KB.** `heap=268824` in the last
+    `[status]` line before `WiFi.mode(WIFI_AP)`/`WiFi.softAP()` ran,
+    `heap=212856` in the first stable reading after — matches this same
+    log's own earlier estimate ("on the order of tens of KB") almost
+    exactly, not just in the right ballpark. Free heap settled around
+    206-210KB with the AP active and being used (one browser tab open,
+    polling `/api/status`), `heapmin` around 192-197KB after a few
+    requests — comfortably above zero, real headroom left over.
+  - **The actual invariant held**: `crc_err`/`queue_drop`/`bus_miss`/
+    `row_drop` all stayed at 0 for the entire session, AP active the whole
+    time, exactly the thing this feature was built specifically not to
+    risk. **Phase 3's go/no-go is answered: go.**
+  - **Two `WebServer.cpp` log lines showed up** (`_handleRequest():
+    request handler not found` and `send(): content length is zero`) —
+    investigated against the actual Arduino-ESP32 2.0.17 source
+    (`libraries/WebServer/src/WebServer.cpp`) rather than guessed, per this
+    project's own standing discipline. Both are benign: the first is
+    `WebServer::_handleRequest()`'s own `log_e()` call, which fires
+    unconditionally whenever a request doesn't match an exact `server.on()`
+    route — true for `wifi_task.cpp`'s own CSV downloads by design (they're
+    deliberately routed through `onNotFound()`, not registered directly),
+    not a sign the handler failed to run. The second fires whenever `send()`
+    is called with an empty content-string argument — exactly what
+    `streamCsvFile()` intentionally does (headers first, real bytes
+    streamed manually afterward) — and the source confirms the response
+    still uses the real `setContentLength()` value in its headers
+    regardless, so the warning doesn't indicate a truncated or broken
+    download.
+  - **Added: connect/disconnect logging.** `WiFi.softAPgetStationNum()`
+    was already live in `/api/status` and the WIFI page, but only as
+    something you'd notice by comparing two readings — nothing announced
+    the moment itself. `wifiTask()`'s loop (already running every ~2ms
+    while the AP is active) now edge-detects the station count against its
+    last-seen value and prints `[wifi] client connected, N total` /
+    `[wifi] client disconnected, N total` the moment it changes. Polled in
+    the task's own loop rather than via `WiFi.onEvent()` on purpose — that
+    callback runs outside this task's context, and every other piece of
+    wifi_task state deliberately stays inside its own loop; one less
+    cross-context question for a feature this small. Not yet re-verified
+    on hardware — build-clean by inspection like every other change made
+    this way in this log.
+
 ## Next steps
 
 Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist
 above) — remaining items are follow-through, in the order it's worth doing.
 
-0. **Flash v0.3.0 and confirm the Phase 3 go/no-go.** This is the first
-   thing worth doing on the next bench session, ahead of everything below —
-   it's cheap (no separate spike build, no new flashing procedure) and it's
-   the one thing standing between "built" and "trust this." Watch the
-   existing Serial `heap=`/`heapmin=` line before and after a long-press
-   WiFi toggle, confirm `radioCrcErrorCount()`/`radioQueueDropCount()`/
-   `radioBusMissCount()` stay at 0 with the AP active, then connect a phone
-   or laptop to the AP and exercise all three web UI tabs — status
-   dashboard updating live, a CSV download that diffs clean against the
-   same file read off the card directly, and a settings save that actually
-   changes the boot-banner channel after a power cycle. See the Decisions
-   log entry above for the full list of what "built" does and doesn't cover
-   yet.
+0. **Done, 2026-08-23: the Phase 3 go/no-go.** Flashed and bench-tested the
+   same day it was built — see the Decisions log entry above for the real
+   numbers (~55KB heap cost, exit-criterion counters held at 0 with the AP
+   active, dashboard/downloads/settings all reachable from a real browser).
+   Two remaining loose ends from that session, not blockers: the two
+   `WebServer.cpp` log lines are now explained (benign, verified against
+   source) and connect/disconnect logging was added in response but not yet
+   itself bench-verified; and the Settings tab specifically — a save that
+   actually changes the boot-banner channel after a power cycle — has no
+   evidence either way in that session's log (no `[config]` line of any
+   kind), so still genuinely untested, not just unconfirmed.
 1. **Done, 2026-08-23: the multi-hour unattended run (run0007, v0.2.5,
    2h30m).** See the Phase 2 checklist entry and the Decisions log entry
    above for the numbers — every exit-criterion counter held at its best
