@@ -249,25 +249,52 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         message — direct evidence the antenna works, upgrading the earlier
         MEDIUM-HIGH reasoned assessment to confirmed. The passive-ceramic
         explanation held.
-  - [ ] GPS produces an actual **fix** — not yet. First capture was indoors
-        and showed `00` satellites *in view* on every constellation with
-        HDOP 25.5, which is exactly what indoors looks like (GPS is
-        ~-130dBm; a roof costs 20-30dB). Needs an outdoor cold start.
-        The module also emits `$GPTXT,01,01,01,ANTENNA OPEN`. Assessed as a
-        **benign false positive, MEDIUM-HIGH confidence, reasoned not
-        proven**: that message comes from an antenna supervisor sensing DC
-        bias current, which only *active* antennas draw, and this Cap has a
-        built-in *passive* ceramic antenna (M5Stack's own product copy). If
-        satellites-in-view stays 0 under genuinely open sky for several
-        minutes, revisit this and suspect the antenna for real.
-  - [ ] An unattended multi-hour run: detections logged with correct
+  - [x] GPS produces an actual **fix** — **closed 2026-08-23**, outdoor
+        ~37min deck run (`session.csv`, run 6): `fix_type=3` (3D) already
+        present on the very first periodic row (uptime 64s), `ttff_s=45`,
+        sats climbing 9→22 and holding a 3D fix for the entire run. The
+        earlier indoor `00`-satellites/`ANTENNA OPEN` capture is now
+        explained rather than just excused: same passive-antenna hardware,
+        genuinely open sky this time. Antenna suspicion from that checklist
+        note is retired.
+  - [~] An unattended multi-hour run: detections logged with correct
         lat/lon, `qdrop`/`rowdrop` staying at zero, no heap exhaustion.
-        The `[status]` serial line reports exactly these counters so the
-        exit criteria are checkable rather than assumed
-  - [ ] `maxflush` (worst SD bus hold) measured under real traffic — this
-        is the number that says whether batch sizing is starving the radio.
-        If it approaches the inter-packet gap, shrink `BATCH_BUF_SIZE`
-        rather than deepening the queue
+        **Strong interim data point, 2026-08-23, not yet the literal exit
+        criterion.** A 37-minute battery-powered deck run (no serial log,
+        judged entirely from `detections.csv`/`session.csv` per this
+        checklist's own design) came back clean on every counter that
+        matters: `crc_err`/`queue_drop`/`bus_miss`/`row_drop` all stayed at
+        **0** for all 18 flushes across the run; `sd=ok` and
+        `bus_contention=0` the entire time; `heap_free` settled flat at
+        312596B and `heap_min` at 308004B with no further decline after the
+        first two periodic rows (no leak signal); all 19 logged detections
+        carry a fresh, plausible fix (`fix_quality=1`) with lat/lon tightly
+        clustered around the deck location, matching the concurrent
+        `session.csv` fixes. Battery dropped 3812mV→3740mV (72mV) over the
+        run — a rate that would still leave headroom over several hours.
+        **What's still open:** this is 37 minutes, not the "multi-hour"
+        the criterion actually asks for — slow leaks, thermal drift, and
+        SD-card long-run reliability don't reliably show up in 37 minutes.
+        This run also extends the existing `nmea_bad_crc` watch item (see
+        the v0.2.4 5-minute-run and run0005 Decisions log entries above)
+        rather than raising a new one: those established a ~0.4-0.6%
+        baseline that roughly doubled to ~1.2% during SD-flush bursts,
+        but neither run had a GPS fix *and* steady detection traffic at
+        the same time to test the combined condition. This run does, and
+        the rate sustained **~2.0%** for the full 37 minutes (765/37707) —
+        higher than either prior number, consistent with the same
+        bus-contention direction those entries already flagged, not a new
+        failure mode. Still non-blocking (fix type and sat count never
+        degraded), but worth a dedicated look before Phase 3 adds MeshCore
+        traffic on top.
+  - [x] `maxflush` (worst SD bus hold) measured under real traffic —
+        **closed 2026-08-23**, same deck run: `max_flush_ms` peaked at
+        **29ms** across 18 flushes (`BATCH_BUF_SIZE=2048`), comfortably
+        below anything that could starve the radio at Meshtastic
+        inter-packet spacing. `max_session_ms` tracked identically (29ms),
+        consistent with the health-row write being the loop's dominant
+        cost, not a separate spike. No indication `BATCH_BUF_SIZE` needs
+        shrinking.
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
 - [ ] **Phase 5** — `ENERGY_SWEEP`
@@ -1325,16 +1352,56 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       few hundred bytes each, and `rx=0` makes them trivially filterable
       later if that ever matters.
 
+- **2026-08-23 (hardware) — first outdoor, battery-only run: GPS fix closed,
+  `maxflush` measured, first combined-load data point.** Run 6, ~37 minutes
+  on the operator's deck, no serial console (judged entirely from the two
+  CSVs the exit criterion was designed to make readable after the fact).
+  - **GPS reached a 3D fix almost immediately** (`ttff_s=45`) and held it the
+    entire run, sats climbing 9→22. This is the first time this board has
+    ever produced a fix outdoors under real conditions — closes that
+    checklist item and retires the lingering antenna suspicion from the
+    indoor `00`-sats capture.
+  - **`max_flush_ms` peaked at 29ms** across 18 flushes — the first real
+    measurement of this number, closing that checklist item. Nowhere close
+    to a level that would starve the radio; `BATCH_BUF_SIZE` doesn't need
+    revisiting.
+  - **Every drop counter stayed at 0 for the full run**: `crc_err`,
+    `queue_drop`, `bus_miss`, `row_drop`. `sd=ok` and `bus_contention=0`
+    throughout. `heap_free`/`heap_min` settled flat (312596B / 308004B)
+    after the first two minutes with no further decline — no leak signal.
+  - **All 19 detections carry a fresh, plausible fix** clustered tightly
+    around the deck's coordinates, matching the concurrent `session.csv`
+    positions row for row — the lat/lon-correctness leg of the exit
+    criterion reads clean on this run.
+  - **First time GPS fix + steady detection traffic coincided**, which is
+    the exact combined condition the run0005 and v0.2.4 entries above
+    flagged as untested for the `nmea_bad_crc`/bus-contention question.
+    Answer: **~2.0%** sustained for the whole run (765/37707), above the
+    ~0.4-0.6% baseline and ~1.2% burst rate seen separately before. Same
+    direction as those findings, not a new failure mode, and fix quality
+    never wavered — but the highest number recorded yet, so it's worth a
+    closer look (a scoped burst-correlation check, not necessarily a fix)
+    before Phase 3 adds a second profile's worth of traffic on top.
+  - Battery 3812mV→3740mV (-72mV) over 37 minutes — a rate that leaves
+    comfortable headroom over several hours, for whenever the actual
+    multi-hour run happens.
+  - **Not yet the exit criterion itself**: 37 minutes stationary on a deck
+    is a strong, clean data point, but ROADMAP.md's Phase 2 gate is
+    specifically a *multi-hour* unattended run, and this doesn't reach
+    that bar on duration or on being a real drive (GPS never had to
+    track movement). Phase 2 stays open pending that run.
+
 ## Next steps
 
 Phase 2 has no blocking unknowns left. Everything below is verification or
 follow-through, in the order it's worth doing.
 
-1. **Run the Phase 2 exit criterion: a multi-hour unattended drive.** Flash
-   v0.2.1, confirm a GPS fix on the GPS page, then drive with the lid shut
-   and no serial console. This is the actual gate — the architecture has
-   never been asked to hold up for hours under real traffic, and everything
-   below is easier to judge once it has.
+1. **Run the Phase 2 exit criterion: a multi-hour unattended drive.** The
+   37-minute deck run above already dry-ran the whole read-the-card
+   procedure (steps 2-3 below) and came back clean on every counter — what's
+   left is purely duration and an actual moving drive, not a new kind of
+   test. Flash the current version, confirm a GPS fix on the GPS page, then
+   drive for several hours with the lid shut and no serial console.
 2. **Read `session.csv` first when the card comes back**, before looking at
    the detections. In order, the questions it answers:
    - `queue_drop` and `row_drop` — must be 0. Anything else means the
@@ -1343,20 +1410,29 @@ follow-through, in the order it's worth doing.
    - `max_flush_ms` — the worst bus hold. If drops and this both climb
      together, SD latency is starving the radio and the batch sizing is the
      lever (logger_task.h explains why the answer is *shorter* flushes,
-     not rarer ones).
+     not rarer ones). 29ms was the worst seen on the deck run — the number
+     to beat, not just a checkbox.
    - `heap_min` versus `heap_free` — a flat trough over hours is the
      no-leak result Phase 1 got at idle, now under the full task load.
-     Falling means a leak, and the slope gives the rate.
+     Falling means a leak, and the slope gives the rate. Flat for the first
+     37 minutes; needs to stay flat for hours to actually close this.
    - `ttff_s` on the boot row, and how quickly `lat`/`lon` start appearing
      — the operational answer to "how long before the track is usable."
+   - `nmea_bad_crc` rate — now has a real combined-load number (~2.0%,
+     deck run above) to compare a multi-hour run's rate against. A rate
+     that keeps climbing with cumulative flush activity, rather than
+     holding near 2%, would upgrade this from a watch item to a real bug.
 3. **Spot-check `detections.csv` against the drive.** Positions should
    track the route, and the empty-lat/lon rows should cluster at the start
    (before first fix) rather than scattered through it — scattered blanks
-   would mean the 10s freshness window is rejecting fixes it shouldn't.
+   would mean the 10s freshness window is rejecting fixes it shouldn't. The
+   deck run had a fix before the first detection, so this specific check
+   (blanks-at-start-only) is still untested; a real drive's cold start will
+   exercise it.
 4. Once that run is clean, Phase 2 is done: tag `v0.2.x`, mark the phase
    complete in ROADMAP.md, and start Phase 3 (MeshCore profile) — same
    `HOME_LISTEN` engine, second channel table, sync word already sourced.
-5. Still-open watch items, no action unless they recur:
+5. Still-open watch items, no action unless they recur/worsen:
    - SD-mount reliability across power cycles (the GPIO5 fix's first test
      was clean, but the original report said "every bin", which points at
      card seating rather than firmware). The remount fix above now gives a
@@ -1364,3 +1440,10 @@ follow-through, in the order it's worth doing.
      `down` and back in `session.csv` is what that looks like.
    - The Launcher-return keypress: hold through the reset rather than tap,
      or use Launcher's Settings → "Boot to Launcher" toggle.
+   - `nmea_bad_crc` vs. bus/detection load — ~0.4-0.6% baseline, ~1.2%
+     during isolated SD-flush bursts, ~2.0% sustained once GPS fix + steady
+     detection traffic ran together (deck run above). Consistent direction
+     across three data points now; worth a scoped look (does it track
+     `bus_contention` specifically, or just wall-clock activity) before
+     Phase 3 adds MeshCore traffic on top, even though it hasn't degraded
+     fix quality yet.
