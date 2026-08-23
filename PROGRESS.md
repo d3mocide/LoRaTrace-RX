@@ -1878,6 +1878,65 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     theory needs revisiting rather than assuming a smaller residual case
     was missed.
 
+- **2026-08-23 (later same day) — run0010: first combined-load run (WiFi
+  AP + GPS + real Meshtastic traffic together, ~10 min, v0.3.0).** Closes
+  Next-steps item 1a and gives Phase 3's go/no-go a second, harder data
+  point than the original isolated test.
+  - **Item 1a closed: genuine relay traffic confirmed, not duplicate
+    detection.** Three separate `packet_id`s each seen twice within
+    seconds, in every case with `hop_limit` decremented by exactly 1 and a
+    different `relay_node` on the second sighting — precisely the signature
+    Next-steps item 1a said would settle this: `1335d28a` (hop 7→6, relay
+    `68`→`5c`), `66e2811f` (hop 4→3, relay `5c`→`68`), `069a4065` (hop 2→1,
+    relay `5c`→`68`). `hop_start` stayed `7` across all of them
+    (self-consistent, not corrupted). The duplicate-detection/double-DIO1-fire
+    theory this was meant to rule out is closed.
+  - **New pattern worth watching, not yet acted on: `relay_node` `5c` reads
+    ~-10dBm RSSI / ~12.5dB SNR every single time it appears (5 of 5
+    sightings this run), `relay_node` `68` reads -63 to -65dBm every time
+    (4 of 4).** The consistency itself is the interesting part — real RF
+    shouldn't cluster this tightly unless `5c` genuinely is a very
+    close/strong relay (plausible: a near-field node) and `68` a farther
+    one. Checked `radio_task.cpp` for the obvious cause first: `getRSSI()`/
+    `getSNR()` are already read before `startReceive()` re-arms (comment at
+    the call site notes exactly why — `GetPacketStatus` reports the *last*
+    packet, so reading after re-arm would return a stale value), so this
+    isn't the classic ordering bug. -10dBm still sits near the top of
+    SX1262's realistic input range, so a near-field relay is the leading
+    explanation but not yet confirmed — this is the first run with enough
+    relay pairs to see the split this clearly, no prior data to compare
+    against. Added to the watch list below.
+  - **Health, combined load:** `crc_err`/`queue_drop`/`bus_miss`/
+    `row_drop`/`bus_contention` all 0 for the full ~14 minutes logged (boot
+    to last row), AP active and serving at least one client (the operator's
+    dashboard screenshot shows `WIFI CLIENTS: 1`) the whole time, 7 real
+    Meshtastic detections logged alongside it. First time all three load
+    sources (WiFi, GPS, active mesh RX) have been confirmed together — the
+    original go/no-go only had WiFi plus idle `/api/status` polling.
+  - **`heap_min` step pattern matches the no-leak signature Next-steps item
+    2 describes, plus one new step down.** `268508`(boot)→`212276`(AP up,
+    ~64s, matches the ~55KB AP cost already on record)→`186348`(184s)→flat
+    at `177344` for ~10 minutes (244s–785s)→`128112` at the last row
+    (845s). `heap_free` stayed flat (~204-208K) across that same last step,
+    so this reads as one more transient large allocation dropping the
+    low-water mark, not a leak (a leak would show `heap_free` declining
+    too). Likely cause: a client request heavier than the `/api/status`
+    polling the original go/no-go tested — the screenshot's `Downloads` tab
+    suggests a CSV fetch, which streams through `wifi_task.cpp`'s
+    file-read/TCP-write path. Notably lower than the original go/no-go's
+    ~192-197K `heapmin`, worth a closer look (which request, how low it can
+    go) if a longer session pushes it lower still — not urgent, still
+    ~128K of headroom.
+  - **New `max_flush_ms`/`max_session_ms` watermark: 30ms, edging past the
+    prior 29ms record**, under combined WiFi+mesh load. Small enough not to
+    be a concern on its own — noted per Next-steps item 2's "the number to
+    beat" framing.
+  - **GPS held up under the combined load**: TTFF 158s, sats used up to 20,
+    `nmea_bad_crc` 0/15167 (0.00%, consistent with run0007's closed fix),
+    `gps_max_loop_gap_ms` flat at 352ms for the entire run — no sign
+    `wifi_task` starves the GPS parse loop even with the AP actively
+    serving requests.
+
 ## Next steps
 
 Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist
@@ -1906,17 +1965,13 @@ above) — remaining items are follow-through, in the order it's worth doing.
    SD-card seating/contact reliability under vibration (the earlier
    CRC-mount-error watch item), and whether logged lat/lon actually tracks
    *moving* position rather than jittering around one point.
-1a. **Re-run once v0.2.6 is on the device, specifically to close the
-    `detections.csv` routing-metadata finding.** run0007's data was 90%
-    consistent with "the nearby repeater, not a bug" but v0.2.5 didn't log
-    `packet_id`/`hop_limit`/`relay_node`, so it couldn't be proven either
-    way from that run alone (see Decisions log). Any run on v0.2.6 settles
-    it directly: for a same-`channel_or_node_id`, near-in-time pair, a
-    matching `packet_id` with decremented `hop_limit` and a different
-    `relay_node` confirms genuine relay traffic; identical values across
-    all three confirms the duplicate-detection theory instead and reopens
-    the radio_task.cpp double-DIO1-fire question. Doesn't need its own
-    dedicated run — the next session of any kind on v0.2.6 answers this.
+1a. **Done, 2026-08-23: closed by run0010 (v0.3.0, WiFi AP + GPS + real
+    Meshtastic traffic, ~10 min).** Settled exactly the way this item said
+    it would: three `packet_id`s each seen twice within seconds, every pair
+    showing `hop_limit` decremented by 1 and a different `relay_node` on
+    the second sighting (`1335d28a`, `66e2811f`, `069a4065` — see Decisions
+    log). Genuine relay traffic confirmed; the duplicate-detection/
+    double-DIO1-fire theory is closed, not reopened.
 2. **Read `session.csv` first when the card comes back**, before looking at
    the detections. In order, the questions it answers:
    - `queue_drop` and `row_drop` — must be 0. Anything else means the
@@ -1967,3 +2022,10 @@ above) — remaining items are follow-through, in the order it's worth doing.
      the Phase 2 checklist entry above: run0007 (v0.2.5, 2.5h) came back at
      **0.00%** (0/185833), down from ~2.0% the prior run. Strong evidence
      the ring-buffer bump was the actual fix, not just insurance.
+   - **RSSI clustering by `relay_node`, first seen run0010** (see Decisions
+     log): `5c` read ~-10dBm every time, `68` read -63 to -65dBm every
+     time, 5-of-5 and 4-of-4 respectively. Not an RSSI-read ordering bug
+     (checked — `radio_task.cpp` already reads before re-arming), so a
+     genuinely near-field relay is the leading theory. Watch for whether it
+     keeps clustering this tightly across future runs or turns out to be
+     one-run coincidence.
