@@ -17,6 +17,17 @@ GpsFix sharedFix; // guarded by fixMutex
 
 volatile uint32_t sentenceCount = 0;
 volatile uint32_t checksumErrors = 0;
+// Longest gap between two passes of gpsTask()'s drain loop. A direct,
+// mechanism-level measurement for the nmea_bad_crc investigation
+// (PROGRESS.md): this task is lowest priority on Core 0 (deliberately —
+// see gpsTaskStart()), so a busy logger holding the CPU while it writes to
+// SD is the leading theory for where bytes get lost. If this stays small
+// even while flushes are happening, that theory is wrong and the noise is
+// coming from somewhere else (wiring, RF coupling, the module itself).
+volatile uint32_t maxLoopGapMs = 0;
+// Lines discarded for overrunning lineBuf before a terminator arrived — see
+// gps_task.h for why this is worth tracking separately from checksumErrors.
+volatile uint32_t oversizeDrops = 0;
 // millis() at the first position fix of this power-on; 0 = none yet.
 // Captured here rather than derived downstream because time-to-first-fix is
 // only meaningful relative to boot, and by the time the logger sees a fix
@@ -90,9 +101,22 @@ void handleSentence(const char *s) {
 }
 
 void gpsTask(void *) {
+    // Default ring buffer is 256 bytes. At ~17 sentences/sec x ~75 bytes
+    // (5-constellation output, measured 2026-08-23) that's under 200ms of
+    // slack before an unread buffer starts dropping bytes. Bumped to 1024
+    // as cheap insurance against exactly the CPU-starvation scenario
+    // maxLoopGapMs (below) exists to detect — must be called before begin().
+    gpsSerial.setRxBufferSize(1024);
     gpsSerial.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
 
+    uint32_t lastLoopMs = millis();
+
     for (;;) {
+        const uint32_t loopStart = millis();
+        const uint32_t gap = loopStart - lastLoopMs;
+        if (gap > maxLoopGapMs) maxLoopGapMs = gap;
+        lastLoopMs = loopStart;
+
         bool didWork = false;
         while (gpsSerial.available()) {
             didWork = true;
@@ -109,6 +133,7 @@ void gpsTask(void *) {
                 lineBuf[lineLen++] = c;
             } else {
                 lineLen = 0; // oversize/garbled — resync at the next newline
+                oversizeDrops++;
             }
         }
 
@@ -150,6 +175,14 @@ uint32_t gpsSentenceCount() {
 
 uint32_t gpsChecksumErrorCount() {
     return checksumErrors;
+}
+
+uint32_t gpsMaxLoopGapMs() {
+    return maxLoopGapMs;
+}
+
+uint32_t gpsOversizeDropCount() {
+    return oversizeDrops;
 }
 
 uint32_t gpsFirstFixMillis() {

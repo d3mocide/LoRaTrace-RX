@@ -28,6 +28,23 @@ bool gpsGetFix(GpsFix &out, TickType_t timeout);
 uint32_t gpsSentenceCount();
 uint32_t gpsChecksumErrorCount();
 
+// Worst-case gap (ms) between two passes of gpsTask()'s drain loop, i.e. the
+// longest this task ever went without a chance to empty the UART ring
+// buffer. Direct evidence for or against the "SD/logger activity starves the
+// GPS task and the ring buffer overflows" hypothesis (PROGRESS.md,
+// nmea_bad_crc watch item) — the theory predicts this spikes during SD
+// writes; a checksum-error count alone can't say whether that's the actual
+// mechanism or just correlated with something else.
+uint32_t gpsMaxLoopGapMs();
+
+// Count of lines discarded for overrunning the 96-byte assembly buffer
+// before a terminator arrived. Previously silent (the code just resynced
+// and moved on) — but a dropped byte that happens to be a sentence's own
+// '\n'/'\r' produces exactly this symptom, and it carries none of the
+// bytes lost to it into nmea_bad_crc, so the true corruption rate could be
+// higher than that counter alone reports.
+uint32_t gpsOversizeDropCount();
+
 // millis() at the first position fix since power-on, or 0 if there has not
 // been one yet. Time-to-first-fix is an operational number for a wardriver
 // — it says how long after switching on the track becomes usable — and it

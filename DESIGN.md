@@ -304,7 +304,7 @@ fast for near-zero value.
 
 ### 8.2 `session.csv` — the run's own vital signs
 
-`timestamp_utc, uptime_s, reason, lat, lon, sats, sats_in_view, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, max_session_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run`
+`timestamp_utc, uptime_s, reason, lat, lon, sats, sats_in_view, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, max_session_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run, gps_max_loop_gap_ms, gps_oversize_drops`
 
 One row per minute, plus a `reason=boot` row when the card comes up.
 
@@ -339,6 +339,20 @@ Two fields carry more weight than the rest:
   task owns the card and now has a deeper call path than it did, and a
   stack overflow there loses the whole run silently — so the size is
   reported by the run rather than argued about beforehand.
+- **`gps_max_loop_gap_ms` and `gps_oversize_drops`, added 2026-08-23**,
+  exist to test one specific theory about `nmea_bad_crc` rather than just
+  keep restating the symptom. The GPS task is deliberately Core 0's lowest
+  priority (§2); the leading theory is that a busy logger starves it long
+  enough for the UART ring buffer to overflow. `gps_max_loop_gap_ms` is a
+  direct measurement of that starvation — the worst gap the GPS task ever
+  went without a chance to drain the buffer — rather than an inference from
+  its downstream effect. `gps_oversize_drops` catches a related but
+  invisible failure mode: a dropped byte that happens to be a sentence's
+  own terminator merges two sentences into one, which overruns the
+  96-byte assembly buffer and gets silently discarded without ever
+  incrementing `nmea_bad_crc` — so the true corruption rate could be higher
+  than that counter alone reports. See PROGRESS.md's `nmea_bad_crc` watch
+  item for the run that motivated this.
 
 Costs about 180 rows on a three-hour drive: nothing next to the detection
 log, and one extra short bus hold a minute is far under the noise floor of

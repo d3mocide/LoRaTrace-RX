@@ -1391,17 +1391,90 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     that bar on duration or on being a real drive (GPS never had to
     track movement). Phase 2 stays open pending that run.
 
+- **2026-08-23 — v0.2.5: re-analyzed run 6 minute-by-minute, and the
+  simple "SD flushes cause the noise" story doesn't hold up as cleanly as
+  the earlier short bench sessions suggested; added instrumentation to
+  test the actual mechanism instead of continuing to infer it.**
+  - **The re-analysis.** Bucketed `session.csv` into its 37 one-minute
+    intervals and split them by whether a detection flush landed in that
+    minute. Windows *with* a flush: 304/13248 bad (2.29%). Windows
+    *without* one: 461/24459 bad (1.88%) — a real but modest ~20% relative
+    bump, not the ~2x jump the shorter v0.2.4/run0005 sessions hinted at.
+    More telling: the very first three minutes, **before any flush had
+    ever happened this run**, were already running 1.25-1.86% bad — close
+    to this run's own "quiet" baseline and already above the ~0.4-0.6%
+    baseline those earlier sessions established. Two readings of that:
+    either this run's baseline noise floor is just higher for an unrelated
+    reason (battery power outdoors vs. USB-tethered bench, different RF
+    environment), or the once-a-minute health-row write — which fires in
+    *every* interval, flush or not, so it can't be isolated by this kind
+    of bucketing — is itself already enough to account for most of the
+    baseline. The 60-second granularity in `session.csv` can't tell these
+    apart; deciding between them needs a direct measurement, not another
+    correlation on the same coarse data.
+  - **Added `gps_max_loop_gap_ms`**: the worst gap the GPS task (Core 0,
+    lowest priority by design — DESIGN.md §2) ever went between passes of
+    its UART-drain loop. This is the actual mechanism the bus-contention
+    theory depends on (a busy logger starving the GPS task long enough for
+    the UART ring buffer to overflow) measured directly, rather than
+    inferred from `nmea_bad_crc` moving around. If this stays small (a few
+    ms) through the whole 2-hour run even during flush-heavy stretches,
+    the CPU-starvation theory is wrong and the noise is coming from
+    somewhere else — wiring, RF coupling off the LoRa front-end, or the
+    module itself. If it spikes into the hundreds of ms alongside SD
+    activity, that's the theory confirmed.
+  - **Added `gps_oversize_drops`**: the line-assembly buffer (96 bytes,
+    NMEA's own spec limit) has always silently discarded and resynced on
+    overrun, with zero counter anywhere. A dropped byte that happens to be
+    a sentence's own `\n`/`\r` merges two sentences into one, overruns the
+    buffer, and vanishes without ever touching `nmea_bad_crc` — so the true
+    corruption rate could be higher than that counter alone has ever shown.
+  - **Bumped the GPS UART ring buffer 256B → 1024B** (`gpsSerial.
+    setRxBufferSize(1024)`, before `.begin()`). At ~17 sentences/sec x
+    ~75 bytes measured this run, 256B is under 200ms of slack before an
+    unread buffer starts dropping bytes — cheap insurance regardless of
+    what the loop-gap measurement shows, and a natural A/B against this
+    run's ~2.0% number: if the rate drops substantially on the next run,
+    that's independent evidence for the same starvation theory.
+  - Both new fields appended after `run`, matching this schema's own
+    append-at-the-end convention (`rx_uptime_ms`/`logger_stack_free` set
+    the precedent) — existing tooling that reads earlier columns by
+    position is unaffected. `DESIGN.md` §8.2 and `test/test_session_log/`
+    updated to match; two new host tests cover the new columns' formatting
+    and position, all 11 tests (54 across the full native suite) still
+    pass. No `pio` in this environment — verified by compiling the native
+    suite directly against upstream Unity (g++, host), same workaround
+    used for the sync-word fix.
+  - **Not a fix — deliberately.** Nothing about *behavior* changed except
+    the buffer size; this is purely "make the next run answer the question
+    the last one couldn't." The right next step is the already-planned
+    2-hour deck run on this build, then reading `gps_max_loop_gap_ms`
+    first, before `nmea_bad_crc` itself.
+
 ## Next steps
 
 Phase 2 has no blocking unknowns left. Everything below is verification or
 follow-through, in the order it's worth doing.
 
-1. **Run the Phase 2 exit criterion: a multi-hour unattended drive.** The
+1. **Run the Phase 2 exit criterion: a multi-hour unattended run.** The
    37-minute deck run above already dry-ran the whole read-the-card
    procedure (steps 2-3 below) and came back clean on every counter — what's
-   left is purely duration and an actual moving drive, not a new kind of
-   test. Flash the current version, confirm a GPS fix on the GPS page, then
-   drive for several hours with the lid shut and no serial console.
+   left is purely duration. Flash **v0.2.5** (adds the two GPS diagnostic
+   columns below — worth having for this specific run, not just for its own
+   sake), confirm a GPS fix, then run for a couple of hours with no serial
+   console. **Stationary is fine — motion is not part of ROADMAP.md's exit
+   criterion** ("GPS fix acquired, detections logged with correct lat/lon,
+   no dropped packets attributable to SD latency, no crash from heap
+   exhaustion"), none of which requires the device to move, and a stationary
+   run is arguably a *cleaner* test of the firmware specifically since it
+   isolates architecture/duration questions from RF-environment and
+   satellite-geometry changes that come with actually driving. A real
+   (walking or driving) wardrive is still worth doing before calling this
+   tool field-ready, but as a separate, shorter follow-up — it's the only
+   way to exercise two things a deck run structurally can't: SD-card
+   seating/contact reliability under vibration (the earlier CRC-mount-error
+   watch item), and whether logged lat/lon actually tracks a *moving*
+   position rather than jittering around one point. Not a gate on this run.
 2. **Read `session.csv` first when the card comes back**, before looking at
    the detections. In order, the questions it answers:
    - `queue_drop` and `row_drop` — must be 0. Anything else means the
@@ -1418,10 +1491,14 @@ follow-through, in the order it's worth doing.
      37 minutes; needs to stay flat for hours to actually close this.
    - `ttff_s` on the boot row, and how quickly `lat`/`lon` start appearing
      — the operational answer to "how long before the track is usable."
-   - `nmea_bad_crc` rate — now has a real combined-load number (~2.0%,
-     deck run above) to compare a multi-hour run's rate against. A rate
-     that keeps climbing with cumulative flush activity, rather than
-     holding near 2%, would upgrade this from a watch item to a real bug.
+   - **`gps_max_loop_gap_ms` before `nmea_bad_crc`** — read this one first
+     now that it exists. It says directly whether the GPS task is ever
+     meaningfully CPU-starved (large gap = the bus-contention theory holds;
+     small gap throughout = look elsewhere). Only then does `nmea_bad_crc`
+     itself matter: ~2.0% was this run's combined-load number, `gps_
+     oversize_drops` adds the previously-invisible truncation failures on
+     top, and a rate that keeps *climbing* with cumulative activity rather
+     than holding near 2% would upgrade this from a watch item to a bug.
 3. **Spot-check `detections.csv` against the drive.** Positions should
    track the route, and the empty-lat/lon rows should cluster at the start
    (before first fix) rather than scattered through it — scattered blanks
@@ -1442,8 +1519,13 @@ follow-through, in the order it's worth doing.
      or use Launcher's Settings → "Boot to Launcher" toggle.
    - `nmea_bad_crc` vs. bus/detection load — ~0.4-0.6% baseline, ~1.2%
      during isolated SD-flush bursts, ~2.0% sustained once GPS fix + steady
-     detection traffic ran together (deck run above). Consistent direction
-     across three data points now; worth a scoped look (does it track
-     `bus_contention` specifically, or just wall-clock activity) before
-     Phase 3 adds MeshCore traffic on top, even though it hasn't degraded
-     fix quality yet.
+     detection traffic ran together (deck run above). A minute-by-minute
+     re-check of that last run complicates the simple story, though: flush
+     minutes ran 2.29% vs. 1.88% in quiet minutes, a real but modest gap,
+     not the ~2x the earlier short sessions suggested, and the rate was
+     already ~1.5-1.9% in the first three minutes before any flush had ever
+     happened. v0.2.5 adds `gps_max_loop_gap_ms`/`gps_oversize_drops`
+     specifically to settle this with a direct measurement instead of
+     another correlation — see that Decisions log entry. Worth resolving
+     before Phase 3 adds MeshCore traffic on top, even though it hasn't
+     degraded fix quality yet.

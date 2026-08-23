@@ -61,6 +61,13 @@ struct SessionStats {
     uint32_t ttff_s = 0;
     uint32_t nmea_sentences = 0;
     uint32_t nmea_bad_crc = 0;
+    // Worst gap the GPS task ever went without draining its UART buffer,
+    // and lines dropped for overrunning the line-assembly buffer before a
+    // terminator arrived. Added 2026-08-23 to test whether nmea_bad_crc
+    // tracks CPU starvation (this task is Core 0's lowest priority) or
+    // something else — see PROGRESS.md's nmea_bad_crc watch item.
+    uint32_t gps_max_loop_gap_ms = 0;
+    uint32_t gps_oversize_drops = 0;
 
     // --- Radio ---
     uint32_t rx = 0;
@@ -102,7 +109,8 @@ constexpr const char *SESSION_CSV_HEADER =
     "timestamp_utc,uptime_s,reason,lat,lon,sats,sats_in_view,fix_type,ttff_s,"
     "rx,crc_err,queue_drop,bus_miss,"
     "rows,row_drop,flushes,max_flush_ms,max_session_ms,sd,bus_contention,"
-    "nmea,nmea_bad_crc,heap_free,heap_min,batt_mv,logger_stack_free,run";
+    "nmea,nmea_bad_crc,heap_free,heap_min,batt_mv,logger_stack_free,run,"
+    "gps_max_loop_gap_ms,gps_oversize_drops";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
 // detectionFormatTimestamp() the detection rows use, and is empty before
@@ -131,7 +139,8 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%s,%lu,%s,%s,%s,%u,%u,%u,%lu,"
                      "%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%s,%lu,"
-                     "%lu,%lu,%lu,%lu,%lu,%lu,%u",
+                     "%lu,%lu,%lu,%lu,%lu,%lu,%u,"
+                     "%lu,%lu",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -157,7 +166,9 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.heap_min,
                      (unsigned long)s.batt_mv,
                      (unsigned long)s.logger_stack_free,
-                     (unsigned)s.run);
+                     (unsigned)s.run,
+                     (unsigned long)s.gps_max_loop_gap_ms,
+                     (unsigned long)s.gps_oversize_drops);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;
