@@ -215,5 +215,32 @@ bool writeChannelConfigToSD(const ChannelParams &params) {
     // format loadChannelConfigFromSD() parses — reused as-is here rather
     // than duplicating that format a second time.
     SD.remove(CHANNEL_CONFIG_PATH);
-    return writeDefaultConfig(params);
+    const bool ok = writeDefaultConfig(params);
+
+    // A save triggered from the web UI (wifi_task) has no other visible
+    // confirmation on the device — the browser shows its own success/error
+    // message, but the operator standing at the device with a serial
+    // console open (exactly the debugging situation this is for) saw
+    // nothing at all before this. Mirrors loadChannelConfigFromSD's own
+    // success/failure prints for the same reason.
+    if (ok) {
+        Serial.print(F("[config] Wrote "));
+        Serial.print(CHANNEL_CONFIG_PATH);
+        Serial.print(F(": "));
+        Serial.print(params.freq_mhz, 3);
+        Serial.print(F("MHz SF"));
+        Serial.print(params.sf);
+        Serial.print(F(" BW"));
+        Serial.print(params.bw_khz, 1);
+        Serial.print(F(" CR4/"));
+        Serial.print(params.cr_denom);
+        Serial.print(F(" sync 0x"));
+        Serial.print(params.sync_word, HEX);
+        Serial.println(F(" — reboot to apply."));
+    } else {
+        Serial.print(F("[config] Failed to write "));
+        Serial.print(CHANNEL_CONFIG_PATH);
+        Serial.println(F(" (SD busy, missing, or read-only)."));
+    }
+    return ok;
 }

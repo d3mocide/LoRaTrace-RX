@@ -7,6 +7,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <stdlib.h> // strtol, for the hex-or-decimal sync_word arg below
+#include <string.h> // strcmp/strncpy
 
 #include "battery.h"
 #include "config.h"
@@ -31,6 +32,31 @@ constexpr const char *WIFI_AP_PASSWORD = "loratrace123";
 WebServer server(80);
 volatile bool apRequested = false;
 bool apActive = false;
+
+// Computed once and cached, rather than recomputed into a fresh stack
+// buffer every time it's needed (as an earlier version of this file did) —
+// a real hardware run showed the AP-started log line print with the SSID
+// missing once, out of several successful boots that showed it correctly.
+// No definitive root cause was found by inspection (ESP.getEfuseMac() is a
+// deterministic hardware read, and nothing in startAp() should be able to
+// touch a local buffer between filling it and printing it), but a single
+// long-lived buffer, filled once, removes an entire category of doubt
+// regardless — one write, many reads, nothing left to race or corrupt on
+// a second AP start after a stop/start cycle.
+char cachedSsid[32] = {0};
+
+const char *ssidCached() {
+    if (cachedSsid[0] == '\0') {
+        // Chip-unique suffix (efuse MAC, always readable regardless of
+        // WiFi state) so multiple LoRaTrace units nearby don't collide on
+        // the same SSID — a real scenario for this project specifically,
+        // since a wardrive is exactly the kind of activity multiple people
+        // might do together.
+        const uint64_t mac = ESP.getEfuseMac();
+        snprintf(cachedSsid, sizeof(cachedSsid), "LoRaTrace-%04X", (unsigned)(mac & 0xFFFFu));
+    }
+    return cachedSsid;
+}
 
 // How long a handler will wait for the shared SPI bus. Bounded, not
 // portMAX_DELAY, matching every other non-radio SD caller in this codebase
@@ -232,8 +258,7 @@ void registerRoutes() {
 }
 
 void startAp() {
-    char ssid[32];
-    wifiApSsid(ssid, sizeof(ssid));
+    const char *ssid = ssidCached();
 
     WiFi.mode(WIFI_AP);
     WiFi.softAP(ssid, WIFI_AP_PASSWORD);
@@ -322,11 +347,7 @@ uint8_t wifiClientCount() {
 }
 
 void wifiApSsid(char *buf, size_t bufLen) {
-    // Chip-unique suffix (efuse MAC, always readable regardless of WiFi
-    // state) so multiple LoRaTrace units nearby don't collide on the same
-    // SSID — a real scenario for this project specifically, since a
-    // wardrive is exactly the kind of activity multiple people might do
-    // together.
-    const uint64_t mac = ESP.getEfuseMac();
-    snprintf(buf, bufLen, "LoRaTrace-%04X", (unsigned)(mac & 0xFFFFu));
+    if (buf == nullptr || bufLen == 0) return;
+    strncpy(buf, ssidCached(), bufLen - 1);
+    buf[bufLen - 1] = '\0';
 }
