@@ -230,9 +230,23 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       the cross-core queue, the shared-SPI mutex, and the batched CSV logger
       exist; 26 host tests cover every pure-logic path. What's outstanding
       is the part only hardware can answer:
-  - [ ] GPS produces an actual fix on this board (never yet achieved — see
-        the probe findings in the Decisions log; P0 power + pin polarity
-        were both wrong on the first attempt)
+  - [x] **GPS UART confirmed working on hardware 2026-08-23.** After the P0
+        power fix and the pin A/B, the probe latched immediately on
+        **RX=G15 / TX=G13** and streamed valid NMEA — 80 sentences per 5s,
+        **zero** checksum errors, all five constellations enabled
+        (GP/GL/GA/BD/GQ). `PIN_GPS_RX=15` in board_pins.h is now
+        hardware-confirmed, not inferred from contradictory docs.
+  - [ ] GPS produces an actual **fix** — not yet. First capture was indoors
+        and showed `00` satellites *in view* on every constellation with
+        HDOP 25.5, which is exactly what indoors looks like (GPS is
+        ~-130dBm; a roof costs 20-30dB). Needs an outdoor cold start.
+        The module also emits `$GPTXT,01,01,01,ANTENNA OPEN`. Assessed as a
+        **benign false positive, MEDIUM-HIGH confidence, reasoned not
+        proven**: that message comes from an antenna supervisor sensing DC
+        bias current, which only *active* antennas draw, and this Cap has a
+        built-in *passive* ceramic antenna (M5Stack's own product copy). If
+        satellites-in-view stays 0 under genuinely open sky for several
+        minutes, revisit this and suspect the antenna for real.
   - [ ] An unattended multi-hour run: detections logged with correct
         lat/lon, `qdrop`/`rowdrop` staying at zero, no heap exhaustion.
         The `[status]` serial line reports exactly these counters so the
@@ -928,6 +942,36 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     2026-08-23, including an original/rebroadcast pair — so a regression in
     header parsing produces a concrete wrong answer about real traffic
     rather than an abstract failure.
+
+- **2026-08-23 — GPS UART alive; probe reworked from firehose to instrument.**
+  The A/B settled M5Stack's documentation contradiction on the first try
+  (RX=G15), and the P0 power fix was the unlock. But the first successful
+  run dumped ~300 lines of raw NMEA, burying the two things that actually
+  mattered: `ANTENNA OPEN` and `00` satellites in view. Fixed:
+  - Raw passthrough is now **time-boxed to 3s** — proof of life, not a
+    monitoring mode. At ~80 sentences/5s across five constellations it's
+    unreadable as a steady state.
+  - **`$GxTXT` messages are surfaced on change**, with an inline note about
+    the passive-antenna false positive so the next person doesn't chase it.
+  - **Satellite visibility is parsed from GSV** (field 3) per constellation
+    and GSA fix type (field 2). This is the diagnosis that matters once the
+    UART is proven: **0 in view everywhere = sky/antenna; some in view but
+    no fix = just needs time** for almanac/ephemeris. The status line now
+    reads e.g. `sats=0 (GP:0 GL:0 GA:0 BD:0 GQ:0) fixtype=1`, and the advice
+    branches on it instead of guessing.
+  - Parsing verified on the host against the operator's actual captured
+    sentences.
+- **2026-08-23 — Fixed a latent static-initialisation-order bug** found by
+  re-reading the Phase 2 diff adversarially rather than by any test.
+  `radio_task.cpp` builds its `SX1262` at namespace scope via
+  `new Module(..., sharedSpi())`, which runs during static init; `sharedSpi()`
+  returned a reference to a namespace-scope global in a *different*
+  translation unit, and C++ guarantees nothing about cross-TU static init
+  order. It compiled and would have worked by luck (Module only stores the
+  pointer, and nothing touches the bus until `setup()`), which is precisely
+  what makes this class of bug expensive later. Now a function-local static,
+  which is guaranteed constructed on first use. Worth noting CI could never
+  have caught this — it is not a compile error.
 
 ## Next steps
 

@@ -56,12 +56,14 @@ constexpr uint8_t IOEXP_ANT_SWITCH_BIT = 0; // P0 — antenna path enable
 //   * Their Arduino tutorial's working example code for this exact Cap says
 //     `static const int RXPin = 15, TXPin = 13;` — ESP32 receives on G15,
 //     the opposite.
-// Empirically the code is right: a probe listening on G13 saw ZERO bytes
-// (PROGRESS.md 2026-08-23). Most likely the table's labels are written from
-// the host's perspective rather than the GPS module's, which is a common
-// and maddening documentation ambiguity. Trust running code over a table —
-// this project has already been bitten once by a hastily-scraped pin table
-// (see the microSD note below).
+// **RESOLVED ON HARDWARE 2026-08-23: the example code is right.** The probe
+// A/B'd both orderings and latched on RX=G15 immediately, then streamed
+// valid NMEA (80 sentences/5s, zero checksum errors). RX=G13 produced
+// nothing at all. Most likely the docs table's labels are written from the
+// host's perspective rather than the GPS module's — a common and maddening
+// documentation ambiguity. Trust running code over a table; this project
+// has already been bitten once by a hastily-scraped pin table (see the
+// microSD note below).
 //
 // GPS_BAUD 115200 agrees across both sources and is NOT in doubt. Note that
 // a wrong baud would produce garbage bytes, not silence, so the zero-byte

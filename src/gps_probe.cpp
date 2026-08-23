@@ -70,6 +70,7 @@ bool orderLatched = false; // stop switching once bytes arrive
 unsigned long sentenceCount = 0;
 unsigned long badChecksumCount = 0;
 uint32_t lastReport = 0;
+uint32_t firstByteMs = 0;
 bool sawAnyByte = false;
 bool sawFix = false;
 bool expanderOk = false;
@@ -78,6 +79,53 @@ GpsFix fix;
 
 char line[NMEA_MAX_SENTENCE];
 size_t lineLen = 0;
+
+// Raw NMEA is a firehose once the module is talking (~80 sentences per 5s
+// across five constellations), which buries the one line that matters. Dump
+// it only briefly as proof-of-life, then switch to the summary.
+constexpr uint32_t RAW_DUMP_MS = 3000;
+
+// --- Satellite visibility -----------------------------------------------
+// The diagnosis that matters once the UART works is "can the antenna SEE
+// anything": zero satellites in view across every constellation means sky
+// or antenna, whereas satellites in view but no fix means it just needs
+// more time to download almanac/ephemeris. GSV field 3 is sats-in-view, and
+// each constellation emits its own GSV with its own talker ID.
+struct TalkerSats {
+    char id[3];
+    uint8_t inView;
+};
+TalkerSats talkers[8];
+size_t talkerCount = 0;
+
+// Highest fix type seen in GSA field 2 (1=none, 2=2D, 3=3D).
+uint8_t gsaFixType = 1;
+
+// Last $GxTXT payload — the module's own words about its health.
+char lastTxt[48] = {0};
+
+void noteTalkerSats(const char *tag, uint8_t inView) {
+    char id[3] = {tag[1], tag[2], '\0'}; // skip '$'
+    for (size_t i = 0; i < talkerCount; i++) {
+        if (talkers[i].id[0] == id[0] && talkers[i].id[1] == id[1]) {
+            talkers[i].inView = inView;
+            return;
+        }
+    }
+    if (talkerCount < (sizeof(talkers) / sizeof(talkers[0]))) {
+        talkers[talkerCount].id[0] = id[0];
+        talkers[talkerCount].id[1] = id[1];
+        talkers[talkerCount].id[2] = '\0';
+        talkers[talkerCount].inView = inView;
+        talkerCount++;
+    }
+}
+
+uint16_t totalSatsInView() {
+    uint16_t total = 0;
+    for (size_t i = 0; i < talkerCount; i++) total = (uint16_t)(total + talkers[i].inView);
+    return total;
+}
 
 void startOrder(size_t idx) {
     activeOrder = idx;
@@ -99,6 +147,38 @@ void handleSentence(const char *s) {
     }
     sentenceCount++;
     gpsApplySentence(fix, s, millis());
+
+    char tag[8], buf[16];
+    if (!nmeaField(s, 0, tag, sizeof(tag)) || strlen(tag) < 3) return;
+
+    if (strstr(tag, "GSV") && nmeaField(s, 3, buf, sizeof(buf)) && buf[0] != '\0') {
+        noteTalkerSats(tag, (uint8_t)strtol(buf, nullptr, 10));
+    } else if (strstr(tag, "GSA") && nmeaField(s, 2, buf, sizeof(buf)) && buf[0] != '\0') {
+        uint8_t t = (uint8_t)strtol(buf, nullptr, 10);
+        if (t > gsaFixType) gsaFixType = t;
+    } else if (strstr(tag, "TXT")) {
+        // The module reporting on itself. Surfaced prominently the first
+        // time and whenever it changes, rather than scrolling past in the
+        // raw dump — "ANTENNA OPEN" is exactly the kind of line that
+        // matters and is trivially missed.
+        // Its own buffer, not the 16-byte `buf`: module TXT messages can be
+        // longer than a numeric field and truncating one would make it
+        // harder to recognise, which defeats the point of surfacing it.
+        char txt[sizeof(lastTxt)];
+        if (nmeaField(s, 4, txt, sizeof(txt)) && strcmp(lastTxt, txt) != 0) {
+            strncpy(lastTxt, txt, sizeof(lastTxt) - 1);
+            lastTxt[sizeof(lastTxt) - 1] = '\0';
+            Serial.print(F("\n[probe] Module says: \""));
+            Serial.print(lastTxt);
+            Serial.println(F("\""));
+            if (strstr(lastTxt, "ANTENNA OPEN") != nullptr) {
+                Serial.println(F("        NOTE: this Cap has a built-in PASSIVE ceramic antenna,"));
+                Serial.println(F("        which draws no bias current — so the module's antenna"));
+                Serial.println(F("        supervisor reports OPEN even when all is well. Treat as"));
+                Serial.println(F("        benign unless satellites-in-view stays 0 under open sky."));
+            }
+        }
+    }
 
     if (!sawFix && fix.has_position) {
         Serial.println(F("\n*** FIX ACQUIRED ***"));
@@ -152,12 +232,16 @@ void loop() {
         if (!sawAnyByte) {
             sawAnyByte = true;
             orderLatched = true;
+            firstByteMs = millis();
             Serial.print(F("\n*** WORKING PIN ORDER: "));
             Serial.print(PIN_ORDERS[activeOrder].label);
             Serial.println(F(" ***"));
             Serial.println(F("    Put this mapping in board_pins.h if it isn't already."));
+            Serial.println(F("    Raw NMEA for a few seconds as proof of life, then summary only."));
         }
-        Serial.write(c); // raw passthrough — the primary evidence
+        // Raw passthrough is proof of life, not a monitoring mode: at ~80
+        // sentences per 5s it buries everything useful. Time-boxed.
+        if (millis() - firstByteMs < RAW_DUMP_MS) Serial.write(c);
 
         if (c == '\n' || c == '\r') {
             if (lineLen > 0) {
@@ -185,12 +269,24 @@ void loop() {
         lastReport = now;
         Serial.print(F("\n[probe] t="));
         Serial.print(now / 1000);
-        Serial.print(F("s order="));
-        Serial.print(PIN_ORDERS[activeOrder].label);
-        Serial.print(F(" sentences="));
+        Serial.print(F("s sentences="));
         Serial.print(sentenceCount);
         Serial.print(F(" badcrc="));
         Serial.print(badChecksumCount);
+        Serial.print(F(" fixtype="));
+        Serial.print(gsaFixType); // 1=none 2=2D 3=3D
+        Serial.print(F(" sats="));
+        Serial.print(totalSatsInView());
+        if (talkerCount > 0) {
+            Serial.print(F(" ("));
+            for (size_t i = 0; i < talkerCount; i++) {
+                if (i) Serial.print(' ');
+                Serial.print(talkers[i].id);
+                Serial.print(':');
+                Serial.print(talkers[i].inView);
+            }
+            Serial.print(')');
+        }
         Serial.print(F(" fix="));
         Serial.println(sawFix ? F("YES") : F("no"));
 
@@ -211,8 +307,21 @@ void loop() {
             Serial.println(F("[probe] Bytes arriving but every sentence fails checksum — that's a"));
             Serial.println(F("        baud mismatch or a noisy line, not a wiring fault."));
         } else if (!sawFix) {
-            Serial.println(F("[probe] UART is good. No fix yet — that's antenna/sky, not wiring."));
-            Serial.println(F("        Cold start outdoors is typically minutes; indoors may never."));
+            // With the UART proven, the useful split is whether the antenna
+            // can SEE anything. Zero in view everywhere is a sky/antenna
+            // problem; satellites in view without a fix is just patience.
+            uint16_t inView = totalSatsInView();
+            if (inView == 0) {
+                Serial.println(F("[probe] UART good, but 0 satellites IN VIEW on every constellation."));
+                Serial.println(F("        That is normal indoors — GPS is ~-130dBm and a roof costs"));
+                Serial.println(F("        20-30dB. Take it outside with a clear view of open sky."));
+                Serial.println(F("        If it stays 0 outdoors for several minutes, then suspect"));
+                Serial.println(F("        the antenna for real."));
+            } else {
+                Serial.println(F("[probe] Satellites in view but no fix yet — the antenna is working"));
+                Serial.println(F("        and it just needs time to download almanac/ephemeris."));
+                Serial.println(F("        A cold start can take several minutes. Keep it still."));
+            }
         }
     }
 }
