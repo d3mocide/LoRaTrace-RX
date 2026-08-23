@@ -56,12 +56,35 @@ findings — see checklist/Decisions log:
   why, and for the researched fix to the separate "can't get back to
   Launcher" problem this was raised alongside.
 
-**Only remaining fully-unverified item in Phase 1's checklist:** RX of a
-live packet with plausible RSSI/SNR (no `[RX]` line seen in any session
-yet) — see Next steps. The device's active channel right now is the
-user's own MeshOregon-style SD override (918.5MHz/SF8/BW125/CR4:5), not
-the hardcoded Meshtastic US LongFast default — worth remembering when
-picking a transmitter/mesh to test against.
+**2026-08-23 update:** live `[RX]` confirmed on hardware — see Decisions
+log — closing the last fully-unverified item in Phase 1's checklist. But
+the packets being heard were **not** the user's own node: chasing that
+surfaced two defects, one minor and one fundamental.
+1. RX was re-armed too late (after Serial/display I/O), widening the
+   window for missed back-to-back packets. Fixed; reflashed; **did not fix
+   the symptom**.
+2. **The sync word was never set at all**, so it silently inherited
+   RadioLib's 0x12 default — which is *pre-1.2* Meshtastic. Current
+   Meshtastic is 0x2B (verified from upstream firmware source). Since the
+   SX126x only interrupts on a sync-word match, the device could not hear
+   modern Meshtastic traffic at all, while still decoding unrelated gear
+   sitting on 0x12. **Fixed and confirmed on hardware the same day** —
+   packets now decode as well-formed Meshtastic frames (broadcast address,
+   consistent channel hash, sane hop counts), including original/relay
+   pairs from two identifiable nodes. See Decisions log.
+
+**Phase 1 is functionally complete.** Radio, antenna path, SD config
+override, display, and now genuine protocol-correct RX are all confirmed on
+real hardware, and heap is stable under load (~338KB, no leak). The
+remaining Phase 1 checklist items are bench-verification chores, not
+unknowns. The last piece of *Phase 2* hardware never yet powered on is the
+GPS — a standalone probe env now exists for exactly that (Next steps #4).
+
+The device's
+active channel right now is the user's own MeshOregon-style SD override
+(918.5MHz/SF8/BW125/CR4:5), not the hardcoded Meshtastic US LongFast
+default — worth remembering when picking a transmitter/mesh to test
+against.
 
 CI includes a rolling `dev-latest` release for grabbing a
 Launcher-installable `.bin` without tagging — see Decisions log.
@@ -71,8 +94,10 @@ Launcher-installable `.bin` without tagging — see Decisions log.
 Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 
 - [x] **Phase 0** — platformio.ini, pin map, RF tables, phase-1 code, docs
-- [ ] **Phase 1** — RadioLib bring-up (builds clean, boots on hardware,
-      packet RX + SD-config override still unverified)
+- [x] **Phase 1** — RadioLib bring-up. Builds clean, boots on hardware, SD
+      config override works, and protocol-correct Meshtastic RX confirmed
+      2026-08-23 (after fixing the sync word — see Decisions log). Heap
+      stable under load. Remaining sub-items below are verification chores
   - [x] Confirm `pio run` builds successfully (312KB flash / 20.3KB RAM,
         `esp32-s3-devkitc-1`, RadioLib 7.7.1)
   - [x] Flash to real Cardputer-Adv + Cap LoRa-1262 and confirm it runs
@@ -109,14 +134,23 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         version drift possible) — 2026-08-22: confirmed at runtime too
         (`begin()` and `startReceive()` both returned `RADIOLIB_ERR_NONE`
         on real hardware), not just at compile time
-  - [ ] Bench-verify RX against a known live Meshtastic LongFast (US)
+  - [x] Bench-verify RX against a known live Meshtastic LongFast (US)
         transmitter — RSSI/SNR should be plausible, not just non-crashing.
         2026-08-22: device reached "Listening..." but no `[RX]` line was
         seen in that session — still open. Same day: a received packet
         now also updates a reserved splash line in place (`main.cpp`
         `updateRxSplash()`), so this can be confirmed from the screen
         alone — build-clean, untested on hardware like the rest of
-        tonight's additions
+        tonight's additions. **Closed 2026-08-23:** first live `[RX]`
+        lines seen on real hardware — three packets (len 103/50/50, rssi
+        -28/-58/-28dBm, snr ~13-14dB), plausible values, no crash. Tested
+        against the user's actual MeshOregon-style channel (the SD
+        override — see Current status), not the hardcoded Meshtastic
+        LongFast US default, so this closes the substance of the item
+        (the RX chain decodes real over-the-air LoRa packets with
+        plausible RSSI/SNR) rather than its literal Meshtastic-US wording.
+        See Decisions log for the follow-up "sent 3, only 1 logged"
+        investigation this immediately surfaced.
   - [x] Confirm SD-based channel config actually loads: drop
         `sd-template/loratrace/` onto the SD card with real values (e.g.
         MeshOregon's), confirm the boot banner reports the overridden
@@ -191,7 +225,49 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         with the actual per-rotation mapping. Build-clean; **not yet
         bench-tested** — needs a reflash and a new photo to confirm the
         glitch is actually gone, not just theoretically explained
-- [ ] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta)
+- [~] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta).
+      **Written 2026-08-23, not yet hardware-verified.** All three tasks,
+      the cross-core queue, the shared-SPI mutex, and the batched CSV logger
+      exist; 26 host tests cover every pure-logic path. What's outstanding
+      is the part only hardware can answer:
+  - [x] **GPS UART confirmed working on hardware 2026-08-23.** After the P0
+        power fix and the pin A/B, the probe latched immediately on
+        **RX=G15 / TX=G13** and streamed valid NMEA — 80 sentences per 5s,
+        **zero** checksum errors, all five constellations enabled
+        (GP/GL/GA/BD/GQ). `PIN_GPS_RX=15` in board_pins.h is now
+        hardware-confirmed, not inferred from contradictory docs.
+  - [x] **UI, battery and keyboard all confirmed on hardware 2026-08-23.**
+        Three pages render, **keypress paging works** (so the TCA8418 wake
+        sequence — `begin()` + `matrix(7,8)` — is correct, and the "boots
+        in sleep" trap was handled). Battery reads **4.09V on USB** and
+        **3.76V / 58% on battery**: both plausible LiPo values, and 58% is
+        precisely what `(mv-3300)*100/800` gives for ~3765mV. A wrong
+        divider would have read ~2.0V or ~8.2V, so **GPIO10 + ratio 2.0 is
+        validated**, not merely sourced.
+  - [x] **`ANTENNA OPEN` confirmed a false positive.** The GPS reached
+        "acquiring" (satellites in view > 0) while still emitting that
+        message — direct evidence the antenna works, upgrading the earlier
+        MEDIUM-HIGH reasoned assessment to confirmed. The passive-ceramic
+        explanation held.
+  - [ ] GPS produces an actual **fix** — not yet. First capture was indoors
+        and showed `00` satellites *in view* on every constellation with
+        HDOP 25.5, which is exactly what indoors looks like (GPS is
+        ~-130dBm; a roof costs 20-30dB). Needs an outdoor cold start.
+        The module also emits `$GPTXT,01,01,01,ANTENNA OPEN`. Assessed as a
+        **benign false positive, MEDIUM-HIGH confidence, reasoned not
+        proven**: that message comes from an antenna supervisor sensing DC
+        bias current, which only *active* antennas draw, and this Cap has a
+        built-in *passive* ceramic antenna (M5Stack's own product copy). If
+        satellites-in-view stays 0 under genuinely open sky for several
+        minutes, revisit this and suspect the antenna for real.
+  - [ ] An unattended multi-hour run: detections logged with correct
+        lat/lon, `qdrop`/`rowdrop` staying at zero, no heap exhaustion.
+        The `[status]` serial line reports exactly these counters so the
+        exit criteria are checkable rather than assumed
+  - [ ] `maxflush` (worst SD bus hold) measured under real traffic — this
+        is the number that says whether batch sizing is starving the radio.
+        If it approaches the inter-packet gap, shrink `BATCH_BUF_SIZE`
+        rather than deepening the queue
 - [ ] **Phase 3** — MeshCore profile
 - [ ] **Phase 4** — `DISCOVERY_SWEEP`
 - [ ] **Phase 5** — `ENERGY_SWEEP`
@@ -199,9 +275,23 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 
 ## Open questions (from DESIGN.md §7 — verify before / during build)
 
-- [ ] Meshtastic's exact SX126x sync-word register value (sources
-      disagree — pull from Meshtastic firmware source or RadioLib's
-      Meshtastic-compat example)
+- [x] Meshtastic's exact SX126x sync-word register value — **resolved
+      2026-08-23** from meshtastic/firmware `src/mesh/RadioLibInterface.h`
+      (`const uint8_t syncWord = 0x2b;`). 0x12 turned out to be *pre-1.2*
+      Meshtastic **and** RadioLib's own default, which this firmware had
+      been silently inheriting. Now set explicitly in `channel_plans.h`
+      and pinned by a native unit test. See DESIGN.md §7 and the Decisions
+      log for the full citation. Bench-confirmation still pending
+- [x] **MeshCore's** sync word — **resolved 2026-08-23** from upstream
+      source. The repo has moved to `meshcore-dev/MeshCore`;
+      `src/helpers/radiolib/CustomSX1262.h` calls
+      `begin(LORA_FREQ, LORA_BW, LORA_SF, cr,
+      RADIOLIB_SX126X_SYNC_WORD_PRIVATE, ...)` — i.e. **0x12**, RadioLib's
+      stock private word. So the placeholder happened to be right and
+      MeshCore RX was never broken the way Meshtastic's was. Now a named,
+      cited `SYNC_WORD_MESHCORE` constant rather than a coincidence, kept
+      deliberately separate from `SYNC_WORD_RADIOLIB_DEFAULT` (same number,
+      different meaning) and pinned by tests
 - [ ] MeshCore's encryption/PSK scheme (don't assume it mirrors
       Meshtastic's default-channel PSK model)
 - [x] microSD bus on this board revision — SPI, confirmed shared with the
@@ -231,13 +321,13 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       sweep once hardware is in hand
 - [ ] Exact per-slot frequency spacing for Meshtastic's 104 US slots —
       pull the real table from firmware source, don't infer from BW alone
-- [ ] Real `ESP.getFreeHeap()` under load — every "no PSRAM" risk call in
-      ROADMAP.md is provisional until this number exists. 2026-08-22: a
-      boot-time snapshot now prints to serial and the splash
-      (`main.cpp`, right after "Listening...") — still just a baseline at
-      idle, not "under load," and still needs real hardware to produce an
-      actual number. Closing this out fully needs a reading while the
-      radio's actively receiving, once that's testable too.
+- [x] Real `ESP.getFreeHeap()` under load — **closed 2026-08-23 for Phase
+      1**: 338496 bytes at boot and still ~338496 after sustained live RX,
+      i.e. no leak in the receive path and comfortably above the paper
+      estimate's low end. ROADMAP.md's "no PSRAM" risk calls now rest on a
+      measured number rather than an estimate. Re-measure during Phase 2 —
+      tasks, queues, and SD buffers all take their cut, and the exit
+      criterion there is a multi-hour run, not a single reading.
 
 ## Open questions — Launcher distribution
 
@@ -645,6 +735,284 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   constructor call was wrong. Build-clean; **untested on hardware**, needs
   a reflash and a fresh photo to confirm.
 
+- **2026-08-23** — First live `[RX]` lines on real hardware: three packets
+  (`len=103 rssi=-28.00dBm snr=14.00dB`, `len=50 rssi=-58.00dBm
+  snr=13.25dB`, `len=50 rssi=-28.00dBm snr=14.25dB`), captured on the
+  user's own MeshOregon-style channel override (918.5MHz/SF8/BW125/CR4:5),
+  not the hardcoded Meshtastic US default — closes the last fully-
+  unverified Phase 1 checklist item (see above). Confirms the whole chain
+  end-to-end on real hardware for the first time: antenna-switch path,
+  FSPI wiring, DIO1 IRQ, and RadioLib's decode — and, since packets
+  decoded with a clean CRC (no `[RX] read error` lines) and plausible SNR,
+  implicitly confirms the sync word matches too, which CLAUDE.md flags as
+  otherwise-unverified.
+  - Immediate follow-up: the user sent 3 known test messages from a node
+    physically next to the sniffer and only recognized 1 of the 3 logged
+    lines as a match — "they just seem to be grabbing random messages."
+    Two things are true at once here, and the investigation only
+    confirms the first for certain:
+    1. This is a promiscuous sniffer on a shared regional mesh channel by
+       design (CLAUDE.md/DESIGN.md) — it will log other MeshOregon
+       traffic (other nodes, relay/rebroadcast copies of the user's own
+       messages) alongside the user's own sends, so a mismatch between
+       "messages sent" and "lines logged" is partly expected, not
+       automatically a bug. The -58dBm line among two -28dBm lines is the
+       likely "someone else's/relayed packet" candidate, given the node
+       under test was sitting right next to the sniffer.
+    2. Root-caused a real gap in `main.cpp`'s `loop()`: `radio.startReceive()`
+       to re-arm Rx Continuous ran *after* all the Serial/display I/O for
+       the previous packet (multiple `Serial.print` calls plus a TFT
+       `fillRect`/`print` splash update), not right after `readData()`.
+       The SX1262 is out of Rx Continuous from the DIO1 IRQ until
+       `startReceive()` runs again, so that whole print/draw window was a
+       "deaf" period — a back-to-back packet (mesh relay traffic, or the
+       user's own next test message arriving during that window) would be
+       silently missed. Compounding it: the `len == 0 || len >
+       sizeof(buf)` branch called `startReceive()` but never logged
+       anything, so a dropped-for-bad-length packet left no trace at all,
+       making "how many DIO1 events actually fired" unanswerable from the
+       serial log alone.
+  - Fix applied (`main.cpp` `loop()`): capture RSSI/SNR into locals and
+    call `radio.startReceive()` immediately after `readData()` returns,
+    *before* any Serial/display output — shrinks the deaf window to a
+    couple of SPI transactions instead of the full print/draw path.
+    RSSI/SNR still have to be read before the re-arm, not after:
+    `GetPacketStatus` reports stats for the *last* packet, and a new one
+    arriving right after `startReceive()` would overwrite them first.
+    Also: the bad-length branch now logs `[RX] dropped, bad length N`
+    instead of silently discarding, and successful decodes now print a
+    hex dump of the payload so future correlation between "line in the
+    log" and "message actually sent" doesn't have to rely on length/RSSI
+    alone. This narrows the miss window; it does not eliminate it — a
+    print- and draw-free path only comes with the Core-1 radio task from
+    DESIGN.md §9 phase 2, which is explicitly out of scope for Phase 1.
+    Build-clean by inspection (RadioLib/Arduino calls already used
+    elsewhere in this file, no new APIs); **not yet bench-tested** — needs
+    a reflash and a repeat of the 3-message bench test, ideally comparing
+    payload hex across runs to tell "actually missed" apart from "that was
+    someone else's packet" with more confidence than length/RSSI alone
+    gave this session.
+
+- **2026-08-23 (later same day)** — Reflashed with the re-arm fix above and
+  re-ran the bench test: user reports "still kind of seeing a similar
+  issue." So the late-re-arm timing was **a** real defect but **not the**
+  root cause. Kept the fix (it's still correct, and Phase 2's radio task
+  wants that ordering anyway) and went looking for the actual cause.
+  - **Root cause found — wrong LoRa sync word, and this firmware never set
+    one at all.** `main.cpp` called `radio.begin(freq, bw, sf, cr)` with
+    only four arguments and never called `setSyncWord()`, so the sync word
+    silently fell through to RadioLib's default. Verified in RadioLib's own
+    `SX1262.h`: `begin(..., uint8_t syncWord = RADIOLIB_SX126X_SYNC_WORD_
+    PRIVATE, ...)`, i.e. **0x12**. Verified separately in
+    meshtastic/firmware `src/mesh/RadioLibInterface.h`: `const uint8_t
+    syncWord = 0x2b;` — **0x2B**. The SX126x only raises an RX interrupt on
+    a sync-word match, so the device was **structurally incapable of
+    hearing current Meshtastic traffic**, while still happily decoding
+    whatever unrelated LoRa gear sits on 0x12 (a common generic/hobbyist
+    default). That is a precise, mechanical explanation for the reported
+    symptom — "picks up random messages, misses my own node next to it" —
+    and it explains why re-arm timing didn't move the needle.
+  - Meshtastic's own source comment also **resolves DESIGN.md §7's "sources
+    disagree" note** rather than just picking a side: *"For releases before
+    1.2 we used 0x12 (or for very old loads 0x14). Note: do not use 0x34 -
+    that is reserved for lorawan. We now use 0x2b."* 0x12 was **stale, not
+    wrong** — pre-1.2 Meshtastic — which is exactly why credible-looking
+    sources cite it. The separate "two-byte register mapping" ambiguity
+    dissolves too: callers pass the one-byte value and RadioLib does the
+    register mapping internally, and Meshtastic uses that same RadioLib
+    API, so passing 0x2B matches it exactly. 0x34 → LoRaWAN independently
+    corroborates DESIGN.md §6's fingerprint table.
+  - Changes: added `sync_word` to `ChannelParams` and set Meshtastic's to
+    a sourced `SYNC_WORD_MESHTASTIC = 0x2B` (`channel_plans.h`); passed it
+    to `radio.begin()` and added it to the serial banner + splash
+    (`main.cpp`); **left MeshCore explicitly on RadioLib's default with a
+    TODO** rather than guessing, per CLAUDE.md. Added a `sync_word` key to
+    the SD config (hex or decimal, `config.cpp`) specifically so the next
+    bench test can A/B 0x2B vs 0x12 **without a reflash** — the thing this
+    investigation kept wishing it had. Updated CLAUDE.md's house rule and
+    DESIGN.md §6/§7 to match.
+  - Verification: `pio` isn't available in this environment, so the native
+    test suite was compiled and run directly against upstream Unity
+    (g++, host) — **5/5 pass**, including two new ones pinning Meshtastic
+    to 0x2B (and explicitly *not* 0x12/0x34) and asserting MeshCore is
+    still on the default, so that test fails loudly the day someone
+    resolves it. `channel_plans.h` also compiles clean under
+    `-Wall -Wextra`. The firmware build itself (`pio run`) is **not**
+    verified here — CI covers it.
+  - **Still unproven on hardware:** that 0x2B actually recovers Meshtastic
+    RX. The mechanism is solid and the values are source-verified, but
+    until a reflash logs packets that correlate with deliberately sent
+    messages, this is a very well-founded hypothesis, not a confirmed fix.
+
+- **2026-08-23 (hardware) — SYNC-WORD FIX CONFIRMED. Phase 1 RX is real.**
+  User pulled the branch, flashed, and captured 9 packets. Banner reads
+  `918.500 MHz, SF8, BW125.0kHz, CR4/5, sync 0x2B`. This closes the
+  hypothesis from the previous entry: 0x2B recovers Meshtastic RX.
+  - **The payload hex proves these are genuinely Meshtastic frames**, not
+    "some LoRa traffic." Decoded against Meshtastic's own `PacketHeader`
+    (`src/mesh/RadioInterface.h`: `to`,`from`,`id` as 4-byte LE each, then
+    `flags`,`channel`,`next_hop`,`relay_node`): every packet has a
+    well-formed header, `to == 0xFFFFFFFF` (broadcast) on 8 of 9, a
+    consistent channel hash `0xF7` across all of them, and `hop_limit` /
+    `hop_start` in the flags byte that make sense (start 7). Random noise
+    or another protocol would not produce that structure.
+  - **It also retroactively explains the whole "random messages" mystery.**
+    Packets arrive in *pairs* — same `from`, same packet `id`, same
+    ciphertext, but `hop_limit` 7 then 6, a different `relay_node`, and a
+    very different RSSI:
+
+    | from | id | hop | relay | rssi |
+    |---|---|---|---|---|
+    | 0x1BBF065C | 0x2C618F2D | 7 | 0x5C | -60 |
+    | 0x1BBF065C | 0x2C618F2D | 6 | 0x6A | -26 |
+
+    That's the original transmission followed by a **mesh rebroadcast**.
+    Two nodes are visible — `0x1BBF065C` (relay byte 0x5C, arriving
+    -57..-61 dBm, i.e. distant) and `0x82D7776A` (relay byte 0x6A, arriving
+    -16..-26 dBm, i.e. the node next to the sniffer) — and each relays the
+    other's broadcasts. So a single sent message legitimately produces
+    ~2 log lines with wildly different RSSI. The earlier "-58 among two
+    -28s" that looked like someone else's traffic was almost certainly this
+    same original/relay pairing. **A detection is not a message** — worth
+    carrying into the §8 log schema and §6 fingerprinting: dedupe by
+    (`from`,`id`) if a "unique messages heard" count is ever wanted, and
+    `relay_node`/`hop_limit` are free topology data a wardriver should keep.
+  - One packet is a **unicast**, not a broadcast: `to=0x82D7776A`
+    `from=0x3B9292F1`, len 95 — a third node sending directly to the near
+    node. Confirms the sniffer sees DMs, not just broadcasts (they're
+    encrypted, but their *existence* and routing metadata are visible).
+  - **Heap: no leak.** 338496 bytes at boot, still ~338496 after sustained
+    RX. Closes the "real `ESP.getFreeHeap()` under load" open question for
+    Phase 1's purposes — the number is stable under active receive, not
+    just at idle. Phase 2 will need re-measuring once tasks/queues/SD
+    buffers exist, but the no-PSRAM risk calls in ROADMAP.md now rest on a
+    measured number instead of a paper estimate.
+- **2026-08-23** — Added `src/gps_probe.cpp` + `[env:gps-probe]`: a
+  standalone GPS bring-up sketch (raw NMEA passthrough, sentence counter,
+  fix detection, and a 5-second heartbeat that distinguishes "no bytes at
+  all" from "bytes but no fix"). Deliberately a **separate build env**, not
+  a few lines in `main.cpp` — the sync-word bug is the argument for it:
+  radio RX stayed broken for days partly because it was entangled with
+  everything else booting, and nothing in this probe can perturb the
+  now-working RX firmware because it isn't compiled into that build. Note
+  `[env:cardputer-adv]` gained a `build_src_filter` excluding the probe;
+  without it the two `setup()`/`loop()` pairs collide at link time. The
+  NMEA field parser is hand-rolled (no TinyGPS++) so the probe can't fail
+  because of a library — unit-tested on the host against real GGA/RMC
+  samples under ASan+UBSan, including no-fix sentences, `*`-terminated
+  fields, and out-of-range indices.
+
+- **2026-08-23 — GPS probe found two faults, one of them self-inflicted.**
+  The probe reported zero UART bytes. That was a *useful* zero: a baud
+  mismatch produces garbage bytes, so silence ruled baud out immediately and
+  pointed at power or pins.
+  - **Primary cause: the probe never powered the GPS.** PI4IOE5V6408 P0
+    doesn't only switch the RF antenna path — M5Stack's own Arduino example
+    for this Cap drives expander pin 0 high to enable **GPS power**, and the
+    LoRa868 Cap (which has no GPS) omits the call entirely. `main.cpp` set
+    P0; the probe didn't, precisely *because* it had been written to isolate
+    itself from the rest of the boot sequence. The isolation instinct was
+    right; including the power rail in it was not. Extracted to
+    `io_expander.cpp` and shared by both binaries so they can't drift again.
+  - **Secondary: M5Stack contradicts itself on GPS RX/TX polarity.** Their
+    docs PinMap reads `GPS_TX -> G13` (host receives on G13, what
+    `board_pins.h` had); their tutorial's working example says
+    `RXPin = 15`. Empirically G13 saw nothing. Rather than pick one and make
+    an operator reflash to test the other, the probe now **A/Bs both
+    orderings every 8s** and prints which produces bytes. `board_pins.h`
+    adopts the example-code ordering and records the contradiction, since
+    this project has already been burned once by a scraped pin table.
+  - Probe also now shares `nmea.h`/`gps_parse.h` with the GPS task, so it
+    validates checksums and reports real fix data instead of carrying a
+    private parser — and exercises the same code the firmware depends on.
+- **2026-08-23 — Phase 2 built.** Three tasks per DESIGN.md §2, a 32-deep
+  cross-core queue of ~36B records, and the shared-bus arbitration that
+  DESIGN.md §7 flagged as an open question before Phase 2 could start:
+  - **`spi_bus.h/.cpp`** now owns both the `SPIClass` and a FreeRTOS
+    **mutex** (not a binary semaphore — priority inheritance is the point:
+    without it the radio task can block behind a mid-priority task that
+    isn't even using SPI, and on this board that means lost packets).
+  - **`radio_task`** (Core 1, prio 3) does the whole SX1262 transaction
+    inside one short critical section, reading RSSI/SNR and re-arming RX
+    *before* releasing — carrying forward the Phase 1 ordering fix. If the
+    queue is full it drops and counts rather than waiting: a receiver that
+    stalls to preserve a log row is strictly worse than one that misses it.
+  - **`logger_task`** (Core 0, prio 2) batches rows into ~2KB and writes
+    open/append/close per flush. Sizing rationale: the goal is **short**
+    flushes, not rare ones. The SX1262 FIFO gives roughly one packet-time of
+    slack, so many small bus holds beat occasional large ones — which is
+    also why the buffer is 2KB and not 32KB. Open-per-flush because this
+    device gets turned off by being unplugged.
+  - **`gps_task`** (Core 0, prio 1) parses into a local and publishes under
+    a mutex, keeping the critical section to one struct copy.
+  - A stale GPS fix is treated as no fix (10s max age): at driving speed
+    that's already ~250m of error, and an empty coordinate is more honest
+    than a confidently wrong one. Same reasoning as refusing to render a
+    no-fix as `0,0`.
+  - Everything decision-shaped lives in pure headers (`detection.h`,
+    `nmea.h`, `gps_parse.h`) so **26 host tests** cover it. The
+    `test_detection` fixtures are the real packets captured off-air on
+    2026-08-23, including an original/rebroadcast pair — so a regression in
+    header parsing produces a concrete wrong answer about real traffic
+    rather than an abstract failure.
+
+- **2026-08-23 — GPS UART alive; probe reworked from firehose to instrument.**
+  The A/B settled M5Stack's documentation contradiction on the first try
+  (RX=G15), and the P0 power fix was the unlock. But the first successful
+  run dumped ~300 lines of raw NMEA, burying the two things that actually
+  mattered: `ANTENNA OPEN` and `00` satellites in view. Fixed:
+  - Raw passthrough is now **time-boxed to 3s** — proof of life, not a
+    monitoring mode. At ~80 sentences/5s across five constellations it's
+    unreadable as a steady state.
+  - **`$GxTXT` messages are surfaced on change**, with an inline note about
+    the passive-antenna false positive so the next person doesn't chase it.
+  - **Satellite visibility is parsed from GSV** (field 3) per constellation
+    and GSA fix type (field 2). This is the diagnosis that matters once the
+    UART is proven: **0 in view everywhere = sky/antenna; some in view but
+    no fix = just needs time** for almanac/ephemeris. The status line now
+    reads e.g. `sats=0 (GP:0 GL:0 GA:0 BD:0 GQ:0) fixtype=1`, and the advice
+    branches on it instead of guessing.
+  - Parsing verified on the host against the operator's actual captured
+    sentences.
+- **2026-08-23 — Fixed a latent static-initialisation-order bug** found by
+  re-reading the Phase 2 diff adversarially rather than by any test.
+  `radio_task.cpp` builds its `SX1262` at namespace scope via
+  `new Module(..., sharedSpi())`, which runs during static init; `sharedSpi()`
+  returned a reference to a namespace-scope global in a *different*
+  translation unit, and C++ guarantees nothing about cross-TU static init
+  order. It compiled and would have worked by luck (Module only stores the
+  pointer, and nothing touches the bus until `setup()`), which is precisely
+  what makes this class of bug expensive later. Now a function-local static,
+  which is guaranteed constructed on first use. Worth noting CI could never
+  have caught this — it is not a compile error.
+
+- **2026-08-23 — UI / battery / keyboard confirmed on hardware, first try.**
+  Everything sourced in the previous entry proved correct on the bench:
+  - **Keyboard paging works**, which specifically validates the TCA8418
+    wake sequence. That part boots in SLEEP and reports nothing until
+    configured, so "keys work" is real evidence the `begin()` +
+    `matrix(7,8)` path (taken from Launcher's working ADV interface) is
+    right — not just that I2C is alive.
+  - **Battery validated, not merely sourced**: 4.09V on USB, 3.76V / 58%
+    on battery. 58% is exactly `(3765-3300)*100/800`, and both voltages sit
+    in real LiPo range — a wrong divider would have produced ~2.0V or
+    ~8.2V. GPIO10 and ratio 2.0 from M5Unified's `board_M5CardputerADV`
+    case are correct for this board.
+  - Worth recording so it isn't mistaken for a calibration bug later: on
+    USB the pack reads ~4.09V, so the gauge sits just below 100% while
+    charging. That's the hardware, not the maths — and since M5Stack's docs
+    say charge *status* is unreadable on this board, there is no way to
+    display "charging" instead.
+  - **`ANTENNA OPEN` is confirmed benign.** The GPS reached "acquiring"
+    (satellites in view > 0) while still emitting that message, which is
+    direct evidence the antenna works. Upgrades the earlier reasoned
+    MEDIUM-HIGH assessment to confirmed: the supervisor senses DC bias
+    current that only an active antenna draws, and this Cap's is passive.
+  - Net: of the two things flagged as unverifiable without hardware
+    (battery calibration, keyboard wake), both came back correct on the
+    first flash — the payoff for sourcing them from M5Unified and Launcher
+    rather than guessing.
+
 ## Next steps
 
 1. Keep an eye on SD-mount reliability over more boots/power cycles even
@@ -660,16 +1028,14 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
    record; also try the "Boot to Launcher" Settings toggle) to figure out
    whether the "screen appears but firmware keeps booting anyway" report is
    a timing/process issue or something that needs more investigation.
-4. Get the device near a known-live Meshtastic LongFast (US) transmitter
-   and confirm at least one `[RX]` line with plausible RSSI/SNR — the last
-   fully-unverified item in the Phase 1 checklist, and the real proof the
-   antenna path is RF-correct, not just I2C-correct. Note the active
-   channel is currently the user's MeshOregon override (918.5MHz/SF8/
-   BW125/CR4:5) from their SD config, not the hardcoded Meshtastic US
-   LongFast default — pick a live transmitter/mesh matching whichever
-   channel is actually active at test time, or temporarily remove/rename
-   `config.txt` to fall back to the hardcoded default.
-5. Start Phase 2 (task/queue architecture) only after the above land, per
+4. **Run the GPS probe** (`pio run -e gps-probe --target upload`) and
+   confirm NMEA arrives on G13/G15 at 115200 — the last piece of Phase 2
+   hardware never yet powered on. Pins are sourced from M5Stack docs but
+   have never passed a byte. If nothing arrives, the probe prints its own
+   ranked troubleshooting list (RX/TX swap, then baud — 9600 is very common
+   on these modules, then power/reset); satellites are explicitly *not* a
+   candidate for total silence. Then reflash the real firmware.
+5. Start Phase 2 (task/queue architecture), per
    CLAUDE.md's explicit build-order instruction. Phase 2's
    radio_task/logger_task split needs to account for the shared-SPI-bus
    finding above (mount + override confirmed working; concurrent-access

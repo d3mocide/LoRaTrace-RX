@@ -1,0 +1,177 @@
+// Guards the detection record and its formatting — the two places a Phase 2
+// bug would silently corrupt the log rather than crash.
+//
+// The Meshtastic fixtures below are REAL packets captured on hardware
+// 2026-08-23 (PROGRESS.md), not synthetic bytes. That matters: they encode
+// the original-vs-rebroadcast pairing that confused early bench testing, so
+// a regression in header parsing shows up here as a concrete wrong answer
+// about real traffic.
+
+#include <unity.h>
+
+#include <string.h>
+
+#include "../../src/detection.h"
+
+// Same broadcast packet, heard twice: once direct, once relayed. Identical
+// `from`, `id` and ciphertext; hop_limit decremented and a different relay.
+static const uint8_t PKT_ORIGINAL[] = {0xFF, 0xFF, 0xFF, 0xFF, 0x5C, 0x06, 0xBF, 0x1B,
+                                       0x2D, 0x8F, 0x61, 0x2C, 0xE7, 0xF7, 0x00, 0x5C,
+                                       0x8B, 0x7F, 0x1C, 0xBE, 0x42, 0x51, 0x61, 0x50,
+                                       0x3E, 0x02};
+static const uint8_t PKT_RELAYED[] = {0xFF, 0xFF, 0xFF, 0xFF, 0x5C, 0x06, 0xBF, 0x1B,
+                                      0x2D, 0x8F, 0x61, 0x2C, 0xE6, 0xF7, 0x00, 0x6A,
+                                      0x8B, 0x7F, 0x1C, 0xBE, 0x42, 0x51, 0x61, 0x50,
+                                      0x3E, 0x02};
+// A unicast (non-broadcast) frame: to=0x82D7776A, from=0x3B9292F1.
+static const uint8_t PKT_UNICAST[] = {0x6A, 0x77, 0xD7, 0x82, 0xF1, 0x92, 0x92, 0x3B,
+                                      0x6D, 0xBB, 0x65, 0x9B, 0xE7, 0xF7, 0x00, 0xF1,
+                                      0x0B, 0x1F, 0xC6, 0x95};
+
+void test_detection_fits_queue_budget() {
+    // DESIGN.md §1 budgets ~40B/entry on a no-PSRAM part.
+    TEST_ASSERT_TRUE(sizeof(Detection) <= 40);
+}
+
+void test_meshtastic_header_fields() {
+    Detection det = {};
+    TEST_ASSERT_TRUE(detectionApplyMeshtasticHeader(det, PKT_ORIGINAL, sizeof(PKT_ORIGINAL)));
+    // Little-endian: bytes 5C 06 BF 1B -> 0x1BBF065C
+    TEST_ASSERT_EQUAL_HEX32(0x1BBF065Cu, det.node_id);
+    TEST_ASSERT_EQUAL_HEX32(0x2C618F2Du, det.packet_id);
+    TEST_ASSERT_EQUAL_HEX8(0xF7, det.channel_hash);
+    TEST_ASSERT_EQUAL_UINT8(7, det.hop_limit);  // flags 0xE7, bottom 3 bits
+    TEST_ASSERT_EQUAL_UINT8(7, det.hop_start);  // flags 0xE7, bits 5-7
+    TEST_ASSERT_EQUAL_HEX8(0x5C, det.relay_node);
+}
+
+void test_original_and_relay_share_dedupe_key() {
+    Detection a = {}, b = {};
+    detectionApplyMeshtasticHeader(a, PKT_ORIGINAL, sizeof(PKT_ORIGINAL));
+    detectionApplyMeshtasticHeader(b, PKT_RELAYED, sizeof(PKT_RELAYED));
+
+    // (node_id, packet_id) is the dedupe key: it must MATCH across a
+    // rebroadcast, or "unique messages heard" would double-count the mesh.
+    TEST_ASSERT_EQUAL_HEX32(a.node_id, b.node_id);
+    TEST_ASSERT_EQUAL_HEX32(a.packet_id, b.packet_id);
+
+    // ...while the routing metadata must DIFFER, or we'd be unable to tell a
+    // relay from a direct reception at all.
+    TEST_ASSERT_EQUAL_UINT8(6, b.hop_limit);
+    TEST_ASSERT_EQUAL_UINT8(7, b.hop_start); // hop_start is preserved across hops
+    TEST_ASSERT_EQUAL_HEX8(0x6A, b.relay_node);
+    TEST_ASSERT_NOT_EQUAL_UINT8(a.hop_limit, b.hop_limit);
+    TEST_ASSERT_NOT_EQUAL_UINT8(a.relay_node, b.relay_node);
+}
+
+void test_broadcast_vs_unicast() {
+    TEST_ASSERT_TRUE(meshtasticIsBroadcast(PKT_ORIGINAL, sizeof(PKT_ORIGINAL)));
+    TEST_ASSERT_FALSE(meshtasticIsBroadcast(PKT_UNICAST, sizeof(PKT_UNICAST)));
+
+    Detection det = {};
+    detectionApplyMeshtasticHeader(det, PKT_UNICAST, sizeof(PKT_UNICAST));
+    TEST_ASSERT_EQUAL_HEX32(0x3B9292F1u, det.node_id);
+}
+
+void test_runt_frame_yields_no_ids() {
+    // A frame too short to hold a header must not publish garbage node ids
+    // into the log — zeros mean "unknown", which the CSV renders as empty.
+    Detection det = {};
+    det.node_id = 0xDEADBEEF;
+    const uint8_t runt[] = {0xFF, 0xFF, 0xFF};
+    TEST_ASSERT_FALSE(detectionApplyMeshtasticHeader(det, runt, sizeof(runt)));
+    TEST_ASSERT_EQUAL_HEX32(0u, det.node_id);
+    TEST_ASSERT_EQUAL_HEX32(0u, det.packet_id);
+    TEST_ASSERT_FALSE(meshtasticIsBroadcast(runt, sizeof(runt)));
+    TEST_ASSERT_FALSE(detectionApplyMeshtasticHeader(det, nullptr, 32));
+}
+
+void test_csv_row_with_fix() {
+    Detection det = {};
+    detectionApplyMeshtasticHeader(det, PKT_ORIGINAL, sizeof(PKT_ORIGINAL));
+    det.freq_mhz = 918.5f;
+    det.rssi_dbm = -60.0f;
+    det.snr_db = 13.75f;
+    det.raw_len = 26;
+    det.bw_khz_x10 = 1250;
+    det.sf = 8;
+    det.cr_denom = 5;
+    det.profile = (uint8_t)MissionProfile::MESHTASTIC;
+
+    char row[256];
+    size_t n = detectionFormatCsv(det, row, sizeof(row), "2026-08-23T01:20:00Z", true, 45.5123456,
+                                  -122.6789012, 1);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_STRING(
+        "2026-08-23T01:20:00Z,45.512346,-122.678901,1,meshtastic,918.500,8,125.0,-60.0,13.75,"
+        "meshtastic,,!1bbf065c,26",
+        row);
+}
+
+void test_csv_row_without_fix_leaves_coords_empty() {
+    // The important one: no fix must NOT render as 0,0. Null Island is a
+    // real coordinate and would quietly poison a track.
+    Detection det = {};
+    det.freq_mhz = 918.5f;
+    det.bw_khz_x10 = 1250;
+    det.sf = 8;
+    det.raw_len = 10;
+    det.profile = (uint8_t)MissionProfile::MESHTASTIC;
+
+    char row[256];
+    size_t n = detectionFormatCsv(det, row, sizeof(row), "", false, 0.0, 0.0, 0);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_NOT_NULL(strstr(row, ",,,0,meshtastic,"));
+    TEST_ASSERT_NULL(strstr(row, "0.000000"));
+    // node id unknown -> empty column, not "!00000000"
+    TEST_ASSERT_NULL(strstr(row, "!00000000"));
+}
+
+void test_csv_truncation_is_reported() {
+    Detection det = {};
+    det.profile = (uint8_t)MissionProfile::MESHTASTIC;
+    char tiny[8];
+    // Returning 0 tells the caller to drop the row rather than write a
+    // half-formed one that would corrupt the CSV.
+    TEST_ASSERT_EQUAL_UINT32(0, detectionFormatCsv(det, tiny, sizeof(tiny), "x", false, 0, 0, 0));
+}
+
+void test_header_column_count_matches_row() {
+    Detection det = {};
+    det.profile = (uint8_t)MissionProfile::MESHTASTIC;
+    char row[256];
+    TEST_ASSERT_TRUE(detectionFormatCsv(det, row, sizeof(row), "t", false, 0, 0, 0) > 0);
+
+    auto commas = [](const char *s) {
+        int c = 0;
+        for (; *s; s++)
+            if (*s == ',') c++;
+        return c;
+    };
+    // A row that doesn't match the header is the classic silent CSV bug.
+    TEST_ASSERT_EQUAL_INT(commas(LOG_CSV_HEADER), commas(row));
+}
+
+void test_timestamp_formatting() {
+    char ts[24];
+    detectionFormatTimestamp(ts, sizeof(ts), true, 2026, 8, 23, 1, 5, 9);
+    TEST_ASSERT_EQUAL_STRING("2026-08-23T01:05:09Z", ts);
+
+    detectionFormatTimestamp(ts, sizeof(ts), false, 2026, 8, 23, 1, 5, 9);
+    TEST_ASSERT_EQUAL_STRING("", ts);
+}
+
+int main(int, char **) {
+    UNITY_BEGIN();
+    RUN_TEST(test_detection_fits_queue_budget);
+    RUN_TEST(test_meshtastic_header_fields);
+    RUN_TEST(test_original_and_relay_share_dedupe_key);
+    RUN_TEST(test_broadcast_vs_unicast);
+    RUN_TEST(test_runt_frame_yields_no_ids);
+    RUN_TEST(test_csv_row_with_fix);
+    RUN_TEST(test_csv_row_without_fix_leaves_coords_empty);
+    RUN_TEST(test_csv_truncation_is_reported);
+    RUN_TEST(test_header_column_count_matches_row);
+    RUN_TEST(test_timestamp_formatting);
+    return UNITY_END();
+}

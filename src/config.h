@@ -34,6 +34,9 @@ constexpr const char *CHANNEL_CONFIG_PATH = "/loratrace/config.txt";
 // Out-of-range values
 // (outside the module's 868-928MHz tuned range, SF 5-12, CR 5-8 — DESIGN.md
 // §1/§3) are rejected field-by-field with a warning rather than applied.
+// `sync_word` accepts hex ("0x2B") or decimal and any value 0x00-0xFF —
+// deliberately unrestricted, since sniffing an unknown protocol is a
+// legitimate reason to try an arbitrary one.
 // Returns true if at least one field was overridden from the file, false
 // if `params` is unchanged (no card, no file, or nothing valid in it) —
 // either way, `params` is left in a valid state safe to pass to

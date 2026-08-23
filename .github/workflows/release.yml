@@ -21,6 +21,26 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
+      # ROADMAP.md's Versioning section previously noted that a
+      # tag/version.h mismatch was "a review-time catch, not an automated
+      # one". It is automated now: shipping a binary whose boot banner
+      # disagrees with its release tag makes every subsequent bug report
+      # ambiguous, and that is exactly the cost this project keeps paying
+      # when hardware facts and code drift apart.
+      - name: Verify version.h matches the release tag
+        run: |
+          header_version="$(sed -n 's/^#define FIRMWARE_VERSION "\(.*\)"/\1/p' src/version.h)"
+          tag_version="${GITHUB_REF_NAME#v}"
+          echo "version.h: '${header_version}'   tag: '${tag_version}'"
+          if [ -z "$header_version" ]; then
+            echo "::error::Could not parse FIRMWARE_VERSION from src/version.h"
+            exit 1
+          fi
+          if [ "$header_version" != "$tag_version" ]; then
+            echo "::error::src/version.h says ${header_version} but the tag is ${GITHUB_REF_NAME}. Bump version.h to match before tagging (ROADMAP.md Versioning)."
+            exit 1
+          fi
+
       - name: Build firmware
         run: pio run -e cardputer-adv
 

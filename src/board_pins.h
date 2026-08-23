@@ -44,15 +44,42 @@ constexpr uint8_t IOEXP_REG_INPUT_STATUS = 0x0F; // read-only input levels
 
 constexpr uint8_t IOEXP_ANT_SWITCH_BIT = 0; // P0 — antenna path enable
 
-// --- GPS — NMEA over UART. Not wired up until Phase 2. ---
+// --- GPS — NMEA over UART. ---
 // DESIGN.md names the chip "AT6668"; M5Stack's own Cap LoRa-1262 docs and
 // pin diagram say "ATGM336H" — a naming discrepancy worth fixing in
 // DESIGN.md, doesn't affect these pins (plain NMEA over UART either way).
-// G13/G15 confirmed directly against the Cap LoRa-1262 docs pin table and
-// its official pin-diagram image, not just DESIGN.md's own table.
-constexpr int8_t PIN_GPS_RX = 13; // ESP32 RX <- GPS TX
-constexpr int8_t PIN_GPS_TX = 15; // ESP32 TX -> GPS RX
+//
+// **M5Stack's own two sources contradict each other on RX/TX polarity**
+// (checked 2026-08-23):
+//   * The docs PinMap table reads "GPS_TX -> G13, GPS_RX -> G15", which
+//     taken literally means the ESP32 receives on G13.
+//   * Their Arduino tutorial's working example code for this exact Cap says
+//     `static const int RXPin = 15, TXPin = 13;` — ESP32 receives on G15,
+//     the opposite.
+// **RESOLVED ON HARDWARE 2026-08-23: the example code is right.** The probe
+// A/B'd both orderings and latched on RX=G15 immediately, then streamed
+// valid NMEA (80 sentences/5s, zero checksum errors). RX=G13 produced
+// nothing at all. Most likely the docs table's labels are written from the
+// host's perspective rather than the GPS module's — a common and maddening
+// documentation ambiguity. Trust running code over a table; this project
+// has already been bitten once by a hastily-scraped pin table (see the
+// microSD note below).
+//
+// GPS_BAUD 115200 agrees across both sources and is NOT in doubt. Note that
+// a wrong baud would produce garbage bytes, not silence, so the zero-byte
+// symptom never implicated it.
+//
+// **The GPS is powered by IO-expander P0**, the same pin as the RF antenna
+// switch — see io_expander.h. A GPS that looks dead on a correct UART is
+// usually an unpowered GPS.
+constexpr int8_t PIN_GPS_RX = 15; // ESP32 RX <- GPS TX
+constexpr int8_t PIN_GPS_TX = 13; // ESP32 TX -> GPS RX
 constexpr uint32_t GPS_BAUD = 115200;
+
+// The swapped ordering, kept named so the GPS probe can A/B the two
+// automatically rather than making an operator reflash to test a hunch.
+constexpr int8_t PIN_GPS_RX_ALT = 13;
+constexpr int8_t PIN_GPS_TX_ALT = 15;
 
 // --- microSD — SPI, sharing the SAME bus as the SX1262 above. ---
 // Confirmed by cross-checking two of M5Stack's own official docs pages
@@ -126,6 +153,18 @@ constexpr uint8_t TFT_ROW_OFFSET_LANDSCAPE = 40;
 // --- keyboard controller (addr 0x34) on Cardputer ADV specifically  ---
 // --- (base Cardputer uses a plain GPIO matrix instead) — same SDA/SCL ---
 // --- pins (G8/G9) as IOEXP_I2C_ADDR above, different device address. ---
+// Keyboard controller constants, sourced from bmorcelli/Launcher's
+// confirmed-working Cardputer-ADV interface (`boards/m5stack-cardputer/
+// interface.cpp`: addr 0x34, SDA 8, SCL 9, INT 11, `tca.matrix(7, 8)`).
+// **The TCA8418 boots in SLEEP and reports no keypress until explicitly
+// configured**, even with a perfectly healthy I2C bus — the same class of
+// trap as the GPS power rail (see io_expander.h). Adafruit_TCA8418's
+// begin()+matrix() performs that wake sequence.
+constexpr uint8_t KEYBOARD_I2C_ADDR = 0x34;
+constexpr int8_t PIN_KEYBOARD_INT = 11; // active-low; unused (ui_task polls)
+constexpr uint8_t KEYBOARD_MATRIX_ROWS = 7;
+constexpr uint8_t KEYBOARD_MATRIX_COLS = 8; // 7x8 = the ADV's 56 keys
+
 // Not a conflict (that's normal shared-I2C-bus operation, confirmed by
 // this repo's own first hardware boot: antenna-switch init succeeded, see
 // PROGRESS.md). Noted here because bmorcelli/Launcher's own Cardputer-ADV

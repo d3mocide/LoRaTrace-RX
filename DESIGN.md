@@ -155,18 +155,54 @@ gets tagged with a best-guess classification for later analysis:
 | Sync word 0x34 | LoRaWAN (public) |
 | LoRa CAD hit, frequency not matching known Meshtastic/MeshCore channels | Reticulum candidate / unclassified private LoRa |
 
-**Do not hardcode exact sync-word register values yet** — see §7, this needs
-source-level verification, not a scraped number.
+**Resolved for Meshtastic (2026-08-23), still open for MeshCore** — see §7.
+Meshtastic's value is now verified from upstream firmware source and set in
+`channel_plans.h`; MeshCore's is not, and must not be guessed.
 
 ## 7. Known unknowns — verify before / during build
 
-- [ ] **Meshtastic's exact SX126x sync-word register value.** Sources
-      disagree (0x2B vs. its two-byte register mapping vs. 0x12 cited
-      elsewhere as "Meshtastic private"). Pull this from Meshtastic firmware
-      source or RadioLib's own Meshtastic-compat example, not a blog post.
+- [x] **Meshtastic's exact SX126x sync-word register value.** Sources
+      disagreed (0x2B vs. its two-byte register mapping vs. 0x12 cited
+      elsewhere as "Meshtastic private"). **Resolved 2026-08-23 from
+      upstream firmware source** — meshtastic/firmware
+      `src/mesh/RadioLibInterface.h`: `const uint8_t syncWord = 0x2b;`. Its
+      own comment explains the disagreement rather than just contradicting
+      it: *"For releases before 1.2 we used 0x12 (or for very old loads
+      0x14). Note: do not use 0x34 - that is reserved for lorawan. We now
+      use 0x2b ... We will be staying with this code for a long time."* So
+      0x12 was **stale, not wrong** — it's pre-1.2 Meshtastic, and it also
+      happens to be RadioLib's own `RADIOLIB_SX126X_SYNC_WORD_PRIVATE`
+      default (verified in RadioLib's `SX1262.h` `begin()` signature), which
+      is how this firmware ended up silently listening on it. The
+      "two-byte register mapping" ambiguity dissolves too: callers pass the
+      **one-byte** value to RadioLib's `begin()`/`setSyncWord()` and RadioLib
+      does the two-byte register mapping internally — Meshtastic itself uses
+      that same RadioLib API, so passing 0x2B matches it exactly. The 0x34 →
+      LoRaWAN note independently corroborates §6's fingerprint table.
+      Bench-confirmation that this actually recovers Meshtastic RX is still
+      pending (see PROGRESS.md).
 - [ ] **MeshCore's encryption/PSK scheme.** Don't assume it mirrors
       Meshtastic's default-channel PSK model — MeshCore's own docs
       explicitly warn against importing Meshtastic preset assumptions.
+      (Note: this is still open. MeshCore's *sync word* was resolved
+      2026-08-23 — see below — but that says nothing about its crypto.)
+- [x] **MeshCore's SX126x sync word.** **Resolved 2026-08-23** from
+      upstream source (repo now at `meshcore-dev/MeshCore`):
+      `src/helpers/radiolib/CustomSX1262.h` passes
+      `RADIOLIB_SX126X_SYNC_WORD_PRIVATE` — **0x12**. Notably this is
+      RadioLib's stock default, so unlike Meshtastic, MeshCore RX was never
+      broken by this firmware's missing `setSyncWord()` call. Now set
+      explicitly as a cited `SYNC_WORD_MESHCORE` in `channel_plans.h` so
+      it's a verified fact rather than a lucky coincidence.
+- [ ] **Preamble length.** Both protocols transmit with preamble length 16
+      (Meshtastic `RadioInterface.h`: *"8 is default, but we use longer to
+      increase the amount of sleep time when receiving"*; MeshCore's
+      `CustomSX1262.h` passes 16). This firmware runs RadioLib's default of
+      8, and that empirically does **not** block RX — live Meshtastic
+      frames decode fine at 8, confirmed on hardware 2026-08-23. Left as-is
+      deliberately: continuous RX syncs on whatever preamble arrives, so
+      this only bites the duty-cycled/CAD scanning in §4. Re-evaluate
+      during phase 4 with a bench test, not before.
 - [x] **microSD bus** — SPI or SDMMC, and whether it shares a host with the
       display, on this specific Cardputer-Adv revision. **Bench-confirmed
       (2026-08-22):** first real-hardware boot log shows `SD.begin(PIN_SD_CS,

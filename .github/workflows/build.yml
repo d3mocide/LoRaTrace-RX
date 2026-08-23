@@ -33,6 +33,14 @@ jobs:
       - name: Build firmware
         run: pio run -e cardputer-adv
 
+      # The GPS bring-up probe (src/gps_probe.cpp) ships in the repo as a
+      # flashable diagnostic, so it needs to actually compile — but it isn't
+      # part of the firmware build above, which would otherwise let it rot
+      # unnoticed until someone flashed a broken sketch while debugging
+      # hardware. Cheap to guard here; it reuses the same cached toolchain.
+      - name: Build GPS probe
+        run: pio run -e gps-probe
+
       - name: Run unit tests (native)
         run: pio test -e native
 
