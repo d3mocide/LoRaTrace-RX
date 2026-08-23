@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <SD.h>
+#include <stdlib.h> // strtol, for the hex-or-decimal sync_word parse below
 
 namespace {
 
@@ -73,6 +74,23 @@ bool applyConfigLine(const String &rawLine, ChannelParams &params) {
         params.cr_denom = (uint8_t)v;
         return true;
     }
+    // Accepts hex ("0x2B") or decimal ("43") — strtol base 0 picks by
+    // prefix. Overridable from SD specifically so a sync word can be A/B
+    // tested on the bench without a reflash (e.g. current Meshtastic 0x2B
+    // vs. pre-1.2 / RadioLib-default 0x12), which is what the 2026-08-23
+    // missed-packet investigation needed and didn't have.
+    if (key == "sync_word") {
+        char *end = nullptr;
+        long v = strtol(val.c_str(), &end, 0);
+        if (end == val.c_str() || *end != '\0' || v < 0 || v > 0xFF) {
+            Serial.print(F("[config] sync_word '"));
+            Serial.print(val);
+            Serial.println(F("' is not a byte in 0x00-0xFF, ignoring this field."));
+            return false;
+        }
+        params.sync_word = (uint8_t)v;
+        return true;
+    }
 
     Serial.print(F("[config] unrecognized key '"));
     Serial.print(key);
@@ -111,6 +129,8 @@ bool writeDefaultConfig(const ChannelParams &defaults) {
     f.println(defaults.bw_khz, 1);
     f.print(F("cr_denom="));
     f.println(defaults.cr_denom);
+    f.print(F("sync_word=0x"));
+    f.println(defaults.sync_word, HEX);
     f.close();
     return true;
 }

@@ -57,10 +57,22 @@ findings — see checklist/Decisions log:
   Launcher" problem this was raised alongside.
 
 **2026-08-23 update:** live `[RX]` confirmed on hardware — see Decisions
-log — closing the last fully-unverified item in Phase 1's checklist. That
-same test also surfaced a real gap (RX re-armed too late, after Serial/
-display I/O, widening the window for missed back-to-back packets) which
-has a fix applied but not yet bench-tested — see Next steps. The device's
+log — closing the last fully-unverified item in Phase 1's checklist. But
+the packets being heard were **not** the user's own node: chasing that
+surfaced two defects, one minor and one fundamental.
+1. RX was re-armed too late (after Serial/display I/O), widening the
+   window for missed back-to-back packets. Fixed; reflashed; **did not fix
+   the symptom**.
+2. **The sync word was never set at all**, so it silently inherited
+   RadioLib's 0x12 default — which is *pre-1.2* Meshtastic. Current
+   Meshtastic is 0x2B (verified from upstream firmware source). Since the
+   SX126x only interrupts on a sync-word match, the device could not hear
+   modern Meshtastic traffic at all, while still decoding unrelated gear
+   sitting on 0x12. Fixed and source-cited; native tests pass; **not yet
+   confirmed on hardware** — that reflash is the top Next step, and Phase 1
+   shouldn't be called done until it lands.
+
+The device's
 active channel right now is the user's own MeshOregon-style SD override
 (918.5MHz/SF8/BW125/CR4:5), not the hardcoded Meshtastic US LongFast
 default — worth remembering when picking a transmitter/mesh to test
@@ -211,9 +223,18 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 
 ## Open questions (from DESIGN.md §7 — verify before / during build)
 
-- [ ] Meshtastic's exact SX126x sync-word register value (sources
-      disagree — pull from Meshtastic firmware source or RadioLib's
-      Meshtastic-compat example)
+- [x] Meshtastic's exact SX126x sync-word register value — **resolved
+      2026-08-23** from meshtastic/firmware `src/mesh/RadioLibInterface.h`
+      (`const uint8_t syncWord = 0x2b;`). 0x12 turned out to be *pre-1.2*
+      Meshtastic **and** RadioLib's own default, which this firmware had
+      been silently inheriting. Now set explicitly in `channel_plans.h`
+      and pinned by a native unit test. See DESIGN.md §7 and the Decisions
+      log for the full citation. Bench-confirmation still pending
+- [ ] **MeshCore's** sync word — still unverified, deliberately left on
+      RadioLib's default (`SYNC_WORD_RADIOLIB_DEFAULT`) with a TODO in
+      `channel_plans.h` rather than guessed. A first look at the obvious
+      paths in ripplebiz/MeshCore didn't turn one up. Blocks Phase 3 being
+      meaningful — a wrong sync word there means hearing no MeshCore at all
 - [ ] MeshCore's encryption/PSK scheme (don't assume it mirrors
       Meshtastic's default-channel PSK model)
 - [x] microSD bus on this board revision — SPI, confirmed shared with the
@@ -715,6 +736,57 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     someone else's packet" with more confidence than length/RSSI alone
     gave this session.
 
+- **2026-08-23 (later same day)** — Reflashed with the re-arm fix above and
+  re-ran the bench test: user reports "still kind of seeing a similar
+  issue." So the late-re-arm timing was **a** real defect but **not the**
+  root cause. Kept the fix (it's still correct, and Phase 2's radio task
+  wants that ordering anyway) and went looking for the actual cause.
+  - **Root cause found — wrong LoRa sync word, and this firmware never set
+    one at all.** `main.cpp` called `radio.begin(freq, bw, sf, cr)` with
+    only four arguments and never called `setSyncWord()`, so the sync word
+    silently fell through to RadioLib's default. Verified in RadioLib's own
+    `SX1262.h`: `begin(..., uint8_t syncWord = RADIOLIB_SX126X_SYNC_WORD_
+    PRIVATE, ...)`, i.e. **0x12**. Verified separately in
+    meshtastic/firmware `src/mesh/RadioLibInterface.h`: `const uint8_t
+    syncWord = 0x2b;` — **0x2B**. The SX126x only raises an RX interrupt on
+    a sync-word match, so the device was **structurally incapable of
+    hearing current Meshtastic traffic**, while still happily decoding
+    whatever unrelated LoRa gear sits on 0x12 (a common generic/hobbyist
+    default). That is a precise, mechanical explanation for the reported
+    symptom — "picks up random messages, misses my own node next to it" —
+    and it explains why re-arm timing didn't move the needle.
+  - Meshtastic's own source comment also **resolves DESIGN.md §7's "sources
+    disagree" note** rather than just picking a side: *"For releases before
+    1.2 we used 0x12 (or for very old loads 0x14). Note: do not use 0x34 -
+    that is reserved for lorawan. We now use 0x2b."* 0x12 was **stale, not
+    wrong** — pre-1.2 Meshtastic — which is exactly why credible-looking
+    sources cite it. The separate "two-byte register mapping" ambiguity
+    dissolves too: callers pass the one-byte value and RadioLib does the
+    register mapping internally, and Meshtastic uses that same RadioLib
+    API, so passing 0x2B matches it exactly. 0x34 → LoRaWAN independently
+    corroborates DESIGN.md §6's fingerprint table.
+  - Changes: added `sync_word` to `ChannelParams` and set Meshtastic's to
+    a sourced `SYNC_WORD_MESHTASTIC = 0x2B` (`channel_plans.h`); passed it
+    to `radio.begin()` and added it to the serial banner + splash
+    (`main.cpp`); **left MeshCore explicitly on RadioLib's default with a
+    TODO** rather than guessing, per CLAUDE.md. Added a `sync_word` key to
+    the SD config (hex or decimal, `config.cpp`) specifically so the next
+    bench test can A/B 0x2B vs 0x12 **without a reflash** — the thing this
+    investigation kept wishing it had. Updated CLAUDE.md's house rule and
+    DESIGN.md §6/§7 to match.
+  - Verification: `pio` isn't available in this environment, so the native
+    test suite was compiled and run directly against upstream Unity
+    (g++, host) — **5/5 pass**, including two new ones pinning Meshtastic
+    to 0x2B (and explicitly *not* 0x12/0x34) and asserting MeshCore is
+    still on the default, so that test fails loudly the day someone
+    resolves it. `channel_plans.h` also compiles clean under
+    `-Wall -Wextra`. The firmware build itself (`pio run`) is **not**
+    verified here — CI covers it.
+  - **Still unproven on hardware:** that 0x2B actually recovers Meshtastic
+    RX. The mechanism is solid and the values are source-verified, but
+    until a reflash logs packets that correlate with deliberately sent
+    messages, this is a very well-founded hypothesis, not a confirmed fix.
+
 ## Next steps
 
 1. Keep an eye on SD-mount reliability over more boots/power cycles even
@@ -730,14 +802,21 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
    record; also try the "Boot to Launcher" Settings toggle) to figure out
    whether the "screen appears but firmware keeps booting anyway" report is
    a timing/process issue or something that needs more investigation.
-4. Reflash with the 2026-08-23 loop() re-arm-before-print fix and the new
-   hex payload dump, then repeat the "3 known test messages sent next to
-   the sniffer" bench test. Compare the logged payload hex across runs to
-   separate "own message, actually missed" from "that log line was someone
-   else's packet on the shared MeshOregon channel" — the previous session
-   had length/RSSI as the only signal, which wasn't enough to tell those
-   apart with confidence.
-5. Start Phase 2 (task/queue architecture) only after the above land, per
+4. **Reflash and confirm the sync-word fix (0x2B) actually recovers
+   Meshtastic RX** — the one thing standing between here and a genuinely
+   closed Phase 1. Boot banner now prints `sync 0x2B`; send known test
+   messages from the node next to the sniffer and check the logged payload
+   hex correlates with what was sent, instead of inferring from length/RSSI
+   as previous rounds had to. Worth doing the A/B now that it's free: set
+   `sync_word=0x12` in `/loratrace/config.txt`, reboot, and confirm it goes
+   back to hearing only unrelated traffic. If 0x2B still misses deliberate
+   sends, the next suspects are the channel params themselves (is the
+   MeshOregon preset really SF8/BW125/CR4:5 at 918.5?) and only then RX
+   timing.
+5. Resolve **MeshCore's** sync word from upstream source before Phase 3 —
+   same class of bug is currently latent in that profile (it sits on
+   RadioLib's default, which is almost certainly not MeshCore's).
+6. Start Phase 2 (task/queue architecture) only after the above land, per
    CLAUDE.md's explicit build-order instruction. Phase 2's
    radio_task/logger_task split needs to account for the shared-SPI-bus
    finding above (mount + override confirmed working; concurrent-access

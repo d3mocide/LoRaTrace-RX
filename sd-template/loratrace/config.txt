@@ -18,3 +18,20 @@
 # sf=11
 # bw_khz=250.0
 # cr_denom=8
+
+# LoRa sync word — hex (0x2B) or decimal (43), any value 0x00-0xFF.
+#
+# This is a hardware RX filter, not a label: the radio only interrupts on
+# packets whose sync word matches, so a wrong value here means hearing
+# nothing from the protocol you're aiming at while still picking up
+# unrelated traffic that happens to match.
+#
+#   0x2B  current Meshtastic (v1.2+) — the built-in default
+#   0x12  pre-1.2 Meshtastic, and RadioLib's generic "private" default;
+#         a fair amount of non-Meshtastic hobbyist LoRa gear sits here too
+#   0x34  reserved for LoRaWAN — per Meshtastic's own source, don't use it
+#         expecting mesh traffic
+#
+# Leave commented unless you're deliberately testing: the built-in default
+# already matches current Meshtastic.
+# sync_word=0x2B

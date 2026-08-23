@@ -60,9 +60,15 @@ sd-template/loratrace/
 
 - **RX-only.** No transmit path beyond what antenna-switch init requires.
   Don't add TX/injection features without an explicit ask.
-- **Don't hardcode sync-word values** for Meshtastic/MeshCore without
-  verifying against upstream firmware source first — DESIGN.md §7 flags
-  this as unresolved, sources disagree.
+- **Don't hardcode sync-word values** without verifying against upstream
+  firmware source first. Meshtastic's is now **resolved** — 0x2B, from
+  meshtastic/firmware `src/mesh/RadioLibInterface.h` (DESIGN.md §7 has the
+  citation and why 0x12 was stale rather than wrong). **MeshCore's is still
+  unverified** and sits on RadioLib's default with a TODO in
+  `channel_plans.h` — resolve it from source before Phase 3, don't assume
+  it mirrors Meshtastic. Note the sync word is an RX *filter*: a wrong
+  value means hearing nothing from the target protocol while still hearing
+  unrelated traffic that matches.
 - **Don't assume MeshCore's encryption mirrors Meshtastic's default-PSK
   model** — it doesn't necessarily; MeshCore's own docs warn against this.
 - No large heap buffers. Detection struct is small (~40B); flush to SD

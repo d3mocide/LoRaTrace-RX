@@ -216,11 +216,21 @@ void setup() {
     bool sdOverrideApplied = loadChannelConfigFromSD(activeChannel, PIN_SD_CS, radioSPI);
     splashLine(sdOverrideApplied ? F("Config: SD override") : F("Config: default"));
 
+    // Sync word is passed explicitly rather than left to RadioLib's default
+    // (0x12). That default is *pre-1.2 Meshtastic*, not current Meshtastic
+    // (0x2B) — see channel_plans.h for the upstream-source citation. Because
+    // the SX126x only raises an RX interrupt on a sync-word match, running
+    // the default meant this firmware could not hear modern Meshtastic
+    // traffic at all, while still hearing unrelated 0x12 traffic: exactly the
+    // "picks up random messages but misses my own node" symptom from the
+    // 2026-08-23 bench tests. Everything after this arg keeps RadioLib's
+    // defaults, same as before.
     int state = radio.begin(
         activeChannel.freq_mhz,
         activeChannel.bw_khz,
         activeChannel.sf,
-        activeChannel.cr_denom
+        activeChannel.cr_denom,
+        activeChannel.sync_word
     );
 
     if (state != RADIOLIB_ERR_NONE) {
@@ -238,9 +248,12 @@ void setup() {
     Serial.print(F(", BW"));
     Serial.print(activeChannel.bw_khz, 1);
     Serial.print(F("kHz, CR4/"));
-    Serial.println(activeChannel.cr_denom);
+    Serial.print(activeChannel.cr_denom);
+    Serial.print(F(", sync 0x"));
+    Serial.println(activeChannel.sync_word, HEX);
     splashLine(String(activeChannel.freq_mhz, 3) + "MHz SF" + activeChannel.sf);
-    splashLine("BW" + String(activeChannel.bw_khz, 1) + " CR4/" + activeChannel.cr_denom);
+    splashLine("BW" + String(activeChannel.bw_khz, 1) + " CR4/" + activeChannel.cr_denom +
+               " sync 0x" + String(activeChannel.sync_word, HEX));
 
     radio.setDio1Action(onPacketReceived);
 

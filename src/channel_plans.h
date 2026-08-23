@@ -20,11 +20,41 @@ enum class MissionProfile : uint8_t {
     GENERAL_EXPLORATION,
 };
 
+// LoRa sync word. This is a *filter*, not cosmetic: the SX126x only raises
+// an RX interrupt for packets whose sync word matches, so getting this
+// wrong means hearing nothing from the target protocol while still hearing
+// unrelated traffic that happens to match whatever was set. Passed to
+// RadioLib's begin()/setSyncWord() as a single byte; RadioLib handles the
+// SX126x two-byte register mapping internally (which is what DESIGN.md §7's
+// "0x2B vs. its two-byte register mapping" confusion was about — callers
+// pass the one-byte value, same as Meshtastic's own firmware does).
+//
+// RadioLib's own default is RADIOLIB_SX126X_SYNC_WORD_PRIVATE == 0x12
+// (verified in SX1262.h's begin() signature). Anything here that doesn't
+// have a source-verified value should stay on that default explicitly
+// rather than borrowing another protocol's number.
+constexpr uint8_t SYNC_WORD_RADIOLIB_DEFAULT = 0x12;
+
+// Meshtastic — VERIFIED against upstream firmware source, satisfying
+// CLAUDE.md's house rule against hardcoding an unverified sync word:
+// meshtastic/firmware `src/mesh/RadioLibInterface.h`, `const uint8_t
+// syncWord = 0x2b;`. Its own comment resolves DESIGN.md §7's "sources
+// disagree" note outright:
+//   "For releases before 1.2 we used 0x12 (or for very old loads 0x14)
+//    Note: do not use 0x34 - that is reserved for lorawan
+//    We now use 0x2b ... We will be staying with this code for a long time."
+// So 0x12 wasn't wrong so much as *stale* (pre-1.2 Meshtastic) — and it
+// doubles as RadioLib's default, which is exactly how this firmware ended
+// up silently listening on it through the 2026-08-23 bench tests. 0x34 as
+// "LoRaWAN" also independently corroborates DESIGN.md §6's fingerprint table.
+constexpr uint8_t SYNC_WORD_MESHTASTIC = 0x2B;
+
 struct ChannelParams {
     float freq_mhz;
     uint8_t sf;
     float bw_khz;
     uint8_t cr_denom; // e.g. 8 means coding rate 4/8
+    uint8_t sync_word;
 };
 
 // Meshtastic — US LongFast default, slot 20 of 104. HIGH confidence
@@ -38,17 +68,26 @@ constexpr ChannelParams CHANNEL_MESHTASTIC_LONGFAST_US = {
     .sf = 11,
     .bw_khz = 250.0f,
     .cr_denom = 8,
+    .sync_word = SYNC_WORD_MESHTASTIC,
 };
 
 // MeshCore — US/Canada "Recommended" preset, post-Oct-2025 narrow-BW
 // migration. HIGH confidence (MeshCore's own FAQ + multiple community
 // sites agree, DESIGN.md §3). MeshCore has no slot-hashing scheme — one
 // frequency covers the whole regional community (DESIGN.md §3).
+// Sync word deliberately left at RadioLib's default: MeshCore's actual
+// value has NOT been verified against its upstream source (the obvious
+// candidate paths in ripplebiz/MeshCore didn't turn one up on a first
+// look, 2026-08-23), and CLAUDE.md forbids assuming MeshCore mirrors
+// Meshtastic. Resolve this from source before Phase 3 — until then this
+// profile will only hear traffic that happens to use 0x12, which is
+// probably not MeshCore.
 constexpr ChannelParams CHANNEL_MESHCORE_US_NARROW = {
     .freq_mhz = 910.525f,
     .sf = 7,
     .bw_khz = 62.5f,
     .cr_denom = 5,
+    .sync_word = SYNC_WORD_RADIOLIB_DEFAULT, // TODO(verify): real MeshCore value, phase 3
 };
 
 // --- Not yet parameterized — build-order phase 3/4, DESIGN.md §3/§9 ---
