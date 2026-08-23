@@ -249,55 +249,51 @@ void loop() {
     GpsFix fix;
     bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(100));
 
+    char fixStr[48];
+    if (haveFix && fix.has_position) {
+        snprintf(fixStr, sizeof(fixStr), "%.6f,%.6f sats=%u", fix.lat, fix.lon, (unsigned)fix.satellites);
+    } else {
+        snprintf(fixStr, sizeof(fixStr), "none");
+    }
+
     // One line carrying everything Phase 2's exit criteria need: packets in,
     // rows on the card, drops (which must stay at zero), and the worst bus
     // hold the logger has caused — the number that says whether batching is
     // starving the radio.
-    Serial.print(F("[status] rx="));
-    Serial.print(radioPacketCount());
-    Serial.print(F(" crcerr="));
-    Serial.print(radioCrcErrorCount());
-    Serial.print(F(" qdrop="));
-    Serial.print(radioQueueDropCount());
-    Serial.print(F(" busmiss="));
-    Serial.print(radioBusMissCount());
-    Serial.print(F(" | rows="));
-    Serial.print(loggerRowsWritten());
-    Serial.print(F(" rowdrop="));
-    Serial.print(loggerRowsDropped());
-    Serial.print(F(" flushes="));
-    Serial.print(loggerFlushCount());
-    Serial.print(F(" maxflush="));
-    Serial.print(loggerMaxFlushMs());
-    // Separate from maxflush on purpose: the health writer's bus holds are
-    // instrumentation, and folding them in makes the flush number lie about
-    // batch sizing (first hardware run printed flushes=0 maxflush=26ms).
-    Serial.print(F("ms maxhealth="));
-    Serial.print(loggerMaxSessionMs());
-    Serial.print(F("ms sd="));
-    Serial.print(loggerSdReady() ? F("ok") : F("DOWN"));
-    Serial.print(F(" health="));
-    Serial.print(loggerSessionRows());
-    Serial.print(F(" run="));
-    Serial.print(loggerRunIndex());
-    Serial.print(F(" | nmea="));
-    Serial.print(gpsSentenceCount());
-    Serial.print(F(" badcrc="));
-    Serial.print(gpsChecksumErrorCount());
-    Serial.print(F(" fix="));
-    if (haveFix && fix.has_position) {
-        Serial.print(fix.lat, 6);
-        Serial.print(',');
-        Serial.print(fix.lon, 6);
-        Serial.print(F(" sats="));
-        Serial.print(fix.satellites);
-    } else {
-        Serial.print(F("none"));
-    }
-    Serial.print(F(" | heap="));
-    Serial.print(ESP.getFreeHeap());
-    // The trough, not just the sample: a 5s status line can walk right past
-    // a transient dip, and the dip is what actually ends a long run.
-    Serial.print(F(" heapmin="));
-    Serial.println(ESP.getMinFreeHeap());
+    //
+    // Built into one buffer and printed with a single Serial call, not the
+    // ~25 separate Serial.print() calls this used to be — this task's own
+    // loop() very likely runs on Core 1 (Arduino's default), the same core
+    // as radio_task, while wifi_task/logger_task/gps_task run on Core 0.
+    // Nothing serializes Serial access across cores, and a hardware run
+    // showed the cost directly: wifi_task's own multi-part prints (the
+    // config-save confirmation, in particular) came out with entire pieces
+    // silently missing when they landed mid-sequence against another
+    // task's prints — see PROGRESS.md. A single write() call to the Serial
+    // driver is far more likely to be atomic than N separate ones with
+    // nothing stopping another task's call from landing in the gaps between
+    // them, and this is the project's primary diagnostic line — every
+    // hardware test session's evidence comes from it, so it's worth
+    // protecting even though it hasn't shown visible corruption yet.
+    char line[384];
+    int n = snprintf(line, sizeof(line),
+                     "[status] rx=%lu crcerr=%lu qdrop=%lu busmiss=%lu | rows=%lu rowdrop=%lu "
+                     "flushes=%lu maxflush=%lums maxhealth=%lums sd=%s health=%lu run=%u | "
+                     "nmea=%lu badcrc=%lu fix=%s | heap=%lu heapmin=%lu",
+                     (unsigned long)radioPacketCount(), (unsigned long)radioCrcErrorCount(),
+                     (unsigned long)radioQueueDropCount(), (unsigned long)radioBusMissCount(),
+                     (unsigned long)loggerRowsWritten(), (unsigned long)loggerRowsDropped(),
+                     (unsigned long)loggerFlushCount(), (unsigned long)loggerMaxFlushMs(),
+                     // Separate from maxflush on purpose: the health writer's
+                     // bus holds are instrumentation, and folding them in
+                     // makes the flush number lie about batch sizing (first
+                     // hardware run printed flushes=0 maxflush=26ms).
+                     (unsigned long)loggerMaxSessionMs(), loggerSdReady() ? "ok" : "DOWN",
+                     (unsigned long)loggerSessionRows(), (unsigned)loggerRunIndex(),
+                     (unsigned long)gpsSentenceCount(), (unsigned long)gpsChecksumErrorCount(), fixStr,
+                     // The trough, not just the sample: a 5s status line can
+                     // walk right past a transient dip, and the dip is what
+                     // actually ends a long run.
+                     (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getMinFreeHeap());
+    if (n > 0) Serial.println(line);
 }

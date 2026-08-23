@@ -1827,6 +1827,57 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   ROADMAP.md's Phase 4 entry updated to say so explicitly, so this doesn't
   need re-deciding when that phase starts.
 
+- **2026-08-23 (later same day) — Root-caused the missing-SSID/garbled-log
+  pattern: unsynchronized Serial access across tasks, likely across cores.**
+  run0004's hardware log surfaced a much clearer example than the earlier
+  SSID incident: `[config] Wrote /loratrace/config.txt: 8 BW5 sync — reboot
+  to apply.` — should have read `918.500MHz SF8 BW125.0 CR4/5 sync 0x2B`.
+  Comparing the two side by side makes the mechanism obvious: several whole
+  pieces of a 12-call `Serial.print()` sequence went missing (the
+  `918.500`/`MHz SF` piece, `125.0`/` CR4/` piece, and `0x2B`), while others
+  survived intact — exactly the signature of another task's own Serial
+  output landing in the *gaps between* this sequence's individual calls,
+  not corruption within any one call. The earlier SSID-caching fix
+  addressed a real risk (recomputing into a fresh stack buffer per AP
+  start) but not the actual mechanism, which this second, cleaner example
+  makes unambiguous. Leading theory, not yet proven on a scope/logic
+  analyzer but consistent with everything observed: `main.cpp`'s `loop()`
+  (Arduino's own task, very likely Core 1 by default — the same core as
+  `radio_task`) and `wifi_task` (explicitly Core 0) both call `Serial.print()`
+  with nothing serializing access across that core boundary. This wasn't
+  visible before Phase 3 because nothing printed multi-part Serial messages
+  often enough to collide with `loop()`'s own frequent multi-part `[status]`
+  line — `wifi_task`'s new prints (AP start, client connect/disconnect,
+  config-save confirmation) are exactly the kind of infrequent-but-real
+  contention that finally made it visible.
+  - **Fix: build one buffer via `snprintf`, then a single `Serial.println()`
+    call — everywhere a message was being assembled from multiple separate
+    `Serial.print()` calls.** A single `write()`-style call to the Serial
+    driver is far more likely to be atomic (the driver's own internal
+    buffer/FIFO handling typically holds its own critical section for one
+    call) than N separate calls with nothing stopping another task's call
+    from being fully inserted between them. Applied to: `main.cpp`'s
+    periodic `[status]` line (the highest-value fix — this is the project's
+    primary diagnostic output, and it was equally exposed even though it
+    hadn't shown *visible* corruption yet), `wifi_task.cpp`'s AP-started
+    line and client connect/disconnect line, and `config.cpp`'s
+    `writeChannelConfigToSD()` success/failure messages (the ones actually
+    caught garbled). Every new buffer's worst-case length was measured
+    (not guessed) before sizing it — one, `config.cpp`'s, was caught
+    genuinely undersized (96 bytes budgeted, 97 needed for the longest real
+    message) during this same pass and fixed to 128 before it shipped.
+  - **Not yet re-verified on hardware** — same caveat as everything else
+    built without `pio` in this session. The theory explains every piece of
+    evidence seen so far and the fix is safe regardless of whether the
+    cross-core detail is exactly right (a single-call message is strictly
+    safer than a multi-call one no matter which two tasks are actually
+    racing), but confirming the garbled-log symptom is actually gone still
+    needs a real run with WiFi active and multiple config saves/AP
+    restarts. Watch for a recurrence — if the *same* pattern (a coherent
+    message with whole known pieces missing) still shows up post-fix, the
+    theory needs revisiting rather than assuming a smaller residual case
+    was missed.
+
 ## Next steps
 
 Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist

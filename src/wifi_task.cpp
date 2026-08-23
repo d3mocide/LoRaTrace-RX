@@ -266,10 +266,14 @@ void startAp() {
     server.begin();
     apActive = true;
 
-    Serial.print(F("[wifi] AP started: "));
-    Serial.print(ssid);
-    Serial.print(F(" @ "));
-    Serial.println(WIFI_AP_IP);
+    // One buffer, one print call — not four separate ones. A hardware run
+    // showed this exact line print with the SSID silently missing once;
+    // see PROGRESS.md and main.cpp's loop() for the full read (unsynchronized
+    // Serial access across cores/tasks loses whole pieces of a multi-call
+    // sequence when another task's print lands in the middle of it).
+    char line[64];
+    snprintf(line, sizeof(line), "[wifi] AP started: %s @ %s", ssid, WIFI_AP_IP);
+    Serial.println(line);
 }
 
 void stopAp() {
@@ -297,9 +301,10 @@ uint8_t lastClientCount = 0;
 void logClientCountChanges() {
     const uint8_t clients = (uint8_t)WiFi.softAPgetStationNum();
     if (clients == lastClientCount) return;
-    Serial.print(clients > lastClientCount ? F("[wifi] client connected, ") : F("[wifi] client disconnected, "));
-    Serial.print(clients);
-    Serial.println(F(" total"));
+    char line[48];
+    snprintf(line, sizeof(line), "[wifi] client %s, %u total",
+             clients > lastClientCount ? "connected" : "disconnected", (unsigned)clients);
+    Serial.println(line);
     lastClientCount = clients;
 }
 

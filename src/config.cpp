@@ -223,24 +223,22 @@ bool writeChannelConfigToSD(const ChannelParams &params) {
     // console open (exactly the debugging situation this is for) saw
     // nothing at all before this. Mirrors loadChannelConfigFromSD's own
     // success/failure prints for the same reason.
+    //
+    // Built into one buffer and printed with a single call, not ~12
+    // separate ones — a hardware run showed this exact line print with
+    // most of its content silently missing ("8 BW5 sync — reboot to
+    // apply." instead of the full line) when it landed at the same moment
+    // as another task's own Serial output. See main.cpp's loop() for the
+    // full read on why (unsynchronized Serial access across cores/tasks).
+    char line[128]; // longest case measured at 97 bytes (incl. the multi-byte em dash) — real margin, not a near-fit
     if (ok) {
-        Serial.print(F("[config] Wrote "));
-        Serial.print(CHANNEL_CONFIG_PATH);
-        Serial.print(F(": "));
-        Serial.print(params.freq_mhz, 3);
-        Serial.print(F("MHz SF"));
-        Serial.print(params.sf);
-        Serial.print(F(" BW"));
-        Serial.print(params.bw_khz, 1);
-        Serial.print(F(" CR4/"));
-        Serial.print(params.cr_denom);
-        Serial.print(F(" sync 0x"));
-        Serial.print(params.sync_word, HEX);
-        Serial.println(F(" — reboot to apply."));
+        snprintf(line, sizeof(line), "[config] Wrote %s: %.3fMHz SF%u BW%.1f CR4/%u sync 0x%X — reboot to apply.",
+                 CHANNEL_CONFIG_PATH, (double)params.freq_mhz, (unsigned)params.sf, (double)params.bw_khz,
+                 (unsigned)params.cr_denom, (unsigned)params.sync_word);
     } else {
-        Serial.print(F("[config] Failed to write "));
-        Serial.print(CHANNEL_CONFIG_PATH);
-        Serial.println(F(" (SD busy, missing, or read-only)."));
+        snprintf(line, sizeof(line), "[config] Failed to write %s (SD busy, missing, or read-only).",
+                 CHANNEL_CONFIG_PATH);
     }
+    Serial.println(line);
     return ok;
 }
