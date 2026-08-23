@@ -104,8 +104,8 @@ void test_csv_row_with_fix() {
                                   -122.6789012, 1, 7);
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_STRING(
-        "2026-08-23T01:20:00Z,45.512346,-122.678901,1,meshtastic,918.500,8,125.0,-60.0,13.75,"
-        "meshtastic,,!1bbf065c,26,41250,7,2c618f2d,7,7,5c",
+        "2026-08-23T01:20:00Z,45.512346,-122.678901,1,7,41250,meshtastic,meshtastic,!1bbf065c,"
+        "2c618f2d,7,7,5c,918.500,8,125.0,-60.0,13.75,26,",
         row);
 }
 
@@ -142,7 +142,7 @@ void test_uptime_anchors_a_detection_heard_before_the_first_fix() {
     size_t n = detectionFormatCsv(det, row, sizeof(row), "", false, 0.0, 0.0, 0, 3);
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_INT(0, strncmp(row, ",,,0,", 5)); // no time, no position
-    TEST_ASSERT_NOT_NULL(strstr(row, ",8123,3"));       // but always an uptime + run
+    TEST_ASSERT_NOT_NULL(strstr(row, ",3,8123,"));      // but always a run + uptime
 }
 
 void test_csv_row_without_fix_leaves_coords_empty() {
@@ -158,7 +158,7 @@ void test_csv_row_without_fix_leaves_coords_empty() {
     char row[256];
     size_t n = detectionFormatCsv(det, row, sizeof(row), "", false, 0.0, 0.0, 0, 3);
     TEST_ASSERT_TRUE(n > 0);
-    TEST_ASSERT_NOT_NULL(strstr(row, ",,,0,meshtastic,"));
+    TEST_ASSERT_NOT_NULL(strstr(row, ",,,0,3,0,meshtastic,"));
     TEST_ASSERT_NULL(strstr(row, "0.000000"));
     // node id unknown -> empty column, not "!00000000"
     TEST_ASSERT_NULL(strstr(row, "!00000000"));

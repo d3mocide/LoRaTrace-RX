@@ -289,7 +289,17 @@ Both files below live inside that run directory.
 
 ### 8.1 `detections.csv` — the mission data
 
-`timestamp_utc, lat, lon, fix_quality, profile, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, classification, decoded, channel_or_node_id, raw_len, rx_uptime_ms, run, packet_id, hop_limit, hop_start, relay_node`
+`timestamp_utc, lat, lon, fix_quality, run, rx_uptime_ms, profile, classification, channel_or_node_id, packet_id, hop_limit, hop_start, relay_node, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, raw_len, decoded`
+
+Grouped left to right by what a reader asks first: when/where (time,
+position, run context) — what kind of thing this is (profile,
+classification) — who sent it and how it got here (node id and its
+packet/hop/relay siblings, kept adjacent rather than split across the row)
+— the RF channel — signal quality — payload. Reordered 2026-08-23
+(PROGRESS.md) from the column-addition order the routing-metadata fields
+originally landed in; **earlier runs' `detections.csv` files use the old
+column order** — check each file's own header before parsing by position,
+especially before concatenating runs from different firmware versions.
 
 `rx_uptime_ms` is device uptime at the moment of reception. It is the only
 time reference a detection heard *before the first GPS fix* has — those rows
@@ -298,20 +308,20 @@ they could not be placed in time at all. It also exposes queue backlog (a
 row whose GPS stamp is much later than its uptime was stamped late) and is
 the join key to `session.csv`.
 
-The last four columns, added after the 2026-08-23 deck run, are Meshtastic
-routing metadata (`detection.h`'s header parser already extracted all four;
-they just never reached the CSV until this run's data made the gap costly).
-`packet_id` is the dedupe key — it matches across an original transmission
-and every mesh rebroadcast of it, which `hop_limit`/`hop_start`/`relay_node`
-then tell apart: a same-`channel_or_node_id` pair heard seconds apart with
-a matching `packet_id` but a decremented `hop_limit` and a different
-`relay_node` is a genuine direct+relay pair, not a duplicate log entry.
-Without these, that exact question — is a wildly-different-RSSI pair real
-mesh routing or a firmware bug re-logging one packet — was unanswerable from
-the log alone (see PROGRESS.md, run0007). Empty (not `00000000`) on rows
-where no header was parsed, matching `channel_or_node_id`'s existing
-convention; `hop_limit`/`hop_start` stay numeric either way since 0 is a
-legitimate value (a packet at its last hop), not an absence marker.
+`packet_id`/`hop_limit`/`hop_start`/`relay_node`, added after the
+2026-08-23 deck run, are Meshtastic routing metadata (`detection.h`'s header
+parser already extracted all four; they just never reached the CSV until
+that run's data made the gap costly). `packet_id` is the dedupe key — it
+matches across an original transmission and every mesh rebroadcast of it,
+which `hop_limit`/`hop_start`/`relay_node` then tell apart: a
+same-`channel_or_node_id` pair heard seconds apart with a matching
+`packet_id` but a decremented `hop_limit` and a different `relay_node` is a
+genuine direct+relay pair, not a duplicate log entry — confirmed against
+real traffic on the very next run (PROGRESS.md, run0011) after this column
+was added. Empty (not `00000000`) on rows where no header was parsed,
+matching `channel_or_node_id`'s existing convention; `hop_limit`/`hop_start`
+stay numeric either way since 0 is a legitimate value (a packet at its last
+hop), not an absence marker.
 
 `ENERGY_SWEEP` data gets threshold-filtered against a rolling noise floor
 before logging — don't dump every sweep point, only peaks, or the card fills

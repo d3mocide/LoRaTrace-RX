@@ -1563,6 +1563,69 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     "make the next run answer the question this one couldn't," which is
     genuinely the best available move here: the alternative was guessing.
 
+- **2026-08-23 (later same day)** — v0.2.6 shipped fast: PR #9 merged CI
+  (real `pio run -e cardputer-adv` + `pio test -e native`, not just the g++
+  workaround above) before the next bench session, so run0011 (a short,
+  ~9-second live capture, not another multi-hour run) came back already
+  carrying the new columns. **Settles the relay-vs-bug question raised by
+  run0007, definitively, in favor of relay:** three packets, each heard
+  twice — `packet_id` `10afda4e`/`384dfe3f` (both from `!bfbc49a2`) and
+  `55f3278a` (from `!3b9292f1`) — and in every one of the three pairs,
+  `packet_id` matches exactly while `hop_limit` decrements 7->6 and
+  `relay_node` changes (`a2`->`5c`, `f1`->`5c`). That is precisely the
+  "genuine relay" signature from the DESIGN.md §8.1 fix, and precisely NOT
+  what a duplicate-log bug would produce (which would show identical
+  `hop_limit`/`relay_node` too). The radio_task.cpp double-DIO1-fire
+  question from the run0007 entry is now closed as a non-issue — no further
+  action needed there.
+  - Worth noting, not investigating further: none of run0011's 6
+    detections show the extreme -6/-7dBm pegging that made up 53% of
+    run0007 — these read -33 to -56dBm, all physically unremarkable. Not a
+    contradiction (this is a 9-second, 3-packet sample, not a comparable
+    run), but a reminder that the pegged readings themselves are still
+    unexplained in *degree* even though their *mechanism* (relay, not a
+    software duplicate) is now settled. `relay_node=5c` matches the last
+    byte of `!1bbf065c`, one of run0007's own frequently-heard node ids —
+    consistent with one specific nearby node acting as the busy relay in
+    both runs, though `relay_node` is only one byte and can't fully rule
+    out a different node sharing that byte.
+  - **Column order reshuffled, still v0.2.6 -> now v0.2.7**, at the user's
+    request after seeing the real output in a spreadsheet: the four new
+    routing columns landed append-only at the end (right thing to do while
+    they didn't exist yet, awkward to actually read once they did, sitting
+    nowhere near the `channel_or_node_id` they describe). New order groups
+    columns by what a reader asks first — when/where, then run context,
+    then what-kind, then who-and-how-it-got-here (`channel_or_node_id`
+    through `relay_node`, now adjacent), then RF params, then signal
+    quality, then payload. Full column list and rationale: DESIGN.md §8.1.
+    **This is a breaking change to column position**, called out explicitly
+    in both `LOG_CSV_HEADER`'s comment and DESIGN.md: any `detections.csv`
+    from before this change uses the old order, so position-based parsing
+    across the boundary (e.g. concatenating run0007 with run0011+) would
+    silently misalign. Every `detections.csv` still carries its own header
+    row, so a reader that keys off column *names* rather than position is
+    unaffected either way. `test/test_detection/` updated for the new
+    layout (field mapping re-verified against the real Unity/g++ workaround
+    again, all 12 tests pass) — this was purely a reorder, no column added
+    or removed, so `test_header_column_count_matches_row` needed no change.
+  - **Raised, not yet acted on: capturing the raw payload bytes for later
+    offline decoding.** Currently `buf[256]` in `radio_task.cpp` is read,
+    the 16-byte Meshtastic header is parsed out of it, and the rest
+    (ciphertext) is discarded the moment the critical section ends — the
+    `Detection` struct has nowhere to put it, by design (DESIGN.md §1's
+    ~40B queue budget, CLAUDE.md's "no large heap buffers" rule). Genuinely
+    useful for later work (MeshOregon-style channels commonly use a
+    known/default PSK, so some of this may eventually be decodable
+    offline), but it's a real architecture decision, not a small addition:
+    growing `Detection` itself blows the documented budget across a
+    32-deep queue; a second parallel queue/sidecar file keyed by
+    `rx_uptime_ms` avoids that but adds a second SD writer path. Needs a
+    decision on capture scope (hex column vs. separate binary sidecar file,
+    full payload vs. capped length, whether MeshCore/Reticulum profiles
+    even get the same treatment given CLAUDE.md's explicit warning not to
+    assume MeshCore's encryption mirrors Meshtastic's) before touching
+    code — not started.
+
 ## Next steps
 
 Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist
