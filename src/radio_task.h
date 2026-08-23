@@ -38,3 +38,11 @@ uint32_t radioPacketCount();     // successfully decoded
 uint32_t radioCrcErrorCount();   // received but failed CRC
 uint32_t radioQueueDropCount();  // decoded but the queue was full
 uint32_t radioBusMissCount();    // couldn't get the SPI bus in time
+
+// The channel this run actually started with (post SD-config-override,
+// pre any future hot-reload — there is none yet, so this is constant for
+// the whole run). A read-only copy, safe to call from any task: wifi_task's
+// settings page uses this to show the current values, not just the last
+// thing config.txt said, since a bad/missing SD card at boot means those
+// can differ.
+ChannelParams radioActiveChannel();

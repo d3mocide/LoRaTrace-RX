@@ -165,3 +165,7 @@ uint32_t radioQueueDropCount() {
 uint32_t radioBusMissCount() {
     return busMissCount;
 }
+
+ChannelParams radioActiveChannel() {
+    return activeChannel; // small POD struct, cheap to return by value
+}

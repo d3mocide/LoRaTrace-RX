@@ -70,7 +70,8 @@ an empirical RSSI noise-floor sweep once hardware is in hand.
   microSD ──SPI───► │   Logger Task ← dequeues, stamps  │
                     │     GPS fix + profile, batches SD │
   LCD+keys ──SPI──► │   UI Task → redraw, key input      │
-                    │   [optional] WiFi Upload Task      │
+                    │   WiFi Task → AP + web UI,         │
+                    │     off until toggled (Phase 3)    │
                     └───────────────────────────────────┘
 ```
 
@@ -289,7 +290,17 @@ Both files below live inside that run directory.
 
 ### 8.1 `detections.csv` — the mission data
 
-`timestamp_utc, lat, lon, fix_quality, profile, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, classification, decoded, channel_or_node_id, raw_len, rx_uptime_ms, run`
+`timestamp_utc, lat, lon, fix_quality, run, rx_uptime_ms, profile, classification, channel_or_node_id, packet_id, hop_limit, hop_start, relay_node, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, raw_len, decoded`
+
+Grouped left to right by what a reader asks first: when/where (time,
+position, run context) — what kind of thing this is (profile,
+classification) — who sent it and how it got here (node id and its
+packet/hop/relay siblings, kept adjacent rather than split across the row)
+— the RF channel — signal quality — payload. Reordered 2026-08-23
+(PROGRESS.md) from the column-addition order the routing-metadata fields
+originally landed in; **earlier runs' `detections.csv` files use the old
+column order** — check each file's own header before parsing by position,
+especially before concatenating runs from different firmware versions.
 
 `rx_uptime_ms` is device uptime at the moment of reception. It is the only
 time reference a detection heard *before the first GPS fix* has — those rows
@@ -297,6 +308,21 @@ carry an empty `timestamp_utc` and empty coordinates, and without uptime
 they could not be placed in time at all. It also exposes queue backlog (a
 row whose GPS stamp is much later than its uptime was stamped late) and is
 the join key to `session.csv`.
+
+`packet_id`/`hop_limit`/`hop_start`/`relay_node`, added after the
+2026-08-23 deck run, are Meshtastic routing metadata (`detection.h`'s header
+parser already extracted all four; they just never reached the CSV until
+that run's data made the gap costly). `packet_id` is the dedupe key — it
+matches across an original transmission and every mesh rebroadcast of it,
+which `hop_limit`/`hop_start`/`relay_node` then tell apart: a
+same-`channel_or_node_id` pair heard seconds apart with a matching
+`packet_id` but a decremented `hop_limit` and a different `relay_node` is a
+genuine direct+relay pair, not a duplicate log entry — confirmed against
+real traffic on the very next run (PROGRESS.md, run0011) after this column
+was added. Empty (not `00000000`) on rows where no header was parsed,
+matching `channel_or_node_id`'s existing convention; `hop_limit`/`hop_start`
+stay numeric either way since 0 is a legitimate value (a packet at its last
+hop), not an absence marker.
 
 `ENERGY_SWEEP` data gets threshold-filtered against a rolling noise floor
 before logging — don't dump every sweep point, only peaks, or the card fills
@@ -425,11 +451,16 @@ still self-describing via uptime.
    P0 confirmed, hardcoded RX on 906.875/SF11/BW250, print to serial
 2. `HOME_LISTEN` + Logger task + GPS fusion + SD writes — Meshtastic War
    Drive is functionally complete at this point
-3. Add MeshCore profile (910.525/SF7/BW62.5/CR5) — same engine, new table
-4. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
+3. WiFi AP + web UI (`wifi_task`) — pull data and edit settings over a
+   browser instead of ejecting the SD card. Off by default, on-demand only
+   (ROADMAP.md Phase 3 for the full rationale, including why this moved
+   ahead of MeshCore)
+4. Add MeshCore profile (910.525/SF7/BW62.5/CR5) — same engine, new table
+5. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
    MeshMapper-observed frequencies where available
-5. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
-6. UI polish, optional WiFi upload task last (biggest RAM/RF-noise cost)
+6. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
+7. UI polish (the WiFi decision this step used to also carry is step 3 now,
+   done)
 
 ## 10. References
 

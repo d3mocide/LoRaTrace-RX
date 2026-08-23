@@ -14,6 +14,7 @@
 #include "radio_task.h"
 #include "spi_bus.h"
 #include "version.h"
+#include "wifi_task.h"
 
 namespace {
 
@@ -53,6 +54,7 @@ const char *pageName(UiPage p) {
         case UiPage::RADIO: return "RADIO";
         case UiPage::GPS: return "GPS";
         case UiPage::SYSTEM: return "SYSTEM";
+        case UiPage::WIFI: return "WIFI";
         default: return "?";
     }
 }
@@ -279,12 +281,50 @@ void drawSystemPage() {
     tft->print(FIRMWARE_VERSION);
 }
 
+void drawWifiPage() {
+    const bool on = wifiIsEnabled();
+
+    tft->setTextSize(2);
+    tft->setTextColor(on ? COL_GOOD : COL_DIM, COL_BG);
+    tft->setCursor(2, HEADER_H + 6);
+    tft->print(on ? "AP ON" : "AP OFF");
+
+    tft->setTextSize(1);
+    tft->setTextColor(COL_FG, COL_BG);
+    if (on) {
+        char ssid[32];
+        wifiApSsid(ssid, sizeof(ssid));
+        tft->setCursor(2, HEADER_H + 30);
+        tft->print(ssid);
+        tft->setCursor(2, HEADER_H + 42);
+        tft->print(WIFI_AP_IP);
+        tft->setCursor(2, HEADER_H + 54);
+        tft->print("clients ");
+        tft->print(wifiClientCount());
+    } else {
+        char ssid[32];
+        wifiApSsid(ssid, sizeof(ssid));
+        tft->setTextColor(COL_DIM, COL_BG);
+        tft->setCursor(2, HEADER_H + 30);
+        tft->print("would be:");
+        tft->setCursor(2, HEADER_H + 42);
+        tft->print(ssid);
+    }
+
+    tft->setTextColor(COL_DIM, COL_BG);
+    tft->setCursor(2, HEADER_H + 82);
+    tft->print("hold any key ~1s");
+    tft->setCursor(2, HEADER_H + 94);
+    tft->print("to toggle");
+}
+
 void drawPage() {
     tft->fillRect(0, HEADER_H + 1, tft->width(), tft->height() - HEADER_H - 1, COL_BG);
     switch (page) {
         case UiPage::RADIO: drawRadioPage(); break;
         case UiPage::GPS: drawGpsPage(); break;
         case UiPage::SYSTEM: drawSystemPage(); break;
+        case UiPage::WIFI: drawWifiPage(); break;
         default: break;
     }
 }
@@ -295,22 +335,42 @@ void nextPage() {
     tft->fillScreen(COL_BG);
 }
 
-// Drains the key FIFO and returns true if any key was PRESSED.
+// Long enough that an ordinary tap (page-advance) never trips the WiFi
+// toggle by accident; short enough not to feel broken when it's meant to.
+constexpr uint32_t LONG_PRESS_MS = 1200;
+
+bool keyHeld = false;
+uint32_t keyHeldSince = 0;
+
+enum class KeyGesture { NONE, TAP, HOLD };
+
+// Drains the key FIFO and turns press/release pairs into TAP (advance the
+// page, the original behaviour) or HOLD (toggle WiFi — ui_task.h).
 //
-// Deliberately does not decode *which* key. A verified Cardputer-ADV
-// row/col-to-character map isn't something this project has sourced, and
-// CLAUDE.md forbids guessing hardware tables. "Any key advances the page"
-// needs no keymap at all, so it can't be wrong — and for three read-only
-// pages it's all the interaction required. Decoding waits until a real
-// menu needs it, with a sourced map.
-bool anyKeyPressed() {
-    if (!keyboardReady) return false;
-    bool pressed = false;
+// Deliberately does not decode *which* key, for either gesture. A verified
+// Cardputer-ADV row/col-to-character map isn't something this project has
+// sourced, and CLAUDE.md forbids guessing hardware tables. Building both
+// gestures from the same undifferentiated press/release bit (0x80) means
+// neither one needs a keymap at all, so neither can be wrong about which
+// key was pressed — there's no "which key" to get wrong. Doesn't try to
+// track multiple simultaneous keys distinctly (a second key pressed before
+// the first releases is a known, accepted imprecision) — this device gets
+// sparse, deliberate single-key interaction, not typing.
+KeyGesture pollKeyGesture() {
+    if (!keyboardReady) return KeyGesture::NONE;
+    KeyGesture result = KeyGesture::NONE;
     while (keys.available() > 0) {
         const int k = keys.getEvent();
-        if (k & 0x80) pressed = true; // bit 7 set = press (clear = release)
+        const bool isPress = (k & 0x80) != 0; // bit 7 set = press, clear = release
+        if (isPress && !keyHeld) {
+            keyHeld = true;
+            keyHeldSince = millis();
+        } else if (!isPress && keyHeld) {
+            keyHeld = false;
+            result = (millis() - keyHeldSince >= LONG_PRESS_MS) ? KeyGesture::HOLD : KeyGesture::TAP;
+        }
     }
-    return pressed;
+    return result;
 }
 
 void uiTask(void *) {
@@ -322,7 +382,13 @@ void uiTask(void *) {
     lastPageChange = lastRedraw;
 
     for (;;) {
-        if (anyKeyPressed()) {
+        const KeyGesture gesture = pollKeyGesture();
+        if (gesture == KeyGesture::HOLD) {
+            wifiToggle();
+            drawHeader();
+            drawPage(); // if WIFI is the current page, reflect the new state now
+            lastRedraw = millis();
+        } else if (gesture == KeyGesture::TAP) {
             nextPage();
             drawHeader();
             drawPage();

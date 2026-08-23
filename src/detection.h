@@ -120,10 +120,24 @@ inline const char *missionProfileName(uint8_t profile) {
 
 // DESIGN.md §8 column order. Kept as one string so the header row and the
 // row writer can never drift apart.
+//
+// Grouped by what a reader actually asks first, left to right: when/where
+// (time, position, run context) — what kind of thing this is (profile,
+// classification) — who sent it and how it got here (node id and its
+// packet_id/hop_limit/hop_start/relay_node siblings, kept adjacent rather
+// than split across the row) — the RF channel it was heard on — signal
+// quality — payload. Reordered 2026-08-23 (PROGRESS.md) after
+// `packet_id`/`hop_limit`/`hop_start`/`relay_node` landed append-only at the
+// end and immediately proved awkward to read next to the `channel_or_node_id`
+// they describe. **Breaking change**: earlier runs' `detections.csv` files
+// (anything before this reorder) use the old column order — don't
+// concatenate an old-format run with a new-format one without checking each
+// file's own header first, since position-based parsing would silently
+// misalign.
 constexpr const char *LOG_CSV_HEADER =
-    "timestamp_utc,lat,lon,fix_quality,profile,freq_mhz,sf,bw_khz,"
-    "rssi_dbm,snr_db,classification,decoded,channel_or_node_id,raw_len,"
-    "rx_uptime_ms,run";
+    "timestamp_utc,lat,lon,fix_quality,run,rx_uptime_ms,profile,"
+    "classification,channel_or_node_id,packet_id,hop_limit,hop_start,"
+    "relay_node,freq_mhz,sf,bw_khz,rssi_dbm,snr_db,raw_len,decoded";
 
 // Phase 2 placeholder for DESIGN.md §6 fingerprinting (phase 4): with
 // HOME_LISTEN locked to one profile's channel, "what we were listening for"
@@ -156,6 +170,19 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
         idbuf[0] = '\0';
     }
 
+    // Empty (not "00000000") when no header was parsed, matching idbuf above
+    // — a blank packet_id means "unknown", not a real id that happens to be
+    // zero. hop_limit/hop_start stay numeric either way: 0 is a legitimate,
+    // common value (a packet at its last hop), not an absence marker.
+    char pktidbuf[16], relaybuf[8];
+    if (det.node_id != 0) {
+        snprintf(pktidbuf, sizeof(pktidbuf), "%08lx", (unsigned long)det.packet_id);
+        snprintf(relaybuf, sizeof(relaybuf), "%02x", (unsigned)det.relay_node);
+    } else {
+        pktidbuf[0] = '\0';
+        relaybuf[0] = '\0';
+    }
+
     char latbuf[16], lonbuf[16];
     if (has_fix) {
         // 6 decimal places is ~0.1m at the equator — far finer than GPS
@@ -168,24 +195,18 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
     }
 
     int n = snprintf(out, outSize,
-                     "%s,%s,%s,%u,%s,%.3f,%u,%.1f,%.1f,%.2f,%s,%s,%s,%u,%lu,%u",
+                     "%s,%s,%s,%u,%u,%lu,%s,%s,%s,%s,%u,%u,%s,%.3f,%u,%.1f,%.1f,%.2f,%u,%s",
                      timestamp_utc ? timestamp_utc : "",
                      latbuf, lonbuf,
                      (unsigned)fix_quality,
-                     missionProfileName(det.profile),
-                     (double)det.freq_mhz,
-                     (unsigned)det.sf,
-                     (double)det.bw_khz_x10 / 10.0,
-                     (double)det.rssi_dbm,
-                     (double)det.snr_db,
-                     detectionClassification(det),
-                     "", // `decoded`: nothing is decrypted in Phase 2 (and
-                         // Meshtastic/MeshCore payloads are encrypted) —
-                         // column reserved by DESIGN.md §8, left empty
-                     idbuf,
-                     (unsigned)det.raw_len,
-                     // Device uptime at RX. Appended last so existing
-                     // parsers keep working. Without it a detection heard
+                     // Run index. Redundant with the directory the file
+                     // sits in, right up until someone concatenates several
+                     // runs for analysis — at which point every row's
+                     // rx_uptime_ms has restarted at zero and, without this,
+                     // the merged data is silently ambiguous about which
+                     // drive a packet came from.
+                     (unsigned)run,
+                     // Device uptime at RX. Without it a detection heard
                      // before the first GPS fix has an empty timestamp AND
                      // empty coordinates — nothing at all to place it in
                      // time, not even an ordering against the health log.
@@ -193,13 +214,28 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
                      // first place; it was crossing the queue and then
                      // being dropped at format time.
                      (unsigned long)det.rx_millis,
-                     // Run index. Redundant with the directory the file
-                     // sits in, right up until someone concatenates several
-                     // runs for analysis — at which point every row's
-                     // rx_uptime_ms has restarted at zero and, without this,
-                     // the merged data is silently ambiguous about which
-                     // drive a packet came from.
-                     (unsigned)run);
+                     missionProfileName(det.profile),
+                     detectionClassification(det),
+                     idbuf,
+                     // Routing metadata — see LOG_CSV_HEADER comment for why
+                     // this exists: it's what lets a same-node_id pair heard
+                     // seconds apart be told apart as "direct + relay" (same
+                     // packet_id, different hop_limit/relay_node) versus a
+                     // logging bug re-emitting one packet twice (identical
+                     // in every field, including these).
+                     pktidbuf,
+                     (unsigned)det.hop_limit,
+                     (unsigned)det.hop_start,
+                     relaybuf,
+                     (double)det.freq_mhz,
+                     (unsigned)det.sf,
+                     (double)det.bw_khz_x10 / 10.0,
+                     (double)det.rssi_dbm,
+                     (double)det.snr_db,
+                     (unsigned)det.raw_len,
+                     ""); // `decoded`: nothing is decrypted in Phase 2 (and
+                          // Meshtastic/MeshCore payloads are encrypted) —
+                          // column reserved by DESIGN.md §8, left empty
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

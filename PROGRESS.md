@@ -257,10 +257,39 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         explained rather than just excused: same passive-antenna hardware,
         genuinely open sky this time. Antenna suspicion from that checklist
         note is retired.
-  - [~] An unattended multi-hour run: detections logged with correct
+  - [x] An unattended multi-hour run: detections logged with correct
         lat/lon, `qdrop`/`rowdrop` staying at zero, no heap exhaustion.
-        **Strong interim data point, 2026-08-23, not yet the literal exit
-        criterion.** A 37-minute battery-powered deck run (no serial log,
+        **Closed 2026-08-23** — a second deck run (run0007, v0.2.5), this
+        time genuinely multi-hour: `session.csv` covers uptime 4s->9017s,
+        **2h30m**, not the "1.5 hours" it was described as when the cards
+        came back (worth noting since it's the literal exit criterion —
+        good that reality overshot the estimate, not the reverse). Every
+        counter that matters stayed at its best possible value for the
+        *entire* run, not just an interim stretch: `crc_err`/`queue_drop`/
+        `bus_miss`/`row_drop`/`bus_contention` all **0** across all 151
+        health rows; `sd=ok` throughout; `fix_type=3` from the first
+        periodic row onward, never once dropping back to a 2D/no fix;
+        `heap_free` settled at 311828B and `heap_min` at 307204B with zero
+        further decline after the first two rows (no leak over 2.5 hours,
+        the actual duration this checklist item asks for); `max_flush_ms`
+        peaked at 40ms, `max_session_ms` at 38ms — both still comfortably
+        below anything that could starve the radio. **Also resolves the
+        long-standing `nmea_bad_crc` watch item**: this run ran **0.00%**
+        bad-CRC across 185833 NMEA sentences (0/185833), down from ~2.0%
+        on the previous (37-minute) deck run — strong evidence the v0.2.5
+        GPS UART ring-buffer bump (256B->1024B) was in fact the fix, not
+        just cheap insurance as it was logged at the time.
+        `gps_max_loop_gap_ms` never exceeded the single 319ms value already
+        present on the very first health row, meaning the GPS task was
+        never meaningfully CPU-starved even under 2.5 hours of sustained
+        SD-flush activity — the starvation theory that motivated adding
+        that column is now the *disproven* half of the `nmea_bad_crc`
+        investigation, and the buffer bump the *confirmed* fix. See the
+        `detections.csv` investigation below for the one real finding this
+        run surfaced — not a Phase 2 exit-criterion failure, but a data-
+        quality question worth a follow-up run to close.
+  - [x] *(superseded by the entry above; kept for history)* Interim
+        37-minute deck run, 2026-08-23: not yet the literal exit criterion.
         judged entirely from `detections.csv`/`session.csv` per this
         checklist's own design) came back clean on every counter that
         matters: `crc_err`/`queue_drop`/`bus_miss`/`row_drop` all stayed at
@@ -1451,30 +1480,443 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     2-hour deck run on this build, then reading `gps_max_loop_gap_ms`
     first, before `nmea_bad_crc` itself.
 
+- **2026-08-23 (later same day)** — The planned run happened: run0007,
+  v0.2.5, 2h30m unattended on the deck. Closes the Phase 2 multi-hour exit
+  criterion and the `nmea_bad_crc` watch item — see the checklist entry
+  above for the numbers. Reading `detections.csv` (110 rows) surfaced one
+  real finding, worth recording in detail since it changed conclusions
+  mid-investigation rather than landing on the first theory:
+  - **The observation.** Grouping detections by `channel_or_node_id` and
+    pairing consecutive hits from the same id within 15s of each other
+    (a Python pass over the actual CSV, not eyeballing): 51 such pairs
+    exist. 49 of 51 (96%) share **identical** `raw_len`. 46 of 51 (90%)
+    show a >30dB RSSI swing between the two, and in every one of those 46,
+    one side reads implausibly hot — specifically, 53% of *all 110*
+    detections in the run carry RSSI > -25dBm, and that hot value is not
+    varied noise: 39 readings sit at **exactly -7.0dBm** and 14 at
+    **exactly -6.0dBm** (byte-exact on the SX126x's 0.5dB/LSB grid — bytes
+    14 and 12), with only the run's final ~4 minutes drifting to a
+    different but still-tight band (-11/-14/-16/-20dBm).
+  - **First hypothesis, investigated and mostly ruled out: a firmware bug
+    re-logging one physical packet twice.** `radio_task.cpp`'s critical
+    section (`getPacketLength()` -> `readData()` -> `getRSSI()` ->
+    `getSNR()` -> `startReceive()`) holds the shared-SPI mutex for the
+    whole sequence, and `getRSSI()`'s no-arg default (verified against
+    RadioLib 7.7.1's actual `SX126x.cpp` source, not assumed) reads packet
+    -mode RSSI via `GetPacketStatus`, not the instantaneous/live-channel
+    variant — so the obvious "wrong RadioLib call" theory doesn't hold up.
+    No smoking gun found in `spi_bus.cpp` either (a plain FreeRTOS mutex
+    held for one full transaction, not per-call). Left open, not closed:
+    a stale/duplicate FIFO read from a double DIO1 fire was never
+    definitively ruled out, just de-prioritized once the alternative below
+    turned out to explain the *identical `raw_len`* observation for free.
+  - **Second hypothesis, user-supplied and better-fitting: the user's own
+    Meshtastic repeater sits within ~5 feet of the receiver during this
+    test.** Link budget at 1.5m/915MHz: FSPL ≈ 20log10(1.5) +
+    20log10(915) - 27.55 ≈ 35dB. A typical Meshtastic TX power (~20dBm)
+    with modest antenna gains (~2dBi each end) puts received power around
+    -11dBm before accounting for near-field coupling, orientation, or a
+    higher TX power setting — -7dBm at 5 feet is well within physical
+    plausibility, not a stretch. This explains every piece of the pattern
+    at once, for free: identical `raw_len` (a Meshtastic relay preserves
+    payload length — only `hop_limit`/`relay_node` change within the fixed
+    header), the 2-9s gap between pairs (Meshtastic's randomized
+    rebroadcast delay), the *tight* clustering at a near-constant value
+    (a stationary repeater at a fixed distance should read consistently,
+    not vary — the tightness that looked like a bug signature is exactly
+    what real RF from a fixed-geometry relay would produce), and the
+    pattern recurring across 40+ *different* origin node ids (one busy
+    local repeater forwards everyone's traffic on a shared regional
+    channel, not just one node's). Given this, it's the better-supported
+    explanation, though not yet proven — see the fix below for how the
+    *next* run settles it outright instead of by inference.
+  - **The gap that made this undecidable from the log alone: routing
+    metadata was parsed but never logged.** `detection.h`'s Meshtastic
+    header parser has extracted `packet_id`/`hop_limit`/`hop_start`/
+    `relay_node` since Phase 1 — `test_original_and_relay_share_dedupe_key`
+    even exercises real captured original+relay fixtures proving
+    `packet_id` matches while `hop_limit`/`relay_node` differ across a
+    rebroadcast — but none of the four ever reached `detectionFormatCsv()`
+    / `LOG_CSV_HEADER`. So the exact evidence needed to settle "relay" vs.
+    "duplicate bug" for certain (matching `packet_id`, decremented
+    `hop_limit`, different `relay_node` = relay; identical in all four =
+    bug) existed in the firmware's own struct the whole time and simply
+    never made it to the SD card.
+  - **Fix applied, v0.2.6: wired all four into the CSV**, appended after
+    `run` (same append-only-at-the-end convention `rx_uptime_ms`/
+    `logger_stack_free`/the GPS diagnostic columns already established).
+    Empty (not `00000000`) when no header was parsed, matching
+    `channel_or_node_id`'s existing convention; `hop_limit`/`hop_start`
+    stay numeric regardless since 0 is a legitimate value there, not an
+    absence marker. `DESIGN.md` §8.1 updated to match. New test
+    `test_csv_exposes_relay_vs_original` (`test/test_detection/`) asserts
+    the CSV row itself — not just the in-memory struct — now shows the
+    same `packet_id` with a decremented `hop_limit` and a different
+    `relay_node` across the existing original/relay fixture pair. **No
+    `pio` in this environment**, so verified the same way the sync-word fix
+    was: fetched upstream Unity (ThrowTheSwitch/Unity, `master`) and
+    compiled/ran all six native test binaries directly with host g++, not
+    just inspection — all **55 tests pass** (12 in `test_detection`, up
+    from 11; the other five suites unaffected and unchanged). Still needs
+    an actual `pio test -e native` run and a reflash to confirm on the real
+    toolchain/hardware. Not a behavior fix — like the GPS ring-buffer bump above, this is
+    "make the next run answer the question this one couldn't," which is
+    genuinely the best available move here: the alternative was guessing.
+
+- **2026-08-23 (later same day)** — v0.2.6 shipped fast: PR #9 merged CI
+  (real `pio run -e cardputer-adv` + `pio test -e native`, not just the g++
+  workaround above) before the next bench session, so run0011 (a short,
+  ~9-second live capture, not another multi-hour run) came back already
+  carrying the new columns. **Settles the relay-vs-bug question raised by
+  run0007, definitively, in favor of relay:** three packets, each heard
+  twice — `packet_id` `10afda4e`/`384dfe3f` (both from `!bfbc49a2`) and
+  `55f3278a` (from `!3b9292f1`) — and in every one of the three pairs,
+  `packet_id` matches exactly while `hop_limit` decrements 7->6 and
+  `relay_node` changes (`a2`->`5c`, `f1`->`5c`). That is precisely the
+  "genuine relay" signature from the DESIGN.md §8.1 fix, and precisely NOT
+  what a duplicate-log bug would produce (which would show identical
+  `hop_limit`/`relay_node` too). The radio_task.cpp double-DIO1-fire
+  question from the run0007 entry is now closed as a non-issue — no further
+  action needed there.
+  - Worth noting, not investigating further: none of run0011's 6
+    detections show the extreme -6/-7dBm pegging that made up 53% of
+    run0007 — these read -33 to -56dBm, all physically unremarkable. Not a
+    contradiction (this is a 9-second, 3-packet sample, not a comparable
+    run), but a reminder that the pegged readings themselves are still
+    unexplained in *degree* even though their *mechanism* (relay, not a
+    software duplicate) is now settled. `relay_node=5c` matches the last
+    byte of `!1bbf065c`, one of run0007's own frequently-heard node ids —
+    consistent with one specific nearby node acting as the busy relay in
+    both runs, though `relay_node` is only one byte and can't fully rule
+    out a different node sharing that byte.
+  - **Column order reshuffled, still v0.2.6 -> now v0.2.7**, at the user's
+    request after seeing the real output in a spreadsheet: the four new
+    routing columns landed append-only at the end (right thing to do while
+    they didn't exist yet, awkward to actually read once they did, sitting
+    nowhere near the `channel_or_node_id` they describe). New order groups
+    columns by what a reader asks first — when/where, then run context,
+    then what-kind, then who-and-how-it-got-here (`channel_or_node_id`
+    through `relay_node`, now adjacent), then RF params, then signal
+    quality, then payload. Full column list and rationale: DESIGN.md §8.1.
+    **This is a breaking change to column position**, called out explicitly
+    in both `LOG_CSV_HEADER`'s comment and DESIGN.md: any `detections.csv`
+    from before this change uses the old order, so position-based parsing
+    across the boundary (e.g. concatenating run0007 with run0011+) would
+    silently misalign. Every `detections.csv` still carries its own header
+    row, so a reader that keys off column *names* rather than position is
+    unaffected either way. `test/test_detection/` updated for the new
+    layout (field mapping re-verified against the real Unity/g++ workaround
+    again, all 12 tests pass) — this was purely a reorder, no column added
+    or removed, so `test_header_column_count_matches_row` needed no change.
+  - **Raised, not yet acted on: capturing the raw payload bytes for later
+    offline decoding.** Currently `buf[256]` in `radio_task.cpp` is read,
+    the 16-byte Meshtastic header is parsed out of it, and the rest
+    (ciphertext) is discarded the moment the critical section ends — the
+    `Detection` struct has nowhere to put it, by design (DESIGN.md §1's
+    ~40B queue budget, CLAUDE.md's "no large heap buffers" rule). Genuinely
+    useful for later work (MeshOregon-style channels commonly use a
+    known/default PSK, so some of this may eventually be decodable
+    offline), but it's a real architecture decision, not a small addition:
+    growing `Detection` itself blows the documented budget across a
+    32-deep queue; a second parallel queue/sidecar file keyed by
+    `rx_uptime_ms` avoids that but adds a second SD writer path. Needs a
+    decision on capture scope (hex column vs. separate binary sidecar file,
+    full payload vs. capped length, whether MeshCore/Reticulum profiles
+    even get the same treatment given CLAUDE.md's explicit warning not to
+    assume MeshCore's encryption mirrors Meshtastic's) before touching
+    code — not started.
+
+- **2026-08-23 (later same day) — Phase 3 built: WiFi AP + web UI
+  (`wifi_task`), pulled forward ahead of MeshCore at the user's request.**
+  Full plan reviewed and approved before writing code (`EnterPlanMode`),
+  grounded in an `Explore` pass over `main.cpp`'s exact boot order/task
+  priorities, `config.h`'s existing SD-settings pattern, and
+  `logger_task.cpp`'s `SpiBusLock` discipline, rather than guessed. Four
+  shape-defining calls were made explicitly with the user (`AskUserQuestion`)
+  before design: **WPA2-PSK, not open** (this device is out in the field
+  capturing other people's mesh traffic); **on-demand toggle, off by
+  default** (WiFi's RAM/CPU/RF-noise cost must never be present during an
+  actual drive unless asked for — the exact risk ROADMAP.md's old "lowest
+  priority" stance was about); **a live status dashboard, not a literal
+  serial-text mirror** (reuses existing counters, far less invasive than
+  shadowing the global `Serial` object project-wide); **settings save to
+  SD, apply on reboot, no hot-reload** (never touches `radio_task`'s
+  real-time critical section from another task).
+  - **This reverses a documented decision, on purpose, backed by a real
+    number the original decision didn't have.** ROADMAP.md called WiFi
+    "lowest priority," gated behind an `ESP.getFreeHeap()` reading "under
+    full load" that didn't exist when that was written. It exists now:
+    run0007/run0011 (this same session) measured heap_free settling at
+    ~304KB with radio+GPS+logger+display all running, flat with no decline
+    across 2.5 hours. That's the actual input the gate was waiting on.
+  - **New task**, following the exact pattern of the other four
+    (`radio_task`/`gps_task`/`logger_task`/`ui_task`): Core 0, priority 1 —
+    same tier as `gps_task`/`ui_task` ("least latency-sensitive"), strictly
+    below `logger_task` (2) and `radio_task` (3), which must always win.
+    Created at boot but does nothing (no `WiFi.mode()`, no AP, no server)
+    until toggled — task creation is cheap, starting the AP is the only
+    part with a real cost, so that stays deferred to an explicit operator
+    ask. Toggling off does a full teardown (`WiFi.mode(WIFI_OFF)`, not just
+    "stop accepting connections") so the cost actually goes away.
+  - **Toggle mechanism: a long-press of any key (~1.2s), not a specific
+    key.** `ui_task.cpp` still has no sourced Cardputer-ADV row/col
+    keymap (CLAUDE.md forbids guessing hardware tables), so `anyKeyPressed()`
+    — which never decoded *which* key — was replaced with `pollKeyGesture()`,
+    turning the same undifferentiated press/release bit (0x80) into TAP
+    (the original page-advance behaviour) or HOLD (WiFi toggle) purely from
+    timing between a press and its matching release. Needs no keymap
+    because there's no "which key" to get wrong. A new WIFI page shows
+    AP state/SSID/IP/client count and the gesture hint itself, so the
+    instructions are on the device, not just in this doc.
+  - **Library choice: built-in `WiFi.h`/`WebServer.h`, zero new `lib_deps`.**
+    `platformio.ini` pins no `espressif32` version, which resolves to
+    Arduino-ESP32 **core 2.0.17** (forced by the GFX display library pin —
+    see that file's own comment). Popular async web server forks
+    increasingly target core 3.x only; rather than gamble on core-2.0.x
+    compatibility or force a core bump (risking re-breaking the display
+    library the way the GFX 1.4.0 pin already had to work around once),
+    this uses the synchronous `WebServer` the core ships with. Its
+    blocking-per-request nature is a non-issue: this task is deliberately
+    the lowest-priority one in the system, so it blocking *itself* while
+    serving a request blocks nothing else.
+  - **Static assets: one embedded HTML page (`web_assets.h`, `PROGMEM`),
+    no LittleFS/SPIFFS, no partition-table change.** The AP has no internet
+    access, so nothing external could load anyway — vanilla HTML/CSS/JS,
+    client-side tab switching, no framework. Three tabs: Status (polls
+    `/api/status` every 2s — the same counters the Serial `[status]` line
+    and `ui_task`'s pages already expose, hand-rolled `snprintf` JSON
+    rather than pulling in ArduinoJson for a small fixed schema), Downloads
+    (`/api/runs` lists run directories; `/api/runs/<n>/{detections,session}.csv`
+    streams them), Settings (`/api/config` GET/POST).
+  - **CSV streaming is the one place correctness genuinely mattered.**
+    Chunked: each 512B chunk opens the file, seeks, reads, and closes
+    inside its own short-lived `SpiBusLock`, released *before* the slow
+    part (`server.client().write()` over the actual TCP socket) —
+    mirroring `logger_task.cpp`'s `appendToFile()` discipline exactly.
+    Holding the bus (or an open SD file handle) across a network write
+    would stall the radio task for however long the download takes, which
+    is the one thing this whole feature must never do. A real bug caught
+    during self-review before this was ever run anywhere: `File::read()`
+    returns `int` and can be negative on error — the first draft assigned
+    that straight into a `size_t`, which would have turned "read failed"
+    into "read ~4 billion bytes" and written garbage from an uninitialized
+    buffer under a bogus huge length. Fixed to check the signed return
+    before ever casting it.
+  - **Settings write path reuses `config.cpp`'s existing validators**
+    (`freqInRange`/`sfInRange`/`crInRange` — moved out of that file's
+    anonymous namespace and exported as `channelFreqInRange`/etc. so there
+    is exactly one copy of each bound, not two that could drift) and its
+    existing key=value file format (`writeDefaultConfig()`, reused as-is).
+    New `writeChannelConfigToSD()` deletes-then-recreates the file rather
+    than truncating in place — a shorter new config must not leave trailing
+    bytes of a longer old one behind — and, unlike the boot-time loader,
+    acquires `spi_bus.h`'s mutex itself (bounded 2s wait, not
+    `portMAX_DELAY`: a settings save isn't worth stalling indefinitely for,
+    the web client just gets told to retry).
+  - **New `radioActiveChannel()` getter** (`radio_task.h`) exposes the
+    channel `radio_task.cpp` actually started with (its internal copy,
+    which `main.cpp`'s own global can't see), for the settings page to show
+    real current values rather than just re-echoing whatever `config.txt`
+    last said — those can differ if the SD card was missing/bad at boot.
+  - **Docs**: this is a genuine phase reprioritization, not a footnote —
+    ROADMAP.md gets a real Phase 3 entry (renumbering old 3–6 to 4–7),
+    the versioning table shifts accordingly, DESIGN.md §2/§9 updated to
+    match, and CLAUDE.md's proposed-layout table gets both this phase's new
+    files and a correction that was already stale before today: `ui_task.cpp`
+    was still marked `[ ]` there despite having shipped in Phase 2 (recorded
+    in this very log), and `fingerprint.h`'s phase reference needed bumping
+    to match the renumbering.
+  - **Verification: strong on host logic, honestly unverified on the two
+    things only real hardware can answer.** No `pio` in this environment —
+    same g++/Unity workaround as every other change this session; all 55
+    existing native tests still pass (nothing new added — `wifi_task.cpp`,
+    like `radio_task.cpp`/`ui_task.cpp`/`gps_task.cpp`/`logger_task.cpp`
+    before it, is Arduino/hardware-coupled, not host-testable pure logic).
+    Every other Arduino-dependent file was read in full and reviewed by
+    inspection, not compiled — the same bar this project has applied to
+    every hardware-coupled change when no toolchain was available. Two
+    things genuinely need real hardware, not just a careful read: (1) the
+    heap/counter spike this phase was gated behind — flash it, watch the
+    *already-existing* `heap=`/`heapmin=` Serial status line before and
+    after a long-press toggle (no separate throwaway spike build needed,
+    since the toggle is wired straight into telemetry that already prints
+    every 5s), and confirm `radioCrcErrorCount()`/`radioQueueDropCount()`/
+    `radioBusMissCount()` stay at 0 with the AP active; (2) an actual
+    browser connecting to the AP and exercising all three tabs, including a
+    CSV download diffed against the same file read off the card directly.
+    Neither has happened yet.
+  - **Explicitly deferred, not forgotten**: true serial-text mirroring,
+    live settings hot-reload, LittleFS for a real static-asset filesystem,
+    `session.csv` WiFi fields (client count/AP uptime), and an
+    SD-configurable AP password (currently a fixed default,
+    `"loratrace123"` — flagged in `wifi_task.cpp` as a placeholder, same
+    "smallest thing that's actually useful" call the rest of Phase 2
+    followed). None were in scope for what was asked.
+
+- **2026-08-23 (later same day) — Phase 3 go/no-go: closed, on real
+  hardware, first try.** User flashed v0.3.0 and connected a browser to the
+  AP. Real numbers, not estimates:
+  - **Heap cost of the AP itself: ~55KB.** `heap=268824` in the last
+    `[status]` line before `WiFi.mode(WIFI_AP)`/`WiFi.softAP()` ran,
+    `heap=212856` in the first stable reading after — matches this same
+    log's own earlier estimate ("on the order of tens of KB") almost
+    exactly, not just in the right ballpark. Free heap settled around
+    206-210KB with the AP active and being used (one browser tab open,
+    polling `/api/status`), `heapmin` around 192-197KB after a few
+    requests — comfortably above zero, real headroom left over.
+  - **The actual invariant held**: `crc_err`/`queue_drop`/`bus_miss`/
+    `row_drop` all stayed at 0 for the entire session, AP active the whole
+    time, exactly the thing this feature was built specifically not to
+    risk. **Phase 3's go/no-go is answered: go.**
+  - **Two `WebServer.cpp` log lines showed up** (`_handleRequest():
+    request handler not found` and `send(): content length is zero`) —
+    investigated against the actual Arduino-ESP32 2.0.17 source
+    (`libraries/WebServer/src/WebServer.cpp`) rather than guessed, per this
+    project's own standing discipline. Both are benign: the first is
+    `WebServer::_handleRequest()`'s own `log_e()` call, which fires
+    unconditionally whenever a request doesn't match an exact `server.on()`
+    route — true for `wifi_task.cpp`'s own CSV downloads by design (they're
+    deliberately routed through `onNotFound()`, not registered directly),
+    not a sign the handler failed to run. The second fires whenever `send()`
+    is called with an empty content-string argument — exactly what
+    `streamCsvFile()` intentionally does (headers first, real bytes
+    streamed manually afterward) — and the source confirms the response
+    still uses the real `setContentLength()` value in its headers
+    regardless, so the warning doesn't indicate a truncated or broken
+    download.
+  - **Added: connect/disconnect logging.** `WiFi.softAPgetStationNum()`
+    was already live in `/api/status` and the WIFI page, but only as
+    something you'd notice by comparing two readings — nothing announced
+    the moment itself. `wifiTask()`'s loop (already running every ~2ms
+    while the AP is active) now edge-detects the station count against its
+    last-seen value and prints `[wifi] client connected, N total` /
+    `[wifi] client disconnected, N total` the moment it changes. Polled in
+    the task's own loop rather than via `WiFi.onEvent()` on purpose — that
+    callback runs outside this task's context, and every other piece of
+    wifi_task state deliberately stays inside its own loop; one less
+    cross-context question for a feature this small. Not yet re-verified
+    on hardware — build-clean by inspection like every other change made
+    this way in this log.
+  - **Two hardware-reported gaps fixed the same session:** a config save
+    from the web Settings tab left no trace in the serial log (added —
+    `writeChannelConfigToSD()` now prints the values written and success/
+    failure, mirroring `loadChannelConfigFromSD`'s existing prints), and
+    one boot's `[wifi] AP started` line printed with the SSID missing
+    between the colon and the IP, though several other boots in the same
+    session showed it correctly. No definitive root cause found by
+    inspection (`ESP.getEfuseMac()` is a deterministic hardware read, and
+    nothing in `startAp()` should be able to touch a local buffer between
+    filling it and printing it) — hardened anyway by computing the SSID
+    once into a static buffer (`ssidCached()`) instead of a fresh stack
+    buffer per AP start, removing a category of doubt even without a
+    confirmed cause. Worth watching for a recurrence.
+
+- **2026-08-23 (later same day) — Profile switching: confirmed as design
+  (DESIGN.md §5 already says "operator-selected via keyboard... mutually
+  exclusive"), deliberately deferred to Phase 4.** User asked about adding
+  a keyboard gate to toggle Meshtastic scanning on/off, reasoning ahead to
+  needing a Meshtastic/MeshCore switch once Phase 4 lands (not both at
+  once). Confirmed this isn't a new architectural decision — DESIGN.md §5
+  already committed to exactly this. But `radio_task.cpp` is currently
+  locked to a single `ChannelParams` for the whole run with no runtime
+  switch logic at all, and MeshCore itself isn't built yet — building the
+  actual switcher now would mean designing and testing it against a
+  profile that doesn't exist. Asked the user directly (three options: wait
+  for Phase 4, build a smaller pause/resume primitive now, or build the
+  full switcher scaffolding speculatively); **chose to wait for Phase 4**.
+  ROADMAP.md's Phase 4 entry updated to say so explicitly, so this doesn't
+  need re-deciding when that phase starts.
+
+- **2026-08-23 (later same day) — Root-caused the missing-SSID/garbled-log
+  pattern: unsynchronized Serial access across tasks, likely across cores.**
+  run0004's hardware log surfaced a much clearer example than the earlier
+  SSID incident: `[config] Wrote /loratrace/config.txt: 8 BW5 sync — reboot
+  to apply.` — should have read `918.500MHz SF8 BW125.0 CR4/5 sync 0x2B`.
+  Comparing the two side by side makes the mechanism obvious: several whole
+  pieces of a 12-call `Serial.print()` sequence went missing (the
+  `918.500`/`MHz SF` piece, `125.0`/` CR4/` piece, and `0x2B`), while others
+  survived intact — exactly the signature of another task's own Serial
+  output landing in the *gaps between* this sequence's individual calls,
+  not corruption within any one call. The earlier SSID-caching fix
+  addressed a real risk (recomputing into a fresh stack buffer per AP
+  start) but not the actual mechanism, which this second, cleaner example
+  makes unambiguous. Leading theory, not yet proven on a scope/logic
+  analyzer but consistent with everything observed: `main.cpp`'s `loop()`
+  (Arduino's own task, very likely Core 1 by default — the same core as
+  `radio_task`) and `wifi_task` (explicitly Core 0) both call `Serial.print()`
+  with nothing serializing access across that core boundary. This wasn't
+  visible before Phase 3 because nothing printed multi-part Serial messages
+  often enough to collide with `loop()`'s own frequent multi-part `[status]`
+  line — `wifi_task`'s new prints (AP start, client connect/disconnect,
+  config-save confirmation) are exactly the kind of infrequent-but-real
+  contention that finally made it visible.
+  - **Fix: build one buffer via `snprintf`, then a single `Serial.println()`
+    call — everywhere a message was being assembled from multiple separate
+    `Serial.print()` calls.** A single `write()`-style call to the Serial
+    driver is far more likely to be atomic (the driver's own internal
+    buffer/FIFO handling typically holds its own critical section for one
+    call) than N separate calls with nothing stopping another task's call
+    from being fully inserted between them. Applied to: `main.cpp`'s
+    periodic `[status]` line (the highest-value fix — this is the project's
+    primary diagnostic output, and it was equally exposed even though it
+    hadn't shown *visible* corruption yet), `wifi_task.cpp`'s AP-started
+    line and client connect/disconnect line, and `config.cpp`'s
+    `writeChannelConfigToSD()` success/failure messages (the ones actually
+    caught garbled). Every new buffer's worst-case length was measured
+    (not guessed) before sizing it — one, `config.cpp`'s, was caught
+    genuinely undersized (96 bytes budgeted, 97 needed for the longest real
+    message) during this same pass and fixed to 128 before it shipped.
+  - **Not yet re-verified on hardware** — same caveat as everything else
+    built without `pio` in this session. The theory explains every piece of
+    evidence seen so far and the fix is safe regardless of whether the
+    cross-core detail is exactly right (a single-call message is strictly
+    safer than a multi-call one no matter which two tasks are actually
+    racing), but confirming the garbled-log symptom is actually gone still
+    needs a real run with WiFi active and multiple config saves/AP
+    restarts. Watch for a recurrence — if the *same* pattern (a coherent
+    message with whole known pieces missing) still shows up post-fix, the
+    theory needs revisiting rather than assuming a smaller residual case
+    was missed.
+
 ## Next steps
 
-Phase 2 has no blocking unknowns left. Everything below is verification or
-follow-through, in the order it's worth doing.
+Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist
+above) — remaining items are follow-through, in the order it's worth doing.
 
-1. **Run the Phase 2 exit criterion: a multi-hour unattended run.** The
-   37-minute deck run above already dry-ran the whole read-the-card
-   procedure (steps 2-3 below) and came back clean on every counter — what's
-   left is purely duration. Flash **v0.2.5** (adds the two GPS diagnostic
-   columns below — worth having for this specific run, not just for its own
-   sake), confirm a GPS fix, then run for a couple of hours with no serial
-   console. **Stationary is fine — motion is not part of ROADMAP.md's exit
-   criterion** ("GPS fix acquired, detections logged with correct lat/lon,
-   no dropped packets attributable to SD latency, no crash from heap
-   exhaustion"), none of which requires the device to move, and a stationary
-   run is arguably a *cleaner* test of the firmware specifically since it
-   isolates architecture/duration questions from RF-environment and
-   satellite-geometry changes that come with actually driving. A real
-   (walking or driving) wardrive is still worth doing before calling this
-   tool field-ready, but as a separate, shorter follow-up — it's the only
-   way to exercise two things a deck run structurally can't: SD-card
-   seating/contact reliability under vibration (the earlier CRC-mount-error
-   watch item), and whether logged lat/lon actually tracks a *moving*
-   position rather than jittering around one point. Not a gate on this run.
+0. **Done, 2026-08-23: the Phase 3 go/no-go.** Flashed and bench-tested the
+   same day it was built — see the Decisions log entry above for the real
+   numbers (~55KB heap cost, exit-criterion counters held at 0 with the AP
+   active, dashboard/downloads/settings all reachable from a real browser).
+   Two remaining loose ends from that session, not blockers: the two
+   `WebServer.cpp` log lines are now explained (benign, verified against
+   source) and connect/disconnect logging was added in response but not yet
+   itself bench-verified; and the Settings tab specifically — a save that
+   actually changes the boot-banner channel after a power cycle — has no
+   evidence either way in that session's log (no `[config]` line of any
+   kind), so still genuinely untested, not just unconfirmed.
+1. **Done, 2026-08-23: the multi-hour unattended run (run0007, v0.2.5,
+   2h30m).** See the Phase 2 checklist entry and the Decisions log entry
+   above for the numbers — every exit-criterion counter held at its best
+   value for the full run, and this also closed the `nmea_bad_crc` watch
+   item (0.00% this run). What it's *not*: a moving wardrive. Motion isn't
+   part of ROADMAP.md's literal exit criterion, so this doesn't block
+   tagging Phase 2 done (step 4 below), but a real walking/driving drive is
+   still worth doing before calling the tool field-ready — it's the only
+   way to exercise two things a stationary deck run structurally can't:
+   SD-card seating/contact reliability under vibration (the earlier
+   CRC-mount-error watch item), and whether logged lat/lon actually tracks
+   *moving* position rather than jittering around one point.
+1a. **Re-run once v0.2.6 is on the device, specifically to close the
+    `detections.csv` routing-metadata finding.** run0007's data was 90%
+    consistent with "the nearby repeater, not a bug" but v0.2.5 didn't log
+    `packet_id`/`hop_limit`/`relay_node`, so it couldn't be proven either
+    way from that run alone (see Decisions log). Any run on v0.2.6 settles
+    it directly: for a same-`channel_or_node_id`, near-in-time pair, a
+    matching `packet_id` with decremented `hop_limit` and a different
+    `relay_node` confirms genuine relay traffic; identical values across
+    all three confirms the duplicate-detection theory instead and reopens
+    the radio_task.cpp double-DIO1-fire question. Doesn't need its own
+    dedicated run — the next session of any kind on v0.2.6 answers this.
 2. **Read `session.csv` first when the card comes back**, before looking at
    the detections. In order, the questions it answers:
    - `queue_drop` and `row_drop` — must be 0. Anything else means the
@@ -1506,9 +1948,13 @@ follow-through, in the order it's worth doing.
    deck run had a fix before the first detection, so this specific check
    (blanks-at-start-only) is still untested; a real drive's cold start will
    exercise it.
-4. Once that run is clean, Phase 2 is done: tag `v0.2.x`, mark the phase
-   complete in ROADMAP.md, and start Phase 3 (MeshCore profile) — same
-   `HOME_LISTEN` engine, second channel table, sync word already sourced.
+4. **Phase 2's own exit criterion is closed** (run0007, see above) — tag
+   `v0.2.x`, mark the phase complete in ROADMAP.md, and start Phase 3
+   (MeshCore profile) whenever it's convenient — same `HOME_LISTEN` engine,
+   second channel table, sync word already sourced. Not gated on step 1a
+   or step 3 above (routing-metadata confirmation and a moving wardrive are
+   both genuinely follow-through, not exit-criterion blockers), but doing
+   1a first is cheap and closes a real open question before it's forgotten.
 5. Still-open watch items, no action unless they recur/worsen:
    - SD-mount reliability across power cycles (the GPIO5 fix's first test
      was clean, but the original report said "every bin", which points at
@@ -1517,15 +1963,7 @@ follow-through, in the order it's worth doing.
      `down` and back in `session.csv` is what that looks like.
    - The Launcher-return keypress: hold through the reset rather than tap,
      or use Launcher's Settings → "Boot to Launcher" toggle.
-   - `nmea_bad_crc` vs. bus/detection load — ~0.4-0.6% baseline, ~1.2%
-     during isolated SD-flush bursts, ~2.0% sustained once GPS fix + steady
-     detection traffic ran together (deck run above). A minute-by-minute
-     re-check of that last run complicates the simple story, though: flush
-     minutes ran 2.29% vs. 1.88% in quiet minutes, a real but modest gap,
-     not the ~2x the earlier short sessions suggested, and the rate was
-     already ~1.5-1.9% in the first three minutes before any flush had ever
-     happened. v0.2.5 adds `gps_max_loop_gap_ms`/`gps_oversize_drops`
-     specifically to settle this with a direct measurement instead of
-     another correlation — see that Decisions log entry. Worth resolving
-     before Phase 3 adds MeshCore traffic on top, even though it hasn't
-     degraded fix quality yet.
+   - ~~`nmea_bad_crc` vs. bus/detection load~~ — **closed 2026-08-23**, see
+     the Phase 2 checklist entry above: run0007 (v0.2.5, 2.5h) came back at
+     **0.00%** (0/185833), down from ~2.0% the prior run. Strong evidence
+     the ring-buffer bump was the actual fix, not just insurance.
