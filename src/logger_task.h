@@ -48,8 +48,14 @@ bool loggerSdReady();
 uint32_t loggerRowsWritten();
 uint32_t loggerRowsDropped();  // dequeued but unwritable (no SD, format fail)
 uint32_t loggerFlushCount();
-uint32_t loggerMaxFlushMs();   // worst-case bus hold; the number that decides
-                               // whether batch sizing is hurting the radio
+uint32_t loggerMaxFlushMs();   // worst DETECTION-flush bus hold; the number
+                               // that decides whether batch sizing is
+                               // hurting the radio
+uint32_t loggerMaxSessionMs(); // worst HEALTH-row bus hold. Tracked apart
+                               // from the flush metric so a once-a-minute
+                               // instrumentation write can never be mistaken
+                               // for evidence that batching needs retuning.
+                               // Worst hold overall = max of the two.
 uint32_t loggerSessionRows();  // health rows committed to this run's session.csv
 
 // This power-on's run index, or 0 before SD has mounted. Matches the

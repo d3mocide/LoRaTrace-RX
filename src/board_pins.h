@@ -117,6 +117,23 @@ constexpr int8_t PIN_SD_CS = 12;
 // guessed or derived. TODO(verify) once this splash is bench-tested here.
 constexpr int8_t PIN_TFT_MOSI = 35;
 constexpr int8_t PIN_TFT_SCLK = 36;
+// The display is write-only, so its SPI bus is begun with MISO = -1. The
+// ESP32-S3 core reads that as "use the default MISO for this host", finds
+// HSPI has no default pins on S3, and logs at ERROR level on every boot:
+//
+//   [E][esp32-hal-spi.c:215] spiAttachMISO(): HSPI Does not have default
+//   pins on ESP32S3!
+//
+// CONFIRMED BENIGN (hardware, 2026-08-23). spiAttachMISO() returns without
+// attaching anything when the pin is negative, which is exactly the desired
+// outcome — there is no MISO line to attach. The panel renders correctly.
+//
+// Deliberately NOT silenced: the only way to quiet it is to hand the bus a
+// real GPIO as MISO, which would claim a pin this device does not use for
+// that purpose. A misleading pin map is a far worse legacy than a noisy
+// boot log — this project has already paid for one (see PROGRESS.md on the
+// GPS RX/TX contradiction). Same category as the GPS module's benign
+// `ANTENNA OPEN`: loud, alarming, and correct to ignore.
 constexpr int8_t PIN_TFT_CS   = 37;
 constexpr int8_t PIN_TFT_DC   = 34;
 constexpr int8_t PIN_TFT_RST  = 33;

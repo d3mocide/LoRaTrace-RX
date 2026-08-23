@@ -1157,6 +1157,66 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - Legacy top-level `detections.csv`/`session.csv` from earlier firmware
     are left alone on existing cards; the scan skips them by construction.
 
+- **2026-08-23 (hardware) — v0.2.2 first boot: per-run directories work,
+  and the flush metric was quietly lying.** Operator's serial capture,
+  read line by line.
+  - **`run=2` is the confirmation that matters.** The board had been reset
+    once (the log shows two banners either side of a
+    `rst:0x15 (USB_UART_CHIP_RESET)`), so the first boot created `run0001`
+    and the second correctly scanned the card, found it, and claimed
+    `run0002`. That exercises the whole path on real hardware: directory
+    listing, `File::name()` shape, strict `runNNNN` parsing, mkdir. It also
+    proves the scan **skipped `config.txt`** rather than counting it — the
+    override applied on the same boot, so the file was definitely sitting
+    there in the same directory being listed.
+  - **`health=1 sd=ok`**: the boot health row reached the card.
+  - **`flushes=0 maxflush=26ms` exposed a real defect in my own change.**
+    Zero detection flushes had happened; the 26ms was the boot health row,
+    charged to the detection-flush metric because both writers shared one
+    high-water mark. I had written the comment claiming that was correct
+    ("the worst hold the logger has caused, whichever file caused it") and
+    it is — for one of the two questions this number gets asked. "Is the
+    logger starving the radio?" is the max across both writers. "Is my
+    batch sizing wrong?" is only ever about detection flushes. Merging them
+    answered the first and silently destroyed the second, which is worse
+    than useless on a metric that exists to tune the batch buffer. Now
+    tracked per writer: `max_flush_ms` and `max_session_ms`, both in the
+    health row and the status line.
+    - Worth noting the shape of the mistake: not a crash, not a wrong
+      value, but a *correct number answering the wrong question*. No test
+      could have caught it, and it took one real boot printing two numbers
+      side by side to make it obvious.
+    - The 26ms itself is useful data, not noise: that is the first write to
+      a freshly mounted card, and it is the current worst-case bus hold on
+      record.
+  - **`[E] spiAttachMISO(): HSPI Does not have default pins on ESP32S3!` is
+    benign and is now documented in `board_pins.h` instead of being fixed.**
+    The display is write-only so its bus is begun with `MISO = -1`; the core
+    reads negative as "use this host's default MISO", finds S3 has none for
+    HSPI, logs at ERROR and returns without attaching — which is precisely
+    the desired outcome. The only way to silence it is to hand the bus a
+    real GPIO as MISO, i.e. to claim a pin for a purpose it does not serve.
+    A misleading pin map is a far worse legacy than a noisy boot log, and
+    this project has already paid for one of those. Same category as the GPS
+    `ANTENNA OPEN`: loud, alarming, correct to ignore.
+  - `[W] Wire.cpp begin(): Bus already started` x2 is the documented
+    deliberate re-`begin()` in `uiTaskStart()` plus the TCA8418 library
+    doing the same. Harmless.
+  - **Heap moved and it is worth writing down:** 317676 free after task
+    start, 313068 at the first status line, `heapmin=308488`. Phase 1's
+    idle number was ~338KB, so the three tasks, the queue, the UI and the
+    SD buffers cost roughly 21-25KB together — comfortably inside the
+    no-PSRAM budget, and the ~4.5KB gap between `heap` and `heapmin`
+    already shows the trough tracking is doing its job.
+  - **Still unproven, and only time fixes it:** `rx=0` and `fix=none` at the
+    first status print, seconds after boot. `nmea=64 badcrc=0` says the GPS
+    is talking cleanly and just hasn't fixed yet.
+  - **Known wart, deliberately not papered over:** attaching a serial
+    monitor toggles DTR and resets the board, so every bench session claims
+    a fresh run folder holding one health row and no detections. Honest
+    consequence of "a run is a power-on"; trivially identifiable and a few
+    hundred bytes each. A Phase 6 start/stop gate is what actually fixes it.
+
 ## Next steps
 
 Phase 2 has no blocking unknowns left. Everything below is verification or

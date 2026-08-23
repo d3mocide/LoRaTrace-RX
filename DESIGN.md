@@ -304,7 +304,7 @@ fast for near-zero value.
 
 ### 8.2 `session.csv` — the run's own vital signs
 
-`timestamp_utc, uptime_s, reason, lat, lon, sats, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run`
+`timestamp_utc, uptime_s, reason, lat, lon, sats, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, max_session_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run`
 
 One row per minute, plus a `reason=boot` row when the card comes up.
 
@@ -325,6 +325,12 @@ Two fields carry more weight than the rest:
   append to. Without it, a power cycle mid-drive reads as counters
   spontaneously resetting — a firmware fault, rather than someone catching
   the USB cable.
+- **`max_flush_ms` and `max_session_ms` are separate on purpose.** The
+  first is the worst detection-flush bus hold, the second the worst
+  health-row hold. Both are real costs to the radio, so the worst hold
+  overall is the max of the two — but only the first says anything about
+  whether batch sizing needs retuning. Merged, a once-a-minute
+  instrumentation write reads as evidence against the batch buffer.
 - **`logger_stack_free`** is the logger task's stack high-water mark. That
   task owns the card and now has a deeper call path than it did, and a
   stack overflow there loses the whole run silently — so the size is
@@ -345,6 +351,14 @@ A card **reseated mid-drive rejoins the same run** rather than splitting one
 drive across two folders — the run is resolved once per power-on, not once
 per mount. The gap is still recorded honestly, as `sd` going down and back
 in that run's own health rows.
+
+**Every reset claims a run, including a USB one.** Attaching a serial
+monitor toggles DTR and resets the board, so bench sessions accumulate run
+folders holding a single health row and no detections. That is the honest
+consequence of "a run is a power-on" and is left alone rather than papered
+over: such runs are trivially identifiable (`rx=0`, one row) and cost a few
+hundred bytes. A Phase 6 start/stop gate would make the run boundary an
+operator decision instead, at which point this stops happening.
 
 Absolute time comes from GPS, because this board has no verified RTC. That
 has one consequence worth stating plainly: **rows written before the first

@@ -64,7 +64,12 @@ struct SessionStats {
     uint32_t rows_written = 0;
     uint32_t rows_dropped = 0;
     uint32_t flushes = 0;
-    uint32_t max_flush_ms = 0; // worst bus hold the logger has caused
+    uint32_t max_flush_ms = 0;   // worst DETECTION-flush bus hold
+    // Worst health-row bus hold, kept apart from the flush metric: this
+    // file's own writes are instrumentation, and charging them to the
+    // number that diagnoses batch sizing would send a reader tuning the
+    // batch buffer to fix a cost the batch buffer never paid.
+    uint32_t max_session_ms = 0;
     bool sd_ready = false;
     uint32_t bus_contention = 0;
 
@@ -88,7 +93,7 @@ struct SessionStats {
 constexpr const char *SESSION_CSV_HEADER =
     "timestamp_utc,uptime_s,reason,lat,lon,sats,fix_type,ttff_s,"
     "rx,crc_err,queue_drop,bus_miss,"
-    "rows,row_drop,flushes,max_flush_ms,sd,bus_contention,"
+    "rows,row_drop,flushes,max_flush_ms,max_session_ms,sd,bus_contention,"
     "nmea,nmea_bad_crc,heap_free,heap_min,batt_mv,logger_stack_free,run";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
@@ -117,7 +122,7 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
     int n = snprintf(out, outSize,
                      "%s,%lu,%s,%s,%s,%u,%u,%lu,"
                      "%lu,%lu,%lu,%lu,"
-                     "%lu,%lu,%lu,%lu,%s,%lu,"
+                     "%lu,%lu,%lu,%lu,%lu,%s,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%u",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
@@ -134,6 +139,7 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.rows_dropped,
                      (unsigned long)s.flushes,
                      (unsigned long)s.max_flush_ms,
+                     (unsigned long)s.max_session_ms,
                      s.sd_ready ? "ok" : "down",
                      (unsigned long)s.bus_contention,
                      (unsigned long)s.nmea_sentences,

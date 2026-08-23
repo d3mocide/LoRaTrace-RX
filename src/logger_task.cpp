@@ -60,6 +60,7 @@ volatile uint32_t rowsDropped = 0;
 volatile uint32_t flushCount = 0;
 volatile uint32_t maxFlushMs = 0;
 volatile uint32_t sessionRows = 0;
+volatile uint32_t maxSessionMs = 0;
 
 // Highest runNNNN index already on the card, or 0 if there are none.
 // Assumes the caller holds the bus and SD is mounted.
@@ -155,10 +156,16 @@ enum class WriteResult { OK, BUS_BUSY, FILE_ERROR };
 // the bus itself and holding it for nothing more. The caller must NOT
 // already hold the bus.
 //
-// Every bus hold this task takes goes through here, so maxFlushMs stays
-// what its header promises: the worst hold the logger has caused, whichever
-// file caused it.
-WriteResult appendToFile(const char *path, const char *data, size_t len) {
+// `worstMs` is the caller's own high-water mark, tracked PER WRITER rather
+// than shared. First hardware run of this code made the reason obvious: the
+// status line read `flushes=0 maxflush=26ms`, because the boot health row
+// had taken 26ms and charged it to the detection-flush metric. Both numbers
+// answer real questions and they are different questions — "is the logger
+// starving the radio?" is the max across both, while "is my batch sizing
+// wrong?" is only ever about detection flushes. Merging them answered the
+// first and quietly destroyed the second.
+WriteResult appendToFile(const char *path, const char *data, size_t len,
+                         volatile uint32_t &worstMs) {
     const uint32_t started = millis();
     WriteResult result;
     {
@@ -175,7 +182,7 @@ WriteResult appendToFile(const char *path, const char *data, size_t len) {
         }
     }
     const uint32_t elapsed = millis() - started;
-    if (elapsed > maxFlushMs) maxFlushMs = elapsed;
+    if (elapsed > worstMs) worstMs = elapsed;
     return result;
 }
 
@@ -183,7 +190,7 @@ WriteResult appendToFile(const char *path, const char *data, size_t len) {
 void flushBatch() {
     if (batchLen == 0) return;
 
-    switch (appendToFile(detectionsPath, batchBuf, batchLen)) {
+    switch (appendToFile(detectionsPath, batchBuf, batchLen, maxFlushMs)) {
         case WriteResult::BUS_BUSY:
             // Keep the data buffered and try again on the next pass rather
             // than discarding it — unlike the radio task, the logger is
@@ -242,6 +249,7 @@ void writeSessionRow(const char *reason) {
     s.rows_dropped = rowsDropped;
     s.flushes = flushCount;
     s.max_flush_ms = maxFlushMs;
+    s.max_session_ms = maxSessionMs;
     s.sd_ready = sdReady;
     s.bus_contention = spiBusContentionCount();
 
@@ -260,7 +268,7 @@ void writeSessionRow(const char *reason) {
     if (n == 0) return; // truncated — a malformed health row helps nobody
     row[n++] = '\n';   // snprintf guarantees n <= sizeof(row)-1, so this fits
 
-    if (appendToFile(sessionPath, row, n) == WriteResult::OK) sessionRows++;
+    if (appendToFile(sessionPath, row, n, maxSessionMs) == WriteResult::OK) sessionRows++;
 }
 
 void appendDetection(const Detection &det) {
@@ -388,4 +396,7 @@ uint32_t loggerSessionRows() {
 }
 uint16_t loggerRunIndex() {
     return runIndex;
+}
+uint32_t loggerMaxSessionMs() {
+    return maxSessionMs;
 }

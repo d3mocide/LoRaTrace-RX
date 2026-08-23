@@ -45,6 +45,7 @@ static SessionStats healthySample() {
     s.rows_dropped = 0;
     s.flushes = 71;
     s.max_flush_ms = 38;
+    s.max_session_ms = 26;
     s.sd_ready = true;
     s.bus_contention = 0;
     s.heap_free = 338496;
@@ -72,7 +73,7 @@ void test_row_with_fix_carries_position_and_counters() {
     TEST_ASSERT_EQUAL_STRING(
         "2026-08-23T04:15:00Z,3725,periodic,37.774929,-122.419418,14,3,42,"
         "912,17,0,0,"
-        "912,0,71,38,ok,0,"
+        "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7",
         row);
 }

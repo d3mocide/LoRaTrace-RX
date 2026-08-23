@@ -245,6 +245,11 @@ void loop() {
     Serial.print(loggerFlushCount());
     Serial.print(F(" maxflush="));
     Serial.print(loggerMaxFlushMs());
+    // Separate from maxflush on purpose: the health writer's bus holds are
+    // instrumentation, and folding them in makes the flush number lie about
+    // batch sizing (first hardware run printed flushes=0 maxflush=26ms).
+    Serial.print(F("ms maxhealth="));
+    Serial.print(loggerMaxSessionMs());
     Serial.print(F("ms sd="));
     Serial.print(loggerSdReady() ? F("ok") : F("DOWN"));
     Serial.print(F(" health="));
