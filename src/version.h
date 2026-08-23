@@ -20,7 +20,7 @@
 //    share one semantic version. Carries a "-dirty" suffix when built from
 //    a modified working tree.
 
-#define FIRMWARE_VERSION "0.2.3"
+#define FIRMWARE_VERSION "0.2.4"
 
 // Fallback for builds that bypass the PlatformIO extra_script (e.g. the
 // host-native test env, or an IDE indexer). Never seen on a real firmware

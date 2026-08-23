@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <sys/time.h>
 
 #include "board_pins.h"
 #include "nmea.h"
@@ -22,6 +23,13 @@ volatile uint32_t checksumErrors = 0;
 // it has no way to know whether that fix is one second or one hour old as
 // a *session* event.
 volatile uint32_t firstFixMs = 0;
+// The ESP32's system clock starts at the epoch and nothing else ever sets
+// it, so until GPS supplies a date every file written to the card is stamped
+// 1980 (FAT's own epoch, which is what a 1970 system time clamps to). That
+// makes a card full of runs impossible to order by anything but its
+// contents. GPS time arrives well before a position fix does — it needs one
+// satellite, not four — so this lands early enough to be useful.
+bool systemTimeSet = false;
 
 // Line assembly buffer. Task-local (not static inside the loop) so its
 // lifetime is obvious; sized by NMEA's 82-char spec limit.
@@ -48,6 +56,32 @@ void handleSentence(const char *s) {
     if (!gpsApplySentence(updated, s, now)) return;
 
     if (updated.has_position && firstFixMs == 0) firstFixMs = now;
+
+    // Once per power-on: adopt GPS UTC as the system clock so SD file
+    // timestamps stop reading 1980. Deliberately NOT gated on a position
+    // fix — time is valid without one, and waiting for position would leave
+    // the files wrong for the whole acquisition window.
+    if (!systemTimeSet) {
+        const int64_t epoch = gpsFixToEpoch(updated);
+        if (epoch > 0) {
+            struct timeval tv = {};
+            tv.tv_sec = (time_t)epoch;
+            if (settimeofday(&tv, nullptr) == 0) {
+                systemTimeSet = true;
+                Serial.print(F("[gps] system clock set from GPS: "));
+                Serial.print(updated.year);
+                Serial.print('-');
+                Serial.print(updated.month);
+                Serial.print('-');
+                Serial.print(updated.day);
+                Serial.print(' ');
+                Serial.print(updated.hour);
+                Serial.print(':');
+                Serial.print(updated.minute);
+                Serial.println(F(" UTC — SD file timestamps are real from here."));
+            }
+        }
+    }
 
     if (xSemaphoreTake(fixMutex, portMAX_DELAY) == pdTRUE) {
         sharedFix = updated;
@@ -120,4 +154,8 @@ uint32_t gpsChecksumErrorCount() {
 
 uint32_t gpsFirstFixMillis() {
     return firstFixMs;
+}
+
+bool gpsSystemTimeSet() {
+    return systemTimeSet;
 }

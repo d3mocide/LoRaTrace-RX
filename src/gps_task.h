@@ -34,3 +34,10 @@ uint32_t gpsChecksumErrorCount();
 // can only be measured across a whole session, so it is recorded as the
 // session runs rather than reconstructed afterwards.
 uint32_t gpsFirstFixMillis();
+
+// True once GPS UTC has been adopted as the device's system clock. Until
+// then every file written to SD carries FAT's 1980 epoch rather than a real
+// date, so this is what says whether the card's own timestamps mean
+// anything. Set from time alone, not position — GPS has the time long
+// before it has a fix.
+bool gpsSystemTimeSet();

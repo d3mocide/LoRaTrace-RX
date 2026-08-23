@@ -267,6 +267,42 @@ inline bool gpsApplySentence(GpsFix &fix, const char *sentence, uint32_t now_ms)
 
 // True when the fix is recent enough to attribute a detection to. Age is
 // deliberately the caller's policy, not a constant baked in here.
+// Days since 1970-01-01 for a proleptic-Gregorian date. Howard Hinnant's
+// days_from_civil, used instead of mktime()/timegm() on purpose: mktime()
+// interprets its input in the process timezone, timegm()'s availability
+// varies by libc, and the correct answer here must not depend on whether
+// something called tzset() first. NMEA dates are UTC by definition, so the
+// conversion is pure arithmetic and belongs with the rest of the pure
+// parsing code where the host tests can reach it.
+inline int64_t gpsDaysFromCivil(int32_t y, uint32_t m, uint32_t d) {
+    y -= (m <= 2);
+    const int32_t era = (y >= 0 ? y : y - 399) / 400;
+    const uint32_t yoe = (uint32_t)(y - era * 400);
+    const uint32_t doy = (153u * (m + (m > 2 ? -3u : 9u)) + 2u) / 5u + d - 1u;
+    const uint32_t doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
+    return (int64_t)era * 146097 + (int64_t)doe - 719468;
+}
+
+// Unix epoch seconds for the fix's UTC date/time, or 0 when the fix carries
+// no usable date.
+//
+// The year floor is a deliberate sanity gate, not decoration: this value
+// sets the device's system clock, which in turn stamps every file written
+// to the card. A garbled sentence that slipped through the checksum and
+// yielded year 2000 would silently backdate the whole run's files, so a
+// date before this firmware could plausibly exist is refused outright.
+constexpr uint16_t GPS_MIN_PLAUSIBLE_YEAR = 2024;
+
+inline int64_t gpsFixToEpoch(const GpsFix &fix) {
+    if (!fix.has_time) return 0;
+    if (fix.year < GPS_MIN_PLAUSIBLE_YEAR) return 0;
+    if (fix.month < 1 || fix.month > 12 || fix.day < 1 || fix.day > 31) return 0;
+    if (fix.hour > 23 || fix.minute > 59 || fix.second > 60) return 0; // 60 = leap second
+
+    const int64_t days = gpsDaysFromCivil((int32_t)fix.year, fix.month, fix.day);
+    return days * 86400 + (int64_t)fix.hour * 3600 + (int64_t)fix.minute * 60 + fix.second;
+}
+
 inline bool gpsFixIsFresh(const GpsFix &fix, uint32_t now_ms, uint32_t max_age_ms) {
     if (!fix.has_position || fix.updated_ms == 0) return false;
     return (uint32_t)(now_ms - fix.updated_ms) <= max_age_ms;

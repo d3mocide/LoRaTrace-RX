@@ -33,6 +33,7 @@ static SessionStats healthySample() {
     s.lat = 37.774929;
     s.lon = -122.419418;
     s.sats = 14;
+    s.sats_in_view = 21;
     s.fix_type = 3;
     s.ttff_s = 42;
     s.nmea_sentences = 58000;
@@ -71,7 +72,7 @@ void test_row_with_fix_carries_position_and_counters() {
     size_t n = sessionFormatCsv(healthySample(), row, sizeof(row), "2026-08-23T04:15:00Z");
     TEST_ASSERT_EQUAL_size_t(strlen(row), n);
     TEST_ASSERT_EQUAL_STRING(
-        "2026-08-23T04:15:00Z,3725,periodic,37.774929,-122.419418,14,3,42,"
+        "2026-08-23T04:15:00Z,3725,periodic,37.774929,-122.419418,14,21,3,42,"
         "912,17,0,0,"
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7",
@@ -86,6 +87,9 @@ void test_row_without_fix_leaves_coords_empty() {
     s.lat = 0.0;
     s.lon = 0.0;
     s.sats = 0;
+    // In view but not yet used: the acquiring state, which is precisely what
+    // the used-count alone cannot express.
+    s.sats_in_view = 12;
     s.fix_type = 1;
     s.ttff_s = 0;
 
@@ -93,11 +97,32 @@ void test_row_without_fix_leaves_coords_empty() {
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     TEST_ASSERT_TRUE(n > 0);
     // Empty timestamp, then uptime/reason, then two empty coordinate fields.
-    const char *expectedPrefix = ",3725,periodic,,,0,1,0,";
+    const char *expectedPrefix = ",3725,periodic,,,0,12,1,0,";
     TEST_ASSERT_EQUAL_INT(0, strncmp(row, expectedPrefix, strlen(expectedPrefix)));
     // Specifically not 0,0 rendered as a number.
     TEST_ASSERT_NULL(strstr(row, "0.000000"));
     TEST_ASSERT_EQUAL_INT(countFields(SESSION_CSV_HEADER), countFields(row));
+}
+
+void test_acquiring_is_distinguishable_from_no_sky() {
+    // The reason sats_in_view is logged at all. Both rows have no fix and
+    // zero satellites used; only the in-view count says whether the antenna
+    // can see sky, which is the difference between "wait" and "go outside".
+    SessionStats acquiring = healthySample();
+    acquiring.has_fix = false;
+    acquiring.sats = 0;
+    acquiring.fix_type = 1;
+    acquiring.sats_in_view = 12;
+
+    SessionStats noSky = acquiring;
+    noSky.sats_in_view = 0;
+
+    char a[320], b[320];
+    TEST_ASSERT_TRUE(sessionFormatCsv(acquiring, a, sizeof(a), "") > 0);
+    TEST_ASSERT_TRUE(sessionFormatCsv(noSky, b, sizeof(b), "") > 0);
+    TEST_ASSERT_NOT_EQUAL(0, strcmp(a, b));
+    TEST_ASSERT_NOT_NULL(strstr(a, ",0,12,1,"));
+    TEST_ASSERT_NOT_NULL(strstr(b, ",0,0,1,"));
 }
 
 void test_boot_row_is_distinguishable() {
@@ -172,6 +197,7 @@ int main(int, char **) {
     RUN_TEST(test_header_column_count_matches_row);
     RUN_TEST(test_row_with_fix_carries_position_and_counters);
     RUN_TEST(test_row_without_fix_leaves_coords_empty);
+    RUN_TEST(test_acquiring_is_distinguishable_from_no_sky);
     RUN_TEST(test_boot_row_is_distinguishable);
     RUN_TEST(test_sd_down_is_recorded_as_a_word_not_a_number);
     RUN_TEST(test_heap_trough_is_reported_separately_from_the_sample);

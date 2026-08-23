@@ -191,8 +191,64 @@ void test_time_and_date_field_validation() {
     TEST_ASSERT_FALSE(gpsParseDateField("000826", &y, &mo, &d)); // day 0
 }
 
+void test_epoch_conversion_against_known_dates() {
+    // Anchors checked against known Unix timestamps. This value sets the
+    // device clock, which stamps every file on the card, so an off-by-a-day
+    // here silently misdates a whole run's worth of evidence.
+    GpsFix fix;
+    fix.has_time = true;
+    fix.year = 1970; fix.month = 1; fix.day = 1;
+    fix.hour = 0; fix.minute = 0; fix.second = 0;
+    // Refused: before GPS_MIN_PLAUSIBLE_YEAR, so it can't backdate the card.
+    TEST_ASSERT_EQUAL_INT64(0, gpsFixToEpoch(fix));
+    // ...but the underlying arithmetic still has the epoch itself at zero.
+    TEST_ASSERT_EQUAL_INT64(0, gpsDaysFromCivil(1970, 1, 1));
+
+    // The timestamp off the operator's own run0005 capture, 2026-08-23.
+    fix.year = 2026; fix.month = 8; fix.day = 23;
+    fix.hour = 15; fix.minute = 13; fix.second = 22;
+    TEST_ASSERT_EQUAL_INT64(1787498002LL, gpsFixToEpoch(fix));
+
+    // A leap-year boundary, the classic place a hand-rolled calendar breaks.
+    fix.year = 2028; fix.month = 2; fix.day = 29;
+    fix.hour = 0; fix.minute = 0; fix.second = 0;
+    TEST_ASSERT_EQUAL_INT64(1835395200LL, gpsFixToEpoch(fix));
+
+    // 2100 is NOT a leap year (divisible by 100, not 400).
+    TEST_ASSERT_EQUAL_INT64(gpsDaysFromCivil(2100, 3, 1) - gpsDaysFromCivil(2100, 2, 28), 1);
+    TEST_ASSERT_EQUAL_INT64(gpsDaysFromCivil(2028, 3, 1) - gpsDaysFromCivil(2028, 2, 28), 2);
+}
+
+void test_epoch_refuses_unusable_fixes() {
+    GpsFix fix;
+    // No date at all -> 0, so the clock is never set from nothing.
+    TEST_ASSERT_EQUAL_INT64(0, gpsFixToEpoch(fix));
+
+    fix.has_time = true;
+    fix.year = 2026; fix.month = 8; fix.day = 23;
+    fix.hour = 15; fix.minute = 13; fix.second = 22;
+    TEST_ASSERT_TRUE(gpsFixToEpoch(fix) > 0);
+
+    // Out-of-range components are refused rather than normalised: a garbled
+    // sentence must not be allowed to set the system clock.
+    GpsFix bad = fix; bad.month = 13;
+    TEST_ASSERT_EQUAL_INT64(0, gpsFixToEpoch(bad));
+    bad = fix; bad.day = 0;
+    TEST_ASSERT_EQUAL_INT64(0, gpsFixToEpoch(bad));
+    bad = fix; bad.hour = 24;
+    TEST_ASSERT_EQUAL_INT64(0, gpsFixToEpoch(bad));
+    bad = fix; bad.year = 2000; // plausible-looking, still refused
+    TEST_ASSERT_EQUAL_INT64(0, gpsFixToEpoch(bad));
+
+    // Leap second (second == 60) is accepted, not treated as corruption.
+    GpsFix leap = fix; leap.second = 60;
+    TEST_ASSERT_TRUE(gpsFixToEpoch(leap) > 0);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
+    RUN_TEST(test_epoch_conversion_against_known_dates);
+    RUN_TEST(test_epoch_refuses_unusable_fixes);
     RUN_TEST(test_gga_with_fix_sets_position);
     RUN_TEST(test_gga_without_fix_never_sets_position);
     RUN_TEST(test_southern_western_hemispheres_are_negative);

@@ -234,6 +234,7 @@ void writeSessionRow(const char *reason) {
     s.lat = fix.lat;
     s.lon = fix.lon;
     s.sats = fix.satellites;
+    s.sats_in_view = fix.sats_in_view;
     s.fix_type = fix.fix_type;
     const uint32_t firstFix = gpsFirstFixMillis();
     s.ttff_s = firstFix == 0 ? 0 : firstFix / 1000;

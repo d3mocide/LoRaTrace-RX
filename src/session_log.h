@@ -45,6 +45,14 @@ struct SessionStats {
     double lat = 0.0;
     double lon = 0.0;
     uint8_t sats = 0;      // used in the solution (GGA field 7)
+    // Satellites IN VIEW, summed across constellations. The leading
+    // indicator, and the only one of the two that means anything before a
+    // fix exists: `sats` (used) stays 0 throughout acquisition, so a row
+    // reading `sats=0 fix_type=1` looks identical whether the antenna is
+    // seeing twelve satellites or is disconnected. gps_parse.h records that
+    // lesson for the probe; logging only the used count repeated the
+    // mistake in the file meant to explain a run after the fact.
+    uint8_t sats_in_view = 0;
     uint8_t fix_type = 1;  // GSA field 2: 1 none, 2 = 2D, 3 = 3D
     // Seconds from boot to the first position fix; 0 = none yet. Recorded
     // because time-to-first-fix is an operational number for a wardriver —
@@ -91,7 +99,7 @@ struct SessionStats {
 // Column order for each run's session.csv. One string so the header row and
 // the row writer can't drift apart — same rule as LOG_CSV_HEADER.
 constexpr const char *SESSION_CSV_HEADER =
-    "timestamp_utc,uptime_s,reason,lat,lon,sats,fix_type,ttff_s,"
+    "timestamp_utc,uptime_s,reason,lat,lon,sats,sats_in_view,fix_type,ttff_s,"
     "rx,crc_err,queue_drop,bus_miss,"
     "rows,row_drop,flushes,max_flush_ms,max_session_ms,sd,bus_contention,"
     "nmea,nmea_bad_crc,heap_free,heap_min,batt_mv,logger_stack_free,run";
@@ -120,7 +128,7 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
     }
 
     int n = snprintf(out, outSize,
-                     "%s,%lu,%s,%s,%s,%u,%u,%lu,"
+                     "%s,%lu,%s,%s,%s,%u,%u,%u,%lu,"
                      "%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%s,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%u",
@@ -129,6 +137,7 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      s.reason ? s.reason : "",
                      latbuf, lonbuf,
                      (unsigned)s.sats,
+                     (unsigned)s.sats_in_view,
                      (unsigned)s.fix_type,
                      (unsigned long)s.ttff_s,
                      (unsigned long)s.rx,

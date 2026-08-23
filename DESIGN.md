@@ -304,7 +304,7 @@ fast for near-zero value.
 
 ### 8.2 `session.csv` — the run's own vital signs
 
-`timestamp_utc, uptime_s, reason, lat, lon, sats, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, max_session_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run`
+`timestamp_utc, uptime_s, reason, lat, lon, sats, sats_in_view, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, max_session_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run`
 
 One row per minute, plus a `reason=boot` row when the card comes up.
 
@@ -325,6 +325,10 @@ Two fields carry more weight than the rest:
   append to. Without it, a power cycle mid-drive reads as counters
   spontaneously resetting — a firmware fault, rather than someone catching
   the USB cable.
+- **`sats_in_view` alongside `sats`.** The used count stays 0 for the whole
+  acquisition window, so a row reading `sats=0 fix_type=1` is identical
+  whether the antenna sees twelve satellites or is unplugged. In view is the
+  leading indicator and the difference between "wait" and "go outside".
 - **`max_flush_ms` and `max_session_ms` are separate on purpose.** The
   first is the worst detection-flush bus hold, the second the worst
   health-row hold. Both are real costs to the radio, so the worst hold
@@ -365,6 +369,20 @@ has one consequence worth stating plainly: **rows written before the first
 fix of a run carry an empty `timestamp_utc`.** The boot row essentially
 always does, since SD mounts seconds after power-on and a cold TTFF is tens
 of seconds at best.
+
+GPS time also sets the **device system clock**, once per power-on, as soon
+as a sentence carries a plausible UTC date — gated on time alone, not on a
+position fix, because GPS has the time long before it has a fix and waiting
+would leave the files wrong for the whole acquisition window. Without it the
+system clock never leaves the epoch and FAT stamps every file 1980, which
+makes a card of runs impossible to order by anything but its contents.
+
+Two limits worth knowing. Files **created** before the clock is set keep
+their 1980 creation date — that includes the run directory and both CSVs,
+since they are created at mount. Their modification time corrects on the
+first append after the clock is set, so a run that ever saw GPS ends up with
+a truthful mtime. And a run in which GPS never supplies a date keeps 1980
+throughout: inherent without an RTC.
 
 That does not lose the session, because `uptime_s` is on every row:
 

@@ -1217,6 +1217,61 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     consequence of "a run is a power-on"; trivially identifiable and a few
     hundred bytes each. A Phase 6 start/stop gate is what actually fixes it.
 
+- **2026-08-23 (hardware) — run0005 capture: the layout is confirmed, and
+  the data exposed two more defects.** Operator pulled
+  `/loratrace/run0005/` off the card. Both files present, both headers
+  correct, `run=5` consistent across them, `rx_uptime_ms` populated
+  (115175, 120944), two genuine Meshtastic detections
+  (`!3e0c868b` -67dBm, `!69858668` -62dBm). `queue_drop`, `row_drop`,
+  `bus_miss` and `bus_contention` all 0. `rows=2 flushes=2` matches `rx=2`.
+  **The per-run layout, both schemas, and the whole logging path are now
+  hardware-confirmed.**
+  - **`logger_stack_free` paid for itself immediately.** It reports 1432
+    bytes free at its worst, i.e. ~3688 used of the 5120 stack. The bump
+    from 4096 was made on reasoning alone and would have left roughly 400
+    bytes of headroom — uncomfortably thin under SD/FatFS. That is no
+    longer an argument; it is a measurement, which was the entire point of
+    logging it.
+  - **Defect 1: file timestamps read 1980.** Nothing ever set the system
+    clock, so it sat at the epoch and FAT stamped every file with its own
+    1980 floor. A card full of runs could not be ordered by anything but
+    its contents. `gps_task` now adopts GPS UTC once per power-on via
+    `settimeofday()`, gated on **time alone rather than a position fix** —
+    GPS has the time long before it has a fix, and this capture is the
+    proof: `timestamp_utc` is populated from 15:12:29 onward while `lat`,
+    `lon`, `sats` and `fix_type` all still say no fix. Waiting for position
+    would have left the files wrong for that entire window.
+    - Conversion is `gpsFixToEpoch()` in `gps_parse.h`, using Hinnant's
+      days_from_civil rather than `mktime()`/`timegm()`: `mktime()`
+      interprets its input in the process timezone and `timegm()`'s
+      availability varies by libc, and the correct answer must not depend
+      on whether something called `tzset()` first. Pure arithmetic, host
+      tested against known timestamps including a 2028 leap day and the
+      2100 non-leap-year case.
+    - A plausibility floor (`GPS_MIN_PLAUSIBLE_YEAR = 2024`) gates it. This
+      value stamps every file on the card, so a garbled sentence that got
+      past the checksum and yielded year 2000 would silently backdate a
+      whole run.
+    - Known limits, documented in DESIGN.md §8.3 rather than hidden: files
+      *created* before the clock is set keep their 1980 creation date (the
+      run directory and both CSVs, created at mount); mtime corrects on the
+      first append afterwards. A run where GPS never supplies a date stays
+      1980 throughout — inherent without an RTC.
+  - **Defect 2: the health log recorded the useless satellite count.**
+    Every row reads `sats=0 fix_type=1`, which cannot distinguish "twelve
+    satellites in view, still acquiring" from "antenna disconnected". This
+    project already learned that lesson explicitly — `gps_parse.h` carries
+    a comment about it, and the GPS probe was rewritten around it on
+    2026-08-23 — and then the session log, the file whose whole job is
+    explaining a run after the fact, shipped with only the used count.
+    `sats_in_view` added alongside. The probe knew better than the logger
+    did, which is a good argument for reading old lessons before writing
+    new files.
+  - **Watch item, not yet a problem:** `nmea_bad_crc` climbs 0 → 2 → 8
+    against `nmea` 16 → 962 → 1885, about 0.4%. Low enough to be ordinary
+    UART noise; worth a second look if it scales with detection traffic,
+    which would point at bus or interrupt contention rather than the wire.
+
 ## Next steps
 
 Phase 2 has no blocking unknowns left. Everything below is verification or
