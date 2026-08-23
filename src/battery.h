@@ -16,9 +16,17 @@
 // The ADV is named as its own board there, so this is not an assumption
 // carried over from the base Cardputer.
 //
+// **CONFIRMED ON HARDWARE 2026-08-23**: reads 4.09V on USB and 3.76V ->
+// 58% on battery. Both are plausible LiPo values (a wrong divider would
+// have shown ~2.0V or ~8.2V, not these), and 58% is exactly what the curve
+// below yields for ~3765mV. Pin, ratio and curve are all validated.
+//
 // Note M5Stack's own docs state Cardputer/Cardputer-Adv **cannot** read
 // charge current or charging status — voltage is all the hardware exposes.
 // So there is deliberately no isCharging() here: it would have to lie.
+// A practical consequence: on USB the pack sits ~4.09V rather than a clean
+// 4.2V, so the readout hovers just under 100% while charging. That's the
+// hardware being honest, not a calibration error.
 
 #include <stdint.h>
 

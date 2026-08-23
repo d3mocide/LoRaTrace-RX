@@ -236,6 +236,19 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         **zero** checksum errors, all five constellations enabled
         (GP/GL/GA/BD/GQ). `PIN_GPS_RX=15` in board_pins.h is now
         hardware-confirmed, not inferred from contradictory docs.
+  - [x] **UI, battery and keyboard all confirmed on hardware 2026-08-23.**
+        Three pages render, **keypress paging works** (so the TCA8418 wake
+        sequence — `begin()` + `matrix(7,8)` — is correct, and the "boots
+        in sleep" trap was handled). Battery reads **4.09V on USB** and
+        **3.76V / 58% on battery**: both plausible LiPo values, and 58% is
+        precisely what `(mv-3300)*100/800` gives for ~3765mV. A wrong
+        divider would have read ~2.0V or ~8.2V, so **GPIO10 + ratio 2.0 is
+        validated**, not merely sourced.
+  - [x] **`ANTENNA OPEN` confirmed a false positive.** The GPS reached
+        "acquiring" (satellites in view > 0) while still emitting that
+        message — direct evidence the antenna works, upgrading the earlier
+        MEDIUM-HIGH reasoned assessment to confirmed. The passive-ceramic
+        explanation held.
   - [ ] GPS produces an actual **fix** — not yet. First capture was indoors
         and showed `00` satellites *in view* on every constellation with
         HDOP 25.5, which is exactly what indoors looks like (GPS is
@@ -972,6 +985,33 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   what makes this class of bug expensive later. Now a function-local static,
   which is guaranteed constructed on first use. Worth noting CI could never
   have caught this — it is not a compile error.
+
+- **2026-08-23 — UI / battery / keyboard confirmed on hardware, first try.**
+  Everything sourced in the previous entry proved correct on the bench:
+  - **Keyboard paging works**, which specifically validates the TCA8418
+    wake sequence. That part boots in SLEEP and reports nothing until
+    configured, so "keys work" is real evidence the `begin()` +
+    `matrix(7,8)` path (taken from Launcher's working ADV interface) is
+    right — not just that I2C is alive.
+  - **Battery validated, not merely sourced**: 4.09V on USB, 3.76V / 58%
+    on battery. 58% is exactly `(3765-3300)*100/800`, and both voltages sit
+    in real LiPo range — a wrong divider would have produced ~2.0V or
+    ~8.2V. GPIO10 and ratio 2.0 from M5Unified's `board_M5CardputerADV`
+    case are correct for this board.
+  - Worth recording so it isn't mistaken for a calibration bug later: on
+    USB the pack reads ~4.09V, so the gauge sits just below 100% while
+    charging. That's the hardware, not the maths — and since M5Stack's docs
+    say charge *status* is unreadable on this board, there is no way to
+    display "charging" instead.
+  - **`ANTENNA OPEN` is confirmed benign.** The GPS reached "acquiring"
+    (satellites in view > 0) while still emitting that message, which is
+    direct evidence the antenna works. Upgrades the earlier reasoned
+    MEDIUM-HIGH assessment to confirmed: the supervisor senses DC bias
+    current that only an active antenna draws, and this Cap's is passive.
+  - Net: of the two things flagged as unverifiable without hardware
+    (battery calibration, keyboard wake), both came back correct on the
+    first flash — the payoff for sourcing them from M5Unified and Launcher
+    rather than guessing.
 
 ## Next steps
 
