@@ -22,6 +22,12 @@
 // Live traffic makes this sharper than it looks: Meshtastic rebroadcasts
 // mean packets frequently arrive in pairs milliseconds apart (PROGRESS.md
 // 2026-08-23), so back-to-back RX is the common case, not the rare one.
+//
+// This task writes two files, both under /loratrace:
+//   detections.csv — the mission data, DESIGN.md §8 schema
+//   session.csv    — one health row a minute (session_log.h), so an
+//                    unattended run leaves evidence of whether it held up
+//                    instead of only evidence of what it heard
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -41,3 +47,4 @@ uint32_t loggerRowsDropped();  // dequeued but unwritable (no SD, format fail)
 uint32_t loggerFlushCount();
 uint32_t loggerMaxFlushMs();   // worst-case bus hold; the number that decides
                                // whether batch sizing is hurting the radio
+uint32_t loggerSessionRows();  // health rows committed to /loratrace/session.csv

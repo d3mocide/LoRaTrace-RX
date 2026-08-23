@@ -4,15 +4,21 @@
 #include <SD.h>
 #include <freertos/task.h>
 
+#include "battery.h"
 #include "board_pins.h"
 #include "detection.h"
 #include "gps_task.h"
+#include "radio_task.h"
+#include "session_log.h"
 #include "spi_bus.h"
 
 namespace {
 
 constexpr const char *LOG_DIR = "/loratrace";
 constexpr const char *LOG_PATH = "/loratrace/detections.csv";
+// Health log, written alongside the detections — see session_log.h for why
+// an unattended run needs to record its own vital signs.
+constexpr const char *SESSION_PATH = "/loratrace/session.csv";
 
 // ~2KB holds roughly 15-20 rows. Sized to keep a single flush short (see
 // the header): bigger buffers mean longer bus holds, which is exactly the
@@ -28,6 +34,11 @@ constexpr uint32_t FLUSH_INTERVAL_MS = 5000;
 // to a new detection. At driving speed 10s is already ~250m of error;
 // beyond that an empty coordinate is more honest than a stale one.
 constexpr uint32_t FIX_MAX_AGE_MS = 10000;
+// Health-row cadence. Slow on purpose: this is a trend record, not a
+// monitor. One row a minute is ~180 over a three-hour drive — invisible
+// next to the detection log, and one extra short bus hold per minute is
+// far below the noise floor of the flushes already happening.
+constexpr uint32_t SESSION_INTERVAL_MS = 60000;
 
 constexpr TickType_t BUS_WAIT = pdMS_TO_TICKS(2000);
 
@@ -42,59 +53,156 @@ volatile uint32_t rowsWritten = 0;
 volatile uint32_t rowsDropped = 0;
 volatile uint32_t flushCount = 0;
 volatile uint32_t maxFlushMs = 0;
+volatile uint32_t sessionRows = 0;
 
-// Mounts SD and ensures the CSV exists with its header row. Assumes the
-// caller holds the bus.
-bool openLogLocked() {
-    if (!SD.begin(PIN_SD_CS, sharedSpi())) return false;
-    if (!SD.exists(LOG_DIR)) SD.mkdir(LOG_DIR);
-
-    if (!SD.exists(LOG_PATH)) {
-        File f = SD.open(LOG_PATH, FILE_WRITE);
-        if (!f) return false;
-        f.println(LOG_CSV_HEADER);
-        f.close();
-    }
+// Creates `path` with `header` as its first line if it doesn't exist yet.
+// Assumes the caller holds the bus and SD is mounted.
+bool ensureCsvLocked(const char *path, const char *header) {
+    if (SD.exists(path)) return true;
+    File f = SD.open(path, FILE_WRITE);
+    if (!f) return false;
+    f.println(header);
+    f.close();
     return true;
 }
 
-// Appends the batch buffer to SD, acquiring the bus itself. Holds it for
-// exactly one open/write/close and nothing more.
+// Mounts SD and ensures both CSVs exist with their header rows. Assumes the
+// caller holds the bus.
+bool openLogsLocked() {
+    // SD.end() first, always. The ESP32 Arduino core's SD.begin() returns
+    // true immediately when a card object already exists
+    // (`if(_card) return true;` in SD.cpp), so once a card has been mounted
+    // and then pulled, the retry path below would "succeed" forever while
+    // every single write kept failing — the exact mid-session reseat this
+    // firmware is supposed to survive, silently not surviving. Tearing the
+    // mount down first makes the remount real. It also makes this the sole
+    // authority on the mount regardless of what the boot-time config read
+    // (config.cpp) left behind.
+    SD.end();
+    if (!SD.begin(PIN_SD_CS, sharedSpi())) return false;
+    if (!SD.exists(LOG_DIR)) SD.mkdir(LOG_DIR);
+
+    if (!ensureCsvLocked(LOG_PATH, LOG_CSV_HEADER)) return false;
+    // A missing health log must not stop detections being logged: the
+    // detections are the mission, this is instrumentation.
+    ensureCsvLocked(SESSION_PATH, SESSION_CSV_HEADER);
+    return true;
+}
+
+// The two failure modes need different handling by the caller, so they are
+// distinguished rather than collapsed into a bool: a busy bus means "try
+// again shortly", a file error means "the card is gone".
+enum class WriteResult { OK, BUS_BUSY, FILE_ERROR };
+
+// Appends `len` bytes to `path` in exactly one open/write/close, acquiring
+// the bus itself and holding it for nothing more. The caller must NOT
+// already hold the bus.
+//
+// Every bus hold this task takes goes through here, so maxFlushMs stays
+// what its header promises: the worst hold the logger has caused, whichever
+// file caused it.
+WriteResult appendToFile(const char *path, const char *data, size_t len) {
+    const uint32_t started = millis();
+    WriteResult result;
+    {
+        SpiBusLock lock(BUS_WAIT);
+        if (!lock.held()) return WriteResult::BUS_BUSY;
+
+        File f = SD.open(path, FILE_APPEND);
+        if (!f) {
+            result = WriteResult::FILE_ERROR;
+        } else {
+            f.write((const uint8_t *)data, len);
+            f.close();
+            result = WriteResult::OK;
+        }
+    }
+    const uint32_t elapsed = millis() - started;
+    if (elapsed > maxFlushMs) maxFlushMs = elapsed;
+    return result;
+}
+
+// Appends the batch buffer to SD.
 void flushBatch() {
     if (batchLen == 0) return;
 
-    uint32_t started = millis();
-    {
-        SpiBusLock lock(BUS_WAIT);
-        if (!lock.held()) {
-            // Couldn't get the bus. Keep the data buffered and try again on
-            // the next pass rather than discarding it — unlike the radio
-            // task, the logger is allowed to be late, just not lossy.
+    switch (appendToFile(LOG_PATH, batchBuf, batchLen)) {
+        case WriteResult::BUS_BUSY:
+            // Keep the data buffered and try again on the next pass rather
+            // than discarding it — unlike the radio task, the logger is
+            // allowed to be late, just not lossy.
             return;
-        }
-        File f = SD.open(LOG_PATH, FILE_APPEND);
-        if (!f) {
+        case WriteResult::FILE_ERROR:
             // The card went away mid-session. Drop this batch and fall back
             // to the retry path; buffering indefinitely would just consume
             // RAM on a device whose datastore is gone.
             sdReady = false;
             rowsDropped += batchRows;
-            batchLen = 0;
-            batchRows = 0;
-            return;
-        }
-        f.write((const uint8_t *)batchBuf, batchLen);
-        f.close();
+            break;
+        case WriteResult::OK:
+            flushCount++;
+            // Counted here, not at append time: "written" should mean it
+            // reached the card, otherwise the diagnostic overstates what
+            // survived a power cut.
+            rowsWritten += batchRows;
+            break;
     }
-    uint32_t elapsed = millis() - started;
-    if (elapsed > maxFlushMs) maxFlushMs = elapsed;
-
-    flushCount++;
-    // Counted here, not at append time: "written" should mean it reached the
-    // card, otherwise the diagnostic overstates what survived a power cut.
-    rowsWritten += batchRows;
     batchLen = 0;
     batchRows = 0;
+}
+
+// Samples every counter this firmware exposes and appends one health row.
+// Best-effort by design: a lost health row is worth exactly zero retries,
+// and must never cost the detection log a flush.
+void writeSessionRow(const char *reason) {
+    if (!sdReady) return;
+
+    GpsFix fix;
+    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
+    const uint32_t now = millis();
+
+    SessionStats s;
+    s.reason = reason;
+    s.uptime_s = now / 1000;
+
+    s.has_fix = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+    s.lat = fix.lat;
+    s.lon = fix.lon;
+    s.sats = fix.satellites;
+    s.fix_type = fix.fix_type;
+    const uint32_t firstFix = gpsFirstFixMillis();
+    s.ttff_s = firstFix == 0 ? 0 : firstFix / 1000;
+    s.nmea_sentences = gpsSentenceCount();
+    s.nmea_bad_crc = gpsChecksumErrorCount();
+
+    s.rx = radioPacketCount();
+    s.crc_errors = radioCrcErrorCount();
+    s.queue_drops = radioQueueDropCount();
+    s.bus_misses = radioBusMissCount();
+
+    s.rows_written = rowsWritten;
+    s.rows_dropped = rowsDropped;
+    s.flushes = flushCount;
+    s.max_flush_ms = maxFlushMs;
+    s.sd_ready = sdReady;
+    s.bus_contention = spiBusContentionCount();
+
+    s.heap_free = ESP.getFreeHeap();
+    s.heap_min = ESP.getMinFreeHeap();
+    s.batt_mv = batteryMilliVolts();
+    // nullptr = this task. Returns the high-water mark in words.
+    s.logger_stack_free = (uint32_t)uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t);
+
+    char timestamp[24];
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+                             fix.month, fix.day, fix.hour, fix.minute, fix.second);
+
+    char row[320];
+    size_t n = sessionFormatCsv(s, row, sizeof(row), timestamp);
+    if (n == 0) return; // truncated — a malformed health row helps nobody
+    row[n++] = '\n';   // snprintf guarantees n <= sizeof(row)-1, so this fits
+
+    if (appendToFile(SESSION_PATH, row, n) == WriteResult::OK) sessionRows++;
 }
 
 void appendDetection(const Detection &det) {
@@ -137,10 +245,12 @@ void appendDetection(const Detection &det) {
 void loggerTask(void *) {
     {
         SpiBusLock lock(portMAX_DELAY);
-        if (lock.held()) sdReady = openLogLocked();
+        if (lock.held()) sdReady = openLogsLocked();
     }
 
     uint32_t lastFlush = millis();
+    uint32_t lastSession = millis();
+    bool bootRowWritten = false;
 
     for (;;) {
         Detection det;
@@ -161,8 +271,25 @@ void loggerTask(void *) {
         // is a known watch item on this board — PROGRESS.md.
         if (!sdReady && now - lastFlush >= FLUSH_INTERVAL_MS) {
             SpiBusLock lock(BUS_WAIT);
-            if (lock.held()) sdReady = openLogLocked();
+            if (lock.held()) sdReady = openLogsLocked();
             lastFlush = now;
+        }
+
+        // Health row last in the loop body, so it samples counters that
+        // already include this pass's work. The boot row goes out as soon as
+        // the card is first available rather than a minute in: if a run dies
+        // early, the one row that exists should still say when it started.
+        // That also covers a card inserted after boot — the row then marks
+        // the moment logging actually began, which is the useful timestamp.
+        // A later remount does not repeat it; `sd` flipping down and back in
+        // the periodic rows is what a mid-drive reseat looks like.
+        if (sdReady && !bootRowWritten) {
+            writeSessionRow("boot");
+            bootRowWritten = true;
+            lastSession = now;
+        } else if (sdReady && now - lastSession >= SESSION_INTERVAL_MS) {
+            writeSessionRow("periodic");
+            lastSession = now;
         }
     }
 }
@@ -173,7 +300,13 @@ bool loggerTaskStart(QueueHandle_t queue) {
     detectionQueue = queue;
     // Core 0, priority 2: above GPS (1) so log rows drain promptly, below
     // the radio (3) which must always win.
-    BaseType_t ok = xTaskCreatePinnedToCore(loggerTask, "logger", 4096, nullptr, 2, nullptr, 0);
+    //
+    // 5120 rather than 4096: the health-row path (a GpsFix, a SessionStats
+    // and a 320-byte row buffer) is a deeper frame than the detection path,
+    // and it calls into SD/FatFS from the bottom of it. The margin is cheap
+    // on a part with ~330KB of heap free, and the run reports back through
+    // logger_stack_free in session.csv rather than leaving this a guess.
+    BaseType_t ok = xTaskCreatePinnedToCore(loggerTask, "logger", 5120, nullptr, 2, nullptr, 0);
     return ok == pdPASS;
 }
 
@@ -191,4 +324,7 @@ uint32_t loggerFlushCount() {
 }
 uint32_t loggerMaxFlushMs() {
     return maxFlushMs;
+}
+uint32_t loggerSessionRows() {
+    return sessionRows;
 }

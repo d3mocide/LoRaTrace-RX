@@ -16,9 +16,29 @@ general LoRa/spectrum exploration.
 
 ## Status
 
-Phase 1 (RadioLib bring-up, Meshtastic RX with optional SD channel
-override) scaffolded, not yet run on hardware. See `PROGRESS.md` for the
-live checklist.
+**Phase 1 complete and hardware-verified**: radio, antenna path, SD config
+override, display, and protocol-correct Meshtastic RX all confirmed on real
+hardware, with heap stable under sustained receive.
+
+**Phase 2 (MVP-Beta) built and largely hardware-verified**: the
+task/queue architecture, GPS task and batched SD logger are in place, and
+the GPS now reaches a fix on this board. What remains is the exit criterion
+itself — a multi-hour unattended run whose logs come back clean. See
+`PROGRESS.md` for the live checklist.
+
+## Output files
+
+Both written to `/loratrace` on the SD card, schemas in `DESIGN.md` §8:
+
+- **`detections.csv`** — one row per received packet: GPS-stamped, with
+  RSSI/SNR, RF parameters and whatever routing metadata the protocol
+  exposes in clear. Payloads are encrypted and stay that way; this is a
+  passive receiver, not a decoder.
+- **`session.csv`** — one health row a minute (packets, drops, worst SD bus
+  hold, heap free *and* low-water, GPS state, battery), plus a row marking
+  every boot. An unattended run is judged on whether it held up, and
+  nobody is watching the serial console at hour three — so the run records
+  its own vital signs next to its findings.
 
 ## Build
 
@@ -77,8 +97,11 @@ to the hardcoded default.
 ## Display
 
 Boot progress (firmware version, antenna-switch/radio status, active
-channel, and any FATAL error) is also shown on the built-in LCD, not just
-over serial — a one-shot status splash, not an interactive UI (that's
-Phase 6). See `PROGRESS.md` if it doesn't render correctly on your unit;
-the panel pins/offsets are sourced from a reference project, not
-independently bench-verified by this repo yet.
+channel, and any FATAL error) is shown on the built-in LCD as well as over
+serial. Once the tasks are running the panel switches to three read-only
+status pages — RADIO, GPS, SYSTEM — with a battery indicator and a
+heartbeat dot on every one. Any key advances the page; with no keyboard
+detected the pages rotate on their own, so a device sitting on a dashboard
+still cycles through everything.
+
+Full interactive UI (menus, profile switching) is still Phase 6.

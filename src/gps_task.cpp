@@ -16,6 +16,12 @@ GpsFix sharedFix; // guarded by fixMutex
 
 volatile uint32_t sentenceCount = 0;
 volatile uint32_t checksumErrors = 0;
+// millis() at the first position fix of this power-on; 0 = none yet.
+// Captured here rather than derived downstream because time-to-first-fix is
+// only meaningful relative to boot, and by the time the logger sees a fix
+// it has no way to know whether that fix is one second or one hour old as
+// a *session* event.
+volatile uint32_t firstFixMs = 0;
 
 // Line assembly buffer. Task-local (not static inside the loop) so its
 // lifetime is obvious; sized by NMEA's 82-char spec limit.
@@ -38,7 +44,10 @@ void handleSentence(const char *s) {
         xSemaphoreGive(fixMutex);
     }
 
-    if (!gpsApplySentence(updated, s, millis())) return;
+    const uint32_t now = millis();
+    if (!gpsApplySentence(updated, s, now)) return;
+
+    if (updated.has_position && firstFixMs == 0) firstFixMs = now;
 
     if (xSemaphoreTake(fixMutex, portMAX_DELAY) == pdTRUE) {
         sharedFix = updated;
@@ -107,4 +116,8 @@ uint32_t gpsSentenceCount() {
 
 uint32_t gpsChecksumErrorCount() {
     return checksumErrors;
+}
+
+uint32_t gpsFirstFixMillis() {
+    return firstFixMs;
 }

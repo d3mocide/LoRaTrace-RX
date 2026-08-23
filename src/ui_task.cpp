@@ -243,8 +243,13 @@ void drawSystemPage() {
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
     tft->setCursor(2, HEADER_H + 54);
+    // Low-water heap next to the live number. The instantaneous value looks
+    // healthy right up until it isn't; the trough is what a multi-hour run
+    // is actually being judged on (ROADMAP.md Phase 2).
+    tft->print("min ");
+    tft->print(ESP.getMinFreeHeap() / 1024);
+    tft->print("k  batt ");
     const uint32_t mv = batteryMilliVolts();
-    tft->print("batt ");
     if (mv == 0) {
         tft->print("unknown");
     } else {
@@ -257,8 +262,13 @@ void drawSystemPage() {
     tft->print(keyboardReady ? "tca8418" : "none (auto)");
 
     tft->setCursor(2, HEADER_H + 78);
-    tft->print("bus contention ");
+    tft->print("bus ");
     tft->print(spiBusContentionCount());
+    // Health rows on the card. Shown so an operator can confirm the session
+    // log is actually being written before driving off with the lid shut —
+    // the whole point of it is that nobody is watching afterwards.
+    tft->print("  health ");
+    tft->print(loggerSessionRows());
 
     tft->setCursor(2, HEADER_H + 90);
     tft->print(FIRMWARE_VERSION);

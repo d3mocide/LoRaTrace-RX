@@ -247,6 +247,8 @@ void loop() {
     Serial.print(loggerMaxFlushMs());
     Serial.print(F("ms sd="));
     Serial.print(loggerSdReady() ? F("ok") : F("DOWN"));
+    Serial.print(F(" health="));
+    Serial.print(loggerSessionRows());
     Serial.print(F(" | nmea="));
     Serial.print(gpsSentenceCount());
     Serial.print(F(" badcrc="));
@@ -262,5 +264,9 @@ void loop() {
         Serial.print(F("none"));
     }
     Serial.print(F(" | heap="));
-    Serial.println(ESP.getFreeHeap());
+    Serial.print(ESP.getFreeHeap());
+    // The trough, not just the sample: a 5s status line can walk right past
+    // a transient dip, and the dip is what actually ends a long run.
+    Serial.print(F(" heapmin="));
+    Serial.println(ESP.getMinFreeHeap());
 }

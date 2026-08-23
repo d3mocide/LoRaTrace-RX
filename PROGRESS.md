@@ -1013,32 +1013,119 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     first flash — the payoff for sourcing them from M5Unified and Launcher
     rather than guessing.
 
+- **2026-08-23 (hardware) — GPS FIX ACQUIRED, 14 satellites.** The last
+  never-proven piece of Phase 2 hardware now works end to end: expander P0
+  powers the module, RX=G15 carries the NMEA, the parser validates it, and
+  the receiver resolves a position. Every step of that chain had been
+  reasoned about or tested in isolation; this is the first time all of them
+  ran together and produced a coordinate.
+  - Worth noting *which* diagnosis paid off: the probe's `sats_in_view`
+    branch. "Some in view but no fix = just needs time" was the advice it
+    printed, and that turned out to be exactly the situation — no further
+    code change was needed between the last entry and the fix landing. The
+    instrument was right, and the fix cost patience rather than debugging.
+  - This closes the last **blocking** unknown for Phase 2. What remains is
+    not a bug hunt but the exit criterion itself: an unattended multi-hour
+    run whose logs come back clean.
+
+- **2026-08-23 — Session health log, so an unattended run records itself.**
+  With GPS working, the next gate is ROADMAP.md's Phase 2 exit criterion:
+  "no dropped packets attributable to SD latency, no crash from heap
+  exhaustion over a multi-hour run." Reading the firmware against that
+  sentence turned up an awkward gap — **every number that settles the claim
+  existed only where nobody would be looking.** `radioQueueDropCount()`,
+  `loggerMaxFlushMs()`, `spiBusContentionCount()` and the heap were exposed
+  precisely *because* the criterion demanded them, but they surfaced only in
+  the serial status line and the on-screen pages. Both need a human present.
+  A device on battery, driven for three hours and unplugged at the end,
+  produced a detection log and no evidence whatsoever about its own health.
+  The one run the criterion actually describes was the one run whose result
+  could not be read.
+  - Fix: `/loratrace/session.csv`, one row a minute plus a `reason=boot`
+    row, schema in DESIGN.md §8.2, formatting in the pure header
+    `session_log.h` with **8 host tests**. ~180 rows over a three-hour
+    drive.
+  - **`heap_min` (`ESP.getMinFreeHeap()`), not just the sample.** A
+    once-a-minute reading of free heap can walk straight past a transient
+    trough, and the trough is what actually ends a long run. Same reasoning
+    applies to the serial line and the SYSTEM page, so both now show it too.
+  - **Boot rows exist because sessions append to one file.** Without a
+    marker, a power cycle mid-drive reads as the counters spontaneously
+    resetting — which looks like a firmware fault instead of someone
+    catching the USB cable with their knee.
+  - Also records **time-to-first-fix** (`gpsFirstFixMillis()`). It is an
+    operational number for a wardriver — how long after switching on the
+    track becomes usable — and it can only be measured across a whole
+    session, never reconstructed afterwards.
+  - Deliberately *not* a second detection stream: this is instrumentation
+    and it is best-effort. A lost health row gets zero retries, and the
+    write is skipped entirely when SD is down, because instrumentation must
+    never be the thing that ends the run it is measuring.
+
+- **2026-08-23 — Fixed a mid-session SD remount that could never have
+  worked.** Found by re-reading the logger against the "card reseated
+  mid-drive" story it claims to support, not by any test. The retry path
+  called `SD.begin()` — but the ESP32 Arduino core's `SD.begin()` opens with
+  `if(_card) return true;`. Once a card has been mounted and then pulled,
+  `_card` is still non-null, so every retry "succeeded" instantly while
+  every subsequent write kept failing: `sdReady` would flip back to true,
+  the next flush would fail, and the loop would spin that way forever. The
+  card would never come back without a reboot, which is precisely the
+  scenario the retry exists to handle.
+  - `openLogsLocked()` now calls `SD.end()` first, unconditionally, so the
+    remount is real. Unconditionally rather than only-on-retry so this
+    function is the sole authority on the mount regardless of what the
+    boot-time config read (`config.cpp`, which mounts and never unmounts)
+    left behind.
+  - Same species as the static-init-order bug from the Phase 2 diff: it
+    compiles, it runs, and it is wrong only in the failure path — so
+    neither CI nor a healthy bench session can see it. This one is worse,
+    though, because the failure path is the *documented feature*.
+  - The logger's two SD writers now share one `appendToFile()` helper with
+    an explicit `WriteResult` (`OK` / `BUS_BUSY` / `FILE_ERROR`), since
+    "bus busy, retry" and "card gone, give up" were already distinct
+    behaviours that a bool return had been quietly flattening. Every bus
+    hold the task takes goes through that one function, which keeps
+    `maxFlushMs` honest as "the worst hold the logger caused" now that
+    there is more than one file being written.
+
+
 ## Next steps
 
-1. Keep an eye on SD-mount reliability over more boots/power cycles even
-   though the GPIO5 fix's first test came back clean — the user's own
-   report that the earlier failure happened "for every bin" suggests card
-   seating/hardware, not something firmware alone can promise to fix. No
-   action needed unless it recurs.
-2. Reflash with the screen-offset fix (`main.cpp`/`board_pins.h`, applied
-   2026-08-22, untested) and get a fresh photo to confirm the panel now
-   clears fully instead of leaving Launcher's old graphic visible.
-3. Re-test the Launcher-return keypress with more care (hold through the
-   reset rather than tap, per the polling-interval finding already on
-   record; also try the "Boot to Launcher" Settings toggle) to figure out
-   whether the "screen appears but firmware keeps booting anyway" report is
-   a timing/process issue or something that needs more investigation.
-4. **Run the GPS probe** (`pio run -e gps-probe --target upload`) and
-   confirm NMEA arrives on G13/G15 at 115200 — the last piece of Phase 2
-   hardware never yet powered on. Pins are sourced from M5Stack docs but
-   have never passed a byte. If nothing arrives, the probe prints its own
-   ranked troubleshooting list (RX/TX swap, then baud — 9600 is very common
-   on these modules, then power/reset); satellites are explicitly *not* a
-   candidate for total silence. Then reflash the real firmware.
-5. Start Phase 2 (task/queue architecture), per
-   CLAUDE.md's explicit build-order instruction. Phase 2's
-   radio_task/logger_task split needs to account for the shared-SPI-bus
-   finding above (mount + override confirmed working; concurrent-access
-   arbitration is not), not just cross-core task separation. The boot
-   splash added tonight stays setup()-only until Phase 6's `ui_task` —
-   don't grow it into ad hoc UI logic in the meantime.
+Phase 2 has no blocking unknowns left. Everything below is verification or
+follow-through, in the order it's worth doing.
+
+1. **Run the Phase 2 exit criterion: a multi-hour unattended drive.** Flash
+   v0.2.1, confirm a GPS fix on the GPS page, then drive with the lid shut
+   and no serial console. This is the actual gate — the architecture has
+   never been asked to hold up for hours under real traffic, and everything
+   below is easier to judge once it has.
+2. **Read `session.csv` first when the card comes back**, before looking at
+   the detections. In order, the questions it answers:
+   - `queue_drop` and `row_drop` — must be 0. Anything else means the
+     32-deep queue or the 2KB batch buffer needs revisiting, and the row
+     that first went non-zero says when it started.
+   - `max_flush_ms` — the worst bus hold. If drops and this both climb
+     together, SD latency is starving the radio and the batch sizing is the
+     lever (logger_task.h explains why the answer is *shorter* flushes,
+     not rarer ones).
+   - `heap_min` versus `heap_free` — a flat trough over hours is the
+     no-leak result Phase 1 got at idle, now under the full task load.
+     Falling means a leak, and the slope gives the rate.
+   - `ttff_s` on the boot row, and how quickly `lat`/`lon` start appearing
+     — the operational answer to "how long before the track is usable."
+3. **Spot-check `detections.csv` against the drive.** Positions should
+   track the route, and the empty-lat/lon rows should cluster at the start
+   (before first fix) rather than scattered through it — scattered blanks
+   would mean the 10s freshness window is rejecting fixes it shouldn't.
+4. Once that run is clean, Phase 2 is done: tag `v0.2.x`, mark the phase
+   complete in ROADMAP.md, and start Phase 3 (MeshCore profile) — same
+   `HOME_LISTEN` engine, second channel table, sync word already sourced.
+5. Still-open watch items, no action unless they recur:
+   - SD-mount reliability across power cycles (the GPIO5 fix's first test
+     was clean, but the original report said "every bin", which points at
+     card seating rather than firmware). The remount fix above now gives a
+     mid-session reseat a real chance of recovering — `sd` flipping to
+     `down` and back in `session.csv` is what that looks like.
+   - The Launcher-return keypress: hold through the reset rather than tap,
+     or use Launcher's Settings → "Boot to Launcher" toggle.

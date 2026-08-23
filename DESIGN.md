@@ -251,11 +251,47 @@ Meshtastic's value is now verified from upstream firmware source and set in
 
 ## 8. SD log schema
 
+Two files, both under `/loratrace` on the card.
+
+### 8.1 `detections.csv` — the mission data
+
 `timestamp_utc, lat, lon, fix_quality, profile, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, classification, decoded, channel_or_node_id, raw_len`
 
 `ENERGY_SWEEP` data gets threshold-filtered against a rolling noise floor
 before logging — don't dump every sweep point, only peaks, or the card fills
 fast for near-zero value.
+
+### 8.2 `session.csv` — the run's own vital signs
+
+`timestamp_utc, uptime_s, reason, lat, lon, sats, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free`
+
+One row per minute, plus a `reason=boot` row when the card comes up.
+
+This exists because §9 phase 2's exit criterion is an *unattended* run — no
+dropped packets attributable to SD latency, no heap exhaustion over hours.
+Every counter that settles that claim was already exposed for the serial
+status line and the on-screen pages, and both need someone watching. A
+device driven around on battery and unplugged at the end kept no record of
+its own health, so the one run the criterion actually describes was the one
+run whose result couldn't be read.
+
+Two fields carry more weight than the rest:
+
+- **`heap_min`** is the low-water mark since boot, not the sample. A
+  once-a-minute reading walks straight past a transient trough, and the
+  trough is what ends a long run.
+- **`reason`** makes session boundaries visible in a file that many runs
+  append to. Without it, a power cycle mid-drive reads as counters
+  spontaneously resetting — a firmware fault, rather than someone catching
+  the USB cable.
+- **`logger_stack_free`** is the logger task's stack high-water mark. That
+  task owns the card and now has a deeper call path than it did, and a
+  stack overflow there loses the whole run silently — so the size is
+  reported by the run rather than argued about beforehand.
+
+Costs about 180 rows on a three-hour drive: nothing next to the detection
+log, and one extra short bus hold a minute is far under the noise floor of
+the flushes already happening.
 
 ## 9. Build order
 
