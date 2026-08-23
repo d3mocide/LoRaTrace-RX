@@ -12,6 +12,13 @@
 // switching. Those need the state machine that Phases 4/5 build, and adding
 // them now would bake in assumptions this project hasn't earned yet.
 //
+// One narrow exception, added for Phase 3 (wifi_task.h): a long-press of any
+// key toggles the WiFi AP. Not a menu system and doesn't need one — it's a
+// single binary gesture built entirely from the same undifferentiated
+// press/release events anyKeyPressed() already reads, so it needs no
+// row/col-to-character keymap (this project still doesn't have a sourced
+// one — see anyKeyPressed()'s own comment in ui_task.cpp).
+//
 // Owns the ST7789 exclusively once started — main.cpp must stop drawing.
 // The display is on its own SPI host (HSPI) with pins disjoint from the
 // radio/SD bus, so it needs no spi_bus arbitration.
@@ -25,6 +32,7 @@ enum class UiPage : uint8_t {
     RADIO = 0,
     GPS,
     SYSTEM,
+    WIFI,
     COUNT,
 };
 

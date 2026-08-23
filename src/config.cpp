@@ -4,14 +4,18 @@
 #include <SD.h>
 #include <stdlib.h> // strtol, for the hex-or-decimal sync_word parse below
 
-namespace {
+#include "spi_bus.h"
 
 // DESIGN.md §1: module front end tuned 868-923MHz, 923-928 still in US ISM
 // but reduced sensitivity — accept up to 928, RadioLib/the radio itself
-// will reject anything the SX1262 truly can't do.
-bool freqInRange(float mhz) { return mhz >= 868.0f && mhz <= 928.0f; }
-bool sfInRange(uint8_t sf) { return sf >= 5 && sf <= 12; }
-bool crInRange(uint8_t cr) { return cr >= 5 && cr <= 8; }
+// will reject anything the SX1262 truly can't do. Not file-static: wifi_task
+// validates against these same bounds before ever writing to SD, so there is
+// exactly one copy of each number rather than two that could drift apart.
+bool channelFreqInRange(float mhz) { return mhz >= 868.0f && mhz <= 928.0f; }
+bool channelSfInRange(uint8_t sf) { return sf >= 5 && sf <= 12; }
+bool channelCrInRange(uint8_t cr) { return cr >= 5 && cr <= 8; }
+
+namespace {
 
 // Applies one "key=value" line to `params`. Returns true if a recognized,
 // in-range key was applied. Rejects recognized-but-out-of-range values
@@ -34,7 +38,7 @@ bool applyConfigLine(const String &rawLine, ChannelParams &params) {
 
     if (key == "freq_mhz") {
         float v = val.toFloat();
-        if (!freqInRange(v)) {
+        if (!channelFreqInRange(v)) {
             Serial.print(F("[config] freq_mhz "));
             Serial.print(v, 3);
             Serial.println(F(" outside 868-928MHz, ignoring this field."));
@@ -45,7 +49,7 @@ bool applyConfigLine(const String &rawLine, ChannelParams &params) {
     }
     if (key == "sf") {
         long v = val.toInt();
-        if (v < 1 || !sfInRange((uint8_t)v)) {
+        if (v < 1 || !channelSfInRange((uint8_t)v)) {
             Serial.print(F("[config] sf "));
             Serial.print(v);
             Serial.println(F(" outside 5-12, ignoring this field."));
@@ -65,7 +69,7 @@ bool applyConfigLine(const String &rawLine, ChannelParams &params) {
     }
     if (key == "cr_denom") {
         long v = val.toInt();
-        if (v < 1 || !crInRange((uint8_t)v)) {
+        if (v < 1 || !channelCrInRange((uint8_t)v)) {
             Serial.print(F("[config] cr_denom "));
             Serial.print(v);
             Serial.println(F(" outside 5-8, ignoring this field."));
@@ -182,4 +186,34 @@ bool loadChannelConfigFromSD(ChannelParams &params, int8_t csPin, SPIClass &spi)
         Serial.println(F(" found but had no valid keys — using built-in default channel."));
     }
     return appliedAny;
+}
+
+bool writeChannelConfigToSD(const ChannelParams &params) {
+    if (!channelFreqInRange(params.freq_mhz) || !channelSfInRange(params.sf) ||
+        !channelCrInRange(params.cr_denom) || params.bw_khz <= 0.0f) {
+        Serial.println(F("[config] refusing to write out-of-range channel params."));
+        return false;
+    }
+
+    // Runtime call, unlike loadChannelConfigFromSD's boot-time one — the
+    // radio/GPS/logger tasks are all live and sharing this same physical
+    // SPI bus, so this must arbitrate for it. A bounded wait, not
+    // portMAX_DELAY: an operator-triggered settings save is not worth
+    // stalling indefinitely for, and the caller (wifi_task) can just report
+    // "try again" over HTTP.
+    SpiBusLock lock(pdMS_TO_TICKS(2000));
+    if (!lock.held()) {
+        Serial.println(F("[config] could not get the SPI bus to write channel config."));
+        return false;
+    }
+
+    // Delete-then-recreate rather than truncate-in-place: a new config that
+    // happens to be shorter than the one it replaces must not leave trailing
+    // bytes of the old file behind (e.g. a stray old key=value line past the
+    // new content's end, silently corrupting the file). writeDefaultConfig()
+    // already writes an arbitrary ChannelParams in the exact key=value
+    // format loadChannelConfigFromSD() parses — reused as-is here rather
+    // than duplicating that format a second time.
+    SD.remove(CHANNEL_CONFIG_PATH);
+    return writeDefaultConfig(params);
 }

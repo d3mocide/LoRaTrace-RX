@@ -1626,11 +1626,151 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     assume MeshCore's encryption mirrors Meshtastic's) before touching
     code — not started.
 
+- **2026-08-23 (later same day) — Phase 3 built: WiFi AP + web UI
+  (`wifi_task`), pulled forward ahead of MeshCore at the user's request.**
+  Full plan reviewed and approved before writing code (`EnterPlanMode`),
+  grounded in an `Explore` pass over `main.cpp`'s exact boot order/task
+  priorities, `config.h`'s existing SD-settings pattern, and
+  `logger_task.cpp`'s `SpiBusLock` discipline, rather than guessed. Four
+  shape-defining calls were made explicitly with the user (`AskUserQuestion`)
+  before design: **WPA2-PSK, not open** (this device is out in the field
+  capturing other people's mesh traffic); **on-demand toggle, off by
+  default** (WiFi's RAM/CPU/RF-noise cost must never be present during an
+  actual drive unless asked for — the exact risk ROADMAP.md's old "lowest
+  priority" stance was about); **a live status dashboard, not a literal
+  serial-text mirror** (reuses existing counters, far less invasive than
+  shadowing the global `Serial` object project-wide); **settings save to
+  SD, apply on reboot, no hot-reload** (never touches `radio_task`'s
+  real-time critical section from another task).
+  - **This reverses a documented decision, on purpose, backed by a real
+    number the original decision didn't have.** ROADMAP.md called WiFi
+    "lowest priority," gated behind an `ESP.getFreeHeap()` reading "under
+    full load" that didn't exist when that was written. It exists now:
+    run0007/run0011 (this same session) measured heap_free settling at
+    ~304KB with radio+GPS+logger+display all running, flat with no decline
+    across 2.5 hours. That's the actual input the gate was waiting on.
+  - **New task**, following the exact pattern of the other four
+    (`radio_task`/`gps_task`/`logger_task`/`ui_task`): Core 0, priority 1 —
+    same tier as `gps_task`/`ui_task` ("least latency-sensitive"), strictly
+    below `logger_task` (2) and `radio_task` (3), which must always win.
+    Created at boot but does nothing (no `WiFi.mode()`, no AP, no server)
+    until toggled — task creation is cheap, starting the AP is the only
+    part with a real cost, so that stays deferred to an explicit operator
+    ask. Toggling off does a full teardown (`WiFi.mode(WIFI_OFF)`, not just
+    "stop accepting connections") so the cost actually goes away.
+  - **Toggle mechanism: a long-press of any key (~1.2s), not a specific
+    key.** `ui_task.cpp` still has no sourced Cardputer-ADV row/col
+    keymap (CLAUDE.md forbids guessing hardware tables), so `anyKeyPressed()`
+    — which never decoded *which* key — was replaced with `pollKeyGesture()`,
+    turning the same undifferentiated press/release bit (0x80) into TAP
+    (the original page-advance behaviour) or HOLD (WiFi toggle) purely from
+    timing between a press and its matching release. Needs no keymap
+    because there's no "which key" to get wrong. A new WIFI page shows
+    AP state/SSID/IP/client count and the gesture hint itself, so the
+    instructions are on the device, not just in this doc.
+  - **Library choice: built-in `WiFi.h`/`WebServer.h`, zero new `lib_deps`.**
+    `platformio.ini` pins no `espressif32` version, which resolves to
+    Arduino-ESP32 **core 2.0.17** (forced by the GFX display library pin —
+    see that file's own comment). Popular async web server forks
+    increasingly target core 3.x only; rather than gamble on core-2.0.x
+    compatibility or force a core bump (risking re-breaking the display
+    library the way the GFX 1.4.0 pin already had to work around once),
+    this uses the synchronous `WebServer` the core ships with. Its
+    blocking-per-request nature is a non-issue: this task is deliberately
+    the lowest-priority one in the system, so it blocking *itself* while
+    serving a request blocks nothing else.
+  - **Static assets: one embedded HTML page (`web_assets.h`, `PROGMEM`),
+    no LittleFS/SPIFFS, no partition-table change.** The AP has no internet
+    access, so nothing external could load anyway — vanilla HTML/CSS/JS,
+    client-side tab switching, no framework. Three tabs: Status (polls
+    `/api/status` every 2s — the same counters the Serial `[status]` line
+    and `ui_task`'s pages already expose, hand-rolled `snprintf` JSON
+    rather than pulling in ArduinoJson for a small fixed schema), Downloads
+    (`/api/runs` lists run directories; `/api/runs/<n>/{detections,session}.csv`
+    streams them), Settings (`/api/config` GET/POST).
+  - **CSV streaming is the one place correctness genuinely mattered.**
+    Chunked: each 512B chunk opens the file, seeks, reads, and closes
+    inside its own short-lived `SpiBusLock`, released *before* the slow
+    part (`server.client().write()` over the actual TCP socket) —
+    mirroring `logger_task.cpp`'s `appendToFile()` discipline exactly.
+    Holding the bus (or an open SD file handle) across a network write
+    would stall the radio task for however long the download takes, which
+    is the one thing this whole feature must never do. A real bug caught
+    during self-review before this was ever run anywhere: `File::read()`
+    returns `int` and can be negative on error — the first draft assigned
+    that straight into a `size_t`, which would have turned "read failed"
+    into "read ~4 billion bytes" and written garbage from an uninitialized
+    buffer under a bogus huge length. Fixed to check the signed return
+    before ever casting it.
+  - **Settings write path reuses `config.cpp`'s existing validators**
+    (`freqInRange`/`sfInRange`/`crInRange` — moved out of that file's
+    anonymous namespace and exported as `channelFreqInRange`/etc. so there
+    is exactly one copy of each bound, not two that could drift) and its
+    existing key=value file format (`writeDefaultConfig()`, reused as-is).
+    New `writeChannelConfigToSD()` deletes-then-recreates the file rather
+    than truncating in place — a shorter new config must not leave trailing
+    bytes of a longer old one behind — and, unlike the boot-time loader,
+    acquires `spi_bus.h`'s mutex itself (bounded 2s wait, not
+    `portMAX_DELAY`: a settings save isn't worth stalling indefinitely for,
+    the web client just gets told to retry).
+  - **New `radioActiveChannel()` getter** (`radio_task.h`) exposes the
+    channel `radio_task.cpp` actually started with (its internal copy,
+    which `main.cpp`'s own global can't see), for the settings page to show
+    real current values rather than just re-echoing whatever `config.txt`
+    last said — those can differ if the SD card was missing/bad at boot.
+  - **Docs**: this is a genuine phase reprioritization, not a footnote —
+    ROADMAP.md gets a real Phase 3 entry (renumbering old 3–6 to 4–7),
+    the versioning table shifts accordingly, DESIGN.md §2/§9 updated to
+    match, and CLAUDE.md's proposed-layout table gets both this phase's new
+    files and a correction that was already stale before today: `ui_task.cpp`
+    was still marked `[ ]` there despite having shipped in Phase 2 (recorded
+    in this very log), and `fingerprint.h`'s phase reference needed bumping
+    to match the renumbering.
+  - **Verification: strong on host logic, honestly unverified on the two
+    things only real hardware can answer.** No `pio` in this environment —
+    same g++/Unity workaround as every other change this session; all 55
+    existing native tests still pass (nothing new added — `wifi_task.cpp`,
+    like `radio_task.cpp`/`ui_task.cpp`/`gps_task.cpp`/`logger_task.cpp`
+    before it, is Arduino/hardware-coupled, not host-testable pure logic).
+    Every other Arduino-dependent file was read in full and reviewed by
+    inspection, not compiled — the same bar this project has applied to
+    every hardware-coupled change when no toolchain was available. Two
+    things genuinely need real hardware, not just a careful read: (1) the
+    heap/counter spike this phase was gated behind — flash it, watch the
+    *already-existing* `heap=`/`heapmin=` Serial status line before and
+    after a long-press toggle (no separate throwaway spike build needed,
+    since the toggle is wired straight into telemetry that already prints
+    every 5s), and confirm `radioCrcErrorCount()`/`radioQueueDropCount()`/
+    `radioBusMissCount()` stay at 0 with the AP active; (2) an actual
+    browser connecting to the AP and exercising all three tabs, including a
+    CSV download diffed against the same file read off the card directly.
+    Neither has happened yet.
+  - **Explicitly deferred, not forgotten**: true serial-text mirroring,
+    live settings hot-reload, LittleFS for a real static-asset filesystem,
+    `session.csv` WiFi fields (client count/AP uptime), and an
+    SD-configurable AP password (currently a fixed default,
+    `"loratrace123"` — flagged in `wifi_task.cpp` as a placeholder, same
+    "smallest thing that's actually useful" call the rest of Phase 2
+    followed). None were in scope for what was asked.
+
 ## Next steps
 
 Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist
 above) — remaining items are follow-through, in the order it's worth doing.
 
+0. **Flash v0.3.0 and confirm the Phase 3 go/no-go.** This is the first
+   thing worth doing on the next bench session, ahead of everything below —
+   it's cheap (no separate spike build, no new flashing procedure) and it's
+   the one thing standing between "built" and "trust this." Watch the
+   existing Serial `heap=`/`heapmin=` line before and after a long-press
+   WiFi toggle, confirm `radioCrcErrorCount()`/`radioQueueDropCount()`/
+   `radioBusMissCount()` stay at 0 with the AP active, then connect a phone
+   or laptop to the AP and exercise all three web UI tabs — status
+   dashboard updating live, a CSV download that diffs clean against the
+   same file read off the card directly, and a settings save that actually
+   changes the boot-banner channel after a power cycle. See the Decisions
+   log entry above for the full list of what "built" does and doesn't cover
+   yet.
 1. **Done, 2026-08-23: the multi-hour unattended run (run0007, v0.2.5,
    2h30m).** See the Phase 2 checklist entry and the Decisions log entry
    above for the numbers — every exit-criterion counter held at its best

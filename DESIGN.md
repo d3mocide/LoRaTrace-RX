@@ -70,7 +70,8 @@ an empirical RSSI noise-floor sweep once hardware is in hand.
   microSD ──SPI───► │   Logger Task ← dequeues, stamps  │
                     │     GPS fix + profile, batches SD │
   LCD+keys ──SPI──► │   UI Task → redraw, key input      │
-                    │   [optional] WiFi Upload Task      │
+                    │   WiFi Task → AP + web UI,         │
+                    │     off until toggled (Phase 3)    │
                     └───────────────────────────────────┘
 ```
 
@@ -450,11 +451,16 @@ still self-describing via uptime.
    P0 confirmed, hardcoded RX on 906.875/SF11/BW250, print to serial
 2. `HOME_LISTEN` + Logger task + GPS fusion + SD writes — Meshtastic War
    Drive is functionally complete at this point
-3. Add MeshCore profile (910.525/SF7/BW62.5/CR5) — same engine, new table
-4. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
+3. WiFi AP + web UI (`wifi_task`) — pull data and edit settings over a
+   browser instead of ejecting the SD card. Off by default, on-demand only
+   (ROADMAP.md Phase 3 for the full rationale, including why this moved
+   ahead of MeshCore)
+4. Add MeshCore profile (910.525/SF7/BW62.5/CR5) — same engine, new table
+5. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
    MeshMapper-observed frequencies where available
-5. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
-6. UI polish, optional WiFi upload task last (biggest RAM/RF-noise cost)
+6. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
+7. UI polish (the WiFi decision this step used to also carry is step 3 now,
+   done)
 
 ## 10. References
 

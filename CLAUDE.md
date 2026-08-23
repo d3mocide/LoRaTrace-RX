@@ -37,12 +37,14 @@ src/
   [x] radio_task.cpp / .h        # HOME_LISTEN, owns SX1262, Core 1, never blocks
   [x] gps_task.cpp / .h          # NMEA parse, last-fix mutex, Core 0
   [x] logger_task.cpp / .h       # dequeue, GPS-stamp, batched SD writes, Core 0
-  [ ] ui_task.cpp / .h           # keyboard + display (phase 6)
+  [x] ui_task.cpp / .h           # keyboard + display; arrived phase 2, not phase 6 as originally proposed — operator asked for field-readable status before a multi-hour run without a tethered laptop (see PROGRESS.md decisions log)
+  [x] wifi_task.cpp / .h         # WiFi AP + web UI, off until toggled (phase 3; not in original proposal, see PROGRESS.md decisions log)
+  [x] web_assets.h               # embedded single-page web UI (phase 3)
   [x] channel_plans.h            # per-profile RF param tables (see DESIGN.md §3)
   [x] board_pins.h               # pin map + IO-expander register constants (not in original proposal, see PROGRESS.md decisions log)
   [x] version.h                  # FIRMWARE_VERSION, single source for boot banner + release tags
-  [x] config.h / .cpp            # boot-time SD channel-config override (not in original proposal, see PROGRESS.md decisions log)
-  [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 4+)
+  [x] config.h / .cpp            # boot-time SD channel-config override + runtime write-back for wifi_task's settings page (not in original proposal, see PROGRESS.md decisions log)
+  [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 5+)
   --- added during phase 2, not in the original proposal ---
   [x] detection.h                # the ~36B queue record + Meshtastic header parse + §8 CSV
   [x] nmea.h                     # NMEA primitives (field split, checksum, coord conversion)
@@ -101,18 +103,35 @@ sd-template/loratrace/
 path, SD config override, display, and protocol-correct Meshtastic RX all
 confirmed on real hardware. Heap stable under load (~338KB, no leak).
 
-**Phase 2 written, not yet hardware-verified**: the task/queue architecture,
-GPS task, and batched SD logger exist and build, and all pure logic is
-covered by host tests — but no multi-hour unattended run has happened yet,
-which is the actual exit criterion (ROADMAP.md). GPS in particular has
-never produced a fix on this board; use `[env:gps-probe]` to bring it up
-standalone before debugging it through the task.
+**Phase 2 complete and hardware-verified** (2026-08-23): the task/queue
+architecture, GPS task, and batched SD logger held up over a genuine
+multi-hour unattended run (run0007, 2.5h) — every exit-criterion counter
+(`crc_err`/`queue_drop`/`bus_miss`/`row_drop`) stayed at 0 the whole time,
+heap flat with no leak, continuous 3D GPS fix throughout. See PROGRESS.md
+for the numbers.
 
-Two hard-won rules from Phase 1, worth not relearning:
+**Phase 3 (WiFi AP + web UI) built, not yet hardware-verified**: pulled
+forward ahead of MeshCore at the user's request — see ROADMAP.md for why.
+`wifi_task` is off by default and only starts the AP on an operator gesture
+(long-press any key), specifically so it never runs during an actual drive
+unless asked for. Verified against the host-native test suite (55 tests,
+g++/Unity workaround — no `pio` in the environment this was built in); the
+one thing genuinely unconfirmed is the heap/counter spike PROGRESS.md
+describes (`ESP.getFreeHeap()` before/after `WiFi.softAP()` with the full
+Phase 2 task set running, radio counters staying at 0 with the AP active) —
+the actual go/no-go this phase used to be gated behind, now answerable on
+real hardware but not yet answered.
+
+Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.
 - **A wrong sync word is silent, not loud** — the radio simply never
   interrupts, while still hearing unrelated traffic that matches.
+- **A same-node-id detection pair with wildly different RSSI seconds apart
+  is very likely a genuine mesh relay, not a logging bug** — `packet_id`/
+  `hop_limit`/`hop_start`/`relay_node` in `detections.csv` (added after
+  run0007) prove it either way; don't assume duplicate-detection without
+  checking those first.
 
 Build order is DESIGN.md §9. See PROGRESS.md for the live build checklist
 and ROADMAP.md for phase-by-phase scope.

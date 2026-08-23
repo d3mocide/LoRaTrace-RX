@@ -42,3 +42,22 @@ constexpr const char *CHANNEL_CONFIG_PATH = "/loratrace/config.txt";
 // either way, `params` is left in a valid state safe to pass to
 // radio.begin().
 bool loadChannelConfigFromSD(ChannelParams &params, int8_t csPin, SPIClass &spi);
+
+// The same bounds `loadChannelConfigFromSD` applies field-by-field, exposed
+// so a caller (wifi_task's settings endpoint) can validate before writing
+// rather than duplicating these numbers a second time.
+bool channelFreqInRange(float mhz);
+bool channelSfInRange(uint8_t sf);
+bool channelCrInRange(uint8_t cr);
+
+// Runtime settings-save path (wifi_task's web UI): validates every field of
+// `params` against the same bounds `loadChannelConfigFromSD` enforces and,
+// only if all pass, overwrites CHANNEL_CONFIG_PATH with them — applied on
+// the *next* boot, not live (radio_task's running SX1262 is never touched
+// here; see PROGRESS.md for why hot-reload was deliberately deferred).
+// Unlike `loadChannelConfigFromSD` (boot-time, before any task exists),
+// this runs with the radio/GPS/logger tasks already active, so it acquires
+// spi_bus.h's mutex itself around the SD write — the caller does not need
+// to. Returns false, without touching the card, if any field is
+// out-of-range or the write itself fails (SD busy/missing/read-only).
+bool writeChannelConfigToSD(const ChannelParams &params);

@@ -1,21 +1,25 @@
-// LoRaTrace RX — Phase 2: task/queue architecture, GPS, SD logging.
-//
-// DESIGN.md §9 step 2 / ROADMAP.md Phase 2 (MVP-Beta). This file is now an
-// orchestrator, not a driver: it brings up hardware in a fixed order, then
-// hands the work to three tasks and gets out of the way.
+// LoRaTrace RX — Phase 2 (task/queue architecture, GPS, SD logging) plus
+// Phase 3's WiFi AP/web UI, ui_task's on-device pages arrived early (see
+// ui_task.h). This file is an orchestrator, not a driver: it brings up
+// hardware in a fixed order, then hands the work to five tasks and gets out
+// of the way.
 //
 //   Core 1: radio_task   — owns the SX1262, HOME_LISTEN, never blocks
 //   Core 0: gps_task     — NMEA -> last-fix behind a mutex
 //   Core 0: logger_task  — dequeue, GPS-stamp, batched SD writes
+//   Core 0: ui_task      — on-device display pages + keyboard
+//   Core 0: wifi_task    — AP + web UI, off until toggled (lowest priority)
 //
 // Detections cross cores through a FreeRTOS queue as ~36-byte structs
-// (detection.h). SD and the SX1262 share one physical SPI bus, so both
-// tasks arbitrate through spi_bus.h — the queue alone is not enough, since
-// two devices on one bus cannot transact at the same instant no matter
-// which core issues them.
+// (detection.h). SD and the SX1262 share one physical SPI bus, so every
+// task that touches SD arbitrates through spi_bus.h — the queue alone is
+// not enough, since two devices on one bus cannot transact at the same
+// instant no matter which core issues them.
 //
-// loop() keeps only what genuinely belongs on the main task: the display
-// heartbeat and a periodic status line. Real UI is still Phase 6.
+// loop() keeps only what genuinely belongs on the main task: a periodic
+// Serial status line. Nothing here touches the display — ui_task owns it
+// exclusively once started (see the ordering note before uiTaskStart()
+// below).
 //
 // Boot order matters and is not arbitrary:
 //   1. NSS high      — before any I2C/SPI, or SD mounts unreliably
@@ -39,6 +43,7 @@
 #include "spi_bus.h"
 #include "ui_task.h"
 #include "version.h"
+#include "wifi_task.h"
 
 // Boot-status splash — PROGRESS.md decisions log: a narrow, deliberate
 // exception to CLAUDE.md's "no UI yet," not the Phase 6 ui_task. Own SPI
@@ -119,14 +124,14 @@ void setup() {
     Serial.print(FIRMWARE_VERSION);
     Serial.print(F(" ("));
     Serial.print(FIRMWARE_BUILD_REV); // git SHA — identifies THIS binary
-    Serial.println(F(") — phase 2 (tasks + GPS + SD logging)"));
+    Serial.println(F(") — phase 3 (tasks + GPS + SD logging + WiFi)"));
 
     displayReady = initDisplay();
     tft->setTextSize(2);
     splashLine(F("LoRaTrace RX"));
     splashY += SPLASH_LINE_H;
     tft->setTextSize(1);
-    splashLine(String("v") + FIRMWARE_VERSION + " -- phase 2");
+    splashLine(String("v") + FIRMWARE_VERSION + " -- phase 3");
     splashY += SPLASH_LINE_H / 2;
 
     // P0 high: RF antenna switch AND GPS power. Fatal because both halves
@@ -193,6 +198,23 @@ void setup() {
     Serial.print(F("Free heap after task start: "));
     Serial.print(ESP.getFreeHeap());
     Serial.println(F(" bytes"));
+
+    // Off until toggled (ui_task's long-press gesture) — starting the task
+    // itself is cheap, starting the AP is what actually costs RAM/CPU/RF
+    // noise, so that stays deferred until an operator asks for it. Started
+    // (and its splash line drawn) before uiTaskStart() below, same reason
+    // everything else in setup() draws its own splash line before that
+    // point: this is the last call allowed to touch `tft` directly.
+    if (!wifiTaskStart()) {
+        Serial.println(F("WARN: WiFi task failed to start — web UI unavailable this run."));
+    } else {
+        char ssid[32];
+        wifiApSsid(ssid, sizeof(ssid));
+        Serial.print(F("WiFi: hold any key ~1s to enable AP '"));
+        Serial.print(ssid);
+        Serial.println(F("'."));
+        splashLine("WiFi: hold key ~1s (" + String(ssid) + ")");
+    }
 
     // UI last: it takes ownership of the display, so everything above gets
     // to use the splash for boot progress first. From here main.cpp must

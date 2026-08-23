@@ -41,6 +41,16 @@ assumptions), not a pitch.
   estimate of 250–380KB free heap is a guess pending `ESP.getFreeHeap()`
   on real hardware — treat every RAM-hungry decision below as provisional
   until that number is in hand.
+- **WiFi AP + web UI (Phase 3).** This used to sit in the "lowest priority"
+  tier below, gated behind a real free-heap number under full load. That
+  number now exists: `run0007`/`run0011` (session.csv) measured heap_free
+  settling at ~304KB with radio + GPS + logger + display all running,
+  flat with no decline across a 2.5-hour run — real headroom, not the
+  provisional estimate this gate was originally waiting on. Built
+  on-demand (off by default, toggled by an operator gesture) specifically
+  so its RAM/CPU/RF-noise cost is never present during an actual drive
+  unless asked for — see PROGRESS.md for the spike this was still worth
+  gating behind before building the rest of the feature on top of it.
 - **Display:** a naive full framebuffer at 240×135×16bpp is ~65KB — a
   meaningful bite out of a few-hundred-KB heap. Use direct-to-panel
   partial-window writes (LovyanGFX/M5GFX style) instead of buffering a
@@ -74,14 +84,7 @@ assumptions), not a pitch.
   without these; reliable protocol-level filtering and payload decode
   don't. Don't hardcode a guessed value for either (CLAUDE.md house rule).
 
-**Deliberately out of scope / lowest priority:**
-- **WiFi upload task.** DESIGN.md itself flags this as "biggest RAM/RF-
-  noise cost" and puts it last. On a no-PSRAM chip already running radio +
-  GPS + SD + display tasks, adding lwIP/WiFi's heap footprint is the
-  single likeliest thing to blow the RAM budget or introduce RF
-  self-interference near the SX1262's front end. Treat as an experiment
-  to run once everything else is stable and the real free-heap number is
-  known, not a given.
+**Deliberately out of scope:**
 - TX/injection of any kind — permanent non-goal per CLAUDE.md house rules,
   not a phase-ordering question.
 
@@ -130,13 +133,37 @@ survives three hours of real traffic on battery are different claims.
 `session.csv` (DESIGN.md §8.2) exists so that run can be judged from the
 card afterwards instead of requiring someone to watch a console.
 
-### Phase 3 — MeshCore profile
+### Phase 3 — Web Command Center (WiFi AP + web UI)
+**Goal:** get data and control off the device without ejecting the SD card.
+**Deliverable:** `wifi_task` — an on-demand (off by default, operator-
+toggled), WPA2-protected WiFi AP hosting a single embedded web page (no
+LittleFS/SPIFFS, no new `lib_deps` — built-in `WiFi.h`/`WebServer.h` only,
+see PROGRESS.md) with three tabs: a live status dashboard (the same
+counters the Serial `[status]` line and `ui_task`'s pages already expose),
+a run browser to download `detections.csv`/`session.csv` per run, and a
+settings form that writes `/loratrace/config.txt` (`config.h`'s existing
+format/validation, reused not reimplemented) — applied on next boot, not
+hot-reloaded, so `radio_task`'s real-time critical section is never touched
+by another task. `ui_task` gains a long-press-any-key gesture to toggle the
+AP (no keymap needed, matching its existing "any key" discipline) and a
+WIFI status page.
+**Blocking unknowns:** none for the feature itself — pulled forward ahead
+of Phase 4 at the user's request, prioritizing operator convenience over
+protocol breadth. The one thing worth confirming on real hardware before
+trusting this at length is the heap/counter spike described in
+PROGRESS.md: `ESP.getFreeHeap()` before/after `WiFi.softAP()` with the
+full Phase 2 task set already running, and `radioCrcErrorCount()`/
+`radioQueueDropCount()`/`radioBusMissCount()` staying at 0 with the AP
+active — the actual go/no-go this phase used to be gated behind, now
+answerable instead of estimated (see the heap numbers above).
+
+### Phase 4 — MeshCore profile
 **Deliverable:** same `HOME_LISTEN` engine, MeshCore US-narrow table
 (910.525MHz/SF7/BW62.5/CR5) wired in as a second selectable profile.
 **Blocking unknowns:** none for basic detection; MeshCore's
 encryption/PSK model (§7) still blocks payload decode, not detection.
 
-### Phase 4 — `DISCOVERY_SWEEP`
+### Phase 5 — `DISCOVERY_SWEEP`
 **Deliverable:** bounded-duration CAD-cycle sweep of a curated candidate
 list per active profile — non-default Meshtastic slots, legacy MeshCore.
 **Blocking unknowns:** curated candidate lists should be weighted by
@@ -145,7 +172,7 @@ where available, not scraped defaults alone. CAD `symNum` tuning (§7)
 needs bench testing against Semtech AN1200.48 before trusting false-
 positive/miss rates.
 
-### Phase 5 — `ENERGY_SWEEP`
+### Phase 6 — `ENERGY_SWEEP`
 **Deliverable:** Reticulum and General Exploration profiles — FSK/OOK RSSI
 sweep across 868–923MHz with periodic LoRa CAD checks at common SF/BW
 combos.
@@ -153,14 +180,11 @@ combos.
 characterized (empirical RSSI floor sweep) so the UI can be honest about
 reduced sensitivity in that sub-band rather than silently under-reporting.
 
-### Phase 6 — UI polish, optional WiFi upload
-**Deliverable:** full `ui_task` (profile switching, live status per
-BRAND.md's on-device copy conventions), and — only if the RAM budget
-supports it after phases 1–5 are real and measured — a WiFi upload task.
-**Blocking unknowns:** requires a real `ESP.getFreeHeap()` number under
-full load (radio + GPS + SD + display all running) before deciding WiFi is
-in scope at all. This phase is explicitly allowed to conclude "not on this
-hardware, or not simultaneously with the display."
+### Phase 7 — UI polish
+**Deliverable:** remaining `ui_task` polish (profile switching, live status
+per BRAND.md's on-device copy conventions) — the WiFi decision this phase
+used to also carry is Phase 3 now, done.
+**Blocking unknowns:** none.
 
 ## Distribution
 
@@ -278,10 +302,11 @@ reports can use.
 |---|---|
 | v0.1.x | Phase 1 (serial bring-up) |
 | v0.2.x | Phase 2 (MVP-Beta: Meshtastic War Drive complete) |
-| v0.3.x | Phase 3 (MeshCore) |
-| v0.4.x | Phase 4 (discovery sweep) |
-| v0.5.x | Phase 5 (energy sweep: Reticulum + General Exploration) |
-| v1.0.x | Phase 6 (UI polish, WiFi upload decision made, all 4 profiles stable) |
+| v0.3.x | Phase 3 (Web Command Center: WiFi AP + web UI) |
+| v0.4.x | Phase 4 (MeshCore) |
+| v0.5.x | Phase 5 (discovery sweep) |
+| v0.6.x | Phase 6 (energy sweep: Reticulum + General Exploration) |
+| v1.0.x | Phase 7 (UI polish, all 4 profiles stable) |
 
 ## Non-goals
 
