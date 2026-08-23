@@ -1090,6 +1090,29 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     there is more than one file being written.
 
 
+- **2026-08-23 — `rx_uptime_ms` added to `detections.csv`; the field was
+  being captured and then thrown away.** Came out of asking a plain question
+  of the new health log — "does this survive across runs, and is anything
+  timestamped?" Both files turned out fine on persistence (append-only,
+  header written only when absent, nothing truncates), but checking how a
+  row gets placed in time exposed the gap: `Detection::rx_millis` is stamped
+  by the radio task, crosses the queue, and carries a comment saying it
+  "lets post-processing spot a stale GPS stamp caused by queue backlog" —
+  and `detectionFormatCsv()` never wrote it. It reached the logger and died
+  there.
+  - Why it matters more than it sounds: a detection heard **before the first
+    GPS fix** has an empty `timestamp_utc` *and* empty lat/lon. With uptime
+    dropped, such a row had no time reference of any kind — not orderable,
+    not joinable to `session.csv`, not even "40 seconds in". On a cold start
+    that is every packet heard during TTFF.
+  - Appended as the last column so existing parsers keep working, same rule
+    as `logger_stack_free` in the session schema.
+  - Absolute time comes from GPS because there is no verified RTC on this
+    board (no RTC part is referenced anywhere in this project — worth
+    sourcing before anyone assumes one exists). DESIGN.md §8.3 now writes
+    down the consequence and the arithmetic that recovers wall-clock for a
+    whole run from any single timestamped row: `timestamp_utc - uptime_s`.
+
 ## Next steps
 
 Phase 2 has no blocking unknowns left. Everything below is verification or

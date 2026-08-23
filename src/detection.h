@@ -22,8 +22,11 @@
 // Radio-side record of one received packet. Field order groups the 4-byte
 // members first so the struct packs tightly without padding holes.
 struct Detection {
-    uint32_t rx_millis;  // device uptime at RX; lets post-processing spot
-                         // a stale GPS stamp caused by queue backlog
+    uint32_t rx_millis;  // device uptime at RX; written to the log as
+                         // rx_uptime_ms. Lets post-processing spot a stale
+                         // GPS stamp caused by queue backlog, joins a row to
+                         // session.csv, and is the ONLY time reference a
+                         // detection heard before the first fix has
     uint32_t node_id;    // protocol sender id (Meshtastic `from`); 0 = unknown
     uint32_t packet_id;  // protocol packet id; 0 = unknown. With node_id this
                          // is the dedupe key that separates an original
@@ -119,7 +122,8 @@ inline const char *missionProfileName(uint8_t profile) {
 // row writer can never drift apart.
 constexpr const char *LOG_CSV_HEADER =
     "timestamp_utc,lat,lon,fix_quality,profile,freq_mhz,sf,bw_khz,"
-    "rssi_dbm,snr_db,classification,decoded,channel_or_node_id,raw_len";
+    "rssi_dbm,snr_db,classification,decoded,channel_or_node_id,raw_len,"
+    "rx_uptime_ms";
 
 // Phase 2 placeholder for DESIGN.md §6 fingerprinting (phase 4): with
 // HOME_LISTEN locked to one profile's channel, "what we were listening for"
@@ -164,7 +168,7 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
     }
 
     int n = snprintf(out, outSize,
-                     "%s,%s,%s,%u,%s,%.3f,%u,%.1f,%.1f,%.2f,%s,%s,%s,%u",
+                     "%s,%s,%s,%u,%s,%.3f,%u,%.1f,%.1f,%.2f,%s,%s,%s,%u,%lu",
                      timestamp_utc ? timestamp_utc : "",
                      latbuf, lonbuf,
                      (unsigned)fix_quality,
@@ -179,7 +183,16 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
                          // Meshtastic/MeshCore payloads are encrypted) —
                          // column reserved by DESIGN.md §8, left empty
                      idbuf,
-                     (unsigned)det.raw_len);
+                     (unsigned)det.raw_len,
+                     // Device uptime at RX. Appended last so existing
+                     // parsers keep working. Without it a detection heard
+                     // before the first GPS fix has an empty timestamp AND
+                     // empty coordinates — nothing at all to place it in
+                     // time, not even an ordering against the health log.
+                     // This is also what rx_millis was captured for in the
+                     // first place; it was crossing the queue and then
+                     // being dropped at format time.
+                     (unsigned long)det.rx_millis);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

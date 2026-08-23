@@ -97,6 +97,7 @@ void test_csv_row_with_fix() {
     det.sf = 8;
     det.cr_denom = 5;
     det.profile = (uint8_t)MissionProfile::MESHTASTIC;
+    det.rx_millis = 41250;
 
     char row[256];
     size_t n = detectionFormatCsv(det, row, sizeof(row), "2026-08-23T01:20:00Z", true, 45.5123456,
@@ -104,8 +105,25 @@ void test_csv_row_with_fix() {
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_STRING(
         "2026-08-23T01:20:00Z,45.512346,-122.678901,1,meshtastic,918.500,8,125.0,-60.0,13.75,"
-        "meshtastic,,!1bbf065c,26",
+        "meshtastic,,!1bbf065c,26,41250",
         row);
+}
+
+void test_uptime_anchors_a_detection_heard_before_the_first_fix() {
+    // The case this column exists for. No GPS time and no position yet, so
+    // timestamp and lat/lon are both empty — without rx_uptime_ms the row
+    // could not be placed in time at all, nor joined to the session.csv row
+    // covering the same minute.
+    Detection det = {};
+    detectionApplyMeshtasticHeader(det, PKT_ORIGINAL, sizeof(PKT_ORIGINAL));
+    det.profile = (uint8_t)MissionProfile::MESHTASTIC;
+    det.rx_millis = 8123;
+
+    char row[256];
+    size_t n = detectionFormatCsv(det, row, sizeof(row), "", false, 0.0, 0.0, 0);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_INT(0, strncmp(row, ",,,0,", 5)); // no time, no position
+    TEST_ASSERT_EQUAL_STRING(",8123", row + n - 5);     // but always an uptime
 }
 
 void test_csv_row_without_fix_leaves_coords_empty() {
@@ -170,6 +188,7 @@ int main(int, char **) {
     RUN_TEST(test_runt_frame_yields_no_ids);
     RUN_TEST(test_csv_row_with_fix);
     RUN_TEST(test_csv_row_without_fix_leaves_coords_empty);
+    RUN_TEST(test_uptime_anchors_a_detection_heard_before_the_first_fix);
     RUN_TEST(test_csv_truncation_is_reported);
     RUN_TEST(test_header_column_count_matches_row);
     RUN_TEST(test_timestamp_formatting);

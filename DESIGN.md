@@ -255,7 +255,14 @@ Two files, both under `/loratrace` on the card.
 
 ### 8.1 `detections.csv` — the mission data
 
-`timestamp_utc, lat, lon, fix_quality, profile, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, classification, decoded, channel_or_node_id, raw_len`
+`timestamp_utc, lat, lon, fix_quality, profile, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, classification, decoded, channel_or_node_id, raw_len, rx_uptime_ms`
+
+`rx_uptime_ms` is device uptime at the moment of reception. It is the only
+time reference a detection heard *before the first GPS fix* has — those rows
+carry an empty `timestamp_utc` and empty coordinates, and without uptime
+they could not be placed in time at all. It also exposes queue backlog (a
+row whose GPS stamp is much later than its uptime was stamped late) and is
+the join key to `session.csv`.
 
 `ENERGY_SWEEP` data gets threshold-filtered against a rolling noise floor
 before logging — don't dump every sweep point, only peaks, or the card fills
@@ -292,6 +299,35 @@ Two fields carry more weight than the rest:
 Costs about 180 rows on a three-hour drive: nothing next to the detection
 log, and one extra short bus hold a minute is far under the noise floor of
 the flushes already happening.
+
+### 8.3 How the files behave across runs
+
+Both files are **append-only and survive power cycles.** The header is
+written once, only when the file does not already exist; every subsequent
+write is an append. Nothing truncates or overwrites either file, so a card
+accumulates every run it has ever seen until someone deletes the files.
+
+Absolute time comes from GPS, because this board has no verified RTC. That
+has one consequence worth stating plainly: **rows written before the first
+fix of a run carry an empty `timestamp_utc`.** The boot row essentially
+always does, since SD mounts seconds after power-on and a cold TTFF is tens
+of seconds at best.
+
+That does not lose the session, because `uptime_s` is on every row:
+
+- **Anchor a run in absolute time** with any row that has both fields —
+  wall-clock start = `timestamp_utc - uptime_s`. Every row of that run then
+  resolves, including the ones written before the fix landed.
+- **Separate runs within the file** by the `reason=boot` rows, and by
+  `uptime_s` resetting to a small number. Without those markers a mid-drive
+  power cycle would read as counters spontaneously resetting.
+- **Join the two files** on uptime: a detection's `rx_uptime_ms` falls
+  between two `session.csv` rows' `uptime_s`, which says what the radio,
+  SD and heap were doing when that packet arrived.
+
+A run in which the GPS never fixes at all has no absolute time anywhere —
+inherent without an RTC, not a logging bug. It is still fully ordered and
+still self-describing via uptime.
 
 ## 9. Build order
 
