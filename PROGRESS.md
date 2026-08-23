@@ -257,10 +257,39 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         explained rather than just excused: same passive-antenna hardware,
         genuinely open sky this time. Antenna suspicion from that checklist
         note is retired.
-  - [~] An unattended multi-hour run: detections logged with correct
+  - [x] An unattended multi-hour run: detections logged with correct
         lat/lon, `qdrop`/`rowdrop` staying at zero, no heap exhaustion.
-        **Strong interim data point, 2026-08-23, not yet the literal exit
-        criterion.** A 37-minute battery-powered deck run (no serial log,
+        **Closed 2026-08-23** — a second deck run (run0007, v0.2.5), this
+        time genuinely multi-hour: `session.csv` covers uptime 4s->9017s,
+        **2h30m**, not the "1.5 hours" it was described as when the cards
+        came back (worth noting since it's the literal exit criterion —
+        good that reality overshot the estimate, not the reverse). Every
+        counter that matters stayed at its best possible value for the
+        *entire* run, not just an interim stretch: `crc_err`/`queue_drop`/
+        `bus_miss`/`row_drop`/`bus_contention` all **0** across all 151
+        health rows; `sd=ok` throughout; `fix_type=3` from the first
+        periodic row onward, never once dropping back to a 2D/no fix;
+        `heap_free` settled at 311828B and `heap_min` at 307204B with zero
+        further decline after the first two rows (no leak over 2.5 hours,
+        the actual duration this checklist item asks for); `max_flush_ms`
+        peaked at 40ms, `max_session_ms` at 38ms — both still comfortably
+        below anything that could starve the radio. **Also resolves the
+        long-standing `nmea_bad_crc` watch item**: this run ran **0.00%**
+        bad-CRC across 185833 NMEA sentences (0/185833), down from ~2.0%
+        on the previous (37-minute) deck run — strong evidence the v0.2.5
+        GPS UART ring-buffer bump (256B->1024B) was in fact the fix, not
+        just cheap insurance as it was logged at the time.
+        `gps_max_loop_gap_ms` never exceeded the single 319ms value already
+        present on the very first health row, meaning the GPS task was
+        never meaningfully CPU-starved even under 2.5 hours of sustained
+        SD-flush activity — the starvation theory that motivated adding
+        that column is now the *disproven* half of the `nmea_bad_crc`
+        investigation, and the buffer bump the *confirmed* fix. See the
+        `detections.csv` investigation below for the one real finding this
+        run surfaced — not a Phase 2 exit-criterion failure, but a data-
+        quality question worth a follow-up run to close.
+  - [x] *(superseded by the entry above; kept for history)* Interim
+        37-minute deck run, 2026-08-23: not yet the literal exit criterion.
         judged entirely from `detections.csv`/`session.csv` per this
         checklist's own design) came back clean on every counter that
         matters: `crc_err`/`queue_drop`/`bus_miss`/`row_drop` all stayed at
@@ -1451,30 +1480,117 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     2-hour deck run on this build, then reading `gps_max_loop_gap_ms`
     first, before `nmea_bad_crc` itself.
 
+- **2026-08-23 (later same day)** — The planned run happened: run0007,
+  v0.2.5, 2h30m unattended on the deck. Closes the Phase 2 multi-hour exit
+  criterion and the `nmea_bad_crc` watch item — see the checklist entry
+  above for the numbers. Reading `detections.csv` (110 rows) surfaced one
+  real finding, worth recording in detail since it changed conclusions
+  mid-investigation rather than landing on the first theory:
+  - **The observation.** Grouping detections by `channel_or_node_id` and
+    pairing consecutive hits from the same id within 15s of each other
+    (a Python pass over the actual CSV, not eyeballing): 51 such pairs
+    exist. 49 of 51 (96%) share **identical** `raw_len`. 46 of 51 (90%)
+    show a >30dB RSSI swing between the two, and in every one of those 46,
+    one side reads implausibly hot — specifically, 53% of *all 110*
+    detections in the run carry RSSI > -25dBm, and that hot value is not
+    varied noise: 39 readings sit at **exactly -7.0dBm** and 14 at
+    **exactly -6.0dBm** (byte-exact on the SX126x's 0.5dB/LSB grid — bytes
+    14 and 12), with only the run's final ~4 minutes drifting to a
+    different but still-tight band (-11/-14/-16/-20dBm).
+  - **First hypothesis, investigated and mostly ruled out: a firmware bug
+    re-logging one physical packet twice.** `radio_task.cpp`'s critical
+    section (`getPacketLength()` -> `readData()` -> `getRSSI()` ->
+    `getSNR()` -> `startReceive()`) holds the shared-SPI mutex for the
+    whole sequence, and `getRSSI()`'s no-arg default (verified against
+    RadioLib 7.7.1's actual `SX126x.cpp` source, not assumed) reads packet
+    -mode RSSI via `GetPacketStatus`, not the instantaneous/live-channel
+    variant — so the obvious "wrong RadioLib call" theory doesn't hold up.
+    No smoking gun found in `spi_bus.cpp` either (a plain FreeRTOS mutex
+    held for one full transaction, not per-call). Left open, not closed:
+    a stale/duplicate FIFO read from a double DIO1 fire was never
+    definitively ruled out, just de-prioritized once the alternative below
+    turned out to explain the *identical `raw_len`* observation for free.
+  - **Second hypothesis, user-supplied and better-fitting: the user's own
+    Meshtastic repeater sits within ~5 feet of the receiver during this
+    test.** Link budget at 1.5m/915MHz: FSPL ≈ 20log10(1.5) +
+    20log10(915) - 27.55 ≈ 35dB. A typical Meshtastic TX power (~20dBm)
+    with modest antenna gains (~2dBi each end) puts received power around
+    -11dBm before accounting for near-field coupling, orientation, or a
+    higher TX power setting — -7dBm at 5 feet is well within physical
+    plausibility, not a stretch. This explains every piece of the pattern
+    at once, for free: identical `raw_len` (a Meshtastic relay preserves
+    payload length — only `hop_limit`/`relay_node` change within the fixed
+    header), the 2-9s gap between pairs (Meshtastic's randomized
+    rebroadcast delay), the *tight* clustering at a near-constant value
+    (a stationary repeater at a fixed distance should read consistently,
+    not vary — the tightness that looked like a bug signature is exactly
+    what real RF from a fixed-geometry relay would produce), and the
+    pattern recurring across 40+ *different* origin node ids (one busy
+    local repeater forwards everyone's traffic on a shared regional
+    channel, not just one node's). Given this, it's the better-supported
+    explanation, though not yet proven — see the fix below for how the
+    *next* run settles it outright instead of by inference.
+  - **The gap that made this undecidable from the log alone: routing
+    metadata was parsed but never logged.** `detection.h`'s Meshtastic
+    header parser has extracted `packet_id`/`hop_limit`/`hop_start`/
+    `relay_node` since Phase 1 — `test_original_and_relay_share_dedupe_key`
+    even exercises real captured original+relay fixtures proving
+    `packet_id` matches while `hop_limit`/`relay_node` differ across a
+    rebroadcast — but none of the four ever reached `detectionFormatCsv()`
+    / `LOG_CSV_HEADER`. So the exact evidence needed to settle "relay" vs.
+    "duplicate bug" for certain (matching `packet_id`, decremented
+    `hop_limit`, different `relay_node` = relay; identical in all four =
+    bug) existed in the firmware's own struct the whole time and simply
+    never made it to the SD card.
+  - **Fix applied, v0.2.6: wired all four into the CSV**, appended after
+    `run` (same append-only-at-the-end convention `rx_uptime_ms`/
+    `logger_stack_free`/the GPS diagnostic columns already established).
+    Empty (not `00000000`) when no header was parsed, matching
+    `channel_or_node_id`'s existing convention; `hop_limit`/`hop_start`
+    stay numeric regardless since 0 is a legitimate value there, not an
+    absence marker. `DESIGN.md` §8.1 updated to match. New test
+    `test_csv_exposes_relay_vs_original` (`test/test_detection/`) asserts
+    the CSV row itself — not just the in-memory struct — now shows the
+    same `packet_id` with a decremented `hop_limit` and a different
+    `relay_node` across the existing original/relay fixture pair. **No
+    `pio` in this environment**, so verified the same way the sync-word fix
+    was: fetched upstream Unity (ThrowTheSwitch/Unity, `master`) and
+    compiled/ran all six native test binaries directly with host g++, not
+    just inspection — all **55 tests pass** (12 in `test_detection`, up
+    from 11; the other five suites unaffected and unchanged). Still needs
+    an actual `pio test -e native` run and a reflash to confirm on the real
+    toolchain/hardware. Not a behavior fix — like the GPS ring-buffer bump above, this is
+    "make the next run answer the question this one couldn't," which is
+    genuinely the best available move here: the alternative was guessing.
+
 ## Next steps
 
-Phase 2 has no blocking unknowns left. Everything below is verification or
-follow-through, in the order it's worth doing.
+Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist
+above) — remaining items are follow-through, in the order it's worth doing.
 
-1. **Run the Phase 2 exit criterion: a multi-hour unattended run.** The
-   37-minute deck run above already dry-ran the whole read-the-card
-   procedure (steps 2-3 below) and came back clean on every counter — what's
-   left is purely duration. Flash **v0.2.5** (adds the two GPS diagnostic
-   columns below — worth having for this specific run, not just for its own
-   sake), confirm a GPS fix, then run for a couple of hours with no serial
-   console. **Stationary is fine — motion is not part of ROADMAP.md's exit
-   criterion** ("GPS fix acquired, detections logged with correct lat/lon,
-   no dropped packets attributable to SD latency, no crash from heap
-   exhaustion"), none of which requires the device to move, and a stationary
-   run is arguably a *cleaner* test of the firmware specifically since it
-   isolates architecture/duration questions from RF-environment and
-   satellite-geometry changes that come with actually driving. A real
-   (walking or driving) wardrive is still worth doing before calling this
-   tool field-ready, but as a separate, shorter follow-up — it's the only
-   way to exercise two things a deck run structurally can't: SD-card
-   seating/contact reliability under vibration (the earlier CRC-mount-error
-   watch item), and whether logged lat/lon actually tracks a *moving*
-   position rather than jittering around one point. Not a gate on this run.
+1. **Done, 2026-08-23: the multi-hour unattended run (run0007, v0.2.5,
+   2h30m).** See the Phase 2 checklist entry and the Decisions log entry
+   above for the numbers — every exit-criterion counter held at its best
+   value for the full run, and this also closed the `nmea_bad_crc` watch
+   item (0.00% this run). What it's *not*: a moving wardrive. Motion isn't
+   part of ROADMAP.md's literal exit criterion, so this doesn't block
+   tagging Phase 2 done (step 4 below), but a real walking/driving drive is
+   still worth doing before calling the tool field-ready — it's the only
+   way to exercise two things a stationary deck run structurally can't:
+   SD-card seating/contact reliability under vibration (the earlier
+   CRC-mount-error watch item), and whether logged lat/lon actually tracks
+   *moving* position rather than jittering around one point.
+1a. **Re-run once v0.2.6 is on the device, specifically to close the
+    `detections.csv` routing-metadata finding.** run0007's data was 90%
+    consistent with "the nearby repeater, not a bug" but v0.2.5 didn't log
+    `packet_id`/`hop_limit`/`relay_node`, so it couldn't be proven either
+    way from that run alone (see Decisions log). Any run on v0.2.6 settles
+    it directly: for a same-`channel_or_node_id`, near-in-time pair, a
+    matching `packet_id` with decremented `hop_limit` and a different
+    `relay_node` confirms genuine relay traffic; identical values across
+    all three confirms the duplicate-detection theory instead and reopens
+    the radio_task.cpp double-DIO1-fire question. Doesn't need its own
+    dedicated run — the next session of any kind on v0.2.6 answers this.
 2. **Read `session.csv` first when the card comes back**, before looking at
    the detections. In order, the questions it answers:
    - `queue_drop` and `row_drop` — must be 0. Anything else means the
@@ -1506,9 +1622,13 @@ follow-through, in the order it's worth doing.
    deck run had a fix before the first detection, so this specific check
    (blanks-at-start-only) is still untested; a real drive's cold start will
    exercise it.
-4. Once that run is clean, Phase 2 is done: tag `v0.2.x`, mark the phase
-   complete in ROADMAP.md, and start Phase 3 (MeshCore profile) — same
-   `HOME_LISTEN` engine, second channel table, sync word already sourced.
+4. **Phase 2's own exit criterion is closed** (run0007, see above) — tag
+   `v0.2.x`, mark the phase complete in ROADMAP.md, and start Phase 3
+   (MeshCore profile) whenever it's convenient — same `HOME_LISTEN` engine,
+   second channel table, sync word already sourced. Not gated on step 1a
+   or step 3 above (routing-metadata confirmation and a moving wardrive are
+   both genuinely follow-through, not exit-criterion blockers), but doing
+   1a first is cheap and closes a real open question before it's forgotten.
 5. Still-open watch items, no action unless they recur/worsen:
    - SD-mount reliability across power cycles (the GPIO5 fix's first test
      was clean, but the original report said "every bin", which points at
@@ -1517,15 +1637,7 @@ follow-through, in the order it's worth doing.
      `down` and back in `session.csv` is what that looks like.
    - The Launcher-return keypress: hold through the reset rather than tap,
      or use Launcher's Settings → "Boot to Launcher" toggle.
-   - `nmea_bad_crc` vs. bus/detection load — ~0.4-0.6% baseline, ~1.2%
-     during isolated SD-flush bursts, ~2.0% sustained once GPS fix + steady
-     detection traffic ran together (deck run above). A minute-by-minute
-     re-check of that last run complicates the simple story, though: flush
-     minutes ran 2.29% vs. 1.88% in quiet minutes, a real but modest gap,
-     not the ~2x the earlier short sessions suggested, and the rate was
-     already ~1.5-1.9% in the first three minutes before any flush had ever
-     happened. v0.2.5 adds `gps_max_loop_gap_ms`/`gps_oversize_drops`
-     specifically to settle this with a direct measurement instead of
-     another correlation — see that Decisions log entry. Worth resolving
-     before Phase 3 adds MeshCore traffic on top, even though it hasn't
-     degraded fix quality yet.
+   - ~~`nmea_bad_crc` vs. bus/detection load~~ — **closed 2026-08-23**, see
+     the Phase 2 checklist entry above: run0007 (v0.2.5, 2.5h) came back at
+     **0.00%** (0/185833), down from ~2.0% the prior run. Strong evidence
+     the ring-buffer bump was the actual fix, not just insurance.

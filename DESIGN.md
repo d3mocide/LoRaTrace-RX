@@ -289,7 +289,7 @@ Both files below live inside that run directory.
 
 ### 8.1 `detections.csv` — the mission data
 
-`timestamp_utc, lat, lon, fix_quality, profile, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, classification, decoded, channel_or_node_id, raw_len, rx_uptime_ms, run`
+`timestamp_utc, lat, lon, fix_quality, profile, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, classification, decoded, channel_or_node_id, raw_len, rx_uptime_ms, run, packet_id, hop_limit, hop_start, relay_node`
 
 `rx_uptime_ms` is device uptime at the moment of reception. It is the only
 time reference a detection heard *before the first GPS fix* has — those rows
@@ -297,6 +297,21 @@ carry an empty `timestamp_utc` and empty coordinates, and without uptime
 they could not be placed in time at all. It also exposes queue backlog (a
 row whose GPS stamp is much later than its uptime was stamped late) and is
 the join key to `session.csv`.
+
+The last four columns, added after the 2026-08-23 deck run, are Meshtastic
+routing metadata (`detection.h`'s header parser already extracted all four;
+they just never reached the CSV until this run's data made the gap costly).
+`packet_id` is the dedupe key — it matches across an original transmission
+and every mesh rebroadcast of it, which `hop_limit`/`hop_start`/`relay_node`
+then tell apart: a same-`channel_or_node_id` pair heard seconds apart with
+a matching `packet_id` but a decremented `hop_limit` and a different
+`relay_node` is a genuine direct+relay pair, not a duplicate log entry.
+Without these, that exact question — is a wildly-different-RSSI pair real
+mesh routing or a firmware bug re-logging one packet — was unanswerable from
+the log alone (see PROGRESS.md, run0007). Empty (not `00000000`) on rows
+where no header was parsed, matching `channel_or_node_id`'s existing
+convention; `hop_limit`/`hop_start` stay numeric either way since 0 is a
+legitimate value (a packet at its last hop), not an absence marker.
 
 `ENERGY_SWEEP` data gets threshold-filtered against a rolling noise floor
 before logging — don't dump every sweep point, only peaks, or the card fills

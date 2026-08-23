@@ -120,10 +120,20 @@ inline const char *missionProfileName(uint8_t profile) {
 
 // DESIGN.md §8 column order. Kept as one string so the header row and the
 // row writer can never drift apart.
+//
+// `packet_id`/`hop_limit`/`hop_start`/`relay_node` were added after the
+// 2026-08-23 deck run (PROGRESS.md): a detection.h Meshtastic parser already
+// extracted all four specifically to tell "an original heard direct" apart
+// from "the same packet heard again via a mesh rebroadcast" (see
+// `test_original_and_relay_share_dedupe_key`), but none of them reached the
+// actual CSV — leaving that exact question (is a same-node_id, same-length,
+// wildly-different-RSSI pair a relay, or a firmware bug re-logging one
+// packet twice?) unanswerable from real log data. Appended at the end, like
+// `run` before them, so existing parsers keep working.
 constexpr const char *LOG_CSV_HEADER =
     "timestamp_utc,lat,lon,fix_quality,profile,freq_mhz,sf,bw_khz,"
     "rssi_dbm,snr_db,classification,decoded,channel_or_node_id,raw_len,"
-    "rx_uptime_ms,run";
+    "rx_uptime_ms,run,packet_id,hop_limit,hop_start,relay_node";
 
 // Phase 2 placeholder for DESIGN.md §6 fingerprinting (phase 4): with
 // HOME_LISTEN locked to one profile's channel, "what we were listening for"
@@ -156,6 +166,19 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
         idbuf[0] = '\0';
     }
 
+    // Empty (not "00000000") when no header was parsed, matching idbuf above
+    // — a blank packet_id means "unknown", not a real id that happens to be
+    // zero. hop_limit/hop_start stay numeric either way: 0 is a legitimate,
+    // common value (a packet at its last hop), not an absence marker.
+    char pktidbuf[16], relaybuf[8];
+    if (det.node_id != 0) {
+        snprintf(pktidbuf, sizeof(pktidbuf), "%08lx", (unsigned long)det.packet_id);
+        snprintf(relaybuf, sizeof(relaybuf), "%02x", (unsigned)det.relay_node);
+    } else {
+        pktidbuf[0] = '\0';
+        relaybuf[0] = '\0';
+    }
+
     char latbuf[16], lonbuf[16];
     if (has_fix) {
         // 6 decimal places is ~0.1m at the equator — far finer than GPS
@@ -168,7 +191,7 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
     }
 
     int n = snprintf(out, outSize,
-                     "%s,%s,%s,%u,%s,%.3f,%u,%.1f,%.1f,%.2f,%s,%s,%s,%u,%lu,%u",
+                     "%s,%s,%s,%u,%s,%.3f,%u,%.1f,%.1f,%.2f,%s,%s,%s,%u,%lu,%u,%s,%u,%u,%s",
                      timestamp_utc ? timestamp_utc : "",
                      latbuf, lonbuf,
                      (unsigned)fix_quality,
@@ -199,7 +222,17 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
                      // rx_uptime_ms has restarted at zero and, without this,
                      // the merged data is silently ambiguous about which
                      // drive a packet came from.
-                     (unsigned)run);
+                     (unsigned)run,
+                     // Routing metadata — see LOG_CSV_HEADER comment for why
+                     // this exists: it's what lets a same-node_id pair heard
+                     // seconds apart be told apart as "direct + relay" (same
+                     // packet_id, different hop_limit/relay_node) versus a
+                     // logging bug re-emitting one packet twice (identical
+                     // in every field, including these).
+                     pktidbuf,
+                     (unsigned)det.hop_limit,
+                     (unsigned)det.hop_start,
+                     relaybuf);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

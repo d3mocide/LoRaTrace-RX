@@ -105,8 +105,27 @@ void test_csv_row_with_fix() {
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_STRING(
         "2026-08-23T01:20:00Z,45.512346,-122.678901,1,meshtastic,918.500,8,125.0,-60.0,13.75,"
-        "meshtastic,,!1bbf065c,26,41250,7",
+        "meshtastic,,!1bbf065c,26,41250,7,2c618f2d,7,7,5c",
         row);
+}
+
+void test_csv_exposes_relay_vs_original() {
+    // The point of wiring these columns through at all: a same-node_id pair
+    // heard seconds apart must be tellable apart, from the CSV alone, as
+    // "direct + mesh relay" (same packet_id, different hop_limit/relay_node)
+    // rather than a firmware bug re-logging one packet twice (which would
+    // show identical values in every one of these fields too).
+    Detection original = {}, relay = {};
+    detectionApplyMeshtasticHeader(original, PKT_ORIGINAL, sizeof(PKT_ORIGINAL));
+    detectionApplyMeshtasticHeader(relay, PKT_RELAYED, sizeof(PKT_RELAYED));
+    original.profile = relay.profile = (uint8_t)MissionProfile::MESHTASTIC;
+
+    char rowA[256], rowB[256];
+    TEST_ASSERT_TRUE(detectionFormatCsv(original, rowA, sizeof(rowA), "t", false, 0, 0, 0, 1) > 0);
+    TEST_ASSERT_TRUE(detectionFormatCsv(relay, rowB, sizeof(rowB), "t", false, 0, 0, 0, 1) > 0);
+
+    TEST_ASSERT_NOT_NULL(strstr(rowA, ",2c618f2d,7,7,5c"));
+    TEST_ASSERT_NOT_NULL(strstr(rowB, ",2c618f2d,6,7,6a")); // same packet_id, decremented hop, new relay
 }
 
 void test_uptime_anchors_a_detection_heard_before_the_first_fix() {
@@ -187,6 +206,7 @@ int main(int, char **) {
     RUN_TEST(test_broadcast_vs_unicast);
     RUN_TEST(test_runt_frame_yields_no_ids);
     RUN_TEST(test_csv_row_with_fix);
+    RUN_TEST(test_csv_exposes_relay_vs_original);
     RUN_TEST(test_csv_row_without_fix_leaves_coords_empty);
     RUN_TEST(test_uptime_anchors_a_detection_heard_before_the_first_fix);
     RUN_TEST(test_csv_truncation_is_reported);
