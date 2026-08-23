@@ -1307,15 +1307,23 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     worth watching once a live wardrive has both GPS fixes and steady
     detection traffic at the same time — that is the condition this run
     couldn't test.
-  - **Open question, not yet resolved: this boot reports `run=5`.** The
-    CSVs pulled two captures ago were also `run0005`, fully written
-    (`rows=2`). If that folder is still on the card, the scan should have
-    found `highest=5` and claimed `run0006` — reusing 5 is only correct if
-    `run0005` was deleted after its data was pulled (then `highest=4`,
-    `next=5`, which is the intended "reuse only the highest, never a
-    middle gap" behaviour). Asked the operator to confirm rather than
-    assume either way, since this is the newest and least-exercised piece
-    of the scan logic.
+  - **Resolved: `run=5` on a card the operator confirms was clear of every
+    run folder.** Not a scan bug — the explanation is the DTR-reset wart
+    already on record. `esptool` toggles DTR/RTS around the flash itself,
+    and reopening `pio device monitor` (or any terminal reconnect) does the
+    same; each is a full power-on as far as `loggerTaskStart()` is
+    concerned, and each claims the next index. Runs 1-4 are almost
+    certainly boot-only stubs (`reason=boot`, `rx=0`, no detections) from
+    flashing and reconnecting the monitor before settling in to watch the
+    session that became run 5. Not verified by directly listing the card,
+    but consistent with every other number in this capture and with the
+    operator's own account.
+    - Operator has decided to accept this rather than build the start/stop
+      gate now ("let them stack") — matches what the PR already scoped as
+      deliberately deferred to Phase 6. A card that fills with mostly-empty
+      run folders over a bench session is the known cost of that choice; a
+      few hundred bytes each, and `rx=0` makes them trivially filterable
+      later if that ever matters.
 
 ## Next steps
 
