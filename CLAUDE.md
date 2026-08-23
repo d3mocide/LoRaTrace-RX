@@ -84,6 +84,16 @@ sd-template/loratrace/
   model** — it doesn't necessarily; MeshCore's own docs warn against this.
 - No large heap buffers. Detection struct is small (~40B); flush to SD
   often rather than accumulating.
+- **Bump `src/version.h` when a phase lands.** `MAJOR.MINOR` tracks the
+  build-order phase (ROADMAP.md Versioning: v0.1.x = phase 1, v0.2.x =
+  phase 2, ...), `PATCH` for fixes adding no phase scope. It is bumped by
+  hand on purpose — it asserts "this phase is reached", and a number that
+  auto-increments every build asserts nothing. `release.yml` now fails a
+  tag whose version doesn't match the header, so a mismatch can't ship.
+  Build *provenance* is the automated half: `scripts/build_rev.py` injects
+  `FIRMWARE_BUILD_REV` (git short SHA, `-dirty` when the tree is modified)
+  into every build, because a dozen `dev-latest` binaries otherwise share
+  one version string and a hardware bug report can't name which one it hit.
 
 ## Status
 

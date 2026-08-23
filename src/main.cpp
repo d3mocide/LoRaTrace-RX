@@ -27,6 +27,7 @@
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 
+#include "battery.h"
 #include "board_pins.h"
 #include "channel_plans.h"
 #include "config.h"
@@ -36,6 +37,7 @@
 #include "logger_task.h"
 #include "radio_task.h"
 #include "spi_bus.h"
+#include "ui_task.h"
 #include "version.h"
 
 // Boot-status splash — PROGRESS.md decisions log: a narrow, deliberate
@@ -57,7 +59,6 @@ Arduino_GFX *tft = new Arduino_ST7789(
 );
 bool displayReady = false;
 int16_t splashY = 0;
-int16_t statusLineY = 0; // reserved live-status line, redrawn from loop()
 constexpr uint16_t SPLASH_BG = 0x0000;  // RGB565 black
 constexpr uint16_t SPLASH_FG = 0xFFFF;  // RGB565 white
 constexpr uint16_t SPLASH_ERR = 0xF800; // RGB565 red
@@ -93,18 +94,8 @@ bool initDisplay() {
     return true;
 }
 
-// Liveness signal for the whole firmware: a static splash makes a hung
-// device look identical to a healthy idle one.
-void heartbeatTick() {
-    if (!displayReady) return;
-    static unsigned long lastToggle = 0;
-    static bool dotOn = false;
-    unsigned long now = millis();
-    if (now - lastToggle < 500) return;
-    lastToggle = now;
-    dotOn = !dotOn;
-    tft->fillCircle(tft->width() - 8, tft->height() - 8, 3, dotOn ? SPLASH_FG : SPLASH_BG);
-}
+// The boot-time liveness heartbeat now lives in ui_task (it owns the panel
+// after setup). Keeping a copy here would race it for the same pixels.
 
 void fatal(const __FlashStringHelper *serialMsg, const __FlashStringHelper *splashMsg) {
     Serial.println(serialMsg);
@@ -126,7 +117,9 @@ void setup() {
 
     Serial.print(F("LoRaTrace RX v"));
     Serial.print(FIRMWARE_VERSION);
-    Serial.println(F(" — phase 2 (tasks + GPS + SD logging)"));
+    Serial.print(F(" ("));
+    Serial.print(FIRMWARE_BUILD_REV); // git SHA — identifies THIS binary
+    Serial.println(F(") — phase 2 (tasks + GPS + SD logging)"));
 
     displayReady = initDisplay();
     tft->setTextSize(2);
@@ -196,42 +189,31 @@ void setup() {
                " sync 0x" + String(activeChannel.sync_word, HEX));
 
     Serial.println(F("Radio task listening on Core 1."));
-    splashY += SPLASH_LINE_H / 2;
-    statusLineY = splashY;
-    splashLine(F("waiting..."));
-    splashLine(F("")); // second status row (GPS)
 
     Serial.print(F("Free heap after task start: "));
     Serial.print(ESP.getFreeHeap());
     Serial.println(F(" bytes"));
 
+    // UI last: it takes ownership of the display, so everything above gets
+    // to use the splash for boot progress first. From here main.cpp must
+    // never touch `tft` again — two writers on one panel is a race with no
+    // upside.
+    batteryInit();
+    if (!uiTaskStart(tft)) {
+        // Non-fatal on purpose: a headless wardriver still logs, which is
+        // the actual job. Serial keeps reporting either way.
+        Serial.println(F("WARN: UI task failed to start — continuing headless."));
+    } else if (!uiKeyboardReady()) {
+        Serial.println(F("WARN: TCA8418 keyboard not detected — UI pages will auto-advance."));
+    }
+
     Serial.println(F("To return to Launcher: press any key during its ~5s boot window, or enable its Settings -> \"Boot to Launcher\" toggle."));
 }
 
-// Redraws the two reserved status rows in place. Everything above them is
-// static boot output.
-void updateStatusSplash(const GpsFix &fix, bool haveFix) {
-    if (!displayReady) return;
-
-    tft->fillRect(0, statusLineY, tft->width(), SPLASH_LINE_H * 2, SPLASH_BG);
-    tft->setTextColor(SPLASH_FG, SPLASH_BG);
-
-    tft->setCursor(4, statusLineY);
-    tft->print("rx:" + String(radioPacketCount()) + " log:" + String(loggerRowsWritten()) +
-               " drop:" + String(radioQueueDropCount() + loggerRowsDropped()));
-
-    tft->setCursor(4, statusLineY + SPLASH_LINE_H);
-    if (haveFix && fix.has_position) {
-        tft->print("gps " + String(fix.lat, 4) + "," + String(fix.lon, 4) + " s" +
-                   String(fix.satellites));
-    } else {
-        tft->print("gps: no fix (" + String(gpsSentenceCount()) + " nmea)");
-    }
-}
-
 void loop() {
-    heartbeatTick();
-
+    // No display work here any more: ui_task owns the panel once started
+    // (including its own liveness indication), so the old heartbeat dot and
+    // inline status rows would race it for the same pixels.
     static uint32_t lastStatus = 0;
     uint32_t now = millis();
     if (now - lastStatus < 5000) {
@@ -281,6 +263,4 @@ void loop() {
     }
     Serial.print(F(" | heap="));
     Serial.println(ESP.getFreeHeap());
-
-    updateStatusSplash(fix, haveFix);
 }

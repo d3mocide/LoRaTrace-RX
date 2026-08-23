@@ -85,47 +85,14 @@ size_t lineLen = 0;
 // it only briefly as proof-of-life, then switch to the summary.
 constexpr uint32_t RAW_DUMP_MS = 3000;
 
-// --- Satellite visibility -----------------------------------------------
-// The diagnosis that matters once the UART works is "can the antenna SEE
-// anything": zero satellites in view across every constellation means sky
-// or antenna, whereas satellites in view but no fix means it just needs
-// more time to download almanac/ephemeris. GSV field 3 is sats-in-view, and
-// each constellation emits its own GSV with its own talker ID.
-struct TalkerSats {
-    char id[3];
-    uint8_t inView;
-};
-TalkerSats talkers[8];
-size_t talkerCount = 0;
-
-// Highest fix type seen in GSA field 2 (1=none, 2=2D, 3=3D).
-uint8_t gsaFixType = 1;
+// Satellite visibility and fix type now live in gps_parse.h's GpsFix, which
+// the Phase 2 GPS task uses too — this probe deliberately carries no private
+// copy of that logic. Beyond avoiding duplication, it means the probe
+// exercises the exact parser the firmware depends on, so a bug found here is
+// a bug found there.
 
 // Last $GxTXT payload — the module's own words about its health.
 char lastTxt[48] = {0};
-
-void noteTalkerSats(const char *tag, uint8_t inView) {
-    char id[3] = {tag[1], tag[2], '\0'}; // skip '$'
-    for (size_t i = 0; i < talkerCount; i++) {
-        if (talkers[i].id[0] == id[0] && talkers[i].id[1] == id[1]) {
-            talkers[i].inView = inView;
-            return;
-        }
-    }
-    if (talkerCount < (sizeof(talkers) / sizeof(talkers[0]))) {
-        talkers[talkerCount].id[0] = id[0];
-        talkers[talkerCount].id[1] = id[1];
-        talkers[talkerCount].id[2] = '\0';
-        talkers[talkerCount].inView = inView;
-        talkerCount++;
-    }
-}
-
-uint16_t totalSatsInView() {
-    uint16_t total = 0;
-    for (size_t i = 0; i < talkerCount; i++) total = (uint16_t)(total + talkers[i].inView);
-    return total;
-}
 
 void startOrder(size_t idx) {
     activeOrder = idx;
@@ -148,15 +115,13 @@ void handleSentence(const char *s) {
     sentenceCount++;
     gpsApplySentence(fix, s, millis());
 
-    char tag[8], buf[16];
+    // GSV/GSA are handled inside gpsApplySentence() above; only TXT is
+    // probe-specific (the firmware has no use for it, but a bring-up tool
+    // very much does).
+    char tag[8];
     if (!nmeaField(s, 0, tag, sizeof(tag)) || strlen(tag) < 3) return;
 
-    if (strstr(tag, "GSV") && nmeaField(s, 3, buf, sizeof(buf)) && buf[0] != '\0') {
-        noteTalkerSats(tag, (uint8_t)strtol(buf, nullptr, 10));
-    } else if (strstr(tag, "GSA") && nmeaField(s, 2, buf, sizeof(buf)) && buf[0] != '\0') {
-        uint8_t t = (uint8_t)strtol(buf, nullptr, 10);
-        if (t > gsaFixType) gsaFixType = t;
-    } else if (strstr(tag, "TXT")) {
+    if (strstr(tag, "TXT")) {
         // The module reporting on itself. Surfaced prominently the first
         // time and whenever it changes, rather than scrolling past in the
         // raw dump — "ANTENNA OPEN" is exactly the kind of line that
@@ -274,16 +239,16 @@ void loop() {
         Serial.print(F(" badcrc="));
         Serial.print(badChecksumCount);
         Serial.print(F(" fixtype="));
-        Serial.print(gsaFixType); // 1=none 2=2D 3=3D
+        Serial.print(fix.fix_type); // 1=none 2=2D 3=3D
         Serial.print(F(" sats="));
-        Serial.print(totalSatsInView());
-        if (talkerCount > 0) {
+        Serial.print(fix.sats_in_view);
+        if (fix.talker_count > 0) {
             Serial.print(F(" ("));
-            for (size_t i = 0; i < talkerCount; i++) {
+            for (uint8_t i = 0; i < fix.talker_count; i++) {
                 if (i) Serial.print(' ');
-                Serial.print(talkers[i].id);
+                Serial.print(fix.talkers[i].id);
                 Serial.print(':');
-                Serial.print(talkers[i].inView);
+                Serial.print(fix.talkers[i].in_view);
             }
             Serial.print(')');
         }
@@ -310,7 +275,7 @@ void loop() {
             // With the UART proven, the useful split is whether the antenna
             // can SEE anything. Zero in view everywhere is a sky/antenna
             // problem; satellites in view without a fix is just patience.
-            uint16_t inView = totalSatsInView();
+            uint16_t inView = fix.sats_in_view;
             if (inView == 0) {
                 Serial.println(F("[probe] UART good, but 0 satellites IN VIEW on every constellation."));
                 Serial.println(F("        That is normal indoors — GPS is ~-130dBm and a roof costs"));

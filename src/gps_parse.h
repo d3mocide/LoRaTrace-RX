@@ -12,9 +12,18 @@
 
 #include "nmea.h"
 
-// A GPS fix as the logger needs it. Not queued (the Detection struct stays
-// small and GPS-free — see detection.h), so the size of this is not
-// performance-critical.
+// Satellites in view for one constellation. Tracked per talker ID because
+// each constellation emits its own GSV: GP=GPS, GL=GLONASS, GA=Galileo,
+// BD/GB=BeiDou, GQ=QZSS.
+struct GpsTalkerSats {
+    char id[3];
+    uint8_t in_view;
+};
+constexpr size_t GPS_MAX_TALKERS = 6;
+
+// A GPS fix as the logger and UI need it. Not queued (the Detection struct
+// stays small and GPS-free — see detection.h), so size is not
+// performance-critical here.
 struct GpsFix {
     double lat = 0.0;
     double lon = 0.0;
@@ -27,11 +36,51 @@ struct GpsFix {
     uint8_t hour = 0, minute = 0, second = 0;
 
     uint8_t fix_quality = 0; // GGA field 6: 0 = no fix, 1 = GPS, 2 = DGPS...
-    uint8_t satellites = 0;
+    uint8_t satellites = 0;  // GGA field 7: satellites USED in the solution
+
+    // Satellites IN VIEW, from GSV. This is the leading indicator and the
+    // one that matters before a fix exists: `satellites` (used) stays 0
+    // until a fix lands, so it tells you nothing about whether a cold start
+    // is progressing. Zero in view across every constellation means
+    // sky/antenna; some in view without a fix just means "wait longer".
+    // Learned the hard way on 2026-08-23 — see PROGRESS.md.
+    GpsTalkerSats talkers[GPS_MAX_TALKERS] = {};
+    uint8_t talker_count = 0;
+    uint8_t sats_in_view = 0; // sum across constellations
+
+    uint8_t fix_type = 1; // GSA field 2: 1 = none, 2 = 2D, 3 = 3D
 
     bool has_position = false; // lat/lon are meaningful
     bool has_time = false;     // date+time are meaningful
 };
+
+// Records sats-in-view for the constellation identified by `tag`
+// ("$GPGSV" -> "GP"), replacing any previous count for it.
+inline void gpsNoteTalkerSats(GpsFix &fix, const char *tag, uint8_t inView) {
+    if (tag == nullptr || strlen(tag) < 3) return;
+    const char a = tag[1], b = tag[2]; // skip '$'
+
+    bool found = false;
+    for (uint8_t i = 0; i < fix.talker_count && !found; i++) {
+        if (fix.talkers[i].id[0] == a && fix.talkers[i].id[1] == b) {
+            fix.talkers[i].in_view = inView;
+            found = true;
+        }
+    }
+    if (!found && fix.talker_count < GPS_MAX_TALKERS) {
+        fix.talkers[fix.talker_count].id[0] = a;
+        fix.talkers[fix.talker_count].id[1] = b;
+        fix.talkers[fix.talker_count].id[2] = '\0';
+        fix.talkers[fix.talker_count].in_view = inView;
+        fix.talker_count++;
+    }
+
+    uint16_t total = 0;
+    for (uint8_t i = 0; i < fix.talker_count; i++) {
+        total = (uint16_t)(total + fix.talkers[i].in_view);
+    }
+    fix.sats_in_view = (uint8_t)(total > 255 ? 255 : total);
+}
 
 // Parses "HHMMSS" (with optional fractional seconds, which we discard —
 // sub-second precision is meaningless next to LoRa airtime and queue
@@ -88,10 +137,42 @@ inline bool gpsApplySentence(GpsFix &fix, const char *sentence, uint32_t now_ms)
     // constellations, so matching only "GP" would silently ignore it.
     const bool isGGA = (strstr(tag, "GGA") != nullptr);
     const bool isRMC = (strstr(tag, "RMC") != nullptr);
-    if (!isGGA && !isRMC) return false;
+    const bool isGSV = (strstr(tag, "GSV") != nullptr);
+    const bool isGSA = (strstr(tag, "GSA") != nullptr);
+    if (!isGGA && !isRMC && !isGSV && !isGSA) return false;
 
     char buf[16], hemi[4];
     bool updated = false;
+
+    if (isGSV) {
+        // GSV field 3 = satellites in view for this constellation.
+        if (nmeaField(sentence, 3, buf, sizeof(buf)) && buf[0] != '\0') {
+            long n = strtol(buf, nullptr, 10);
+            if (n >= 0 && n <= 255) {
+                gpsNoteTalkerSats(fix, tag, (uint8_t)n);
+                updated = true;
+            }
+        }
+        return updated;
+    }
+
+    if (isGSA) {
+        // GSA field 2 = fix type: 1 none, 2 = 2D, 3 = 3D. Multi-constellation
+        // receivers emit several GSA sentences per cycle (one per
+        // constellation), so keep the best rather than the last — otherwise
+        // a trailing "no fix" GSA for an unused constellation would clobber
+        // a real 3D fix reported by another. GGA below resets it back to 1
+        // when the receiver reports no fix, so "best" cannot latch high
+        // forever once the fix is genuinely lost.
+        if (nmeaField(sentence, 2, buf, sizeof(buf)) && buf[0] != '\0') {
+            long t = strtol(buf, nullptr, 10);
+            if (t >= 1 && t <= 3 && (uint8_t)t > fix.fix_type) {
+                fix.fix_type = (uint8_t)t;
+                updated = true;
+            }
+        }
+        return updated;
+    }
 
     if (isGGA) {
         // GGA: 1=time 2=lat 3=N/S 4=lon 5=E/W 6=quality 7=satellites
@@ -103,6 +184,11 @@ inline bool gpsApplySentence(GpsFix &fix, const char *sentence, uint32_t now_ms)
         if (nmeaField(sentence, 6, buf, sizeof(buf)) && buf[0] != '\0') {
             long q = strtol(buf, nullptr, 10);
             fix.fix_quality = (q < 0) ? 0 : (uint8_t)(q > 255 ? 255 : q);
+            // GGA is authoritative on whether a fix exists at all, and it
+            // arrives once per cycle — so it's the right place to decay the
+            // GSA-derived 2D/3D value. Without this, fix_type would latch at
+            // its best-ever reading and keep claiming 3D after signal loss.
+            if (fix.fix_quality == 0) fix.fix_type = 1;
             updated = true;
         }
         if (nmeaField(sentence, 7, buf, sizeof(buf)) && buf[0] != '\0') {

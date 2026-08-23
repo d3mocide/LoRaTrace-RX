@@ -114,6 +114,56 @@ void test_non_position_sentences_are_ignored_not_errors() {
     TEST_ASSERT_FALSE(gpsApplySentence(fix, "garbage", 1000));
 }
 
+// Satellites IN VIEW (GSV) — the leading indicator that distinguishes
+// "antenna can't see sky" from "just needs more time". Added after the
+// 2026-08-23 bring-up, where `satellites` (used, from GGA) stayed 0 and
+// therefore said nothing about whether the cold start was progressing.
+void test_sats_in_view_sums_across_constellations() {
+    GpsFix fix;
+    TEST_ASSERT_EQUAL_UINT8(0, fix.sats_in_view);
+
+    TEST_ASSERT_TRUE(gpsApplySentence(fix, "$GPGSV,3,1,11,03,03,111,00*4A", 100));
+    TEST_ASSERT_EQUAL_UINT8(11, fix.sats_in_view);
+
+    // A second constellation ADDS to the total.
+    TEST_ASSERT_TRUE(gpsApplySentence(fix, "$GLGSV,1,1,04,65,20,120,30*50", 100));
+    TEST_ASSERT_EQUAL_UINT8(15, fix.sats_in_view);
+    TEST_ASSERT_EQUAL_UINT8(2, fix.talker_count);
+
+    // Re-reporting the SAME constellation replaces rather than accumulates,
+    // or the count would grow without bound every NMEA cycle.
+    TEST_ASSERT_TRUE(gpsApplySentence(fix, "$GPGSV,3,1,11,03,03,111,00*4A", 200));
+    TEST_ASSERT_EQUAL_UINT8(15, fix.sats_in_view);
+    TEST_ASSERT_EQUAL_UINT8(2, fix.talker_count);
+}
+
+void test_zero_sats_in_view_is_the_indoor_signature() {
+    // Verbatim from the operator's real indoor capture, 2026-08-23.
+    GpsFix fix;
+    gpsApplySentence(fix, "$GPGSV,1,1,00,1*64", 100);
+    gpsApplySentence(fix, "$GLGSV,1,1,00,1*78", 100);
+    TEST_ASSERT_EQUAL_UINT8(0, fix.sats_in_view);
+    TEST_ASSERT_FALSE(fix.has_position);
+}
+
+void test_gsa_fix_type_keeps_best_then_decays_with_gga() {
+    GpsFix fix;
+    TEST_ASSERT_EQUAL_UINT8(1, fix.fix_type); // 1 = no fix
+
+    TEST_ASSERT_TRUE(gpsApplySentence(fix, "$GNGSA,A,3,03,07,11,,,,,,,,,,2.1,1.2,1.7,1*33", 100));
+    TEST_ASSERT_EQUAL_UINT8(3, fix.fix_type); // 3D
+
+    // A no-fix GSA from an unused constellation must NOT clobber the 3D
+    // reading — multi-GNSS receivers emit several GSA sentences per cycle.
+    gpsApplySentence(fix, "$GNGSA,A,1,,,,,,,,,,,,,25.5,25.5,25.5,2*02", 100);
+    TEST_ASSERT_EQUAL_UINT8(3, fix.fix_type);
+
+    // ...but a GGA reporting quality 0 means the fix is genuinely gone, and
+    // fix_type must decay rather than latching at its best-ever value.
+    gpsApplySentence(fix, "$GNGGA,181140,,,,,0,00,25.5,,,,,,*69", 200);
+    TEST_ASSERT_EQUAL_UINT8(1, fix.fix_type);
+}
+
 void test_fix_freshness() {
     GpsFix fix;
     gpsApplySentence(fix, GGA_FIX, 10000);
@@ -151,6 +201,9 @@ int main(int, char **) {
     RUN_TEST(test_void_rmc_clears_a_previous_position);
     RUN_TEST(test_bad_checksum_is_rejected_entirely);
     RUN_TEST(test_non_position_sentences_are_ignored_not_errors);
+    RUN_TEST(test_sats_in_view_sums_across_constellations);
+    RUN_TEST(test_zero_sats_in_view_is_the_indoor_signature);
+    RUN_TEST(test_gsa_fix_type_keeps_best_then_decays_with_gga);
     RUN_TEST(test_fix_freshness);
     RUN_TEST(test_time_and_date_field_validation);
     return UNITY_END();

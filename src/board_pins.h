@@ -153,6 +153,18 @@ constexpr uint8_t TFT_ROW_OFFSET_LANDSCAPE = 40;
 // --- keyboard controller (addr 0x34) on Cardputer ADV specifically  ---
 // --- (base Cardputer uses a plain GPIO matrix instead) — same SDA/SCL ---
 // --- pins (G8/G9) as IOEXP_I2C_ADDR above, different device address. ---
+// Keyboard controller constants, sourced from bmorcelli/Launcher's
+// confirmed-working Cardputer-ADV interface (`boards/m5stack-cardputer/
+// interface.cpp`: addr 0x34, SDA 8, SCL 9, INT 11, `tca.matrix(7, 8)`).
+// **The TCA8418 boots in SLEEP and reports no keypress until explicitly
+// configured**, even with a perfectly healthy I2C bus — the same class of
+// trap as the GPS power rail (see io_expander.h). Adafruit_TCA8418's
+// begin()+matrix() performs that wake sequence.
+constexpr uint8_t KEYBOARD_I2C_ADDR = 0x34;
+constexpr int8_t PIN_KEYBOARD_INT = 11; // active-low; unused (ui_task polls)
+constexpr uint8_t KEYBOARD_MATRIX_ROWS = 7;
+constexpr uint8_t KEYBOARD_MATRIX_COLS = 8; // 7x8 = the ADV's 56 keys
+
 // Not a conflict (that's normal shared-I2C-bus operation, confirmed by
 // this repo's own first hardware boot: antenna-switch init succeeded, see
 // PROGRESS.md). Noted here because bmorcelli/Launcher's own Cardputer-ADV
