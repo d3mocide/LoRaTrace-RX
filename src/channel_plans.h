@@ -49,6 +49,31 @@ constexpr uint8_t SYNC_WORD_RADIOLIB_DEFAULT = 0x12;
 // "LoRaWAN" also independently corroborates DESIGN.md §6's fingerprint table.
 constexpr uint8_t SYNC_WORD_MESHTASTIC = 0x2B;
 
+// MeshCore — VERIFIED 2026-08-23 against upstream source:
+// meshcore-dev/MeshCore `src/helpers/radiolib/CustomSX1262.h`, which calls
+//   begin(LORA_FREQ, LORA_BW, LORA_SF, cr, RADIOLIB_SX126X_SYNC_WORD_PRIVATE, ...)
+// i.e. MeshCore genuinely runs on RadioLib's stock private sync word, 0x12.
+// Numerically identical to SYNC_WORD_RADIOLIB_DEFAULT, but kept as its own
+// named constant deliberately: they mean different things (one is "MeshCore's
+// verified value," the other is "we don't know yet"), and a future MeshCore
+// release could move off it. Do NOT collapse these two into one constant.
+//
+// Note this is the *opposite* situation from Meshtastic: here the sniffer
+// was accidentally already correct, so MeshCore RX was never broken by the
+// 0x12 default the way Meshtastic RX was.
+constexpr uint8_t SYNC_WORD_MESHCORE = 0x12;
+
+// Preamble length is deliberately NOT in this struct yet. Finding
+// (2026-08-23, both upstream sources): Meshtastic uses 16
+// (`RadioInterface.h`: "8 is default, but we use longer to increase the
+// amount of sleep time when receiving") and MeshCore also passes 16
+// (`CustomSX1262.h`). This firmware leaves RadioLib's default of 8 — and
+// that empirically does NOT block RX, confirmed by decoding live Meshtastic
+// frames on hardware at 8. Left alone on purpose rather than "fixed": a
+// continuous-RX receiver syncs on whatever preamble arrives, so this only
+// starts to matter for the duty-cycled/CAD scanning in DESIGN.md §4 (phase
+// 4+), where preamble length feeds detection timing directly. Revisit it
+// there, with a bench test, instead of perturbing a working RX config now.
 struct ChannelParams {
     float freq_mhz;
     uint8_t sf;
@@ -75,19 +100,12 @@ constexpr ChannelParams CHANNEL_MESHTASTIC_LONGFAST_US = {
 // migration. HIGH confidence (MeshCore's own FAQ + multiple community
 // sites agree, DESIGN.md §3). MeshCore has no slot-hashing scheme — one
 // frequency covers the whole regional community (DESIGN.md §3).
-// Sync word deliberately left at RadioLib's default: MeshCore's actual
-// value has NOT been verified against its upstream source (the obvious
-// candidate paths in ripplebiz/MeshCore didn't turn one up on a first
-// look, 2026-08-23), and CLAUDE.md forbids assuming MeshCore mirrors
-// Meshtastic. Resolve this from source before Phase 3 — until then this
-// profile will only hear traffic that happens to use 0x12, which is
-// probably not MeshCore.
 constexpr ChannelParams CHANNEL_MESHCORE_US_NARROW = {
     .freq_mhz = 910.525f,
     .sf = 7,
     .bw_khz = 62.5f,
     .cr_denom = 5,
-    .sync_word = SYNC_WORD_RADIOLIB_DEFAULT, // TODO(verify): real MeshCore value, phase 3
+    .sync_word = SYNC_WORD_MESHCORE, // verified, see above — not a placeholder
 };
 
 // --- Not yet parameterized — build-order phase 3/4, DESIGN.md §3/§9 ---

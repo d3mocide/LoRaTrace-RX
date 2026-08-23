@@ -30,14 +30,28 @@ void test_meshtastic_sync_word_matches_upstream() {
     TEST_ASSERT_NOT_EQUAL_UINT8(0x34, CHANNEL_MESHTASTIC_LONGFAST_US.sync_word);
 }
 
-// Deliberately asserts the *unverified* state rather than a real value:
-// CLAUDE.md forbids assuming MeshCore mirrors Meshtastic, so until its sync
-// word is confirmed from upstream source this must stay on RadioLib's
-// default. If someone resolves it in Phase 3, this test should fail and be
-// updated alongside the citation in channel_plans.h — that's the point.
-void test_meshcore_sync_word_still_unverified() {
-    TEST_ASSERT_EQUAL_UINT8(SYNC_WORD_RADIOLIB_DEFAULT, CHANNEL_MESHCORE_US_NARROW.sync_word);
+// MeshCore verified 2026-08-23 against meshcore-dev/MeshCore
+// `src/helpers/radiolib/CustomSX1262.h`, which passes
+// RADIOLIB_SX126X_SYNC_WORD_PRIVATE (0x12) to begin(). Numerically equal to
+// RadioLib's default, so this asserts against the *named MeshCore constant*
+// rather than the literal — the point is that the two are separate facts
+// that merely coincide today, and this test should keep passing only for
+// the right reason if MeshCore ever moves off it.
+void test_meshcore_sync_word_matches_upstream() {
+    TEST_ASSERT_EQUAL_UINT8(0x12, CHANNEL_MESHCORE_US_NARROW.sync_word);
+    TEST_ASSERT_EQUAL_UINT8(SYNC_WORD_MESHCORE, CHANNEL_MESHCORE_US_NARROW.sync_word);
     TEST_ASSERT_NOT_EQUAL_UINT8(SYNC_WORD_MESHTASTIC, CHANNEL_MESHCORE_US_NARROW.sync_word);
+}
+
+// The two protocols must stay distinguishable by sync word — that's what
+// makes a HOME_LISTEN lock on one not silently pick up the other, and it's
+// half of DESIGN.md §6's fingerprinting story.
+void test_protocol_sync_words_differ() {
+    TEST_ASSERT_NOT_EQUAL_UINT8(SYNC_WORD_MESHTASTIC, SYNC_WORD_MESHCORE);
+    // 0x34 is reserved for LoRaWAN per Meshtastic's own source — neither
+    // profile should ever land on it.
+    TEST_ASSERT_NOT_EQUAL_UINT8(0x34, SYNC_WORD_MESHTASTIC);
+    TEST_ASSERT_NOT_EQUAL_UINT8(0x34, SYNC_WORD_MESHCORE);
 }
 
 void test_meshcore_narrow_in_tuned_band() {
@@ -62,6 +76,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_meshcore_narrow_in_tuned_band);
     RUN_TEST(test_meshtastic_and_meshcore_dont_collide);
     RUN_TEST(test_meshtastic_sync_word_matches_upstream);
-    RUN_TEST(test_meshcore_sync_word_still_unverified);
+    RUN_TEST(test_meshcore_sync_word_matches_upstream);
+    RUN_TEST(test_protocol_sync_words_differ);
     return UNITY_END();
 }

@@ -184,6 +184,25 @@ Meshtastic's value is now verified from upstream firmware source and set in
 - [ ] **MeshCore's encryption/PSK scheme.** Don't assume it mirrors
       Meshtastic's default-channel PSK model — MeshCore's own docs
       explicitly warn against importing Meshtastic preset assumptions.
+      (Note: this is still open. MeshCore's *sync word* was resolved
+      2026-08-23 — see below — but that says nothing about its crypto.)
+- [x] **MeshCore's SX126x sync word.** **Resolved 2026-08-23** from
+      upstream source (repo now at `meshcore-dev/MeshCore`):
+      `src/helpers/radiolib/CustomSX1262.h` passes
+      `RADIOLIB_SX126X_SYNC_WORD_PRIVATE` — **0x12**. Notably this is
+      RadioLib's stock default, so unlike Meshtastic, MeshCore RX was never
+      broken by this firmware's missing `setSyncWord()` call. Now set
+      explicitly as a cited `SYNC_WORD_MESHCORE` in `channel_plans.h` so
+      it's a verified fact rather than a lucky coincidence.
+- [ ] **Preamble length.** Both protocols transmit with preamble length 16
+      (Meshtastic `RadioInterface.h`: *"8 is default, but we use longer to
+      increase the amount of sleep time when receiving"*; MeshCore's
+      `CustomSX1262.h` passes 16). This firmware runs RadioLib's default of
+      8, and that empirically does **not** block RX — live Meshtastic
+      frames decode fine at 8, confirmed on hardware 2026-08-23. Left as-is
+      deliberately: continuous RX syncs on whatever preamble arrives, so
+      this only bites the duty-cycled/CAD scanning in §4. Re-evaluate
+      during phase 4 with a bench test, not before.
 - [x] **microSD bus** — SPI or SDMMC, and whether it shares a host with the
       display, on this specific Cardputer-Adv revision. **Bench-confirmed
       (2026-08-22):** first real-hardware boot log shows `SD.begin(PIN_SD_CS,
