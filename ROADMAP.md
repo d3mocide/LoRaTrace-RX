@@ -159,7 +159,12 @@ answerable instead of estimated (see the heap numbers above).
 
 ### Phase 4 — MeshCore profile
 **Deliverable:** same `HOME_LISTEN` engine, MeshCore US-narrow table
-(910.525MHz/SF7/BW62.5/CR5) wired in as a second selectable profile.
+(910.525MHz/SF7/BW62.5/CR5) wired in as a second selectable profile — the
+first phase where "selectable" is real, not aspirational. This is where
+DESIGN.md §5's keyboard-gated profile switch (operator-selected, mutually
+exclusive — Meshtastic and MeshCore never listen at once) actually gets
+built, deliberately deferred from Phase 3 (PROGRESS.md) so it's designed
+and tested against a real second channel table instead of a stub.
 **Blocking unknowns:** none for basic detection; MeshCore's
 encryption/PSK model (§7) still blocks payload decode, not detection.
 

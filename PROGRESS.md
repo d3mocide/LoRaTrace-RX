@@ -1797,6 +1797,35 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     cross-context question for a feature this small. Not yet re-verified
     on hardware — build-clean by inspection like every other change made
     this way in this log.
+  - **Two hardware-reported gaps fixed the same session:** a config save
+    from the web Settings tab left no trace in the serial log (added —
+    `writeChannelConfigToSD()` now prints the values written and success/
+    failure, mirroring `loadChannelConfigFromSD`'s existing prints), and
+    one boot's `[wifi] AP started` line printed with the SSID missing
+    between the colon and the IP, though several other boots in the same
+    session showed it correctly. No definitive root cause found by
+    inspection (`ESP.getEfuseMac()` is a deterministic hardware read, and
+    nothing in `startAp()` should be able to touch a local buffer between
+    filling it and printing it) — hardened anyway by computing the SSID
+    once into a static buffer (`ssidCached()`) instead of a fresh stack
+    buffer per AP start, removing a category of doubt even without a
+    confirmed cause. Worth watching for a recurrence.
+
+- **2026-08-23 (later same day) — Profile switching: confirmed as design
+  (DESIGN.md §5 already says "operator-selected via keyboard... mutually
+  exclusive"), deliberately deferred to Phase 4.** User asked about adding
+  a keyboard gate to toggle Meshtastic scanning on/off, reasoning ahead to
+  needing a Meshtastic/MeshCore switch once Phase 4 lands (not both at
+  once). Confirmed this isn't a new architectural decision — DESIGN.md §5
+  already committed to exactly this. But `radio_task.cpp` is currently
+  locked to a single `ChannelParams` for the whole run with no runtime
+  switch logic at all, and MeshCore itself isn't built yet — building the
+  actual switcher now would mean designing and testing it against a
+  profile that doesn't exist. Asked the user directly (three options: wait
+  for Phase 4, build a smaller pause/resume primitive now, or build the
+  full switcher scaffolding speculatively); **chose to wait for Phase 4**.
+  ROADMAP.md's Phase 4 entry updated to say so explicitly, so this doesn't
+  need re-deciding when that phase starts.
 
 ## Next steps
 
