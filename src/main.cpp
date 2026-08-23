@@ -249,6 +249,8 @@ void loop() {
     Serial.print(loggerSdReady() ? F("ok") : F("DOWN"));
     Serial.print(F(" health="));
     Serial.print(loggerSessionRows());
+    Serial.print(F(" run="));
+    Serial.print(loggerRunIndex());
     Serial.print(F(" | nmea="));
     Serial.print(gpsSentenceCount());
     Serial.print(F(" badcrc="));

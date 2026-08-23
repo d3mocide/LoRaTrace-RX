@@ -123,7 +123,7 @@ inline const char *missionProfileName(uint8_t profile) {
 constexpr const char *LOG_CSV_HEADER =
     "timestamp_utc,lat,lon,fix_quality,profile,freq_mhz,sf,bw_khz,"
     "rssi_dbm,snr_db,classification,decoded,channel_or_node_id,raw_len,"
-    "rx_uptime_ms";
+    "rx_uptime_ms,run";
 
 // Phase 2 placeholder for DESIGN.md §6 fingerprinting (phase 4): with
 // HOME_LISTEN locked to one profile's channel, "what we were listening for"
@@ -144,7 +144,7 @@ inline const char *detectionClassification(const Detection &det) {
 // truncation/failure — callers should treat 0 as "don't write this line".
 inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize,
                                  const char *timestamp_utc, bool has_fix, double lat, double lon,
-                                 uint8_t fix_quality) {
+                                 uint8_t fix_quality, uint16_t run) {
     if (out == nullptr || outSize == 0) return 0;
 
     char idbuf[24];
@@ -168,7 +168,7 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
     }
 
     int n = snprintf(out, outSize,
-                     "%s,%s,%s,%u,%s,%.3f,%u,%.1f,%.1f,%.2f,%s,%s,%s,%u,%lu",
+                     "%s,%s,%s,%u,%s,%.3f,%u,%.1f,%.1f,%.2f,%s,%s,%s,%u,%lu,%u",
                      timestamp_utc ? timestamp_utc : "",
                      latbuf, lonbuf,
                      (unsigned)fix_quality,
@@ -192,7 +192,14 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
                      // This is also what rx_millis was captured for in the
                      // first place; it was crossing the queue and then
                      // being dropped at format time.
-                     (unsigned long)det.rx_millis);
+                     (unsigned long)det.rx_millis,
+                     // Run index. Redundant with the directory the file
+                     // sits in, right up until someone concatenates several
+                     // runs for analysis — at which point every row's
+                     // rx_uptime_ms has restarted at zero and, without this,
+                     // the merged data is silently ambiguous about which
+                     // drive a packet came from.
+                     (unsigned)run);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

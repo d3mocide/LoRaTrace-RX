@@ -28,7 +28,19 @@ itself — a multi-hour unattended run whose logs come back clean. See
 
 ## Output files
 
-Both written to `/loratrace` on the SD card, schemas in `DESIGN.md` §8:
+**One wardrive is one directory.** Each power-on claims the next free
+`/loratrace/runNNNN/` on the card, so a drive can be copied, shared or
+deleted as a unit:
+
+```
+/loratrace/
+  config.txt          channel override (not a run artifact)
+  run0001/
+    detections.csv
+    session.csv
+  run0002/
+    ...
+```
 
 - **`detections.csv`** — one row per received packet: GPS-stamped, with
   RSSI/SNR, RF parameters and whatever routing metadata the protocol
@@ -36,9 +48,15 @@ Both written to `/loratrace` on the SD card, schemas in `DESIGN.md` §8:
   passive receiver, not a decoder.
 - **`session.csv`** — one health row a minute (packets, drops, worst SD bus
   hold, heap free *and* low-water, GPS state, battery), plus a row marking
-  every boot. An unattended run is judged on whether it held up, and
-  nobody is watching the serial console at hour three — so the run records
-  its own vital signs next to its findings.
+  the start. An unattended run is judged on whether it held up, and nobody
+  is watching the serial console at hour three — so the run records its own
+  vital signs next to its findings.
+
+Runs are numbered rather than timestamped because the name has to be chosen
+before the GPS knows what time it is, and this board has no verified RTC.
+The wall clock still reaches the card, recorded inside the run once a fix
+lands. Full schemas and the arithmetic for dating a run are in `DESIGN.md`
+§8. The current run number is shown on the RADIO page as `r<N>`.
 
 ## Build
 

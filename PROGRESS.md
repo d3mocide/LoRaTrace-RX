@@ -1113,6 +1113,50 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     down the consequence and the arithmetic that recovers wall-clock for a
     whole run from any single timestamped row: `timestamp_utc - uptime_s`.
 
+- **2026-08-23 — One wardrive, one directory: `/loratrace/runNNNN/`.**
+  Operator's call, and the right moment for it — changing the log layout
+  *after* the Phase 2 validation drive would have invalidated that run.
+  Previously both logs were single files every power-on appended to. Durable,
+  but not usable: a drive is the unit an operator thinks in, and one
+  continuous file turns share/import/delete/diff into text-editing chores.
+  - **Indexed, not timestamped, and this is the interesting constraint.**
+    The name must be chosen the moment logging starts — and at that moment
+    the device does not know the time. Absolute time comes from GPS, there
+    is no verified RTC on this board, and a cold TTFF is tens of seconds.
+    Timestamp naming would mean either delaying file creation (losing every
+    packet heard during TTFF — exactly the rows the `rx_uptime_ms` fix was
+    added to rescue) or renaming later (leaving a provisional name behind on
+    any power cut before the rename). An index needs no clock and is stable
+    under power loss. The wall clock still reaches the card, recorded inside
+    the run on the first health row with a fix.
+  - **Next index comes from scanning the card, not a counter file.** The
+    directory listing is the truth: it cannot drift out of sync, and there
+    is no mutable state to corrupt on a power cut mid-write. Scanning for
+    the *highest* index rather than the first gap means a deleted run's
+    number is never silently reused by a later one.
+  - **Parsing is strict — `runNNNN`, exactly four digits, nothing after.**
+    That strictness is load-bearing in both directions and is what most of
+    the 8 new host tests cover: too loose and `config.txt` or a stray file
+    bumps the index; too strict and a real run is missed, so the next run
+    reuses its number and appends into someone else's drive.
+  - A card **reseated mid-drive rejoins the same run** (resolved once per
+    power-on, not per mount) rather than splitting one drive across two
+    folders. The gap is still recorded honestly, as `sd` going down and back
+    in that run's own health rows.
+  - Added a **`run` column to both CSVs**. Redundant with the directory a
+    file sits in, right up until several runs are concatenated for analysis
+    — at which point every row's uptime has restarted at zero and the merged
+    data is silently ambiguous about which drive a row came from.
+  - The run number shows on the RADIO page as `r<N>`: an operator about to
+    set off wants to know the folder their data is landing in, and it is the
+    one thing on that page they cannot infer from anything else.
+  - **Deliberately not built yet:** an explicit start/stop gate. Today a run
+    is a power-on because that is the only gate the firmware has. The
+    rollover is a single internal step, so a Phase 6 UI control (or a
+    profile switch) can start a new run without reshaping any of this.
+  - Legacy top-level `detections.csv`/`session.csv` from earlier firmware
+    are left alone on existing cards; the scan skips them by construction.
+
 ## Next steps
 
 Phase 2 has no blocking unknowns left. Everything below is verification or

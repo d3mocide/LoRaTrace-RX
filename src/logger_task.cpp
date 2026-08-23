@@ -9,16 +9,22 @@
 #include "detection.h"
 #include "gps_task.h"
 #include "radio_task.h"
+#include "run_log.h"
 #include "session_log.h"
 #include "spi_bus.h"
 
 namespace {
 
 constexpr const char *LOG_DIR = "/loratrace";
-constexpr const char *LOG_PATH = "/loratrace/detections.csv";
-// Health log, written alongside the detections — see session_log.h for why
-// an unattended run needs to record its own vital signs.
-constexpr const char *SESSION_PATH = "/loratrace/session.csv";
+// Leaf names inside this run's directory. One wardrive is one folder
+// (run_log.h): /loratrace/runNNNN/{detections,session}.csv.
+constexpr const char *DETECTIONS_LEAF = "detections.csv";
+constexpr const char *SESSION_LEAF = "session.csv";
+
+// Resolved once, on the first successful mount of this power-on.
+uint16_t runIndex = 0;
+char detectionsPath[RUN_PATH_MAX];
+char sessionPath[RUN_PATH_MAX];
 
 // ~2KB holds roughly 15-20 rows. Sized to keep a single flush short (see
 // the header): bigger buffers mean longer bus holds, which is exactly the
@@ -55,6 +61,36 @@ volatile uint32_t flushCount = 0;
 volatile uint32_t maxFlushMs = 0;
 volatile uint32_t sessionRows = 0;
 
+// Highest runNNNN index already on the card, or 0 if there are none.
+// Assumes the caller holds the bus and SD is mounted.
+//
+// Scans rather than trusting a stored counter: the listing is the truth, it
+// can't drift, and there's no mutable state to corrupt on a power cut. If
+// the directory won't open at all, fall back to probing upward — bounded,
+// because an unbounded probe on a sick card would hang the logger before it
+// ever wrote a row.
+uint16_t highestRunIndexLocked() {
+    uint16_t highest = 0;
+
+    File dir = SD.open(LOG_DIR);
+    if (dir) {
+        for (File entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+            const uint16_t index = runIndexFromName(entry.name());
+            if (index > highest) highest = index;
+            entry.close();
+        }
+        dir.close();
+        return highest;
+    }
+
+    char probe[RUN_PATH_MAX];
+    for (uint16_t i = 1; i <= 512; i++) {
+        if (runDirPath(probe, sizeof(probe), LOG_DIR, i) == 0) break;
+        if (!SD.exists(probe)) return (uint16_t)(i - 1);
+    }
+    return highest;
+}
+
 // Creates `path` with `header` as its first line if it doesn't exist yet.
 // Assumes the caller holds the bus and SD is mounted.
 bool ensureCsvLocked(const char *path, const char *header) {
@@ -82,10 +118,31 @@ bool openLogsLocked() {
     if (!SD.begin(PIN_SD_CS, sharedSpi())) return false;
     if (!SD.exists(LOG_DIR)) SD.mkdir(LOG_DIR);
 
-    if (!ensureCsvLocked(LOG_PATH, LOG_CSV_HEADER)) return false;
+    // Resolve the run once per power-on, not once per mount. A card pulled
+    // and reseated mid-drive rejoins the run it left rather than splitting
+    // one drive across two folders — the gap shows up as `sd` going down
+    // and back in this run's own health rows, which is the honest record of
+    // what happened.
+    if (runIndex == 0) {
+        runIndex = runNextIndex(highestRunIndexLocked());
+
+        char runDir[RUN_PATH_MAX];
+        if (runDirPath(runDir, sizeof(runDir), LOG_DIR, runIndex) == 0) return false;
+        if (!SD.exists(runDir) && !SD.mkdir(runDir)) return false;
+
+        if (runFilePath(detectionsPath, sizeof(detectionsPath), LOG_DIR, runIndex,
+                        DETECTIONS_LEAF) == 0) {
+            return false;
+        }
+        if (runFilePath(sessionPath, sizeof(sessionPath), LOG_DIR, runIndex, SESSION_LEAF) == 0) {
+            return false;
+        }
+    }
+
+    if (!ensureCsvLocked(detectionsPath, LOG_CSV_HEADER)) return false;
     // A missing health log must not stop detections being logged: the
     // detections are the mission, this is instrumentation.
-    ensureCsvLocked(SESSION_PATH, SESSION_CSV_HEADER);
+    ensureCsvLocked(sessionPath, SESSION_CSV_HEADER);
     return true;
 }
 
@@ -126,7 +183,7 @@ WriteResult appendToFile(const char *path, const char *data, size_t len) {
 void flushBatch() {
     if (batchLen == 0) return;
 
-    switch (appendToFile(LOG_PATH, batchBuf, batchLen)) {
+    switch (appendToFile(detectionsPath, batchBuf, batchLen)) {
         case WriteResult::BUS_BUSY:
             // Keep the data buffered and try again on the next pass rather
             // than discarding it — unlike the radio task, the logger is
@@ -162,6 +219,7 @@ void writeSessionRow(const char *reason) {
     const uint32_t now = millis();
 
     SessionStats s;
+    s.run = runIndex;
     s.reason = reason;
     s.uptime_s = now / 1000;
 
@@ -202,7 +260,7 @@ void writeSessionRow(const char *reason) {
     if (n == 0) return; // truncated — a malformed health row helps nobody
     row[n++] = '\n';   // snprintf guarantees n <= sizeof(row)-1, so this fits
 
-    if (appendToFile(SESSION_PATH, row, n) == WriteResult::OK) sessionRows++;
+    if (appendToFile(sessionPath, row, n) == WriteResult::OK) sessionRows++;
 }
 
 void appendDetection(const Detection &det) {
@@ -218,7 +276,7 @@ void appendDetection(const Detection &det) {
 
     char row[256];
     size_t n = detectionFormatCsv(det, row, sizeof(row), timestamp, fresh, fix.lat, fix.lon,
-                                  haveFix ? fix.fix_quality : 0);
+                                  haveFix ? fix.fix_quality : 0, runIndex);
     if (n == 0) {
         rowsDropped++;
         return;
@@ -327,4 +385,7 @@ uint32_t loggerMaxFlushMs() {
 }
 uint32_t loggerSessionRows() {
     return sessionRows;
+}
+uint16_t loggerRunIndex() {
+    return runIndex;
 }

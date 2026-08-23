@@ -51,6 +51,7 @@ static SessionStats healthySample() {
     s.heap_min = 301112;
     s.batt_mv = 3765;
     s.logger_stack_free = 2144;
+    s.run = 7;
     return s;
 }
 
@@ -72,7 +73,7 @@ void test_row_with_fix_carries_position_and_counters() {
         "2026-08-23T04:15:00Z,3725,periodic,37.774929,-122.419418,14,3,42,"
         "912,17,0,0,"
         "912,0,71,38,ok,0,"
-        "58000,3,338496,301112,3765,2144",
+        "58000,3,338496,301112,3765,2144,7",
         row);
 }
 
@@ -134,15 +135,14 @@ void test_heap_trough_is_reported_separately_from_the_sample() {
 }
 
 void test_logger_stack_headroom_is_the_last_column() {
-    // Appended at the end on purpose: a reader that already parses this
-    // schema keeps working, and the column that answers "was 5120 enough?"
-    // is trivially greppable off the end of a line.
+    // Reported every row so the answer to "was 5120 enough?" is visible
+    // without replaying the run.
     SessionStats s = healthySample();
     s.logger_stack_free = 96;
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     TEST_ASSERT_TRUE(n > 0);
-    TEST_ASSERT_EQUAL_STRING(",96", row + n - 3);
+    TEST_ASSERT_NOT_NULL(strstr(row, ",96,7"));
 }
 
 void test_truncation_is_reported() {

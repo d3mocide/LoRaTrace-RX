@@ -161,6 +161,11 @@ void drawRadioPage() {
     tft->setCursor(2, HEADER_H + 82);
     tft->print("sd ");
     tft->print(loggerSdReady() ? "ok" : "DOWN");
+    // Which run this drive is being recorded as. An operator about to set
+    // off wants to know the folder their data is landing in, and it is the
+    // one thing on this page they cannot infer from anything else.
+    tft->print(" r");
+    tft->print(loggerRunIndex());
     tft->print("  flush ");
     tft->print(loggerFlushCount());
     tft->print("/");

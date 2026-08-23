@@ -29,6 +29,10 @@
 // One health sample. Plain data: logger_task.cpp fills it from the live
 // counters, this header only knows how to render it.
 struct SessionStats {
+    // Which run this row belongs to; matches the runNNNN directory holding
+    // the file. Carried in the row as well as the path so concatenated runs
+    // stay unambiguous — see detection.h for the same reasoning.
+    uint16_t run = 0;
     // "boot" for the first row of a power-on, "periodic" thereafter. Boot
     // rows are what make session boundaries visible in a file that several
     // runs append to — without them, a power cycle mid-drive looks like the
@@ -79,13 +83,13 @@ struct SessionStats {
     uint32_t logger_stack_free = 0;
 };
 
-// Column order for /loratrace/session.csv. One string so the header row and
+// Column order for each run's session.csv. One string so the header row and
 // the row writer can't drift apart — same rule as LOG_CSV_HEADER.
 constexpr const char *SESSION_CSV_HEADER =
     "timestamp_utc,uptime_s,reason,lat,lon,sats,fix_type,ttff_s,"
     "rx,crc_err,queue_drop,bus_miss,"
     "rows,row_drop,flushes,max_flush_ms,sd,bus_contention,"
-    "nmea,nmea_bad_crc,heap_free,heap_min,batt_mv,logger_stack_free";
+    "nmea,nmea_bad_crc,heap_free,heap_min,batt_mv,logger_stack_free,run";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
 // detectionFormatTimestamp() the detection rows use, and is empty before
@@ -114,7 +118,7 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%s,%lu,%s,%s,%s,%u,%u,%lu,"
                      "%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%s,%lu,"
-                     "%lu,%lu,%lu,%lu,%lu,%lu",
+                     "%lu,%lu,%lu,%lu,%lu,%lu,%u",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -137,7 +141,8 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.heap_free,
                      (unsigned long)s.heap_min,
                      (unsigned long)s.batt_mv,
-                     (unsigned long)s.logger_stack_free);
+                     (unsigned long)s.logger_stack_free,
+                     (unsigned)s.run);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

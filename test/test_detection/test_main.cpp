@@ -101,11 +101,11 @@ void test_csv_row_with_fix() {
 
     char row[256];
     size_t n = detectionFormatCsv(det, row, sizeof(row), "2026-08-23T01:20:00Z", true, 45.5123456,
-                                  -122.6789012, 1);
+                                  -122.6789012, 1, 7);
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_STRING(
         "2026-08-23T01:20:00Z,45.512346,-122.678901,1,meshtastic,918.500,8,125.0,-60.0,13.75,"
-        "meshtastic,,!1bbf065c,26,41250",
+        "meshtastic,,!1bbf065c,26,41250,7",
         row);
 }
 
@@ -120,10 +120,10 @@ void test_uptime_anchors_a_detection_heard_before_the_first_fix() {
     det.rx_millis = 8123;
 
     char row[256];
-    size_t n = detectionFormatCsv(det, row, sizeof(row), "", false, 0.0, 0.0, 0);
+    size_t n = detectionFormatCsv(det, row, sizeof(row), "", false, 0.0, 0.0, 0, 3);
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_INT(0, strncmp(row, ",,,0,", 5)); // no time, no position
-    TEST_ASSERT_EQUAL_STRING(",8123", row + n - 5);     // but always an uptime
+    TEST_ASSERT_NOT_NULL(strstr(row, ",8123,3"));       // but always an uptime + run
 }
 
 void test_csv_row_without_fix_leaves_coords_empty() {
@@ -137,7 +137,7 @@ void test_csv_row_without_fix_leaves_coords_empty() {
     det.profile = (uint8_t)MissionProfile::MESHTASTIC;
 
     char row[256];
-    size_t n = detectionFormatCsv(det, row, sizeof(row), "", false, 0.0, 0.0, 0);
+    size_t n = detectionFormatCsv(det, row, sizeof(row), "", false, 0.0, 0.0, 0, 3);
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_NOT_NULL(strstr(row, ",,,0,meshtastic,"));
     TEST_ASSERT_NULL(strstr(row, "0.000000"));
@@ -151,14 +151,14 @@ void test_csv_truncation_is_reported() {
     char tiny[8];
     // Returning 0 tells the caller to drop the row rather than write a
     // half-formed one that would corrupt the CSV.
-    TEST_ASSERT_EQUAL_UINT32(0, detectionFormatCsv(det, tiny, sizeof(tiny), "x", false, 0, 0, 0));
+    TEST_ASSERT_EQUAL_UINT32(0, detectionFormatCsv(det, tiny, sizeof(tiny), "x", false, 0, 0, 0, 1));
 }
 
 void test_header_column_count_matches_row() {
     Detection det = {};
     det.profile = (uint8_t)MissionProfile::MESHTASTIC;
     char row[256];
-    TEST_ASSERT_TRUE(detectionFormatCsv(det, row, sizeof(row), "t", false, 0, 0, 0) > 0);
+    TEST_ASSERT_TRUE(detectionFormatCsv(det, row, sizeof(row), "t", false, 0, 0, 0, 1) > 0);
 
     auto commas = [](const char *s) {
         int c = 0;
