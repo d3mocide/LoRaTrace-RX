@@ -357,30 +357,31 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       channel to the hardcoded Meshtastic default until the file is updated
       to the new schema (or deleted, so the firmware regenerates it fresh).
       Do this before the next bench session on that card.
-- [~] **Phase 4** — MeshCore profile: same `HOME_LISTEN` engine, MeshCore
+- [x] **Phase 4** — MeshCore profile: same `HOME_LISTEN` engine, MeshCore
       US-narrow table wired in as a second, keyboard-switchable profile
-      (DESIGN.md §5). Built 2026-08-24, passing the full host-native suite
-      (59 tests); **not yet hardware-verified** — see this section's new
-      entries below and CLAUDE.md's Status section
-  - [ ] Live MeshCore RX bench test at 910.525MHz/SF7/BW62.5/CR5 — a real
-        packet with plausible RSSI/SNR, the same bar Phase 1 held Meshtastic
-        to. Nothing about this table is unverified (sync word/freq/SF/BW/CR
-        all cited, DESIGN.md §3/§7) but nothing about it has been heard
-        either — a table can be correct and still not receive if e.g. a
-        MeshCore firmware version drifted off the "Recommended" preset
-  - [ ] Confirm a mid-run switch (Meshtastic -> MeshCore -> Meshtastic via
-        the ~3s-hold gesture) leaves the radio in a clean, listening state
-        afterward: `crc_err`/`queue_drop`/`bus_miss` unaffected by the
-        switch itself, `radioActiveProfile()`/the on-screen header actually
-        showing the new profile, and a genuine packet on the new channel
-        logging correctly. The mailbox mechanism (radio_task.cpp) has no
-        hardware-only unknowns in it, but it's also never run outside host
-        logic review — this is the first time it executes on a real SX1262
-  - [ ] Confirm the on-screen ~3s-hold gesture doesn't fire by accident
-        during ordinary tap-to-advance-page use, and that ~1.2s WiFi-toggle
-        holds don't bleed into it — both are duration buckets on the same
-        physical gesture (ui_task.cpp), reasoned about but not bench-timed
-        against an actual human thumb
+      (DESIGN.md §5). Built 2026-08-24, passing the full host-native suite;
+      **fully bench-verified 2026-08-24** — see this section's entries below
+      and CLAUDE.md's Status section.
+  - [x] **Live MeshCore RX bench test — closed 2026-08-24.** Real packets
+        at 910.525MHz/SF7/BW62.5/CR5, RSSI -58 to -64dBm, SNR ~12dB —
+        plausible and consistent across a dozen+ detections. Confirmed
+        using the new verbose debug-mode serial output (see Decisions log)
+        rather than a CSV pull, so this and the Phase 5 debug-mode item
+        closed together in one session.
+  - [x] **Mid-run switch — closed 2026-08-24, via the menu (superseding
+        this item's original ~3s-hold wording — Phase 5 replaced that
+        gesture).** Switched Meshtastic -> MeshCore -> Meshtastic live:
+        `crc_err`/`queue_drop`/`bus_miss`/`row_drop` never moved because of
+        either switch, the header/CHANNEL page updated correctly each time,
+        and a real packet logged correctly on both sides — MeshCore with
+        blank `node_id`/`packet_id` as designed, Meshtastic with a real
+        node (`!bfbc49a2`) and two packet_ids each showing a relay
+        signature (`hop_limit` decremented, `relay_node` changed between
+        sightings) — the same pattern run0007 already validated as genuine
+        relay traffic, not a dedup bug.
+  - [x] ~~Confirm the on-screen ~3s-hold gesture doesn't fire by accident~~
+        — **moot, 2026-08-24**: Phase 5 removed the hold-gesture entirely in
+        favor of the menu; see that phase's own checklist entry above.
 - [x] **Phase 5** — On-device menu UI. Built 2026-08-24 (digit-key page
       jumps, then the ESC/arrow-alias rework, then the ESC-opens-the-menu
       rework — see Decisions log for all three), passing the full
@@ -2434,6 +2435,68 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     already-shipped Phase 5 scope (bench verification) and reworks its
     trigger key, not new build-order scope.
 
+- **2026-08-24 (later same day) — Verbose serial debug mode added, then
+  used to close out Phase 4's bench verification the same session.** The
+  user asked to check RSSI/SNR for the live MeshCore traffic already
+  coming in, and there was no cheap way to: neither the serial `[status]`
+  line nor the web dashboard surfaces per-packet detail, only
+  `detections.csv` does, which meant an SD pull or standing up the WiFi AP
+  and joining it from this machine just to check a number. The user
+  floated a debug-mode idea unprompted — a menu-toggled verbose serial
+  log, possibly also a serial *command* console. Scoped down to
+  output-only before writing anything (asked first, given the real
+  architecture question a command parser would raise on an RX-only tool);
+  input control stays a future ask if it turns out to be needed.
+  - **Implementation:** a third menu row, `Debug` (`MENU_ITEM_COUNT` 2 -> 3,
+    `ui_task.cpp`), toggling `loggerDebugToggle()` (`logger_task.cpp`, new).
+    Deliberately lives in `logger_task.cpp`, not `radio_task.cpp`: printing
+    happens on Core 0 after the detection has already crossed the queue,
+    so a slow/absent serial console can never back-pressure the Core 1
+    radio task the way a print from inside its own loop could (CLAUDE.md's
+    "radio task must never block on non-radio I/O"). Reuses the exact CSV
+    row `detectionFormatCsv()` already builds for SD rather than a second
+    format call, so the serial line can never drift from what actually
+    lands on the card, and prints unconditionally of `sdReady` — the whole
+    point is seeing live RX without an SD card or the AP in the loop.
+  - **Bug caught and fixed the same session, on real hardware, first
+    detection heard:** the first version issued three separate `Serial`
+    calls per line (`print` + `write` + `println`) and came out visibly
+    torn — `main.cpp`'s Core-1 `[status]` line landed mid-sequence,
+    producing garbage like `45eshcore` and a row missing its leading `m`.
+    This is the exact failure mode `main.cpp`'s own `[status]`-line
+    comment already documents (and the 2026-08-23 `[wifi]` SSID bug hit
+    for real) — unsynchronized cross-core `Serial` access tears a
+    multi-call sequence when another task's print lands in the gaps
+    between calls. Fixed by collapsing both the per-detection line and the
+    toggle-on announcement to one buffer + one `Serial.write()` each, the
+    same pattern `main.cpp` already uses for `[status]`. Re-flashed,
+    re-verified: clean, untorn lines from then on.
+  - **Used immediately to close Phase 4's last open item.** With debug
+    mode on: MeshCore RX confirmed real and plausible (910.525MHz/SF7/
+    BW62.5, RSSI -58 to -64dBm, SNR ~12dB, a dozen+ detections, blank
+    `node_id`/`packet_id` as designed since MeshCore's header isn't
+    parsed). The user then applied the actual local MeshOregon settings
+    (918.500MHz/SF8/BW125.0kHz/CR4:5 — the same numbers Phase 1's
+    2026-08-23 entry recorded) to the Meshtastic profile via the web
+    Settings tab, power-cycled to apply them (a next-boot-only change, same
+    as the channel override always has been), then sent live Meshtastic
+    traffic before switching to MeshCore. Both sides logged real, correct
+    detections in the same run (run0022): Meshtastic showed a genuine node
+    (`!bfbc49a2`) with two packet_ids each seen twice, `hop_limit`
+    decremented and `relay_node` changed between sightings on both — the
+    same real-relay signature run0007 already validated, not a dedup bug —
+    RSSI -42 to -49dBm, SNR 12.5-14.75dB. `crc_err`/`queue_drop`/
+    `bus_miss`/`row_drop` never moved because of either switch, `rx`
+    climbed steadily throughout. Phase 4's mid-run-switch and live-RX
+    checklist items both close on this evidence — see the Build-order
+    checklist's Phase 4 entry above.
+  - **Test suite:** unchanged at 73 host-native tests — the new code lives
+    entirely in `logger_task.cpp`/`ui_task.cpp`'s Arduino-dependent paths,
+    same reason the ESC-opens-menu rework needed none.
+  - **Version: v0.5.2 -> v0.5.3.** PATCH-level — closes out already-shipped
+    Phase 4 scope (bench verification) and adds a debugging aid, not new
+    build-order scope.
+
 ## Next steps
 
 Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist
@@ -2511,31 +2574,28 @@ above) — remaining items are follow-through, in the order it's worth doing.
    and is now built (see the Build-order checklist above); left as-is here
    rather than rewritten, since it's a historical note about what was
    planned at the time, not a live instruction.
-6. **Bench-verify Phase 4 (MeshCore profile), built 2026-08-24.** Passes
-   the full host-native suite but has never run against real traffic or
-   real hardware:
-   - Live MeshCore RX at 910.525MHz/SF7/BW62.5/CR5 — same bar Phase 1 held
-     Meshtastic to (a plausible RSSI/SNR reading on a real packet, not just
-     a non-crashing boot).
-   - A mid-run switch (Phase 5's menu, `Profile` row + Enter — supersedes
-     this item's original wording, written before Phase 5 replaced the
-     ~3s-hold gesture that used to trigger this) from Meshtastic to MeshCore
-     and back: confirm `crc_err`/`queue_drop`/`bus_miss` stay at whatever
-     they were before the switch (i.e. the switch itself doesn't wedge or
-     destabilize the radio), the on-screen header profile name actually
-     updates, and a real packet on each side of the switch logs with the
-     right `profile`/`classification` and (Meshtastic only) `node_id`.
-   - ~~That the ~3s and ~1.2s hold thresholds feel right against an actual
-     human thumb~~ — **moot, 2026-08-24**: Phase 5 removed both hold
-     gestures entirely in favor of the menu; see item 7 below for what
-     replaced this concern.
-7. **Bench-verify Phase 5 (on-device menu UI), built 2026-08-24.** See the
-   Build-order checklist's own Phase 5 sub-items above for the full list
-   (all four sourced keys, the menu's two actions, the new CHANNEL page, the
-   hint-line layout) — not duplicated here, this entry just flags it as the
-   next hardware session's actual priority now that Phase 4's own bench
-   verification (item 6) and this item are the two open hardware-only
-   questions.
+6. **Done, 2026-08-24: Bench-verify Phase 4 (MeshCore profile).** See the
+   Build-order checklist's own Phase 4 entry above for the full evidence —
+   live MeshCore RX and a clean mid-run Meshtastic<->MeshCore switch, both
+   closed the same session verbose debug mode shipped (item 8 below).
+7. **Done, 2026-08-24: Bench-verify Phase 5 (on-device menu UI).** See the
+   Build-order checklist's own Phase 5 sub-items above — all closed,
+   including the ESC-opens-the-menu rework that came out of the session.
+8. **Done, 2026-08-24: verbose serial debug mode.** Not a pre-planned
+   checklist item — added mid-session because Phase 4's live-RX check
+   needed to see real RSSI/SNR and neither the serial `[status]` line nor
+   the web dashboard ever surfaces per-packet detail (only `detections.csv`
+   does, which meant either an SD pull or standing up the WiFi AP just to
+   download a file). A third menu row (`Debug`, `logger_task.cpp`) prints
+   each detection's full CSV-shaped row to serial as it's dequeued, gated
+   behind the existing per-detection format call so it can never drift from
+   what actually lands on SD. Caught and fixed its own bug the same
+   session: the first version teared under the same unsynchronized
+   cross-core `Serial` access `main.cpp`'s `[status]` line and the `[wifi]`
+   SSID bug already document — visible on real hardware as a torn debug
+   line — fixed by collapsing each announcement to one buffered
+   `Serial.write()`, the same pattern `main.cpp` already uses. See the
+   Decisions log for the full session.
 5. Still-open watch items, no action unless they recur/worsen:
    - SD-mount reliability across power cycles (the GPIO5 fix's first test
      was clean, but the original report said "every bin", which points at

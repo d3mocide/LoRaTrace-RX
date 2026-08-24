@@ -46,7 +46,7 @@ UiMode mode = UiMode::CAROUSEL;
 // scope: toggles only, no numeric settings editing) — profile switch and
 // WiFi toggle, both already-built Phase 3/4 actions. Index into that fixed
 // pair, not a general list.
-constexpr int8_t MENU_ITEM_COUNT = 2;
+constexpr int8_t MENU_ITEM_COUNT = 3;
 int8_t menuSelection = 0;
 
 // Without a keyboard the pages rotate on their own — a device stuck on one
@@ -385,15 +385,18 @@ void drawMenuRow(int16_t y, const char *rowLabel, const char *value, bool select
     tft->print(value);
 }
 
-// The menu itself (Phase 5): exactly the two actions the old hold-gestures
-// used to trigger (radioRequestProfileSwitch()/wifiToggle(), both
-// unchanged, Phase 3/4), now reached by moving a highlighted selection with
-// ','/'.' and activating it with Enter, per DESIGN.md/PROGRESS.md's Phase 5
-// scope decision (toggles only — no numeric settings editing here).
+// The menu itself (Phase 5): the two toggles the old hold-gestures used to
+// trigger (radioRequestProfileSwitch()/wifiToggle(), both unchanged, Phase
+// 3/4), plus a third added after the Phase 5 bench pass — verbose serial
+// debug mode (loggerDebugToggle(), logger_task.cpp) — reached the same way:
+// moving a highlighted selection with ','/'.' and activating it with Enter,
+// per DESIGN.md/PROGRESS.md's Phase 5 scope decision (toggles only — no
+// numeric settings editing here).
 void drawMenu() {
     drawMenuRow(HEADER_H + 10, "Profile ", missionProfileName((uint8_t)radioActiveProfile()),
                 menuSelection == 0);
     drawMenuRow(HEADER_H + 34, "WiFi ", wifiIsEnabled() ? "ON" : "OFF", menuSelection == 1);
+    drawMenuRow(HEADER_H + 58, "Debug ", loggerDebugIsEnabled() ? "ON" : "OFF", menuSelection == 2);
 
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
@@ -526,8 +529,10 @@ void uiTask(void *) {
                     // profile until radio_task's own loop picks the
                     // request up, typically the next redraw tick.
                     radioRequestProfileSwitch(nextHomeListenProfile(radioActiveProfile()));
-                } else {
+                } else if (menuSelection == 1) {
                     wifiToggle();
+                } else {
+                    loggerDebugToggle();
                 }
                 redraw = true;
             } else if (action == KeyAction::BACK) {

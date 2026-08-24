@@ -61,3 +61,16 @@ uint32_t loggerSessionRows();  // health rows committed to this run's session.cs
 // This power-on's run index, or 0 before SD has mounted. Matches the
 // runNNNN directory the logs are being written into.
 uint16_t loggerRunIndex();
+
+// --- Debug mode ----------------------------------------------------------
+// Menu-toggled (ui_task.cpp), off by default. When on, every detection
+// prints a one-line summary (profile/RSSI/SNR/SF/BW/timing) to Serial the
+// moment it's dequeued — added so RSSI/SNR (normally only ever written to
+// detections.csv) can be sanity-checked live without pulling the SD card or
+// standing up the WiFi AP. Lives here rather than in radio_task.cpp on
+// purpose: printing happens on Core 0 after the queue hop, so a slow/absent
+// serial console can never back-pressure the Core 1 radio task the way a
+// print from inside its own loop could (CLAUDE.md: radio task must never
+// block on non-radio I/O).
+void loggerDebugToggle();
+bool loggerDebugIsEnabled();

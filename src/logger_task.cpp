@@ -51,6 +51,11 @@ constexpr TickType_t BUS_WAIT = pdMS_TO_TICKS(2000);
 QueueHandle_t detectionQueue = nullptr;
 bool sdReady = false;
 
+// Menu-toggled (ui_task.cpp); both it and this task run on Core 0, so a
+// plain bool is enough — no cross-core visibility concern the way a Core
+// 1/Core 0 flag would have.
+volatile bool debugVerbose = false;
+
 char batchBuf[BATCH_BUF_SIZE];
 size_t batchLen = 0;
 uint32_t batchRows = 0; // rows currently buffered but not yet on the card
@@ -293,6 +298,31 @@ void appendDetection(const Detection &det) {
         return;
     }
 
+    // Verbose debug mode (ui_task.cpp menu toggle): reuses the exact CSV
+    // row already built above rather than a second format call — same
+    // fields (profile/classification/RSSI/SNR/SF/BW/hop info), so this
+    // never drifts from what actually lands on SD. Printed unconditionally
+    // of `sdReady` below, on purpose: this exists specifically for bench
+    // sessions that want to see live RX detail without an SD card or the
+    // WiFi AP in the loop at all.
+    //
+    // ONE Serial.write() call, not a "[debug] " print + a row write + a
+    // println — bench-caught the same session this shipped: main.cpp's
+    // [status] line runs on Core 1 while this runs on Core 0, nothing
+    // serializes Serial access between them, and a multi-call sequence
+    // torn by another task's print landing mid-sequence is the exact
+    // failure main.cpp's own [status] line comment already documents (and
+    // PROGRESS.md's [wifi] SSID bug hit for real). A single write() is far
+    // more likely to be atomic than N calls with gaps another task can
+    // land in.
+    if (debugVerbose) {
+        char debugLine[8 + sizeof(row) + 1]; // "[debug] " + row + '\n'
+        memcpy(debugLine, "[debug] ", 8);
+        memcpy(debugLine + 8, row, n);
+        debugLine[8 + n] = '\n';
+        Serial.write((const uint8_t *)debugLine, 8 + n + 1);
+    }
+
     if (!sdReady) {
         rowsDropped++;
         return;
@@ -402,4 +432,24 @@ uint16_t loggerRunIndex() {
 }
 uint32_t loggerMaxSessionMs() {
     return maxSessionMs;
+}
+
+void loggerDebugToggle() {
+    debugVerbose = !debugVerbose;
+    if (debugVerbose) {
+        // Column header once on enable, so the CSV-shaped lines that follow
+        // are actually readable rather than a wall of unlabeled commas. One
+        // buffer, one Serial call — see the per-detection print above for
+        // why two separate calls isn't safe here (bench-caught: this exact
+        // line came out torn — "[debug] verbose " with "mode ON" missing —
+        // on the same hardware pass that shipped debug mode).
+        char buf[256];
+        int n = snprintf(buf, sizeof(buf), "[debug] verbose mode ON\n[debug] %s\n", LOG_CSV_HEADER);
+        if (n > 0) Serial.write((const uint8_t *)buf, (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1);
+    } else {
+        Serial.println(F("[debug] verbose mode OFF"));
+    }
+}
+bool loggerDebugIsEnabled() {
+    return debugVerbose;
 }

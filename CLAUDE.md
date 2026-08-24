@@ -134,27 +134,27 @@ been configured for it. Fixed the same day with per-profile overrides
 (`ProfileOverrides`, `channel_plans.h`) — see PROGRESS.md's Decisions log
 for the full design. Still not hardware-verified, v0.5.1.
 
-**Phase 4 (MeshCore profile) built, not yet hardware-verified**: the
-MeshCore US-narrow table (910.525MHz/SF7/BW62.5/CR5) already existed in
-`channel_plans.h` from earlier sync-word research — what Phase 4 actually
-adds is DESIGN.md §5's keyboard-gated, mutually-exclusive runtime switch
-between it and Meshtastic, deliberately deferred from Phase 3 (see
-PROGRESS.md's 2026-08-23 decisions log) so it could be built against a real
-second table instead of a stub. `radio_task.cpp` gained a depth-1
+**Phase 4 (MeshCore profile) built and fully hardware-verified**
+(2026-08-24): the MeshCore US-narrow table (910.525MHz/SF7/BW62.5/CR5)
+already existed in `channel_plans.h` from earlier sync-word research — what
+Phase 4 actually adds is DESIGN.md §5's keyboard-gated, mutually-exclusive
+runtime switch between it and Meshtastic, deliberately deferred from Phase
+3 (see PROGRESS.md's 2026-08-23 decisions log) so it could be built against
+a real second table instead of a stub. `radio_task.cpp` gained a depth-1
 `xQueueOverwrite` mailbox so `ui_task`'s keyboard poll can request a live
-retune without the radio task ever blocking on it; `ui_task`'s existing
-tap/hold gesture state machine gained a third bucket — a ~3s hold — on top
-of the tap-for-next-page and ~1.2s-hold-for-WiFi it already had, still
-needing no row/col keymap. A MeshCore detection logs RSSI/SF/BW/timing and
-the profile tag but not `node_id`/`packet_id`: MeshCore's header layout
-isn't reverse-engineered and its encryption/PSK model is still open (§7),
-so `radio_task.cpp` never runs Meshtastic's header parser against it.
-Verified against the host-native test suite (59 tests, up from 55 —
-g++/Unity workaround, still no `pio` in this environment); genuinely
-unverified on real hardware: live MeshCore RX at 910.525MHz/SF7/BW62.5/CR5
-with plausible RSSI/SNR, and that a mid-run switch leaves the radio in a
-clean state afterward (`crc_err`/`queue_drop`/`bus_miss` unaffected by the
-switch itself, not just by steady-state listening).
+retune without the radio task ever blocking on it; the original ~3s-hold
+trigger was later replaced by Phase 5's menu. A MeshCore detection logs
+RSSI/SF/BW/timing and the profile tag but not `node_id`/`packet_id`:
+MeshCore's header layout isn't reverse-engineered and its encryption/PSK
+model is still open (§7), so `radio_task.cpp` never runs Meshtastic's
+header parser against it. Verified against the host-native test suite (73
+tests) and, as of 2026-08-24, on real hardware: live MeshCore RX at
+910.525MHz/SF7/BW62.5/CR5 with plausible RSSI/SNR (a dozen+ detections,
+-58 to -64dBm), and a mid-run Meshtastic<->MeshCore switch that left
+`crc_err`/`queue_drop`/`bus_miss`/`row_drop` unaffected in both directions
+— with a genuine Meshtastic node and relay pair heard on one side and clean
+MeshCore detections on the other, in the same run. See PROGRESS.md's
+Decisions log for the full readout.
 
 **Phase 5 (on-device menu UI) built and fully hardware-verified**
 (2026-08-24): pulled forward ahead of `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at
@@ -192,6 +192,23 @@ toggle) and the CHANNEL page's live-switch reflection are confirmed
 working too. See PROGRESS.md's Decisions log for the full session,
 including a live-traffic reconfirmation of Phase 3's WiFi heap/counter
 numbers that fell out of the same test.
+
+**Verbose serial debug mode** (`logger_task.cpp`, menu's third `Debug` row,
+added and hardware-verified 2026-08-24): prints each detection's full
+CSV-shaped row to serial as it's dequeued, off by default. Not a planned
+phase item — added because Phase 4's live-RX bench check needed to see real
+RSSI/SNR and nothing else surfaces per-packet detail without an SD pull or
+the WiFi AP. Lives in `logger_task.cpp` rather than `radio_task.cpp` on
+purpose: it prints on Core 0 after the detection has already crossed the
+queue, so the radio task on Core 1 can never block on it. Shipped with a
+real bug caught the same session — its first version used multiple `Serial`
+calls per line and came out torn on real hardware by `main.cpp`'s Core-1
+`[status]` line landing mid-sequence, the same failure mode that comment
+already documents. Fixed by collapsing each line to one buffered
+`Serial.write()`. Output-only by design: a serial *command* console was
+floated in the same conversation and deliberately deferred — real added
+surface (a parser, and what's safe to expose) on an RX-only tool, worth
+deciding on its own rather than folding into a quick debug-visibility ask.
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
