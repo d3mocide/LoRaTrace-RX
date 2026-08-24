@@ -3,9 +3,11 @@
 //
 // Owns the SX1262 exclusively and implements HOME_LISTEN from DESIGN.md §5:
 // continuous RX locked to the active profile's channel; on a valid packet,
-// push a Detection into the queue and stay locked. DISCOVERY_SWEEP and
-// ENERGY_SWEEP are phases 4/5 and are deliberately absent — the state
-// machine's shape is here, its other states are not.
+// push a Detection into the queue and stay locked. Phase 4 adds the other
+// half of §5's state machine text — "operator-selected... mutually
+// exclusive" — as a live retune via radioRequestProfileSwitch(), below.
+// DISCOVERY_SWEEP and ENERGY_SWEEP are phases 5/6 and are still deliberately
+// absent — the state machine's shape is here, those two states are not.
 //
 // The one hard rule (DESIGN.md §2, CLAUDE.md): this task never touches SD
 // or the display, and never blocks on another task. It reads the packet,
@@ -20,15 +22,32 @@
 #include "channel_plans.h"
 #include "detection.h"
 
-// Starts the SX1262 on `channel` and launches the task on Core 1.
+// Starts the SX1262 on `channel`/`profile` and launches the task on Core 1.
 // `queue` receives Detection structs; it must outlive the task.
 // Returns false if the radio failed to initialise or the task couldn't be
 // created — callers should treat that as fatal, since a wardriver with no
 // receiver has nothing to do.
-bool radioTaskStart(const ChannelParams &channel, QueueHandle_t queue);
+bool radioTaskStart(const ChannelParams &channel, MissionProfile profile, QueueHandle_t queue);
 
-// Last RadioLib error code from begin()/startReceive(), for boot reporting.
+// Last RadioLib error code from begin()/startReceive() — including a live
+// profile switch's own begin() call, so a failed switch is visible the same
+// way a failed boot is.
 int radioLastError();
+
+// The mission profile HOME_LISTEN is actually locked to right now. Updated
+// the instant a requested switch (below) actually lands on the radio, not
+// the instant it's requested — same "small POD, no lock" caveat as
+// radioActiveChannel() below.
+MissionProfile radioActiveProfile();
+
+// DESIGN.md §5's operator-selected, mutually-exclusive profile switch:
+// Meshtastic and MeshCore never listen at once. Queues a retune to
+// `profile`'s channel table (channel_plans.h) and wakes the radio task to
+// pick it up between packets — never blocks, so it's safe to call from
+// ui_task's keyboard poll. A packet mid-flight on the old channel at the
+// instant of the switch is lost; that's the accepted cost of "mutually
+// exclusive," not a bug. Returns false if the radio task hasn't started yet.
+bool radioRequestProfileSwitch(MissionProfile profile);
 
 // --- Diagnostics -------------------------------------------------------
 // Exposed because Phase 2's exit criterion is "no dropped packets
@@ -39,10 +58,11 @@ uint32_t radioCrcErrorCount();   // received but failed CRC
 uint32_t radioQueueDropCount();  // decoded but the queue was full
 uint32_t radioBusMissCount();    // couldn't get the SPI bus in time
 
-// The channel this run actually started with (post SD-config-override,
-// pre any future hot-reload — there is none yet, so this is constant for
-// the whole run). A read-only copy, safe to call from any task: wifi_task's
-// settings page uses this to show the current values, not just the last
-// thing config.txt said, since a bad/missing SD card at boot means those
-// can differ.
+// The channel table HOME_LISTEN is locked to right now (post SD-config-
+// override at boot; post radioRequestProfileSwitch() if one has landed
+// since — that's still the only hot-reload path, config.txt itself is still
+// boot-time-only, see config.h). A read-only copy, safe to call from any
+// task: wifi_task's settings page uses this to show the current values, not
+// just the last thing config.txt said, since a bad/missing SD card at boot
+// or a runtime profile switch both mean those can differ.
 ChannelParams radioActiveChannel();

@@ -108,7 +108,33 @@ constexpr ChannelParams CHANNEL_MESHCORE_US_NARROW = {
     .sync_word = SYNC_WORD_MESHCORE, // verified, see above — not a placeholder
 };
 
-// --- Not yet parameterized — build-order phase 3/4, DESIGN.md §3/§9 ---
+// Maps a mission profile to its HOME_LISTEN channel table (DESIGN.md §5:
+// "switching profiles reconfigures which channel table HOME_LISTEN...
+// pull[s] from"). Only MESHTASTIC and MESHCORE have a concrete table today —
+// RETICULUM and GENERAL_EXPLORATION are ENERGY_SWEEP-only by design (§3/§4,
+// phase 6) and never get one, so they fall back to the Meshtastic default
+// here rather than being a compile error a caller has to guard against.
+inline ChannelParams channelParamsForProfile(MissionProfile profile) {
+    switch (profile) {
+        case MissionProfile::MESHCORE: return CHANNEL_MESHCORE_US_NARROW;
+        case MissionProfile::MESHTASTIC:
+        default: return CHANNEL_MESHTASTIC_LONGFAST_US;
+    }
+}
+
+// Phase 4: the operator-selected, mutually-exclusive profile switch DESIGN.md
+// §5 describes. Only two profiles currently have a HOME_LISTEN table to
+// switch between, so this is a toggle rather than a general "next" —
+// anything other than MESHCORE (including a future RETICULUM/
+// GENERAL_EXPLORATION, which don't have a table per channelParamsForProfile
+// above) lands back on MESHTASTIC rather than advancing somewhere with
+// nothing to listen on.
+inline MissionProfile nextHomeListenProfile(MissionProfile current) {
+    return current == MissionProfile::MESHTASTIC ? MissionProfile::MESHCORE
+                                                  : MissionProfile::MESHTASTIC;
+}
+
+// --- Not yet parameterized — build-order phase 5/6, DESIGN.md §3/§9 ---
 //
 // MeshCore legacy (pre-migration, may still be in the wild): ~915MHz,
 // SF11, BW250. Coding rate is genuinely unspecified in DESIGN.md ("—" in
@@ -117,13 +143,13 @@ constexpr ChannelParams CHANNEL_MESHCORE_US_NARROW = {
 //
 // Reticulum: no fixed target by design. Communities deliberately pick
 // arbitrary settings offset from Meshtastic/MeshCore to avoid collision.
-// Handled entirely by ENERGY_SWEEP (build-order phase 5) — never gets a
+// Handled entirely by ENERGY_SWEEP (build-order phase 6) — never gets a
 // ChannelParams entry.
 //
 // General Exploration: full 868-923MHz sweep, any SF/BW/CR. Also an
 // ENERGY_SWEEP consumer, not a fixed channel.
 
-// Phase 1 (current) hardcodes CHANNEL_MESHTASTIC_LONGFAST_US directly in
-// main.cpp. Don't route these tables through a live radio-task config
-// until the task/queue architecture from DESIGN.md §9 step 2+ exists to
-// own that responsibility — see CLAUDE.md Status.
+// Superseded by Phase 4: main.cpp boots on CHANNEL_MESHTASTIC_LONGFAST_US
+// (or its SD-config override, config.h) and radio_task.cpp now owns live
+// switching between tables via channelParamsForProfile() above, per
+// DESIGN.md §5 — kept as history, not current behaviour.

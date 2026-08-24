@@ -122,6 +122,28 @@ Phase 2 task set running, radio counters staying at 0 with the AP active) —
 the actual go/no-go this phase used to be gated behind, now answerable on
 real hardware but not yet answered.
 
+**Phase 4 (MeshCore profile) built, not yet hardware-verified**: the
+MeshCore US-narrow table (910.525MHz/SF7/BW62.5/CR5) already existed in
+`channel_plans.h` from earlier sync-word research — what Phase 4 actually
+adds is DESIGN.md §5's keyboard-gated, mutually-exclusive runtime switch
+between it and Meshtastic, deliberately deferred from Phase 3 (see
+PROGRESS.md's 2026-08-23 decisions log) so it could be built against a real
+second table instead of a stub. `radio_task.cpp` gained a depth-1
+`xQueueOverwrite` mailbox so `ui_task`'s keyboard poll can request a live
+retune without the radio task ever blocking on it; `ui_task`'s existing
+tap/hold gesture state machine gained a third bucket — a ~3s hold — on top
+of the tap-for-next-page and ~1.2s-hold-for-WiFi it already had, still
+needing no row/col keymap. A MeshCore detection logs RSSI/SF/BW/timing and
+the profile tag but not `node_id`/`packet_id`: MeshCore's header layout
+isn't reverse-engineered and its encryption/PSK model is still open (§7),
+so `radio_task.cpp` never runs Meshtastic's header parser against it.
+Verified against the host-native test suite (59 tests, up from 55 —
+g++/Unity workaround, still no `pio` in this environment); genuinely
+unverified on real hardware: live MeshCore RX at 910.525MHz/SF7/BW62.5/CR5
+with plausible RSSI/SNR, and that a mid-run switch leaves the radio in a
+clean state afterward (`crc_err`/`queue_drop`/`bus_miss` unaffected by the
+switch itself, not just by steady-state listening).
+
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.

@@ -145,6 +145,33 @@ void test_uptime_anchors_a_detection_heard_before_the_first_fix() {
     TEST_ASSERT_NOT_NULL(strstr(row, ",3,8123,"));      // but always a run + uptime
 }
 
+// Phase 4: radio_task.cpp deliberately never calls
+// detectionApplyMeshtasticHeader() for a MeshCore detection (its header
+// layout isn't verified — DESIGN.md §7, detection.h's comment above). This
+// pins the CSV-visible consequence of that: the profile/classification
+// columns say "meshcore", and the id columns stay empty — not "!00000000",
+// which would misread as a real, all-zero node id.
+void test_meshcore_csv_row_has_no_header_fields() {
+    Detection det = {};
+    det.profile = (uint8_t)MissionProfile::MESHCORE;
+    det.freq_mhz = 910.525f;
+    det.rssi_dbm = -70.0f;
+    det.snr_db = 9.5f;
+    det.raw_len = 40;
+    det.bw_khz_x10 = 625;
+    det.sf = 7;
+    det.cr_denom = 5;
+    det.rx_millis = 12345;
+    // node_id/packet_id/etc. left at their zero-init value on purpose — no
+    // detectionApplyMeshtasticHeader() call, matching radio_task.cpp's gate.
+
+    char row[256];
+    size_t n = detectionFormatCsv(det, row, sizeof(row), "", false, 0.0, 0.0, 0, 1);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_NOT_NULL(strstr(row, ",meshcore,meshcore,"));
+    TEST_ASSERT_NULL(strstr(row, "!00000000"));
+}
+
 void test_csv_row_without_fix_leaves_coords_empty() {
     // The important one: no fix must NOT render as 0,0. Null Island is a
     // real coordinate and would quietly poison a track.
@@ -206,6 +233,7 @@ int main(int, char **) {
     RUN_TEST(test_broadcast_vs_unicast);
     RUN_TEST(test_runt_frame_yields_no_ids);
     RUN_TEST(test_csv_row_with_fix);
+    RUN_TEST(test_meshcore_csv_row_has_no_header_fields);
     RUN_TEST(test_csv_exposes_relay_vs_original);
     RUN_TEST(test_csv_row_without_fix_leaves_coords_empty);
     RUN_TEST(test_uptime_anchors_a_detection_heard_before_the_first_fix);

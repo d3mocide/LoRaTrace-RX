@@ -167,6 +167,18 @@ built, deliberately deferred from Phase 3 (PROGRESS.md) so it's designed
 and tested against a real second channel table instead of a stub.
 **Blocking unknowns:** none for basic detection; MeshCore's
 encryption/PSK model (§7) still blocks payload decode, not detection.
+**Status:** built, not yet hardware-verified. The MeshCore table itself
+predates this phase (channel_plans.h, sourced and cited during Phase 1's
+sync-word investigation); what this phase adds is the actual live switch —
+`radio_task.cpp` holds a depth-1 mailbox (`xQueueOverwrite` + a task notify)
+so a switch request from `ui_task` retunes the SX1262 between packets
+without the radio task ever blocking, and `ui_task`'s gesture state machine
+gained a third, ~3s-hold bucket alongside its existing tap/~1.2s-hold pair —
+still no keymap needed, same discipline as the Phase 3 WiFi toggle. See
+CLAUDE.md's Status section and PROGRESS.md for what's verified so far
+(host-native tests only) versus what a hardware session still needs to
+confirm (live MeshCore RX, and that a mid-run switch leaves the radio
+counters clean afterward).
 
 ### Phase 5 — `DISCOVERY_SWEEP`
 **Deliverable:** bounded-duration CAD-cycle sweep of a curated candidate

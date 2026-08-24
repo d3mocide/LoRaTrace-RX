@@ -120,6 +120,13 @@ void drawHeader() {
     tft->print('/');
     tft->print((uint8_t)UiPage::COUNT);
 
+    // Active mission profile, on every page (not just RADIO): whatever page
+    // an operator is reading, they need this to interpret it — a GPS fix
+    // means something different mid-MeshCore-run than mid-Meshtastic-run
+    // only insofar as the operator remembers which one is live right now.
+    tft->print(' ');
+    tft->print(missionProfileName((uint8_t)radioActiveProfile()));
+
     drawBattery();
     drawHeartbeat();
     tft->drawFastHLine(0, HEADER_H, tft->width(), COL_DIM);
@@ -173,6 +180,10 @@ void drawRadioPage() {
     tft->print("/");
     tft->print(loggerMaxFlushMs());
     tft->print("ms");
+
+    tft->setTextColor(COL_DIM, COL_BG);
+    tft->setCursor(2, HEADER_H + 96);
+    tft->print("hold any key ~3s: swap profile");
 }
 
 void drawGpsPage() {
@@ -339,22 +350,31 @@ void nextPage() {
 // toggle by accident; short enough not to feel broken when it's meant to.
 constexpr uint32_t LONG_PRESS_MS = 1200;
 
+// Profile switching is rarer and more consequential than a WiFi toggle (it
+// drops whatever the radio was mid-hearing on the old channel — radio_task.h)
+// and shares the same physical gesture space, so it needs real separation
+// from LONG_PRESS_MS rather than a hair-trigger on top of it.
+constexpr uint32_t VERY_LONG_PRESS_MS = 3000;
+
 bool keyHeld = false;
 uint32_t keyHeldSince = 0;
 
-enum class KeyGesture { NONE, TAP, HOLD };
+enum class KeyGesture { NONE, TAP, HOLD_WIFI, HOLD_PROFILE };
 
 // Drains the key FIFO and turns press/release pairs into TAP (advance the
-// page, the original behaviour) or HOLD (toggle WiFi — ui_task.h).
+// page, the original behaviour), HOLD_WIFI (toggle WiFi — ui_task.h), or
+// HOLD_PROFILE (swap Meshtastic/MeshCore — radio_task.h). Bucketed by total
+// held duration at release, so exactly one gesture fires per press, never a
+// HOLD_WIFI on the way to a HOLD_PROFILE.
 //
-// Deliberately does not decode *which* key, for either gesture. A verified
+// Deliberately does not decode *which* key, for any of the three. A verified
 // Cardputer-ADV row/col-to-character map isn't something this project has
-// sourced, and CLAUDE.md forbids guessing hardware tables. Building both
-// gestures from the same undifferentiated press/release bit (0x80) means
-// neither one needs a keymap at all, so neither can be wrong about which
-// key was pressed — there's no "which key" to get wrong. Doesn't try to
-// track multiple simultaneous keys distinctly (a second key pressed before
-// the first releases is a known, accepted imprecision) — this device gets
+// sourced, and CLAUDE.md forbids guessing hardware tables. Building every
+// gesture from the same undifferentiated press/release bit (0x80) means none
+// of them needs a keymap at all, so none can be wrong about which key was
+// pressed — there's no "which key" to get wrong. Doesn't try to track
+// multiple simultaneous keys distinctly (a second key pressed before the
+// first releases is a known, accepted imprecision) — this device gets
 // sparse, deliberate single-key interaction, not typing.
 KeyGesture pollKeyGesture() {
     if (!keyboardReady) return KeyGesture::NONE;
@@ -367,7 +387,10 @@ KeyGesture pollKeyGesture() {
             keyHeldSince = millis();
         } else if (!isPress && keyHeld) {
             keyHeld = false;
-            result = (millis() - keyHeldSince >= LONG_PRESS_MS) ? KeyGesture::HOLD : KeyGesture::TAP;
+            const uint32_t heldMs = millis() - keyHeldSince;
+            result = (heldMs >= VERY_LONG_PRESS_MS)  ? KeyGesture::HOLD_PROFILE
+                     : (heldMs >= LONG_PRESS_MS)      ? KeyGesture::HOLD_WIFI
+                                                       : KeyGesture::TAP;
         }
     }
     return result;
@@ -383,10 +406,19 @@ void uiTask(void *) {
 
     for (;;) {
         const KeyGesture gesture = pollKeyGesture();
-        if (gesture == KeyGesture::HOLD) {
+        if (gesture == KeyGesture::HOLD_WIFI) {
             wifiToggle();
             drawHeader();
             drawPage(); // if WIFI is the current page, reflect the new state now
+            lastRedraw = millis();
+        } else if (gesture == KeyGesture::HOLD_PROFILE) {
+            // Same one-loop-iteration-of-lag caveat as wifiToggle() above:
+            // this queues the switch, it doesn't apply it — the header still
+            // shows the outgoing profile until radio_task's own loop picks
+            // the request up, typically the next redraw tick.
+            radioRequestProfileSwitch(nextHomeListenProfile(radioActiveProfile()));
+            drawHeader();
+            drawPage();
             lastRedraw = millis();
         } else if (gesture == KeyGesture::TAP) {
             nextPage();

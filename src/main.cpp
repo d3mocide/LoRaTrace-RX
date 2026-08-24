@@ -1,8 +1,10 @@
 // LoRaTrace RX — Phase 2 (task/queue architecture, GPS, SD logging) plus
-// Phase 3's WiFi AP/web UI, ui_task's on-device pages arrived early (see
-// ui_task.h). This file is an orchestrator, not a driver: it brings up
-// hardware in a fixed order, then hands the work to five tasks and gets out
-// of the way.
+// Phase 3's WiFi AP/web UI (ui_task's on-device pages arrived early — see
+// ui_task.h) and Phase 4's MeshCore profile: this file still only ever boots
+// radio_task on Meshtastic (below), and the live switch to/from MeshCore is
+// entirely ui_task's/radio_task's own affair from there (DESIGN.md §5). This
+// file is an orchestrator, not a driver: it brings up hardware in a fixed
+// order, then hands the work to five tasks and gets out of the way.
 //
 //   Core 1: radio_task   — owns the SX1262, HOME_LISTEN, never blocks
 //   Core 0: gps_task     — NMEA -> last-fix behind a mutex
@@ -124,14 +126,14 @@ void setup() {
     Serial.print(FIRMWARE_VERSION);
     Serial.print(F(" ("));
     Serial.print(FIRMWARE_BUILD_REV); // git SHA — identifies THIS binary
-    Serial.println(F(") — phase 3 (tasks + GPS + SD logging + WiFi)"));
+    Serial.println(F(") — phase 4 (tasks + GPS + SD logging + WiFi + MeshCore profile switch)"));
 
     displayReady = initDisplay();
     tft->setTextSize(2);
     splashLine(F("LoRaTrace RX"));
     splashY += SPLASH_LINE_H;
     tft->setTextSize(1);
-    splashLine(String("v") + FIRMWARE_VERSION + " -- phase 3");
+    splashLine(String("v") + FIRMWARE_VERSION + " -- phase 4");
     splashY += SPLASH_LINE_H / 2;
 
     // P0 high: RF antenna switch AND GPS power. Fatal because both halves
@@ -172,7 +174,12 @@ void setup() {
     }
     splashLine(F("Logger task: started"));
 
-    if (!radioTaskStart(activeChannel, detectionQueue)) {
+    // Boots on Meshtastic; MeshCore is reachable at runtime via ui_task's
+    // ~3s-hold gesture (DESIGN.md §5, radio_task.h). The SD-config override
+    // above applies to this boot profile only — switching to MeshCore uses
+    // its own verified table (channel_plans.h) unmodified, not a second
+    // override schema.
+    if (!radioTaskStart(activeChannel, MissionProfile::MESHTASTIC, detectionQueue)) {
         Serial.print(F("FATAL: radio start failed, RadioLib code "));
         Serial.println(radioLastError());
         splashLine("FATAL: radio " + String(radioLastError()), SPLASH_ERR);
@@ -194,6 +201,7 @@ void setup() {
                " sync 0x" + String(activeChannel.sync_word, HEX));
 
     Serial.println(F("Radio task listening on Core 1."));
+    Serial.println(F("Profiles: hold any key ~3s to swap Meshtastic/MeshCore (DESIGN.md S5)."));
 
     Serial.print(F("Free heap after task start: "));
     Serial.print(ESP.getFreeHeap());

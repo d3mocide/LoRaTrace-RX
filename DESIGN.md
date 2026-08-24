@@ -202,8 +202,10 @@ Meshtastic's value is now verified from upstream firmware source and set in
       8, and that empirically does **not** block RX — live Meshtastic
       frames decode fine at 8, confirmed on hardware 2026-08-23. Left as-is
       deliberately: continuous RX syncs on whatever preamble arrives, so
-      this only bites the duty-cycled/CAD scanning in §4. Re-evaluate
-      during phase 4 with a bench test, not before.
+      this only bites the duty-cycled/CAD scanning in §4 (DISCOVERY_SWEEP,
+      ROADMAP.md phase 5 — corrected 2026-08-24; MeshCore's HOME_LISTEN
+      profile landed as phase 4 instead, and doesn't touch CAD timing at
+      all). Re-evaluate during that phase with a bench test, not before.
 - [x] **microSD bus** — SPI or SDMMC, and whether it shares a host with the
       display, on this specific Cardputer-Adv revision. **Bench-confirmed
       (2026-08-22):** first real-hardware boot log shows `SD.begin(PIN_SD_CS,

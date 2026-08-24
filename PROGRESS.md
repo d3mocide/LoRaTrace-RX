@@ -324,10 +324,42 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         consistent with the health-row write being the loop's dominant
         cost, not a separate spike. No indication `BATCH_BUF_SIZE` needs
         shrinking.
-- [ ] **Phase 3** — MeshCore profile
-- [ ] **Phase 4** — `DISCOVERY_SWEEP`
-- [ ] **Phase 5** — `ENERGY_SWEEP`
-- [ ] **Phase 6** — UI polish, WiFi upload go/no-go
+- [x] **Phase 3** — Web Command Center (WiFi AP + web UI). Built and passing
+      the full host-native suite; the go/no-go heap/counter spike this phase
+      was gated behind was answered (see the 2026-08-22/23 entries above) —
+      **still not bench-verified against real hardware**, per CLAUDE.md's
+      Status section. Corrected numbering (2026-08-24): this checklist
+      previously called Phase 3 "MeshCore profile," written before WiFi got
+      pulled forward ahead of it (PROGRESS.md 2026-08-22 decisions log) —
+      ROADMAP.md's phase numbers are the ones that actually shipped;
+      this list had drifted from it
+- [~] **Phase 4** — MeshCore profile: same `HOME_LISTEN` engine, MeshCore
+      US-narrow table wired in as a second, keyboard-switchable profile
+      (DESIGN.md §5). Built 2026-08-24, passing the full host-native suite
+      (59 tests); **not yet hardware-verified** — see this section's new
+      entries below and CLAUDE.md's Status section
+  - [ ] Live MeshCore RX bench test at 910.525MHz/SF7/BW62.5/CR5 — a real
+        packet with plausible RSSI/SNR, the same bar Phase 1 held Meshtastic
+        to. Nothing about this table is unverified (sync word/freq/SF/BW/CR
+        all cited, DESIGN.md §3/§7) but nothing about it has been heard
+        either — a table can be correct and still not receive if e.g. a
+        MeshCore firmware version drifted off the "Recommended" preset
+  - [ ] Confirm a mid-run switch (Meshtastic -> MeshCore -> Meshtastic via
+        the ~3s-hold gesture) leaves the radio in a clean, listening state
+        afterward: `crc_err`/`queue_drop`/`bus_miss` unaffected by the
+        switch itself, `radioActiveProfile()`/the on-screen header actually
+        showing the new profile, and a genuine packet on the new channel
+        logging correctly. The mailbox mechanism (radio_task.cpp) has no
+        hardware-only unknowns in it, but it's also never run outside host
+        logic review — this is the first time it executes on a real SX1262
+  - [ ] Confirm the on-screen ~3s-hold gesture doesn't fire by accident
+        during ordinary tap-to-advance-page use, and that ~1.2s WiFi-toggle
+        holds don't bleed into it — both are duration buckets on the same
+        physical gesture (ui_task.cpp), reasoned about but not bench-timed
+        against an actual human thumb
+- [ ] **Phase 5** — `DISCOVERY_SWEEP`
+- [ ] **Phase 6** — `ENERGY_SWEEP`
+- [ ] **Phase 7** — UI polish, all 4 profiles stable
 
 ## Open questions (from DESIGN.md §7 — verify before / during build)
 
@@ -1950,6 +1982,77 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     pushed `max_flush_ms` up. No sign `wifi_task` or the heavier logger
     load starves the GPS parse loop.
 
+- **2026-08-24 — Phase 4 (MeshCore profile) built.** DESIGN.md §5 already
+  decided the shape ("operator-selected... mutually exclusive"); this session
+  built the mechanism, deliberately deferred from Phase 3 (2026-08-23 entry
+  above) so it could be built against a real second table instead of a stub.
+  - **Live-switch mechanism, `radio_task.cpp`:** a depth-1 `xQueueOverwrite`
+    mailbox (`PendingSwitch{profile, channel}`) plus `xTaskNotifyGive` to
+    wake the radio task promptly even if it's parked in the existing 5s
+    liveness wait. The radio task checks the mailbox first on every wake,
+    before treating the wake as a DIO1 packet IRQ — so a switch request and a
+    genuine packet arriving in the same instant can't be confused for each
+    other, and a switch never has to wait on the 5s timeout to be noticed.
+    Chose this over reusing the DIO1 notification's own count directly
+    (ambiguous: a coalesced notify count can't say *which* of "packet" or
+    "switch" happened, or both) and over a second, separately-blocking queue
+    receive (would violate "the radio task never blocks" for an idle-wait
+    that has nothing to do with SD or another task). Cost of a switch racing
+    a genuine in-flight packet: the packet is lost (radio.begin() for the new
+    profile reconfigures the modem) — accepted, since a requested switch
+    means the operator no longer wants the old profile's traffic.
+  - **Gesture, `ui_task.cpp`:** extended the existing tap/hold duration
+    bucketing (already used for page-advance vs. the Phase 3 WiFi toggle)
+    with a third bucket at 3000ms, comfortably past the existing 1200ms WiFi
+    threshold so the two holds don't feel like the same gesture at different
+    speeds. Considered a double-tap instead (would avoid adding a third
+    duration tier) but rejected it: distinguishing double-tap from two
+    single taps requires delaying every ordinary tap's page-advance by the
+    double-tap window while waiting to see if a second tap follows, which
+    would make the existing, frequently-used tap-to-advance gesture feel
+    laggy for the sake of a gesture that's used rarely. A third hold bucket
+    costs nothing on the common path.
+  - **MeshCore header parsing scope: deliberately not attempted.**
+    `detectionApplyMeshtasticHeader()` is Meshtastic's verified 16-byte
+    to/from/id/flags layout (detection.h) — running it against MeshCore
+    bytes would produce node_id/packet_id/hop values that *look* valid but
+    describe nothing real, since MeshCore's own header format isn't
+    reverse-engineered and DESIGN.md §7/CLAUDE.md's house rule both say not
+    to assume it mirrors Meshtastic's. `radio_task.cpp` gates the call on
+    `activeProfile == MissionProfile::MESHTASTIC`; a MeshCore detection logs
+    RSSI/SF/BW/timing and the profile tag (exactly ROADMAP.md Phase 4's
+    "basic detection... not payload decode" scope) with those columns empty,
+    same convention `detection.h` already uses for a runt Meshtastic frame.
+  - **Boot profile unchanged.** `main.cpp` still always starts on Meshtastic
+    (plus its existing SD-config override, unchanged) — MeshCore is reachable
+    only via the runtime gesture. Considered adding a `profile=` key to
+    `config.txt` so an operator could boot straight into MeshCore, but that's
+    scope ROADMAP.md's Phase 4 entry doesn't ask for and would need its own
+    validation/fallback design; left for a future ask rather than built
+    speculatively.
+  - **Verification: strong on host logic, honestly unverified on hardware.**
+    No `pio` in this environment — same g++/Unity workaround as every prior
+    session (a local, throwaway Unity-macro shim, not committed). All 55
+    prior native tests still pass, plus 4 new ones (`channelParamsForProfile`
+    resolving both tables correctly and falling back to Meshtastic for
+    Reticulum/General Exploration, `nextHomeListenProfile` actually
+    toggling and returning to start, and a MeshCore CSV row confirming the
+    classification column reads "meshcore" with the id columns empty) — 59
+    total. `radio_task.cpp`/`ui_task.cpp`/`main.cpp` are Arduino/FreeRTOS/
+    RadioLib-coupled like every other hardware-facing file in this project
+    and were read in full and reviewed by inspection rather than compiled,
+    same bar this project has applied throughout when no toolchain is
+    available. See the Phase 4 checklist entries above and Next-steps item 6
+    for exactly what a hardware session still needs to confirm.
+  - **Also corrected while touching these files:** several comments across
+    `channel_plans.h`, `detection.h`, `radio_task.h`, and this doc's own
+    Build-order checklist and Next-steps list referenced stale phase numbers
+    (a leftover from WiFi being pulled forward ahead of MeshCore, 2026-08-23)
+    — e.g. `detection.h` called fingerprinting "phase 4" when ROADMAP.md's
+    actual numbering now puts it at phase 5. Fixed opportunistically rather
+    than left to compound; ROADMAP.md's numbering is the one source of truth
+    for phase numbers, per this doc's own stated relationship to it.
+
 ## Next steps
 
 Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist
@@ -2017,12 +2120,34 @@ above) — remaining items are follow-through, in the order it's worth doing.
    (blanks-at-start-only) is still untested; a real drive's cold start will
    exercise it.
 4. **Phase 2's own exit criterion is closed** (run0007, see above) — tag
-   `v0.2.x`, mark the phase complete in ROADMAP.md, and start Phase 3
-   (MeshCore profile) whenever it's convenient — same `HOME_LISTEN` engine,
-   second channel table, sync word already sourced. Not gated on step 1a
+   `v0.2.x`, mark the phase complete in ROADMAP.md. Not gated on step 1a
    or step 3 above (routing-metadata confirmation and a moving wardrive are
    both genuinely follow-through, not exit-criterion blockers), but doing
    1a first is cheap and closes a real open question before it's forgotten.
+   **Superseded numbering note (2026-08-24):** this item originally said
+   "start Phase 3 (MeshCore profile)" — written before WiFi got pulled
+   forward ahead of it. MeshCore is Phase 4 in ROADMAP.md's actual numbering
+   and is now built (see the Build-order checklist above); left as-is here
+   rather than rewritten, since it's a historical note about what was
+   planned at the time, not a live instruction.
+6. **Bench-verify Phase 4 (MeshCore profile), just built 2026-08-24.**
+   Passes the full host-native suite but has never run against real
+   traffic or real hardware:
+   - Live MeshCore RX at 910.525MHz/SF7/BW62.5/CR5 — same bar Phase 1 held
+     Meshtastic to (a plausible RSSI/SNR reading on a real packet, not just
+     a non-crashing boot).
+   - A mid-run switch (the ~3s-hold gesture, ui_task.cpp) from Meshtastic to
+     MeshCore and back: confirm `crc_err`/`queue_drop`/`bus_miss` stay at
+     whatever they were before the switch (i.e. the switch itself doesn't
+     wedge or destabilize the radio), the on-screen header profile name
+     actually updates, and a real packet on each side of the switch logs
+     with the right `profile`/`classification` and (Meshtastic only)
+     `node_id`.
+   - That the ~3s and ~1.2s hold thresholds (ui_task.cpp) feel right against
+     an actual human thumb, not just plausible on paper — a threshold that's
+     too easy to cross means an operator flipping pages loses their
+     Meshtastic lock by accident; too hard to hit and the feature is dead
+     weight.
 5. Still-open watch items, no action unless they recur/worsen:
    - SD-mount reliability across power cycles (the GPIO5 fix's first test
      was clean, but the original report said "every bin", which points at

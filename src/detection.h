@@ -70,6 +70,13 @@ static_assert(sizeof(Detection) <= 40, "Detection exceeds the ~40B queue budget 
 // This is header metadata only — the payload after these 16 bytes is
 // encrypted and stays that way. Reading routing metadata off the air is the
 // entire point of a wardriving receiver; decryption is not attempted.
+//
+// Meshtastic-specific: radio_task.cpp only calls this while HOME_LISTEN is
+// locked to MissionProfile::MESHTASTIC. MeshCore's own header layout isn't
+// reverse-engineered (DESIGN.md §7's encryption/PSK question is still open,
+// and CLAUDE.md's house rule is not to assume it mirrors Meshtastic's) —
+// a MeshCore Detection leaves node_id/packet_id/etc. zeroed rather than
+// parsing this layout against bytes it wasn't verified against.
 constexpr size_t MESHTASTIC_HEADER_LEN = 16;
 constexpr uint32_t MESHTASTIC_BROADCAST_ADDR = 0xFFFFFFFFu;
 
@@ -139,10 +146,11 @@ constexpr const char *LOG_CSV_HEADER =
     "classification,channel_or_node_id,packet_id,hop_limit,hop_start,"
     "relay_node,freq_mhz,sf,bw_khz,rssi_dbm,snr_db,raw_len,decoded";
 
-// Phase 2 placeholder for DESIGN.md §6 fingerprinting (phase 4): with
-// HOME_LISTEN locked to one profile's channel, "what we were listening for"
+// Phase 2 placeholder for DESIGN.md §6 fingerprinting (phase 5): with
+// HOME_LISTEN locked to one profile's channel at a time — even now that
+// Phase 4 lets an operator pick which one — "what we were listening for"
 // is the only honest classification available. Real post-hoc classification
-// — which needs the sweep data phases 4/5 produce — replaces this via
+// — which needs the sweep data phases 5/6 produce — replaces this via
 // fingerprint.h. Named as a placeholder so a later reader doesn't mistake
 // it for a finished classifier.
 inline const char *detectionClassification(const Detection &det) {
