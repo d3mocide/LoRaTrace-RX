@@ -423,11 +423,13 @@ void drawPage() {
     // inside individual page-draw functions, since both actions moved into
     // one menu that isn't specific to either page any more. "1-5 jump"
     // added alongside the digit-key shortcuts, still well under the
-    // ~40-char/line budget at text size 1 on a 240px-wide panel.
+    // ~40-char/line budget at text size 1 on a 240px-wide panel. "` menu"
+    // (not "Enter menu") since the 2026-08-24 bench pass moved menu-open
+    // onto ESC/backtick — see the BACK branch in uiTask() above.
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
     tft->setCursor(2, tft->height() - 9);
-    tft->print(",/. page  1-5 jump  Enter menu");
+    tft->print(",/. page  1-5 jump  ` menu");
 }
 
 void nextPage() {
@@ -482,7 +484,7 @@ void uiTask(void *) {
             } else if (action == KeyAction::NEXT) {
                 nextPage();
                 redraw = true;
-            } else if (action == KeyAction::SELECT) {
+            } else if (action == KeyAction::BACK) {
                 mode = UiMode::MENU;
                 menuSelection = 0;
                 redraw = true;
@@ -502,9 +504,13 @@ void uiTask(void *) {
                 jumpToPage(UiPage::WIFI);
                 redraw = true;
             }
-            // BACK is a no-op here — nothing to go back to from the carousel.
-            // Digit jumps are only handled in this branch; the menu ignores
-            // them rather than reusing them for its own two-item selection.
+            // SELECT (Enter) is a no-op here — bench feedback 2026-08-24
+            // found opening the menu with Enter felt wrong, since Enter's
+            // role inside the menu is committing the highlighted change;
+            // ESC (BACK) opens the menu instead, so the same key that
+            // closes it also opens it. Digit jumps are only handled in this
+            // branch; the menu ignores them rather than reusing them for
+            // its own two-item selection.
         } else { // UiMode::MENU
             if (action == KeyAction::PREV) {
                 menuSelection = (int8_t)((menuSelection + MENU_ITEM_COUNT - 1) % MENU_ITEM_COUNT);

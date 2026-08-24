@@ -142,9 +142,16 @@ enum class KeyAction {
     // '.' or '/' (Fn-arrow "down"/"right") — next status page (carousel) /
     // move selection down (menu). Same two-keys-one-action pattern as PREV.
     NEXT,
-    SELECT, // Enter — open the menu (carousel) / activate selection (menu)
-    // Backtick/ESC — return to the carousel (menu only; no-op in carousel).
-    // Was Backspace; see KEY_RAW_ESC_PRESS above for why it moved.
+    // Enter — no-op in the carousel; activate/commit the highlighted
+    // selection in the menu. Used to also open the menu from the carousel
+    // until bench feedback 2026-08-24 moved that onto BACK/ESC instead (see
+    // below) — Enter's role narrowed to "act on what's already open."
+    SELECT,
+    // Backtick/ESC — open the menu (carousel) / return to the carousel
+    // (menu). Same key both opens and closes it, ui_task.cpp picks the
+    // direction from current UiMode. Was Backspace-as-BACK-only; see
+    // KEY_RAW_ESC_PRESS above for that first move, and PROGRESS.md's
+    // 2026-08-24 bench pass for this second one (Enter-to-open felt wrong).
     BACK,
     // '1'-'5' — jump straight to that carousel page (carousel mode only).
     // Numbered to match UiPage's declared order 1:1 (ui_task.h): 1=RADIO,

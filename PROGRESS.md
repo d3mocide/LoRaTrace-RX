@@ -381,16 +381,16 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         holds don't bleed into it — both are duration buckets on the same
         physical gesture (ui_task.cpp), reasoned about but not bench-timed
         against an actual human thumb
-- [~] **Phase 5** — On-device menu UI. Built 2026-08-24 (digit-key page
-      jumps, then the ESC/arrow-alias rework below, both added same day —
-      see Decisions log), passing the full host-native suite (70 tests);
-      **first hardware pass done, rest still open**. Pulled forward ahead of
-      `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's request — see
-      ROADMAP.md/CLAUDE.md Status. Corrected numbering (2026-08-24): this
-      checklist previously called this slot `DISCOVERY_SWEEP` —
-      ROADMAP.md's phase numbers are the ones that actually shipped; this
-      list had drifted from it, same kind of correction already made for
-      Phase 3/4 above
+- [x] **Phase 5** — On-device menu UI. Built 2026-08-24 (digit-key page
+      jumps, then the ESC/arrow-alias rework, then the ESC-opens-the-menu
+      rework — see Decisions log for all three), passing the full
+      host-native suite (73 tests); **fully bench-verified 2026-08-24**.
+      Pulled forward ahead of `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's
+      request — see ROADMAP.md/CLAUDE.md Status. Corrected numbering
+      (2026-08-24): this checklist previously called this slot
+      `DISCOVERY_SWEEP` — ROADMAP.md's phase numbers are the ones that
+      actually shipped; this list had drifted from it, same kind of
+      correction already made for Phase 3/4 above
   - [x] **Bench-verify Comma/Period/'1'-'5' (`src/keyboard.h`) — closed
         2026-08-24.** User confirmed on real hardware: all five digit keys
         jump to the correct page, Comma and Period move the carousel/menu
@@ -400,26 +400,31 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         (expecting `;`/`/` to also navigate) found they silently did
         nothing, which is exactly the "unmapped key is safely ignored"
         allowlist property working as designed, just not the UX wanted.
-  - [ ] **Bench-verify the backtick/ESC key and Semicolon/Slash aliases —
-        added 2026-08-24, not yet pressed on real hardware.** Newest and
-        least-cross-checked of the eleven: unlike Enter/the original
-        Backspace, nothing independently confirms these three specific
-        (row, col) positions the way Launcher's `col == 13` check did —
-        confirm the backtick/ESC key actually exits the menu, and that
-        Semicolon/Slash move the carousel/selection the same way Comma/
-        Period already do, not something else.
-  - [ ] Confirm the menu's two actions behave identically to their old
-        gesture equivalents: profile switch (`radioRequestProfileSwitch()`)
-        and WiFi toggle (`wifiToggle()`) are unchanged Phase 3/4 code, only
-        how they're triggered changed — a hardware session should confirm
-        nothing about the trigger path itself broke either action
-  - [ ] Confirm the new CHANNEL status page reflects a live profile switch
-        immediately (it reads `radioActiveChannel()`, already confirmed
-        correct post-switch in Phase 4 — this just needs an on-screen look)
-  - [ ] Confirm the persistent `,/. page  1-5 jump  Enter menu` / `,/. move
-        Enter act   \` back` hint lines render without clipping/overlap on
-        the real 240×135 panel — laid out by inspection against the
-        existing page functions' y-coordinates, not measured on glass
+  - [x] **Bench-verify the backtick/ESC key and Semicolon/Slash aliases —
+        closed 2026-08-24.** Confirmed on real hardware: ESC/backtick exits
+        the menu, and Semicolon/Slash move the carousel/menu selection the
+        same way Comma/Period do. Same bench session then surfaced a third
+        UX finding — Enter-to-open-the-menu "feels kind of weird" — fixed
+        same-day (see Decisions log): ESC/backtick now *opens* the menu
+        from the carousel too (closes it from the menu, same as before), so
+        one key does both; Enter narrowed to "act on the highlighted menu
+        row" only, no-op in the carousel. Re-verified after the change:
+        ESC opens the menu, Enter is confirmed as the one that fires the
+        highlighted action, ESC closes it, Enter is a no-op in the
+        carousel — all four confirmed on hardware, not just built.
+  - [x] Confirm the menu's two actions behave identically to their old
+        gesture equivalents — closed 2026-08-24. Both exercised live:
+        Profile-switch via the menu was confirmed against the CHANNEL page
+        (below); WiFi toggle was confirmed via the serial log itself (see
+        Phase 3 note below) rather than just the on-screen "WiFi ON" label.
+  - [x] Confirm the new CHANNEL status page reflects a live profile switch
+        immediately — closed 2026-08-24, confirmed on real hardware.
+  - [x] Confirm the persistent footer hint lines render without
+        clipping/overlap on the real 240×135 panel — closed 2026-08-24,
+        confirmed on real hardware. Text itself changed this same session
+        (`,/. page  1-5 jump  Enter menu` -> `` ,/. page  1-5 jump  ` menu ``)
+        to match the ESC-opens-the-menu rework above; the menu's own hint
+        line (`` ,/. move   Enter act   ` back ``) didn't need to change.
 - [ ] **Phase 6** — `DISCOVERY_SWEEP`
 - [ ] **Phase 7** — `ENERGY_SWEEP`
 
@@ -2371,6 +2376,63 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     ("PATCH for fixes adding no phase scope") — this hardens already-shipped
     Phase 3/4 behavior (and fixes the real bug above) rather than landing
     new build-order scope, so MINOR stays at Phase 5's `0.5`.
+
+- **2026-08-24 (later same day) — Phase 5 bench pass finished; every
+  checklist item closed, plus a UX rework it surfaced.** Claude Code, live
+  in VS Code with the Cardputer-Adv on USB (`/dev/ttyACM1`), ran the
+  session: flashed current `main`, then walked the user through the
+  remaining Phase 5 checklist interactively, watching serial in the
+  background the whole time for any crash/exception/counter regression.
+  - **ESC/backtick and Semicolon/Slash: confirmed working exactly as
+    designed.** First items in this file to move from "sourced" to
+    "bench-confirmed."
+  - **UX finding, fixed the same session:** the user found opening the menu
+    with Enter "feels kind of weird" and asked whether ESC could open it
+    instead, with Enter narrowed to just acting on the highlighted row.
+    Confirmed with the user which of two options they wanted (ESC opens it
+    *and* Enter still also would, vs. ESC becomes the only way in) before
+    touching code — picked the latter. Changed in `ui_task.cpp`'s carousel
+    branch only: `KeyAction::SELECT` (Enter) no longer opens the menu
+    (now a no-op there, same as it already was in the menu's own PREV/NEXT
+    context); `KeyAction::BACK` (ESC) does instead, alongside its existing
+    menu-closing job — one key, two directions, dispatched on `UiMode`.
+    `keyboard.h`'s raw-byte decode didn't change at all (Enter still
+    decodes to `SELECT`, ESC still to `BACK` — the mapping is
+    context-free); only `ui_task.cpp`'s interpretation of those actions
+    changed, so `test/test_keyboard/` needed no updates and all 73
+    host-native tests still pass unmodified. Footer hint text updated to
+    match (`Enter menu` -> `` ` menu ``). Re-flashed and the user
+    re-confirmed all four legs (ESC opens, Enter fires the highlighted
+    action, ESC closes, Enter no-ops in the carousel) on real hardware
+    before moving on.
+  - **Menu actions confirmed via serial, not just the screen.** Profile
+    switch was checked against the CHANNEL page. WiFi toggle was checked
+    against the serial log directly: `[wifi] AP started: LoRaTrace-7850 @
+    192.168.4.1` appeared right on cue, and — bonus, not something this
+    session set out to test — it answered Phase 3's WiFi heap/counter
+    go/no-go a second time, under real traffic this time rather than an
+    idle AP: heap went 267580 -> 211388 on AP-up (~56KB, matching the
+    2026-08-23 measurement in the Phase 3 entry above almost exactly),
+    `crc_err`/`queue_drop`/`bus_miss`/`row_drop` stayed at 0 through 800+
+    real detections logged with the AP active, and heap settled at ~250K
+    (not all the way back to 267580, but flat/non-decreasing over
+    repeated readings — read as post-burst allocator fragmentation from
+    805 flushed rows, not a leak, but worth another look if a future
+    session sees heap trend downward over many AP on/off cycles rather
+    than just settling once).
+  - **User forgot to toggle WiFi back off** after confirming it worked
+    (their own words: "i thought you wanted to test that") — turned off
+    on the next round of instructions with no issue. Not a firmware defect,
+    just an interactive-session loose end; noted here only because
+    CLAUDE.md's house rule is the AP should stay off unless deliberately
+    on, and it's worth being deliberate about closing that loop each
+    session rather than assuming it happened.
+  - **Test suite:** unchanged at 73 host-native tests (see above — the
+    ESC-opens-menu change lives entirely in `ui_task.cpp`, which isn't
+    host-testable the way `keyboard.h` is).
+  - **Version: v0.5.1 -> v0.5.2.** PATCH-level — this closes out
+    already-shipped Phase 5 scope (bench verification) and reworks its
+    trigger key, not new build-order scope.
 
 ## Next steps
 
