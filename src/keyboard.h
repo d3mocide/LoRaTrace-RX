@@ -15,11 +15,28 @@
 // no Fn chord, no numeric entry) only ever needed FOUR specific keys
 // identified, not the full 56-key table, which is what made a real, sourced
 // decode tractable as a small, low-risk slice instead of a project of its
-// own. Extended (still Phase 5, pre-hardware-verification) to add five more
-// — digits '1'-'5' as direct carousel-page jumps, requested once a full
-// keyboard was on hand for the same bench session that verifies the
-// original four — using the exact same sourcing chain below, still nowhere
-// near the full 56-key table.
+// own. Extended twice since (still Phase 5, pre-hardware-verification),
+// same sourcing chain, same "no Fn chord" rule, still nowhere near the full
+// 56-key table:
+//   - Digits '1'-'5' as direct carousel-page jumps, requested once a full
+//     keyboard was on hand for the same bench session that verifies the
+//     rest. **Bench-confirmed 2026-08-24**: all five work as expected.
+//   - First-round bench testing of the above also surfaced two real UX
+//     asks, acted on the same session: Backspace felt wrong for "leave the
+//     menu" (swapped for the top-left backtick key, physically labelled
+//     ESC on the Cardputer-ADV's keycap even though the TCA8418 reports it
+//     as backtick — RetroBreeze's cardputer-keyboard-reference documents
+//     this exact quirk: "There is no dedicated ESC key in the firmware...
+//     ESC is accessed as Fn + backtick" — bound here as a plain press, no
+//     Fn, matching this project's existing no-chord rule rather than the
+//     upstream Fn+backtick convention); and the operator, working from the
+//     same keycaps, tried the printed Fn-arrow diamond (';'/','/'.'/'/' =
+//     up/left/down/right, also documented in RetroBreeze's reference)
+//     expecting it to double as page/menu
+//     navigation — ',' and '.' already did (they're PREV/NEXT), so ';' and
+//     '/' are now wired in as plain-press aliases for the same two actions,
+//     completing the set. No new KeyAction values needed for the aliases —
+//     see keyboardDecodeEvent() below.
 //
 // --- Sourcing, so a future reader doesn't have to re-derive this ---
 //
@@ -48,32 +65,61 @@
 //    — matching the table below exactly, from a second, independent source:
 //      Backspace: (row 0, col 13)   Enter:      (row 2, col 13)
 //      Comma ',': (row 3, col 10)   Period '.': (row 3, col 11)
-//    Row 0 of the same _key_value_map table gives the digit row used for the
-//    page-jump keys below: {'`'}{'1'}{'2'}{'3'}{'4'}{'5'}{'6'}{'7'}{'8'}{'9'}
-//    {'0'}{'-'}{'='}{BKSP} at columns 0-13 — i.e. '1'-'5' sit at (row 0,
-//    col 1) through (row 0, col 5), immediately left of the already-cited
-//    Backspace at (row 0, col 13).
+//    Row 0 of the same _key_value_map table gives the digit row (also the
+//    backtick/ESC key) and row 2/row 3 give the rest of the Fn-arrow
+//    diamond:
+//      Row 0: {'`'}{'1'}{'2'}{'3'}{'4'}{'5'}{'6'}{'7'}{'8'}{'9'}{'0'}{'-'}
+//             {'='}{BKSP} at columns 0-13 — backtick at col 0, '1'-'5' at
+//             col 1-5.
+//      Semicolon ';': (row 2, col 11) — same row as Enter, five columns
+//             left of it. Slash '/': (row 3, col 12) — same row as
+//             Comma/Period, one column right of Period.
+//    RetroBreeze's reference also documents the Fn layer directly (section
+//    7/9): "ESC is accessed as Fn + backtick" (the top-left key has no
+//    dedicated ESC code — the firmware reports plain backtick), and
+//    "';' ',' '.' '/' double as arrow keys when Fn is held" mapping exactly
+//    up/left/down/right — independent confirmation that these are the
+//    intended roles of these five keys' printed keycaps, not a guess about
+//    what the silkscreen shows.
 //
 // Inverting step 2's formula for each (row, col) pair (t = col>>1,
 // topbit = col&1, u = ((topbit<<2)|row)+1, K = t*10+u; checked by plugging
 // each result back into the forward formula above) gives the raw press-byte
-// constants below. Nothing here has been bench-verified yet — same bar as
-// every other sourced-not-measured hardware fact in this project (sync
-// words, IO-expander registers, TFT offsets all needed a real boot before
-// being trusted): press each of these keys once on real hardware and
-// confirm the firmware recognizes exactly that key, per PROGRESS.md's
-// Phase 5 checklist.
+// constants below. **Bench-confirmed on real hardware, 2026-08-24:** Comma,
+// Period, and all five digit keys (PROGRESS.md Decisions log). Enter was
+// exercised indirectly (reaching the menu at all requires it) but not
+// separately confirmed. Backtick/ESC and Semicolon/Slash are brand new this
+// same session, sourced but **not yet pressed on real hardware** — same bar
+// as everything else in this file before its own bench pass: see
+// PROGRESS.md's Phase 5 checklist.
 
 #include <stdint.h>
 
-// Backspace: physical (row 0, col 13) -> t=6, u=5 -> K=65.
-constexpr uint8_t KEY_RAW_BACKSPACE_PRESS = 65;
 // Enter: physical (row 2, col 13) -> t=6, u=7 -> K=67.
 constexpr uint8_t KEY_RAW_ENTER_PRESS = 67;
 // Comma ',': physical (row 3, col 10) -> t=5, u=4 -> K=54.
 constexpr uint8_t KEY_RAW_COMMA_PRESS = 54;
 // Period '.': physical (row 3, col 11) -> t=5, u=8 -> K=58.
 constexpr uint8_t KEY_RAW_PERIOD_PRESS = 58;
+
+// Backtick/ESC: physical (row 0, col 0) -> t=0, u=1 -> K=1. Bound as BACK
+// (superseding Backspace, K=65 — bench testing 2026-08-24 found Backspace
+// felt wrong for "leave the menu"; the top-left key is silkscreened ESC on
+// the Cardputer-ADV even though the TCA8418/RetroBreeze's own reference
+// call its base character backtick). Plain press, no Fn — this project
+// doesn't track Fn as a modifier at all (see the "no Fn chord" note above),
+// so this is not the upstream Fn+backtick ESC combo, just the same key
+// pressed alone.
+constexpr uint8_t KEY_RAW_ESC_PRESS = 1;
+
+// Semicolon ';' and Slash '/': the rest of the printed Fn-arrow diamond
+// (up/right; ',' /'.' already cover left/down as Comma/Period above).
+// Aliases for the same KeyAction::PREV/NEXT the carousel and menu already
+// use, not new actions — see keyboardDecodeEvent() below.
+// ';': physical (row 2, col 11) -> t=5, u=7 -> K=57.
+constexpr uint8_t KEY_RAW_SEMICOLON_PRESS = 57;
+// '/': physical (row 3, col 12) -> t=6, u=4 -> K=64.
+constexpr uint8_t KEY_RAW_SLASH_PRESS = 64;
 
 // Digit row, page-jump keys (carousel mode only — see keyboardDecodeEvent()).
 // '1': physical (row 0, col 1) -> t=0, u=5 -> K=5.
@@ -89,10 +135,17 @@ constexpr uint8_t KEY_RAW_5_PRESS = 25;
 
 enum class KeyAction {
     NONE,
-    PREV,   // ',' — previous status page (carousel) / move selection up (menu)
-    NEXT,   // '.' — next status page (carousel) / move selection down (menu)
+    // ',' or ';' (Fn-arrow "left"/"up") — previous status page (carousel) /
+    // move selection up (menu). Two physical keys, one action: see
+    // KEY_RAW_SEMICOLON_PRESS above for why.
+    PREV,
+    // '.' or '/' (Fn-arrow "down"/"right") — next status page (carousel) /
+    // move selection down (menu). Same two-keys-one-action pattern as PREV.
+    NEXT,
     SELECT, // Enter — open the menu (carousel) / activate selection (menu)
-    BACK,   // Backspace — return to the carousel (menu only; no-op in carousel)
+    // Backtick/ESC — return to the carousel (menu only; no-op in carousel).
+    // Was Backspace; see KEY_RAW_ESC_PRESS above for why it moved.
+    BACK,
     // '1'-'5' — jump straight to that carousel page (carousel mode only).
     // Numbered to match UiPage's declared order 1:1 (ui_task.h): 1=RADIO,
     // 2=CHANNEL, 3=GPS, 4=SYSTEM, 5=WIFI. Kept as plain, separately-named
@@ -107,17 +160,19 @@ enum class KeyAction {
 };
 
 // Maps one raw TCA8418 event byte to a KeyAction. Deliberately an allowlist:
-// only the nine press bytes above resolve to anything — every release event
-// (including these nine keys' own) and all other keys on the board return
-// NONE. That's what keeps this safe despite covering only nine of the
-// board's 56 keys: there's no "unknown key does something surprising" case,
-// only "known key does its one thing" or "ignored."
+// only the eleven press bytes above resolve to anything — every release
+// event (including these eleven keys' own) and all other keys on the board
+// return NONE. That's what keeps this safe despite covering only eleven of
+// the board's 56 keys: there's no "unknown key does something surprising"
+// case, only "known key does its one thing" or "ignored."
 inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
     switch (rawEvent) {
         case KEY_RAW_COMMA_PRESS: return KeyAction::PREV;
+        case KEY_RAW_SEMICOLON_PRESS: return KeyAction::PREV;
         case KEY_RAW_PERIOD_PRESS: return KeyAction::NEXT;
+        case KEY_RAW_SLASH_PRESS: return KeyAction::NEXT;
         case KEY_RAW_ENTER_PRESS: return KeyAction::SELECT;
-        case KEY_RAW_BACKSPACE_PRESS: return KeyAction::BACK;
+        case KEY_RAW_ESC_PRESS: return KeyAction::BACK;
         case KEY_RAW_1_PRESS: return KeyAction::JUMP_1;
         case KEY_RAW_2_PRESS: return KeyAction::JUMP_2;
         case KEY_RAW_3_PRESS: return KeyAction::JUMP_3;

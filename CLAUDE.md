@@ -146,27 +146,34 @@ with plausible RSSI/SNR, and that a mid-run switch leaves the radio in a
 clean state afterward (`crc_err`/`queue_drop`/`bus_miss` unaffected by the
 switch itself, not just by steady-state listening).
 
-**Phase 5 (on-device menu UI) built, not yet hardware-verified**: pulled
+**Phase 5 (on-device menu UI) built, partially hardware-verified**: pulled
 forward ahead of `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's request —
 same restructuring precedent as WiFi's Phase-3 pull-forward, see ROADMAP.md.
 Replaces Phase 3/4's timed hold-gestures with real keyboard-driven
-navigation: a new `keyboard.h` decodes nine specific TCA8418 keys (`,`/`.`
-move, Enter selects, Backspace goes back, `1`-`5` jump straight to a
-numbered carousel page — the digit jumps added slightly later than the
-first four, same phase, once a full keyboard was going to be on hand for
-the bench session anyway — no Fn chord, sourced against three independent
+navigation: `keyboard.h` decodes eleven specific TCA8418 keys — `,`/`.`
+move (aliased by `;`/`/`, the keyboard's own printed Fn-arrow diamond, added
+after a first bench pass), Enter selects, the backtick/ESC key goes back
+(swapped in for Backspace the same bench session — see below), `1`-`5` jump
+straight to a numbered carousel page — no Fn chord (the ESC/arrow additions
+deliberately bind the *plain* key rather than the upstream Fn-combo, to keep
+this rule rather than adopt it), sourced against three independent
 references since the Cardputer-ADV has no dedicated arrow keys, see
-DESIGN.md §10), and `ui_task` gained a two-item menu (profile switch, WiFi
+DESIGN.md §10. `ui_task` gained a two-item menu (profile switch, WiFi
 toggle — both reusing existing Phase 3/4 actions unchanged) plus a new
 read-only CHANNEL status page. Deliberately narrow scope, decided with the
 user up front: toggles only, no on-device numeric editing of channel params
 (that stays on the web UI/`config.txt`). Verified against the host-native
-test suite (67 tests, up from 59 — same g++/Unity workaround); genuinely
-unverified on real hardware: whether the sourced raw-byte values for all
-nine keys are actually correct (press each once and confirm — the five
-digit keys carry more sourcing risk than the original four, see PROGRESS.md),
-and whether the menu's two actions behave the same as their old gesture
-equivalents did.
+test suite (70 tests, up from 59 — same g++/Unity workaround).
+
+**First hardware bench pass, 2026-08-24: Comma, Period, and all five digit
+keys confirmed working as designed** — the first Phase 5 items to move from
+"sourced" to "confirmed." That same pass is what surfaced the ESC/arrow-alias
+changes above: Backspace-as-BACK felt wrong in hand, and the operator's own
+attempt to use the printed Fn-arrow diamond (expecting `;`/`/` to also
+navigate) is exactly what exposed they didn't — both fixed same-day, neither
+bench-verified yet. Genuinely still unverified: the backtick/ESC and
+Semicolon/Slash raw-byte values, and whether the menu's two actions behave
+the same as their old gesture equivalents did.
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna

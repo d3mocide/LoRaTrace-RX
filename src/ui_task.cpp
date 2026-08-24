@@ -398,7 +398,7 @@ void drawMenu() {
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
     tft->setCursor(2, tft->height() - 9);
-    tft->print(",/. move   Enter act   Bksp back");
+    tft->print(",/. move   Enter act   ` back");
 }
 
 void drawPage() {

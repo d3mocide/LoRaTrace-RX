@@ -358,25 +358,32 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         physical gesture (ui_task.cpp), reasoned about but not bench-timed
         against an actual human thumb
 - [~] **Phase 5** — On-device menu UI. Built 2026-08-24 (digit-key page
-      jumps added same day, slightly later — see Decisions log), passing the
-      full host-native suite (67 tests); **not yet hardware-verified**. Pulled
-      forward ahead of `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's
-      request — see ROADMAP.md/CLAUDE.md Status. Corrected numbering
-      (2026-08-24): this checklist previously called this slot
-      `DISCOVERY_SWEEP` — ROADMAP.md's phase numbers are the ones that
-      actually shipped; this list had drifted from it, same kind of
-      correction already made for Phase 3/4 above
-  - [ ] Bench-verify all nine sourced keys (`src/keyboard.h`): press
-        Backspace/Enter/Comma/Period/'1'-'5' once each, confirm the firmware
-        recognizes exactly that key and no other — the raw byte values are
-        derived and cross-cited against three independent sources (see
-        DESIGN.md §10) but never run against a real TCA8418. '1'-'5' are the
-        newest of the nine (added 2026-08-24, same Phase, ahead of this
-        bench session — see Decisions log) and share the most sourcing risk:
-        unlike Backspace/Enter, nothing independently cross-checks their
-        specific (row, col) the way Launcher's `col == 13` check did for
-        those two — confirm all five, not just a couple, before trusting the
-        set
+      jumps, then the ESC/arrow-alias rework below, both added same day —
+      see Decisions log), passing the full host-native suite (70 tests);
+      **first hardware pass done, rest still open**. Pulled forward ahead of
+      `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's request — see
+      ROADMAP.md/CLAUDE.md Status. Corrected numbering (2026-08-24): this
+      checklist previously called this slot `DISCOVERY_SWEEP` —
+      ROADMAP.md's phase numbers are the ones that actually shipped; this
+      list had drifted from it, same kind of correction already made for
+      Phase 3/4 above
+  - [x] **Bench-verify Comma/Period/'1'-'5' (`src/keyboard.h`) — closed
+        2026-08-24.** User confirmed on real hardware: all five digit keys
+        jump to the correct page, Comma and Period move the carousel/menu
+        selection as designed. This same pass is what surfaced the two
+        items below — Backspace felt wrong for "back," and the operator's
+        own attempt to use the keyboard's printed Fn-arrow diamond
+        (expecting `;`/`/` to also navigate) found they silently did
+        nothing, which is exactly the "unmapped key is safely ignored"
+        allowlist property working as designed, just not the UX wanted.
+  - [ ] **Bench-verify the backtick/ESC key and Semicolon/Slash aliases —
+        added 2026-08-24, not yet pressed on real hardware.** Newest and
+        least-cross-checked of the eleven: unlike Enter/the original
+        Backspace, nothing independently confirms these three specific
+        (row, col) positions the way Launcher's `col == 13` check did —
+        confirm the backtick/ESC key actually exits the menu, and that
+        Semicolon/Slash move the carousel/selection the same way Comma/
+        Period already do, not something else.
   - [ ] Confirm the menu's two actions behave identically to their old
         gesture equivalents: profile switch (`radioRequestProfileSwitch()`)
         and WiFi toggle (`wifiToggle()`) are unchanged Phase 3/4 code, only
@@ -385,10 +392,10 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [ ] Confirm the new CHANNEL status page reflects a live profile switch
         immediately (it reads `radioActiveChannel()`, already confirmed
         correct post-switch in Phase 4 — this just needs an on-screen look)
-  - [ ] Confirm the persistent `,/. page   Enter menu` / `,/. move   Enter
-        act   Bksp back` hint lines render without clipping/overlap on the
-        real 240×135 panel — laid out by inspection against the existing
-        page functions' y-coordinates, not measured on glass
+  - [ ] Confirm the persistent `,/. page  1-5 jump  Enter menu` / `,/. move
+        Enter act   \` back` hint lines render without clipping/overlap on
+        the real 240×135 panel — laid out by inspection against the
+        existing page functions' y-coordinates, not measured on glass
 - [ ] **Phase 6** — `DISCOVERY_SWEEP`
 - [ ] **Phase 7** — `ENERGY_SWEEP`
 
@@ -2188,6 +2195,61 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     ('6'-'9'/'0') as an allowlist boundary check — the case most likely to
     catch an off-by-one in the new derivation. Not yet bench-verified
     against a real TCA8418, same as the original four.
+- **2026-08-24 (later same day)** — First real Phase 5 hardware pass, and
+  two live findings from it acted on immediately. User confirmed on real
+  hardware: all five digit-jump keys work, Comma/Period move the
+  carousel/menu as designed. That same session surfaced two things only a
+  human hand on real keys was going to find:
+  1. **Backspace felt wrong for "leave the menu."** Swapped for the
+     top-left key instead — silkscreened ESC on the physical Cardputer-ADV
+     keycap, even though the TCA8418/RetroBreeze's own reference call its
+     base character backtick. Bound as a **plain** press (no Fn), per this
+     project's existing "no Fn chord" rule — RetroBreeze documents the
+     upstream convention as Fn+backtick ("There is no dedicated ESC key in
+     the firmware... ESC is accessed as Fn + backtick"), but this firmware
+     doesn't track Fn as a modifier at all and isn't starting now for one
+     key. `KEY_RAW_BACKSPACE_PRESS` removed outright rather than left
+     dead — nothing else used it. New constant `KEY_RAW_ESC_PRESS = 1`
+     (physical row 0, col 0).
+  2. **The operator, working from the same keycaps, tried the printed
+     Fn-arrow diamond** (`;`/`,`/`.`/`/` = up/left/down/right — also
+     RetroBreeze-documented) expecting it to double as navigation.
+     Reported back precisely: Left (`,`) and Down (`.`) already worked —
+     unsurprising, they're literally Comma/Period, already bound — while Up
+     (`;`) and Right (`/`) silently did nothing, because nothing in
+     `keyboard.h` had ever mapped them. Not a bug (the allowlist's whole
+     design point is that an unmapped key does nothing) but a real UX gap
+     once a full keyboard was actually in hand to notice it. Fixed by
+     adding `KEY_RAW_SEMICOLON_PRESS`/`KEY_RAW_SLASH_PRESS` as plain-press
+     **aliases** for the existing `KeyAction::PREV`/`NEXT` — no new
+     `KeyAction` values, since semantically these are exactly the same
+     "previous"/"next" the carousel and menu already had, just reachable
+     from a second physical key each. All four arrow-diamond keys (and
+     digits `1`-`5`) work without holding Fn.
+  - **Sourcing:** same three-source chain as everything else in
+    `keyboard.h`, re-verified against the already-cloned RetroBreeze/
+    Launcher checkouts from the digit-key entry above rather than
+    re-cloned. RetroBreeze's README documents both quirks explicitly (its
+    own ESC and Fn-arrow-diamond sections, cited in `keyboard.h`'s
+    comments and DESIGN.md §10) — this wasn't inferred from the key-value
+    table alone, it's stated outright as the intended role of these keys'
+    printed keycaps.
+  - **`KEY_RAW_ESC_PRESS`/`KEY_RAW_SEMICOLON_PRESS`/`KEY_RAW_SLASH_PRESS`
+    not yet bench-verified** — added and tested host-side same day as the
+    report that motivated them, not yet re-flashed and pressed. Tracked as
+    its own checklist item above rather than folded into "closed," since
+    conflating an untested change with an already-confirmed one is exactly
+    the kind of thing this log exists to avoid.
+  - **Test suite:** `test/test_keyboard/` renamed/added cases for the new
+    aliases (`test_semicolon_is_prev`, `test_slash_is_next`,
+    `test_esc_is_back`) and added `test_backspace_is_no_longer_mapped` as
+    an explicit regression pin — Backspace returning to "just an ordinary
+    ignored key" is an intentional behavior change, not an oversight, and
+    deserves its own test rather than quietly losing coverage when its old
+    test (`test_backspace_is_back`) was removed. 70 native tests total, up
+    from 67 (3 new: two alias tests plus the regression pin; the digit-jump
+    test from the prior entry already counted). Verified with the same
+    g++/Unity workaround (no `pio` in this environment) — all 70 pass.
 
 ## Next steps
 
