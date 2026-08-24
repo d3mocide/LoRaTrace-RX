@@ -1,26 +1,28 @@
 #pragma once
 // LoRaTrace RX — UI task (Core 0).
 //
-// PHASE-ORDER NOTE: CLAUDE.md puts real UI in Phase 6, after the discovery
-// engines. This arrives early at the operator's explicit request, because
-// field-testing Phase 2 for hours means reading the device *without* a
-// tethered laptop — which the boot splash alone can't support. Recorded in
-// PROGRESS.md's decisions log, same as the earlier splash exception.
+// PHASE-ORDER NOTE: read-only status pages arrived in Phase 2, pulled
+// forward from wherever CLAUDE.md originally proposed real UI, because
+// field-testing for hours means reading the device *without* a tethered
+// laptop — which the boot splash alone couldn't support. Phase 3/4 each
+// added one binary keyboard gesture on top (WiFi toggle, profile switch) as
+// narrow exceptions specifically because this project had no sourced
+// Cardputer-ADV row/col-to-character keymap yet, so nothing beyond
+// undifferentiated press/release timing was trustworthy.
 //
-// Scope is deliberately narrow even so: multiple read-only status pages, a
-// battery indicator, and (Phase 3/4) two binary keyboard gestures. Still no
-// menus and no configuration editing — those need more than a duration
-// threshold on an undifferentiated keypress to do well, and would bake in
-// keymap assumptions this project hasn't earned (no sourced Cardputer-ADV
-// row/col-to-character map — see pollKeyGesture()'s comment in ui_task.cpp).
-//
-// Two narrow exceptions built entirely from press/release timing, needing no
-// keymap at all: a ~1.2s hold toggles the WiFi AP (Phase 3, wifi_task.h),
-// and a ~3s hold (Phase 4) requests the mission-profile switch DESIGN.md §5
-// describes — Meshtastic <-> MeshCore, mutually exclusive, radio_task.h's
-// radioRequestProfileSwitch(). Both are single binary gestures layered on
-// the same duration check that already turns a tap into "next page" — there
-// is still no "which key" to get wrong, because neither gesture asks.
+// Phase 5 replaces both of those gestures with a real menu, now that
+// keyboard.h has a sourced (if not yet bench-verified — see its own
+// comments and PROGRESS.md's Phase 5 checklist) decode for four specific
+// keys: ',' / '.' move, Enter selects, Backspace goes back. Two modes built
+// from those same four keys throughout:
+//   - **Carousel** (default): ','/'.' cycle the read-only status pages
+//     below; Enter opens the menu; Backspace does nothing (nowhere to go
+//     back to).
+//   - **Menu**: ','/'.' move a highlighted selection; Enter activates it
+//     (profile switch or WiFi toggle — the same radio_task.h/wifi_task.h
+//     calls the old gestures made); Backspace returns to the carousel.
+// Deliberately not a general keymap or text-entry UI — see keyboard.h for
+// why four keys is enough for this scope (DESIGN.md/PROGRESS.md Phase 5).
 //
 // Owns the ST7789 exclusively once started — main.cpp must stop drawing.
 // The display is on its own SPI host (HSPI) with pins disjoint from the
@@ -28,11 +30,14 @@
 
 #include <Arduino_GFX_Library.h>
 
-// Pages the operator can cycle through. Order is deliberate: RADIO first
-// because it's the reason the device exists, SYSTEM last because it only
-// matters when something is wrong.
+// Pages the operator can cycle through in carousel mode. Order is
+// deliberate: RADIO first because it's the reason the device exists,
+// CHANNEL right after it since it's RADIO's own RF detail (the actual
+// active freq/SF/BW/CR/sync word — added Phase 5, previously visible only
+// over Serial or the web UI), GPS/SYSTEM/WIFI unchanged after.
 enum class UiPage : uint8_t {
     RADIO = 0,
+    CHANNEL,
     GPS,
     SYSTEM,
     WIFI,

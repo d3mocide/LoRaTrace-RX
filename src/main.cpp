@@ -126,14 +126,14 @@ void setup() {
     Serial.print(FIRMWARE_VERSION);
     Serial.print(F(" ("));
     Serial.print(FIRMWARE_BUILD_REV); // git SHA — identifies THIS binary
-    Serial.println(F(") — phase 4 (tasks + GPS + SD logging + WiFi + MeshCore profile switch)"));
+    Serial.println(F(") — phase 5 (tasks + GPS + SD logging + WiFi + MeshCore + on-device menu)"));
 
     displayReady = initDisplay();
     tft->setTextSize(2);
     splashLine(F("LoRaTrace RX"));
     splashY += SPLASH_LINE_H;
     tft->setTextSize(1);
-    splashLine(String("v") + FIRMWARE_VERSION + " -- phase 4");
+    splashLine(String("v") + FIRMWARE_VERSION + " -- phase 5");
     splashY += SPLASH_LINE_H / 2;
 
     // P0 high: RF antenna switch AND GPS power. Fatal because both halves
@@ -201,27 +201,28 @@ void setup() {
                " sync 0x" + String(activeChannel.sync_word, HEX));
 
     Serial.println(F("Radio task listening on Core 1."));
-    Serial.println(F("Profiles: hold any key ~3s to swap Meshtastic/MeshCore (DESIGN.md S5)."));
+    Serial.println(F("On-device menu: ,/. to move, Enter to open/select, Backspace to go back "
+                     "-- covers profile switch (Meshtastic/MeshCore, DESIGN.md S5) and WiFi."));
 
     Serial.print(F("Free heap after task start: "));
     Serial.print(ESP.getFreeHeap());
     Serial.println(F(" bytes"));
 
-    // Off until toggled (ui_task's long-press gesture) — starting the task
-    // itself is cheap, starting the AP is what actually costs RAM/CPU/RF
-    // noise, so that stays deferred until an operator asks for it. Started
-    // (and its splash line drawn) before uiTaskStart() below, same reason
-    // everything else in setup() draws its own splash line before that
-    // point: this is the last call allowed to touch `tft` directly.
+    // Off until toggled (ui_task's on-device menu, Phase 5) — starting the
+    // task itself is cheap, starting the AP is what actually costs RAM/CPU/
+    // RF noise, so that stays deferred until an operator asks for it.
+    // Started (and its splash line drawn) before uiTaskStart() below, same
+    // reason everything else in setup() draws its own splash line before
+    // that point: this is the last call allowed to touch `tft` directly.
     if (!wifiTaskStart()) {
         Serial.println(F("WARN: WiFi task failed to start — web UI unavailable this run."));
     } else {
         char ssid[32];
         wifiApSsid(ssid, sizeof(ssid));
-        Serial.print(F("WiFi: hold any key ~1s to enable AP '"));
+        Serial.print(F("WiFi: use the on-device menu to enable AP '"));
         Serial.print(ssid);
         Serial.println(F("'."));
-        splashLine("WiFi: hold key ~1s (" + String(ssid) + ")");
+        splashLine("WiFi: menu -> " + String(ssid));
     }
 
     // UI last: it takes ownership of the display, so everything above gets

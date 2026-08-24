@@ -403,8 +403,9 @@ monitor toggles DTR and resets the board, so bench sessions accumulate run
 folders holding a single health row and no detections. That is the honest
 consequence of "a run is a power-on" and is left alone rather than papered
 over: such runs are trivially identifiable (`rx=0`, one row) and cost a few
-hundred bytes. A Phase 6 start/stop gate would make the run boundary an
-operator decision instead, at which point this stops happening.
+hundred bytes. A future UI-driven start/stop gate (Phase 5's menu could grow
+one) would make the run boundary an operator decision instead, at which
+point this stops happening.
 
 Absolute time comes from GPS, because this board has no verified RTC. That
 has one consequence worth stating plainly: **rows written before the first
@@ -458,16 +459,65 @@ still self-describing via uptime.
    (ROADMAP.md Phase 3 for the full rationale, including why this moved
    ahead of MeshCore)
 4. Add MeshCore profile (910.525/SF7/BW62.5/CR5) — same engine, new table
-5. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
-   MeshMapper-observed frequencies where available
-6. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
-7. UI polish (the WiFi decision this step used to also carry is step 3 now,
-   done)
+5. On-device menu UI (`ui_task`) — replaces Phase 3/4's timed hold-gestures
+   with real keyboard-driven navigation and a settings/mode-toggle menu.
+   Moved ahead of steps 6/7 at the user's request (ROADMAP.md Phase 5 for
+   the full rationale, same precedent as step 3 moving ahead of MeshCore).
+   See §10 for the keyboard-decode sourcing this depends on.
+6. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
+   MeshMapper-observed frequencies where available — adds entries to step
+   5's menu/screen framework, doesn't reopen UI architecture
+7. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
 
-## 10. References
+## 10. Keyboard input decode (Phase 5)
+
+Real on-device navigation needed a sourced answer to a question this
+project had left open since Phase 2 (§1's keyboard row, CLAUDE.md's house
+rule against guessing hardware tables): what does a raw TCA8418 event byte
+actually mean on this specific keyboard? Phase 5's UX scope — plain `,`/`.`
+to move, Enter to select, Backspace to go back, no Fn chord, no numeric
+entry (ROADMAP.md Phase 5) — only ever needs four specific keys identified,
+which is what makes a fully-sourced answer tractable here instead of
+needing a whole separate research phase.
+
+Three independent sources, each covering one link in the chain from raw
+byte to key identity:
+
+1. **Raw event byte encoding** — `Adafruit_TCA8418::getEvent()`'s own doc
+   comment (the library this project already depends on for the keyboard
+   wake sequence, §1): key press events are `0x01..0x50` (the TCA8418's
+   internal key number `K`, 1-80, directly); release events are `K + 0x80`
+   (`0x81..0xD0`).
+2. **Raw `K` → physical (row, col) in the Cardputer-ADV's 4×14 key layout**
+   — verbatim from `bmorcelli/Launcher`'s own shipped, running Cardputer-ADV
+   interface code (`boards/m5stack-cardputer/interface.cpp`,
+   `mapRawKeyToPhysical()`), the same repo already cited in §1/§7 for the
+   TCA8418 wake sequence, GPIO5/NSS timing, and TFT offsets:
+   `u = K % 10; t = K / 10;` (valid for `u` in 1-8, `t` ≤ 6), then
+   `row = (u-1) & 0x03`, `col = (t << 1) | ((u-1) >> 2)`.
+3. **Physical (row, col) → which key it is** — RetroBreeze's
+   `cardputer-keyboard-reference` (github.com/RetroBreeze/
+   cardputer-keyboard-reference), which documents the Cardputer-**ADV**'s
+   full key map specifically (not the base Cardputer's GPIO-matrix variant).
+   Independently cross-checked against Launcher's own input handler, which
+   recognizes both Enter and Backspace by `col == 13` — matching
+   RetroBreeze's table exactly, from a second, independent source.
+
+Inverting step 2's formula for the four keys Phase 5 needs (Backspace,
+Enter, Comma, Period — all at physical col 10/11/13, per step 3) gives the
+exact raw press-byte constants in `src/keyboard.h`, which carries this same
+citation trail in its own comments so an implementer doesn't have to
+re-derive it. **Not yet bench-verified against real hardware** — same bar
+as every other sourced-not-measured fact in this section: press each of the
+four keys once and confirm the firmware recognizes exactly that key, per
+PROGRESS.md's Phase 5 checklist.
+
+## 11. References
 
 - Meshtastic radio settings & presets: meshtastic.org/docs/overview/radio-settings
 - MeshCore FAQ (region presets, Oct-2025 narrow migration): github.com/meshcore-dev/MeshCore/blob/main/docs/faq.md
 - Reticulum interface config (no fixed LoRa standard): markqvist.github.io/Reticulum/manual/interfaces.html
 - RadioLib SX126x CAD / channel scan API: jgromes.github.io/RadioLib
 - M5Stack Cap LoRa-1262 pinout/schematics: docs.m5stack.com/en/cap/Cap_LoRa-1262
+- `bmorcelli/Launcher` Cardputer-ADV interface (TCA8418 wake sequence, keyboard raw-value decode): github.com/bmorcelli/Launcher
+- RetroBreeze Cardputer-ADV keyboard reference (physical key map): github.com/RetroBreeze/cardputer-keyboard-reference

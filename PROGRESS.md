@@ -357,9 +357,33 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         holds don't bleed into it — both are duration buckets on the same
         physical gesture (ui_task.cpp), reasoned about but not bench-timed
         against an actual human thumb
-- [ ] **Phase 5** — `DISCOVERY_SWEEP`
-- [ ] **Phase 6** — `ENERGY_SWEEP`
-- [ ] **Phase 7** — UI polish, all 4 profiles stable
+- [~] **Phase 5** — On-device menu UI. Built 2026-08-24, passing the full
+      host-native suite (66 tests); **not yet hardware-verified**. Pulled
+      forward ahead of `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's
+      request — see ROADMAP.md/CLAUDE.md Status. Corrected numbering
+      (2026-08-24): this checklist previously called this slot
+      `DISCOVERY_SWEEP` — ROADMAP.md's phase numbers are the ones that
+      actually shipped; this list had drifted from it, same kind of
+      correction already made for Phase 3/4 above
+  - [ ] Bench-verify all four sourced keys (`src/keyboard.h`): press
+        Backspace/Enter/Comma/Period once each, confirm the firmware
+        recognizes exactly that key and no other — the raw byte values are
+        derived and cross-cited against three independent sources (see
+        DESIGN.md §10) but never run against a real TCA8418
+  - [ ] Confirm the menu's two actions behave identically to their old
+        gesture equivalents: profile switch (`radioRequestProfileSwitch()`)
+        and WiFi toggle (`wifiToggle()`) are unchanged Phase 3/4 code, only
+        how they're triggered changed — a hardware session should confirm
+        nothing about the trigger path itself broke either action
+  - [ ] Confirm the new CHANNEL status page reflects a live profile switch
+        immediately (it reads `radioActiveChannel()`, already confirmed
+        correct post-switch in Phase 4 — this just needs an on-screen look)
+  - [ ] Confirm the persistent `,/. page   Enter menu` / `,/. move   Enter
+        act   Bksp back` hint lines render without clipping/overlap on the
+        real 240×135 panel — laid out by inspection against the existing
+        page functions' y-coordinates, not measured on glass
+- [ ] **Phase 6** — `DISCOVERY_SWEEP`
+- [ ] **Phase 7** — `ENERGY_SWEEP`
 
 ## Open questions (from DESIGN.md §7 — verify before / during build)
 
@@ -2053,6 +2077,74 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     than left to compound; ROADMAP.md's numbering is the one source of truth
     for phase numbers, per this doc's own stated relationship to it.
 
+- **2026-08-24 — Phase 5 (on-device menu UI) built, pulled forward ahead of
+  `DISCOVERY_SWEEP`/`ENERGY_SWEEP`.** User asked directly for a real menu —
+  settings, mode toggles, screens showing profile-relevant info — to build
+  the rest of the project around, and to bump it to Phase 5 (same
+  restructuring precedent as WiFi's Phase-3 pull-forward). Since Phase 2,
+  `ui_task` had avoided decoding individual keys at all, citing "no sourced
+  Cardputer-ADV row/col-to-character map" — this session closed that gap.
+  - **Correction surfaced during planning:** the user's framing assumed
+    dedicated arrow keys exist. They don't. Checked against three
+    independent sources before designing anything against it: M5Stack's own
+    official Cardputer keyboard API docs, RetroBreeze's
+    `cardputer-keyboard-reference` (explicitly covers the Cardputer-**ADV**
+    TCA8418 variant, not just the base Cardputer), and `bmorcelli/Launcher`'s
+    own shipped, running Cardputer-ADV interface code (already this
+    project's established source for the TCA8418 wake sequence, GPIO5/NSS
+    timing, and TFT offsets). All three agree: directional intent is Fn held
+    + `;`/`,`/`.`/`/` for up/left/down/right — no physical arrow cluster.
+  - **Asked the user three questions before designing further** (navigation
+    scheme given no arrow keys, whether to also support on-device numeric
+    settings editing, whether to keep the old hold-gestures as shortcuts).
+    Chosen: plain `,`/`.` to move (no Fn chord) with Enter to select and
+    Backspace to go back; toggles only, no numeric entry (channel-param
+    editing stays on the Phase 3 web UI/`config.txt`); menu-only, the two
+    old hold-gestures removed rather than kept as parallel shortcuts. This
+    combination is what turned "decode 56 keys" into "identify 4 keys" —
+    the actual scope built.
+  - **Sourcing the four keys, `src/keyboard.h`:** chained three citations —
+    `Adafruit_TCA8418::getEvent()`'s own doc comment (raw event byte: press
+    = key number `K` 1-80 directly, release = `K+0x80`); `bmorcelli/Launcher`'s
+    verbatim `mapRawKeyToPhysical()` (raw `K` -> physical row/col in the
+    4×14 layout); RetroBreeze's `_key_value_map[4][14]` (physical row/col ->
+    which key). Cross-checked the middle+last link against Launcher's own
+    input handler, which recognizes Enter and Backspace by `col == 13` —
+    matches RetroBreeze's table independently. Inverted the formula for
+    just Backspace/Enter/Comma/Period to get four raw press-byte constants
+    (65/67/54/58) — full derivation kept in `keyboard.h`'s own comments and
+    DESIGN.md §10 so a future reader doesn't have to redo it. **Not
+    bench-verified** — see this section's new Phase 5 checklist items.
+  - **`radio_task.h`/`channel_plans.h`/`wifi_task.h`: no changes.** Every
+    action the menu triggers (`radioRequestProfileSwitch`,
+    `nextHomeListenProfile`, `radioActiveProfile`, `radioActiveChannel`,
+    `wifiToggle`, `wifiIsEnabled`) already existed from Phase 3/4 — this
+    phase is UI/input-layer work reusing an already-built, already-tested
+    action layer, not new radio or WiFi logic.
+  - **New CHANNEL status page** (`ui_task.cpp`): read-only
+    freq/SF/BW/CR/sync word from `radioActiveChannel()`, closing a real gap
+    — previously the actual active RF params were visible only over Serial
+    or the web UI's `/api/config`, with no on-device way to confirm a
+    menu-triggered profile switch actually retuned the radio.
+  - **Verification: strong on host logic, honestly unverified on hardware.**
+    No `pio` in this environment — same g++/Unity workaround as every prior
+    session. Added `test/test_keyboard/` (7 tests: the four sourced press
+    bytes decode correctly, their release-byte counterparts and a sample of
+    unrelated keys' raw bytes all decode to `NONE`) — 66 native tests total,
+    up from 59. `ui_task.cpp`/`ui_task.h`/`keyboard.h` are Arduino/FreeRTOS-
+    coupled like every other hardware-facing file in this project;
+    `keyboard.h`'s own decode logic is pure and directly tested, but the
+    TCA8418/display glue in `ui_task.cpp` was read in full and reviewed by
+    inspection rather than compiled, same bar this project has applied
+    throughout when no toolchain is available.
+  - **Also corrected while touching these files:** several stale phase-
+    number references in DESIGN.md (§4's CAD-scanning note, the old §9 build
+    order) and ROADMAP.md (the WiFi-size-lever note under Distribution still
+    said "gated behind Phase 6," and the versioning table's `v1.0` row still
+    described the pre-renumbering Phase 7) — left over from earlier
+    renumbering passes that didn't reach every mention. Fixed opportunistically
+    rather than left to compound, same reasoning as the Phase 4 entry above.
+
 ## Next steps
 
 Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist
@@ -2130,24 +2222,31 @@ above) — remaining items are follow-through, in the order it's worth doing.
    and is now built (see the Build-order checklist above); left as-is here
    rather than rewritten, since it's a historical note about what was
    planned at the time, not a live instruction.
-6. **Bench-verify Phase 4 (MeshCore profile), just built 2026-08-24.**
-   Passes the full host-native suite but has never run against real
-   traffic or real hardware:
+6. **Bench-verify Phase 4 (MeshCore profile), built 2026-08-24.** Passes
+   the full host-native suite but has never run against real traffic or
+   real hardware:
    - Live MeshCore RX at 910.525MHz/SF7/BW62.5/CR5 — same bar Phase 1 held
      Meshtastic to (a plausible RSSI/SNR reading on a real packet, not just
      a non-crashing boot).
-   - A mid-run switch (the ~3s-hold gesture, ui_task.cpp) from Meshtastic to
-     MeshCore and back: confirm `crc_err`/`queue_drop`/`bus_miss` stay at
-     whatever they were before the switch (i.e. the switch itself doesn't
-     wedge or destabilize the radio), the on-screen header profile name
-     actually updates, and a real packet on each side of the switch logs
-     with the right `profile`/`classification` and (Meshtastic only)
-     `node_id`.
-   - That the ~3s and ~1.2s hold thresholds (ui_task.cpp) feel right against
-     an actual human thumb, not just plausible on paper — a threshold that's
-     too easy to cross means an operator flipping pages loses their
-     Meshtastic lock by accident; too hard to hit and the feature is dead
-     weight.
+   - A mid-run switch (Phase 5's menu, `Profile` row + Enter — supersedes
+     this item's original wording, written before Phase 5 replaced the
+     ~3s-hold gesture that used to trigger this) from Meshtastic to MeshCore
+     and back: confirm `crc_err`/`queue_drop`/`bus_miss` stay at whatever
+     they were before the switch (i.e. the switch itself doesn't wedge or
+     destabilize the radio), the on-screen header profile name actually
+     updates, and a real packet on each side of the switch logs with the
+     right `profile`/`classification` and (Meshtastic only) `node_id`.
+   - ~~That the ~3s and ~1.2s hold thresholds feel right against an actual
+     human thumb~~ — **moot, 2026-08-24**: Phase 5 removed both hold
+     gestures entirely in favor of the menu; see item 7 below for what
+     replaced this concern.
+7. **Bench-verify Phase 5 (on-device menu UI), built 2026-08-24.** See the
+   Build-order checklist's own Phase 5 sub-items above for the full list
+   (all four sourced keys, the menu's two actions, the new CHANNEL page, the
+   hint-line layout) — not duplicated here, this entry just flags it as the
+   next hardware session's actual priority now that Phase 4's own bench
+   verification (item 6) and this item are the two open hardware-only
+   questions.
 5. Still-open watch items, no action unless they recur/worsen:
    - SD-mount reliability across power cycles (the GPIO5 fix's first test
      was clean, but the original report said "every bin", which points at
