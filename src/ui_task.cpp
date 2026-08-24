@@ -10,6 +10,7 @@
 #include "board_pins.h"
 #include "detection.h"
 #include "gps_task.h"
+#include "keyboard.h"
 #include "logger_task.h"
 #include "radio_task.h"
 #include "spi_bus.h"
@@ -35,6 +36,19 @@ bool keyboardReady = false;
 UiPage page = UiPage::RADIO;
 uint32_t lastPageChange = 0;
 
+// Carousel = the read-only status pages, cycled by ','/'.'. Menu = the
+// action list opened by Enter (Phase 5) — see keyboard.h for why only these
+// four keys exist as input at all.
+enum class UiMode : uint8_t { CAROUSEL, MENU };
+UiMode mode = UiMode::CAROUSEL;
+
+// The menu has exactly two items this phase (PROGRESS.md/DESIGN.md Phase 5
+// scope: toggles only, no numeric settings editing) — profile switch and
+// WiFi toggle, both already-built Phase 3/4 actions. Index into that fixed
+// pair, not a general list.
+constexpr int8_t MENU_ITEM_COUNT = 2;
+int8_t menuSelection = 0;
+
 // Without a keyboard the pages rotate on their own — a device stuck on one
 // page during a multi-hour field test is worse than one that cycles.
 constexpr uint32_t AUTO_ADVANCE_MS = 8000;
@@ -52,6 +66,7 @@ constexpr uint16_t COL_BAD = 0xF800;    // red
 const char *pageName(UiPage p) {
     switch (p) {
         case UiPage::RADIO: return "RADIO";
+        case UiPage::CHANNEL: return "CHANNEL";
         case UiPage::GPS: return "GPS";
         case UiPage::SYSTEM: return "SYSTEM";
         case UiPage::WIFI: return "WIFI";
@@ -111,14 +126,27 @@ void drawHeader() {
     tft->setTextSize(1);
     tft->setTextColor(COL_FG, COL_BG);
     tft->setCursor(2, 2);
-    tft->print(pageName(page));
 
-    // Page position, so it's obvious more pages exist.
+    if (mode == UiMode::MENU) {
+        tft->print("MENU");
+    } else {
+        tft->print(pageName(page));
+        // Page position, so it's obvious more pages exist.
+        tft->setTextColor(COL_DIM, COL_BG);
+        tft->print(" ");
+        tft->print((uint8_t)page + 1);
+        tft->print('/');
+        tft->print((uint8_t)UiPage::COUNT);
+    }
+
+    // Active mission profile, on every page/mode: whatever's on screen, an
+    // operator needs this to interpret it — a GPS fix means something
+    // different mid-MeshCore-run than mid-Meshtastic-run only insofar as
+    // the operator remembers which one is live right now, and it's one of
+    // the two things the menu itself can change.
     tft->setTextColor(COL_DIM, COL_BG);
-    tft->print(" ");
-    tft->print((uint8_t)page + 1);
-    tft->print('/');
-    tft->print((uint8_t)UiPage::COUNT);
+    tft->print(' ');
+    tft->print(missionProfileName((uint8_t)radioActiveProfile()));
 
     drawBattery();
     drawHeartbeat();
@@ -173,6 +201,36 @@ void drawRadioPage() {
     tft->print("/");
     tft->print(loggerMaxFlushMs());
     tft->print("ms");
+}
+
+// Read-only RF detail behind RADIO's counters — added Phase 5 alongside the
+// menu's live profile switch, so an operator has an on-device way to
+// confirm a switch actually retuned the radio (radioActiveChannel() already
+// reflects it correctly post-switch, Phase 4) rather than trusting the
+// header text alone. Previously this was visible only over Serial or the
+// web UI's /api/config.
+void drawChannelPage() {
+    const ChannelParams ch = radioActiveChannel();
+
+    tft->setTextSize(2);
+    tft->setTextColor(COL_FG, COL_BG);
+    tft->setCursor(2, HEADER_H + 6);
+    tft->print(ch.freq_mhz, 3);
+    tft->print(" MHz");
+
+    tft->setCursor(2, HEADER_H + 28);
+    tft->print("SF");
+    tft->print(ch.sf);
+    tft->print(" BW");
+    tft->print(ch.bw_khz, 1);
+
+    tft->setTextSize(1);
+    tft->setTextColor(COL_DIM, COL_BG);
+    tft->setCursor(2, HEADER_H + 52);
+    tft->print("CR4/");
+    tft->print(ch.cr_denom);
+    tft->print("  sync 0x");
+    tft->print(ch.sync_word, HEX);
 }
 
 void drawGpsPage() {
@@ -310,23 +368,64 @@ void drawWifiPage() {
         tft->setCursor(2, HEADER_H + 42);
         tft->print(ssid);
     }
+}
 
+// One row of the menu, selected or not. Selection is carried by inverting
+// FG/BG on that row's whole width — same colour-carries-state convention
+// drawBattery()/drawRadioPage() already use, just applied to a full row
+// instead of a single value.
+void drawMenuRow(int16_t y, const char *rowLabel, const char *value, bool selected) {
+    const uint16_t fg = selected ? COL_BG : COL_FG;
+    const uint16_t bg = selected ? COL_FG : COL_BG;
+    tft->fillRect(0, y - 3, tft->width(), 20, bg);
+    tft->setTextSize(2);
+    tft->setTextColor(fg, bg);
+    tft->setCursor(4, y);
+    tft->print(rowLabel);
+    tft->print(value);
+}
+
+// The menu itself (Phase 5): exactly the two actions the old hold-gestures
+// used to trigger (radioRequestProfileSwitch()/wifiToggle(), both
+// unchanged, Phase 3/4), now reached by moving a highlighted selection with
+// ','/'.' and activating it with Enter, per DESIGN.md/PROGRESS.md's Phase 5
+// scope decision (toggles only — no numeric settings editing here).
+void drawMenu() {
+    drawMenuRow(HEADER_H + 10, "Profile ", missionProfileName((uint8_t)radioActiveProfile()),
+                menuSelection == 0);
+    drawMenuRow(HEADER_H + 34, "WiFi ", wifiIsEnabled() ? "ON" : "OFF", menuSelection == 1);
+
+    tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
-    tft->setCursor(2, HEADER_H + 82);
-    tft->print("hold any key ~1s");
-    tft->setCursor(2, HEADER_H + 94);
-    tft->print("to toggle");
+    tft->setCursor(2, tft->height() - 9);
+    tft->print(",/. move   Enter act   Bksp back");
 }
 
 void drawPage() {
     tft->fillRect(0, HEADER_H + 1, tft->width(), tft->height() - HEADER_H - 1, COL_BG);
+
+    if (mode == UiMode::MENU) {
+        drawMenu();
+        return;
+    }
+
     switch (page) {
         case UiPage::RADIO: drawRadioPage(); break;
+        case UiPage::CHANNEL: drawChannelPage(); break;
         case UiPage::GPS: drawGpsPage(); break;
         case UiPage::SYSTEM: drawSystemPage(); break;
         case UiPage::WIFI: drawWifiPage(); break;
         default: break;
     }
+
+    // Persistent, page-independent — replaces the two gesture-specific
+    // hints (RADIO's "hold ~3s", WIFI's "hold ~1s") that used to live
+    // inside individual page-draw functions, since both actions moved into
+    // one menu that isn't specific to either page any more.
+    tft->setTextSize(1);
+    tft->setTextColor(COL_DIM, COL_BG);
+    tft->setCursor(2, tft->height() - 9);
+    tft->print(",/. page   Enter menu");
 }
 
 void nextPage() {
@@ -335,40 +434,23 @@ void nextPage() {
     tft->fillScreen(COL_BG);
 }
 
-// Long enough that an ordinary tap (page-advance) never trips the WiFi
-// toggle by accident; short enough not to feel broken when it's meant to.
-constexpr uint32_t LONG_PRESS_MS = 1200;
+void prevPage() {
+    page = (UiPage)(((uint8_t)page + (uint8_t)UiPage::COUNT - 1) % (uint8_t)UiPage::COUNT);
+    lastPageChange = millis();
+    tft->fillScreen(COL_BG);
+}
 
-bool keyHeld = false;
-uint32_t keyHeldSince = 0;
-
-enum class KeyGesture { NONE, TAP, HOLD };
-
-// Drains the key FIFO and turns press/release pairs into TAP (advance the
-// page, the original behaviour) or HOLD (toggle WiFi — ui_task.h).
-//
-// Deliberately does not decode *which* key, for either gesture. A verified
-// Cardputer-ADV row/col-to-character map isn't something this project has
-// sourced, and CLAUDE.md forbids guessing hardware tables. Building both
-// gestures from the same undifferentiated press/release bit (0x80) means
-// neither one needs a keymap at all, so neither can be wrong about which
-// key was pressed — there's no "which key" to get wrong. Doesn't try to
-// track multiple simultaneous keys distinctly (a second key pressed before
-// the first releases is a known, accepted imprecision) — this device gets
-// sparse, deliberate single-key interaction, not typing.
-KeyGesture pollKeyGesture() {
-    if (!keyboardReady) return KeyGesture::NONE;
-    KeyGesture result = KeyGesture::NONE;
+// Drains the TCA8418 event FIFO and returns the most recently recognized
+// KeyAction this poll (keyboard.h), or NONE. Several actions queued between
+// polls collapse to the last one — an accepted imprecision at a 30ms poll
+// interval for sparse, deliberate keypresses, the same tolerance the old
+// gesture code documented for simultaneous keys.
+KeyAction pollKeyAction() {
+    if (!keyboardReady) return KeyAction::NONE;
+    KeyAction result = KeyAction::NONE;
     while (keys.available() > 0) {
-        const int k = keys.getEvent();
-        const bool isPress = (k & 0x80) != 0; // bit 7 set = press, clear = release
-        if (isPress && !keyHeld) {
-            keyHeld = true;
-            keyHeldSince = millis();
-        } else if (!isPress && keyHeld) {
-            keyHeld = false;
-            result = (millis() - keyHeldSince >= LONG_PRESS_MS) ? KeyGesture::HOLD : KeyGesture::TAP;
-        }
+        const KeyAction a = keyboardDecodeEvent((uint8_t)keys.getEvent());
+        if (a != KeyAction::NONE) result = a;
     }
     return result;
 }
@@ -382,18 +464,53 @@ void uiTask(void *) {
     lastPageChange = lastRedraw;
 
     for (;;) {
-        const KeyGesture gesture = pollKeyGesture();
-        if (gesture == KeyGesture::HOLD) {
-            wifiToggle();
-            drawHeader();
-            drawPage(); // if WIFI is the current page, reflect the new state now
-            lastRedraw = millis();
-        } else if (gesture == KeyGesture::TAP) {
-            nextPage();
+        const KeyAction action = pollKeyAction();
+        bool redraw = false;
+
+        if (mode == UiMode::CAROUSEL) {
+            if (action == KeyAction::PREV) {
+                prevPage();
+                redraw = true;
+            } else if (action == KeyAction::NEXT) {
+                nextPage();
+                redraw = true;
+            } else if (action == KeyAction::SELECT) {
+                mode = UiMode::MENU;
+                menuSelection = 0;
+                redraw = true;
+            }
+            // BACK is a no-op here — nothing to go back to from the carousel.
+        } else { // UiMode::MENU
+            if (action == KeyAction::PREV) {
+                menuSelection = (int8_t)((menuSelection + MENU_ITEM_COUNT - 1) % MENU_ITEM_COUNT);
+                redraw = true;
+            } else if (action == KeyAction::NEXT) {
+                menuSelection = (int8_t)((menuSelection + 1) % MENU_ITEM_COUNT);
+                redraw = true;
+            } else if (action == KeyAction::SELECT) {
+                if (menuSelection == 0) {
+                    // Same one-loop-iteration-of-lag caveat the old
+                    // hold-gesture had: this queues the switch, it doesn't
+                    // apply it — the header still shows the outgoing
+                    // profile until radio_task's own loop picks the
+                    // request up, typically the next redraw tick.
+                    radioRequestProfileSwitch(nextHomeListenProfile(radioActiveProfile()));
+                } else {
+                    wifiToggle();
+                }
+                redraw = true;
+            } else if (action == KeyAction::BACK) {
+                mode = UiMode::CAROUSEL;
+                redraw = true;
+            }
+        }
+
+        if (redraw) {
             drawHeader();
             drawPage();
             lastRedraw = millis();
-        } else if (!keyboardReady && millis() - lastPageChange >= AUTO_ADVANCE_MS) {
+        } else if (mode == UiMode::CAROUSEL && !keyboardReady &&
+                   millis() - lastPageChange >= AUTO_ADVANCE_MS) {
             nextPage();
             drawHeader();
             drawPage();

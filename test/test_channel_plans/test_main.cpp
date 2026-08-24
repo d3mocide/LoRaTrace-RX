@@ -62,6 +62,41 @@ void test_meshcore_narrow_in_tuned_band() {
     TEST_ASSERT_EQUAL_UINT8(5, CHANNEL_MESHCORE_US_NARROW.cr_denom);
 }
 
+// Phase 4: the profile->table lookup radio_task.cpp uses for a live switch
+// (channelParamsForProfile) must return the exact same tables these earlier
+// tests already pin — a lookup bug here would retune the radio to the wrong
+// channel just as silently as a wrong constant would.
+void test_channel_params_for_profile() {
+    const ChannelParams meshtastic = channelParamsForProfile(MissionProfile::MESHTASTIC);
+    TEST_ASSERT_EQUAL_FLOAT(CHANNEL_MESHTASTIC_LONGFAST_US.freq_mhz, meshtastic.freq_mhz);
+    TEST_ASSERT_EQUAL_UINT8(CHANNEL_MESHTASTIC_LONGFAST_US.sync_word, meshtastic.sync_word);
+
+    const ChannelParams meshcore = channelParamsForProfile(MissionProfile::MESHCORE);
+    TEST_ASSERT_EQUAL_FLOAT(CHANNEL_MESHCORE_US_NARROW.freq_mhz, meshcore.freq_mhz);
+    TEST_ASSERT_EQUAL_UINT8(CHANNEL_MESHCORE_US_NARROW.sync_word, meshcore.sync_word);
+}
+
+// Profiles without a HOME_LISTEN table (Reticulum, General Exploration —
+// ENERGY_SWEEP only, phase 6) must fall back to Meshtastic rather than
+// silently returning an unrelated/uninitialised table.
+void test_channel_params_for_profile_falls_back_to_meshtastic() {
+    const ChannelParams reticulum = channelParamsForProfile(MissionProfile::RETICULUM);
+    TEST_ASSERT_EQUAL_FLOAT(CHANNEL_MESHTASTIC_LONGFAST_US.freq_mhz, reticulum.freq_mhz);
+
+    const ChannelParams general = channelParamsForProfile(MissionProfile::GENERAL_EXPLORATION);
+    TEST_ASSERT_EQUAL_FLOAT(CHANNEL_MESHTASTIC_LONGFAST_US.freq_mhz, general.freq_mhz);
+}
+
+// The keyboard-gated toggle (ui_task.cpp) must actually alternate, and must
+// return to where it started after two presses — a one-way "next" would
+// strand an operator on MeshCore with no way back via the same gesture.
+void test_next_home_listen_profile_toggles() {
+    TEST_ASSERT_TRUE(MissionProfile::MESHCORE == nextHomeListenProfile(MissionProfile::MESHTASTIC));
+    TEST_ASSERT_TRUE(MissionProfile::MESHTASTIC == nextHomeListenProfile(MissionProfile::MESHCORE));
+    TEST_ASSERT_TRUE(MissionProfile::MESHTASTIC ==
+                     nextHomeListenProfile(nextHomeListenProfile(MissionProfile::MESHTASTIC)));
+}
+
 void test_meshtastic_and_meshcore_dont_collide() {
     // Different enough that a HOME_LISTEN lock on one won't pick up the
     // other by accident.
@@ -78,5 +113,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_meshtastic_sync_word_matches_upstream);
     RUN_TEST(test_meshcore_sync_word_matches_upstream);
     RUN_TEST(test_protocol_sync_words_differ);
+    RUN_TEST(test_channel_params_for_profile);
+    RUN_TEST(test_channel_params_for_profile_falls_back_to_meshtastic);
+    RUN_TEST(test_next_home_listen_profile_toggles);
     return UNITY_END();
 }

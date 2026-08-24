@@ -167,29 +167,73 @@ built, deliberately deferred from Phase 3 (PROGRESS.md) so it's designed
 and tested against a real second channel table instead of a stub.
 **Blocking unknowns:** none for basic detection; MeshCore's
 encryption/PSK model (§7) still blocks payload decode, not detection.
+**Status:** built, not yet hardware-verified. The MeshCore table itself
+predates this phase (channel_plans.h, sourced and cited during Phase 1's
+sync-word investigation); what this phase adds is the actual live switch —
+`radio_task.cpp` holds a depth-1 mailbox (`xQueueOverwrite` + a task notify)
+so a switch request from `ui_task` retunes the SX1262 between packets
+without the radio task ever blocking, and `ui_task`'s gesture state machine
+gained a third, ~3s-hold bucket alongside its existing tap/~1.2s-hold pair —
+still no keymap needed, same discipline as the Phase 3 WiFi toggle. See
+CLAUDE.md's Status section and PROGRESS.md for what's verified so far
+(host-native tests only) versus what a hardware session still needs to
+confirm (live MeshCore RX, and that a mid-run switch leaves the radio
+counters clean afterward).
 
-### Phase 5 — `DISCOVERY_SWEEP`
+### Phase 5 — On-device menu UI
+**Deliverable:** a real menu on `ui_task`'s display, replacing the timed
+hold-gestures Phase 3/4 built as a stopgap. Pulled forward ahead of
+`DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's request — same precedent as
+WiFi's Phase-3 pull-forward ahead of MeshCore — because the menu/settings
+framework built here is what the rest of the project gets built around, not
+because it was blocking anything below it.
+
+Scope, decided with the user up front rather than assumed: plain `,`/`.`
+move a selection (no Fn chord — the Cardputer-ADV has no dedicated arrow
+keys; directional intent there is Fn held + `;`/`,`/`.`/`/`, confirmed
+against M5Stack's own keyboard API docs, a dedicated Cardputer-ADV keyboard
+reference, and `bmorcelli/Launcher`'s own shipped interface code), Enter
+selects, Backspace goes back. Toggles only this phase — profile switch
+(Meshtastic/MeshCore, reusing Phase 4's `radioRequestProfileSwitch()`
+unchanged) and WiFi on/off (reusing Phase 3's `wifiToggle()` unchanged) —
+no on-device numeric editing of channel params; that stays on the existing
+web UI Settings tab / `config.txt`. A new read-only CHANNEL status page
+shows the actual active freq/SF/BW/CR/sync word, closing a real gap (that
+was previously visible only over Serial or the web UI). The two old
+hold-gestures are removed, not kept as parallel shortcuts, so there's
+exactly one way to trigger each action.
+
+This is what turns "decode the keyboard" from a 56-key project of its own
+into a small, low-risk slice: only four specific keys need to be identified
+correctly, not the whole QWERTY layout — see `src/keyboard.h` for the full
+sourcing (TCA8418 raw-event encoding, the raw-value-to-physical-position
+formula, and the physical-position-to-character table, each independently
+cited) and DESIGN.md for the citation-level writeup.
+
+**Blocking unknowns:** none for the menu/toggle mechanism itself — every
+action it triggers already exists and was already exercised in Phase 3/4.
+The keyboard decode is sourced from three independent references but,
+per this project's own standing rule, not yet bench-verified against real
+hardware (see PROGRESS.md's Phase 5 checklist): press each of the four keys
+once and confirm the firmware recognizes exactly that key and no other.
+
+### Phase 6 — `DISCOVERY_SWEEP`
 **Deliverable:** bounded-duration CAD-cycle sweep of a curated candidate
 list per active profile — non-default Meshtastic slots, legacy MeshCore.
 **Blocking unknowns:** curated candidate lists should be weighted by
 MeshMapper-observed frequencies ([[meshmapper-pipeline]], per CLAUDE.md)
 where available, not scraped defaults alone. CAD `symNum` tuning (§7)
 needs bench testing against Semtech AN1200.48 before trusting false-
-positive/miss rates.
+positive/miss rates. New sweep results are additional entries in Phase 5's
+menu/screen framework, not a reason to reopen UI architecture.
 
-### Phase 6 — `ENERGY_SWEEP`
+### Phase 7 — `ENERGY_SWEEP`
 **Deliverable:** Reticulum and General Exploration profiles — FSK/OOK RSSI
 sweep across 868–923MHz with periodic LoRa CAD checks at common SF/BW
 combos.
 **Blocking unknowns:** 923–928MHz front-end rolloff should be
 characterized (empirical RSSI floor sweep) so the UI can be honest about
 reduced sensitivity in that sub-band rather than silently under-reporting.
-
-### Phase 7 — UI polish
-**Deliverable:** remaining `ui_task` polish (profile switching, live status
-per BRAND.md's on-device copy conventions) — the WiFi decision this phase
-used to also carry is Phase 3 now, done.
-**Blocking unknowns:** none.
 
 ## Distribution
 
@@ -261,13 +305,14 @@ set allows, and measure the real number instead of assuming one.
   an estimate, confirming there's still plenty of headroom.
 - **WiFi is the one feature with a real size lever**, same as it's the one
   feature with the real RAM lever (`lwIP` + the WiFi driver stack is
-  typically the single biggest chunk of a "full" Arduino-ESP32 build).
-  That's one more reason it's gated behind Phase 6's go/no-go, not a
-  given.
+  typically the single biggest chunk of a "full" Arduino-ESP32 build). That
+  go/no-go already happened (Phase 3, shipped — see CLAUDE.md's Status
+  section for the real numbers this note used to be waiting on).
 - `RadioLib` compiles in support for many radio families by default;
   disabling the ones we don't use (`RADIOLIB_EXCLUDE_*` build flags, only
   SX126x needed here) is a cheap, real size reduction worth doing before
-  Phase 6, not just a nice-to-have.
+  Phase 7 (`ENERGY_SWEEP`, the other RAM/flash-hungry feature after WiFi),
+  not just a nice-to-have.
 - CI now measures the actual `firmware.bin` size on every build (see
   below) — track it there instead of trusting an estimate.
 
@@ -280,9 +325,9 @@ reports can use.
   build-order phase reached; PATCH increments for fixes that don't add new
   phase scope.
 - **Source of truth:** `src/version.h` (`FIRMWARE_VERSION`), printed on
-  the boot banner (Serial now, on-device UI once Phase 6 exists). A bug
-  report against a specific build should always be traceable to this
-  string.
+  the boot banner (Serial) and on `ui_task`'s SYSTEM status page (on-device,
+  since Phase 2). A bug report against a specific build should always be
+  traceable to this string.
 - **Release trigger:** pushing a `vX.Y.Z` git tag. `src/version.h` should
   be bumped to match *before* tagging — CI doesn't currently cross-check
   the two, so a mismatch is a review-time catch, not an automated one.
@@ -309,9 +354,20 @@ reports can use.
 | v0.2.x | Phase 2 (MVP-Beta: Meshtastic War Drive complete) |
 | v0.3.x | Phase 3 (Web Command Center: WiFi AP + web UI) |
 | v0.4.x | Phase 4 (MeshCore) |
-| v0.5.x | Phase 5 (discovery sweep) |
-| v0.6.x | Phase 6 (energy sweep: Reticulum + General Exploration) |
-| v1.0.x | Phase 7 (UI polish, all 4 profiles stable) |
+| v0.5.x | Phase 5 (on-device menu UI) |
+| v0.6.x | Phase 6 (discovery sweep) |
+| v0.7.x | Phase 7 (energy sweep: Reticulum + General Exploration) |
+| v1.0.x | all four profiles built, on-device UI covers all of them |
+
+**Renumbered 2026-08-24** (same restructuring precedent as WiFi's Phase-3
+pull-forward): the on-device UI overhaul moved from a trailing "Phase 7
+polish" step to Phase 5, at the user's request, pushing `DISCOVERY_SWEEP`
+and `ENERGY_SWEEP` down one each. What `v1.0` means moved with it — it used
+to be "Phase 7, all profiles + UI stable," and Phase 7 is `ENERGY_SWEEP`
+now, not UI. Proposed replacement above (all four profiles + UI, landing
+right after `v0.7.x`) is a placeholder for the same total phase count as
+before, not a re-litigated decision — revisit if it stops fitting once
+Phase 6/7 are actually in hand.
 
 ## Non-goals
 
