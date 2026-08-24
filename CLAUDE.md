@@ -150,19 +150,23 @@ switch itself, not just by steady-state listening).
 forward ahead of `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's request —
 same restructuring precedent as WiFi's Phase-3 pull-forward, see ROADMAP.md.
 Replaces Phase 3/4's timed hold-gestures with real keyboard-driven
-navigation: a new `keyboard.h` decodes four specific TCA8418 keys (`,`/`.`
-move, Enter selects, Backspace goes back — no Fn chord, sourced against
-three independent references since the Cardputer-ADV has no dedicated arrow
-keys, see DESIGN.md §10), and `ui_task` gained a two-item menu (profile
-switch, WiFi toggle — both reusing existing Phase 3/4 actions unchanged)
-plus a new read-only CHANNEL status page. Deliberately narrow scope, decided
-with the user up front: toggles only, no on-device numeric editing of
-channel params (that stays on the web UI/`config.txt`). Verified against
-the host-native test suite (66 tests, up from 59 — same g++/Unity
-workaround); genuinely unverified on real hardware: whether the sourced
-raw-byte values for all four keys are actually correct (press each once and
-confirm), and whether the menu's two actions behave the same as their old
-gesture equivalents did.
+navigation: a new `keyboard.h` decodes nine specific TCA8418 keys (`,`/`.`
+move, Enter selects, Backspace goes back, `1`-`5` jump straight to a
+numbered carousel page — the digit jumps added slightly later than the
+first four, same phase, once a full keyboard was going to be on hand for
+the bench session anyway — no Fn chord, sourced against three independent
+references since the Cardputer-ADV has no dedicated arrow keys, see
+DESIGN.md §10), and `ui_task` gained a two-item menu (profile switch, WiFi
+toggle — both reusing existing Phase 3/4 actions unchanged) plus a new
+read-only CHANNEL status page. Deliberately narrow scope, decided with the
+user up front: toggles only, no on-device numeric editing of channel params
+(that stays on the web UI/`config.txt`). Verified against the host-native
+test suite (67 tests, up from 59 — same g++/Unity workaround); genuinely
+unverified on real hardware: whether the sourced raw-byte values for all
+nine keys are actually correct (press each once and confirm — the five
+digit keys carry more sourcing risk than the original four, see PROGRESS.md),
+and whether the menu's two actions behave the same as their old gesture
+equivalents did.
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna

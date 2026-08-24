@@ -12,17 +12,19 @@
 //
 // Phase 5 replaces both of those gestures with a real menu, now that
 // keyboard.h has a sourced (if not yet bench-verified — see its own
-// comments and PROGRESS.md's Phase 5 checklist) decode for four specific
-// keys: ',' / '.' move, Enter selects, Backspace goes back. Two modes built
-// from those same four keys throughout:
+// comments and PROGRESS.md's Phase 5 checklist) decode for nine specific
+// keys: ',' / '.' move, Enter selects, Backspace goes back, '1'-'5' jump
+// straight to a numbered carousel page. Modes built from those keys
+// throughout:
 //   - **Carousel** (default): ','/'.' cycle the read-only status pages
-//     below; Enter opens the menu; Backspace does nothing (nowhere to go
-//     back to).
+//     below; digits '1'-'5' jump straight to one of them; Enter opens the
+//     menu; Backspace does nothing (nowhere to go back to).
 //   - **Menu**: ','/'.' move a highlighted selection; Enter activates it
 //     (profile switch or WiFi toggle — the same radio_task.h/wifi_task.h
 //     calls the old gestures made); Backspace returns to the carousel.
+//     Digit keys are ignored here — the menu has its own two-item selection.
 // Deliberately not a general keymap or text-entry UI — see keyboard.h for
-// why four keys is enough for this scope (DESIGN.md/PROGRESS.md Phase 5).
+// why nine keys is enough for this scope (DESIGN.md/PROGRESS.md Phase 5).
 //
 // Owns the ST7789 exclusively once started — main.cpp must stop drawing.
 // The display is on its own SPI host (HSPI) with pins disjoint from the

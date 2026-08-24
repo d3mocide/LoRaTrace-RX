@@ -476,9 +476,12 @@ project had left open since Phase 2 (§1's keyboard row, CLAUDE.md's house
 rule against guessing hardware tables): what does a raw TCA8418 event byte
 actually mean on this specific keyboard? Phase 5's UX scope — plain `,`/`.`
 to move, Enter to select, Backspace to go back, no Fn chord, no numeric
-entry (ROADMAP.md Phase 5) — only ever needs four specific keys identified,
-which is what makes a fully-sourced answer tractable here instead of
-needing a whole separate research phase.
+entry (ROADMAP.md Phase 5) — only ever needed four specific keys identified,
+which is what made a fully-sourced answer tractable here instead of needing
+a whole separate research phase. Extended, same Phase, same sourcing chain,
+once a full keyboard was going to be on hand for the bench session anyway:
+digits `1`-`5` as direct jumps to a numbered carousel page, so the operator
+isn't limited to stepping through pages one at a time with `,`/`.`.
 
 Three independent sources, each covering one link in the chain from raw
 byte to key identity:
@@ -498,19 +501,21 @@ byte to key identity:
 3. **Physical (row, col) → which key it is** — RetroBreeze's
    `cardputer-keyboard-reference` (github.com/RetroBreeze/
    cardputer-keyboard-reference), which documents the Cardputer-**ADV**'s
-   full key map specifically (not the base Cardputer's GPIO-matrix variant).
-   Independently cross-checked against Launcher's own input handler, which
-   recognizes both Enter and Backspace by `col == 13` — matching
-   RetroBreeze's table exactly, from a second, independent source.
+   full key map specifically (not the base Cardputer's GPIO-matrix variant),
+   including its digit row 0 (`` ` ``,`1`-`9`,`0`,`-`,`=`,Backspace at
+   columns 0-13). Independently cross-checked against Launcher's own input
+   handler, which recognizes both Enter and Backspace by `col == 13` —
+   matching RetroBreeze's table exactly, from a second, independent source.
 
-Inverting step 2's formula for the four keys Phase 5 needs (Backspace,
-Enter, Comma, Period — all at physical col 10/11/13, per step 3) gives the
-exact raw press-byte constants in `src/keyboard.h`, which carries this same
-citation trail in its own comments so an implementer doesn't have to
-re-derive it. **Not yet bench-verified against real hardware** — same bar
-as every other sourced-not-measured fact in this section: press each of the
-four keys once and confirm the firmware recognizes exactly that key, per
-PROGRESS.md's Phase 5 checklist.
+Inverting step 2's formula for the nine keys Phase 5 needs (Backspace,
+Enter, Comma, Period at physical col 10/11/13; digits `1`-`5` at physical
+row 0, col 1-5 — all per step 3) gives the exact raw press-byte constants in
+`src/keyboard.h`, which carries this same citation trail in its own
+comments so an implementer doesn't have to re-derive it. **Not yet
+bench-verified against real hardware** — same bar as every other
+sourced-not-measured fact in this section: press each of the nine keys once
+and confirm the firmware recognizes exactly that key, per PROGRESS.md's
+Phase 5 checklist.
 
 ## 11. References
 

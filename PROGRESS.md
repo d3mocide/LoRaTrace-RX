@@ -357,19 +357,26 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         holds don't bleed into it — both are duration buckets on the same
         physical gesture (ui_task.cpp), reasoned about but not bench-timed
         against an actual human thumb
-- [~] **Phase 5** — On-device menu UI. Built 2026-08-24, passing the full
-      host-native suite (66 tests); **not yet hardware-verified**. Pulled
+- [~] **Phase 5** — On-device menu UI. Built 2026-08-24 (digit-key page
+      jumps added same day, slightly later — see Decisions log), passing the
+      full host-native suite (67 tests); **not yet hardware-verified**. Pulled
       forward ahead of `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's
       request — see ROADMAP.md/CLAUDE.md Status. Corrected numbering
       (2026-08-24): this checklist previously called this slot
       `DISCOVERY_SWEEP` — ROADMAP.md's phase numbers are the ones that
       actually shipped; this list had drifted from it, same kind of
       correction already made for Phase 3/4 above
-  - [ ] Bench-verify all four sourced keys (`src/keyboard.h`): press
-        Backspace/Enter/Comma/Period once each, confirm the firmware
+  - [ ] Bench-verify all nine sourced keys (`src/keyboard.h`): press
+        Backspace/Enter/Comma/Period/'1'-'5' once each, confirm the firmware
         recognizes exactly that key and no other — the raw byte values are
         derived and cross-cited against three independent sources (see
-        DESIGN.md §10) but never run against a real TCA8418
+        DESIGN.md §10) but never run against a real TCA8418. '1'-'5' are the
+        newest of the nine (added 2026-08-24, same Phase, ahead of this
+        bench session — see Decisions log) and share the most sourcing risk:
+        unlike Backspace/Enter, nothing independently cross-checks their
+        specific (row, col) the way Launcher's `col == 13` check did for
+        those two — confirm all five, not just a couple, before trusting the
+        set
   - [ ] Confirm the menu's two actions behave identically to their old
         gesture equivalents: profile switch (`radioRequestProfileSwitch()`)
         and WiFi toggle (`wifiToggle()`) are unchanged Phase 3/4 code, only
@@ -2144,6 +2151,43 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     described the pre-renumbering Phase 7) — left over from earlier
     renumbering passes that didn't reach every mention. Fixed opportunistically
     rather than left to compound, same reasoning as the Phase 4 entry above.
+- **2026-08-24** — Added digit-key page jumps ('1'-'5', direct to a numbered
+  carousel page) ahead of the Phase 5 hardware session, at the user's
+  request once they confirmed a full keyboard would be on hand for that
+  bench session anyway. Still Phase 5 scope, added before any of it has
+  touched real hardware — no version bump (same precedent as the MeshCore
+  table existing in `channel_plans.h` before Phase 4 wired it in).
+  - **Sourcing, same chain as the original four keys, re-verified rather
+    than recalled:** cloned `RetroBreeze/cardputer-keyboard-reference` and
+    `bmorcelli/Launcher` fresh this session (read-only) instead of trusting
+    memory of their content, given this project's own house rule against
+    guessing hardware tables and its history of a silent, costly wrong
+    value (the sync-word bug, 2026-08-23). Confirmed `_key_value_map`'s row
+    0 (`` ` ``,`1`-`9`,`0`,`-`,`=`,Backspace at columns 0-13 — Backspace at
+    col 13 matches the already-bench-pending constant, a consistency check
+    for free) and re-ran `mapRawKeyToPhysical()`'s formula by hand for
+    row 0/col 1-5, cross-checking the inversion against the four already-
+    derived constants (Comma/Period/Enter/Backspace) before trusting it for
+    new ones. Result: K=5/11/15/21/25 for '1'-'5'
+    (`KEY_RAW_1_PRESS`..`KEY_RAW_5_PRESS`, `src/keyboard.h`).
+  - **Weaker sourcing than Backspace/Enter, flagged rather than glossed
+    over:** those two had a second independent confirmation (Launcher's
+    input handler recognizing both by `col == 13`); the digit keys only have
+    RetroBreeze's table plus the formula, the same bar Comma/Period already
+    cleared. Reflected in a strengthened PROGRESS.md checklist item asking
+    for all five to be pressed individually, not just a couple as a spot
+    check.
+  - **Design choice: plain `KeyAction::JUMP_1..JUMP_5`, not a `JUMP` action
+    carrying a page index.** Keeps `keyboard.h` free of any dependency on
+    `ui_task.h`'s `UiPage` enum — `ui_task.cpp` does the 1:1 index mapping
+    itself (`jumpToPage()`). Digit keys are carousel-only; the menu ignores
+    them rather than repurposing them for its own two-item selection.
+  - **Verification: host-native only, same bar as the rest of Phase 5.**
+    `test/test_keyboard/` grew to cover all five new press bytes, their
+    release-byte counterparts, and the immediately-adjacent unmapped digits
+    ('6'-'9'/'0') as an allowlist boundary check — the case most likely to
+    catch an off-by-one in the new derivation. Not yet bench-verified
+    against a real TCA8418, same as the original four.
 
 ## Next steps
 
