@@ -10,6 +10,7 @@
 #include "gps_task.h"
 #include "radio_task.h"
 #include "run_log.h"
+#include "serial_lock.h"
 #include "session_log.h"
 #include "spi_bus.h"
 
@@ -306,21 +307,19 @@ void appendDetection(const Detection &det) {
     // sessions that want to see live RX detail without an SD card or the
     // WiFi AP in the loop at all.
     //
-    // ONE Serial.write() call, not a "[debug] " print + a row write + a
-    // println — bench-caught the same session this shipped: main.cpp's
-    // [status] line runs on Core 1 while this runs on Core 0, nothing
-    // serializes Serial access between them, and a multi-call sequence
-    // torn by another task's print landing mid-sequence is the exact
-    // failure main.cpp's own [status] line comment already documents (and
-    // PROGRESS.md's [wifi] SSID bug hit for real). A single write() is far
-    // more likely to be atomic than N calls with gaps another task can
-    // land in.
+    // ONE Serial.write() call under the Serial lock — main.cpp's [status]
+    // line runs on Core 1 while this runs on Core 0. The single call alone
+    // isn't sufficient (bench-caught the same session this shipped: even a
+    // single call can be torn by another core's Serial call landing inside
+    // it — see serial_lock.h), so the lock is the actual guarantee; the
+    // single buffer just keeps the critical section short.
     if (debugVerbose) {
         char debugLine[8 + sizeof(row) + 1]; // "[debug] " + row + '\n'
         memcpy(debugLine, "[debug] ", 8);
         memcpy(debugLine + 8, row, n);
         debugLine[8 + n] = '\n';
-        Serial.write((const uint8_t *)debugLine, 8 + n + 1);
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) Serial.write((const uint8_t *)debugLine, 8 + n + 1);
     }
 
     if (!sdReady) {
@@ -439,15 +438,20 @@ void loggerDebugToggle() {
     if (debugVerbose) {
         // Column header once on enable, so the CSV-shaped lines that follow
         // are actually readable rather than a wall of unlabeled commas. One
-        // buffer, one Serial call — see the per-detection print above for
-        // why two separate calls isn't safe here (bench-caught: this exact
-        // line came out torn — "[debug] verbose " with "mode ON" missing —
-        // on the same hardware pass that shipped debug mode).
+        // buffer, one locked Serial call — see the per-detection print
+        // above for why the buffer alone isn't enough (bench-caught: this
+        // exact line came out torn — "[debug] verbose " with "mode ON"
+        // missing — on the same hardware pass that shipped debug mode,
+        // before this lock existed).
         char buf[256];
         int n = snprintf(buf, sizeof(buf), "[debug] verbose mode ON\n[debug] %s\n", LOG_CSV_HEADER);
-        if (n > 0) Serial.write((const uint8_t *)buf, (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1);
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held() && n > 0) {
+            Serial.write((const uint8_t *)buf, (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1);
+        }
     } else {
-        Serial.println(F("[debug] verbose mode OFF"));
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) Serial.println(F("[debug] verbose mode OFF"));
     }
 }
 bool loggerDebugIsEnabled() {

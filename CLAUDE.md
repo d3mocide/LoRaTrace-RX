@@ -51,6 +51,7 @@ src/
   [x] nmea.h                     # NMEA primitives (field split, checksum, coord conversion)
   [x] gps_parse.h                # GpsFix + gpsApplySentence(), pure so it's host-testable
   [x] spi_bus.h / .cpp           # mutex + SPIClass for the bus SD and the SX1262 SHARE
+  [x] serial_lock.h / .cpp       # mutex guarding cross-core Serial writes (not in original proposal, see PROGRESS.md decisions log)
   [x] io_expander.h / .cpp       # PI4IOE5V6408 P0: antenna switch AND GPS power
   [x] gps_probe.cpp              # standalone GPS bring-up sketch ([env:gps-probe])
 test/
@@ -209,6 +210,26 @@ already documents. Fixed by collapsing each line to one buffered
 floated in the same conversation and deliberately deferred — real added
 surface (a parser, and what's safe to expose) on an RX-only tool, worth
 deciding on its own rather than folding into a quick debug-visibility ask.
+
+**Serial console now has a real mutex** (`serial_lock.h`/`.cpp`, added
+2026-08-24, mirrors `spi_bus.h`'s `SpiBusLock` exactly): every `Serial`
+print site in the firmware takes it, except `applyConfigLine()`/
+`loadProfileOverridesFromSD()`/`writeFullConfig()` in `config.cpp` (all
+three are only ever called once from `setup()` before any task exists —
+provably single-threaded) and `radio_task.cpp` (doesn't print at all, and
+must never block on non-radio I/O — keeping it that way was a design
+constraint on this fix). The 2026-08-23 "one buffer, one `Serial` call"
+fix turned out to be necessary but not sufficient: a 2026-08-24 hardware
+session got a real WiFi client to join the AP and save Settings — the
+first time that single-buffer fix was tested under real concurrent load —
+and it teared anyway (`[wifi] AP started: L`, a `[config]` write missing
+everything before `BW62.5`). The mutex fixed it; re-tested with the same
+real-load scenario and every message came through intact, including the
+exact `[config]` line that broke before. **One unexplained residual
+anomaly** (a different `[config]` line lost its prefix despite the lock,
+while everything around it was clean) reads as a lower-level USB-CDC
+single-write truncation, not cross-task interleaving — logged as a watch
+item in PROGRESS.md rather than chased further without a logic analyzer.
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna

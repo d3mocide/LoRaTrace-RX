@@ -2497,6 +2497,66 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     Phase 4 scope (bench verification) and adds a debugging aid, not new
     build-order scope.
 
+- **2026-08-24 (later same day) — Real Serial mutex added (`serial_lock.h`/
+  `.cpp`); the 2026-08-23 "one buffer, one call" fix wasn't actually
+  sufficient, and this session proved it on real hardware.** Mopping up
+  Phase 3's two remaining loose ends (connect/disconnect logging, the
+  Settings-tab round-trip — both genuinely closed by this session, see the
+  Next-steps item 0 update above) required getting a real WiFi client to
+  join the AP and save Settings, which is exactly the kind of real
+  concurrent load the single-buffer fix was never actually tested against.
+  It failed immediately: `[wifi] AP started: L` (everything after one
+  letter missing) and a `[config]` MeshCore write missing everything before
+  `BW62.5` both came out torn in the same short session, even though both
+  already used the "one buffer, one `Serial` call" pattern from
+  2026-08-23. That fix's own theory — "a single write() call is far more
+  likely to be atomic than several" — turned out to be exactly that, a
+  likelihood, not a guarantee, and real contention found the gap.
+  - **The actual fix:** `serial_lock.h`/`.cpp`, a FreeRTOS mutex mirroring
+    `spi_bus.h`'s `SpiBusLock` pattern exactly (real mutex not binary
+    semaphore, for priority inheritance; scoped RAII `SerialLock`, always
+    checked with `held()`). Initialized in `main.cpp`'s `setup()`
+    immediately after `Serial.begin()`, before any task that might print is
+    started. Every existing `Serial` print call site in the whole firmware
+    now takes it: `main.cpp` (boot banner, all WARN/FATAL lines, the
+    `[status]` line), `wifi_task.cpp` (AP start/stop, client connect/
+    disconnect), `logger_task.cpp` (both debug-mode messages),
+    `config.cpp` (`writeProfileConfigToSD()`'s confirmation line — the
+    genuinely concurrent, runtime entry point), and `gps_task.cpp` (the
+    clock-set-from-GPS message, also collapsed to one buffer while it was
+    being touched, same pattern as everything else). **Deliberately NOT**
+    added to `applyConfigLine()`/`loadProfileOverridesFromSD()`/
+    `writeFullConfig()` in `config.cpp` — those are only ever called once
+    from `main.cpp`'s `setup()` before any task exists, provably
+    single-threaded, and main.cpp's own boot-sequence comment already
+    documents that invariant; adding the lock there would just be noise on
+    ten-plus print call sites that can't race. Never added to
+    `radio_task.cpp`: it doesn't print at all, and CLAUDE.md's house rule
+    is it must never block on non-radio I/O — keeping that true was a
+    design constraint on this fix, not an oversight.
+  - **Re-verified on hardware the same session, with the same real-load
+    test that broke the old fix**: WiFi AP started, a phone joined,
+    Settings saved for both profiles, phone disconnected. Every message —
+    `[wifi] AP started`, `[wifi] client connected/disconnected`, and a
+    `[config]` MeshCore write (the exact line that was torn minutes
+    earlier) — came through completely intact.
+  - **One residual anomaly, not explained by this fix and left as a new
+    watch item** (see the watch-items list above): a single `[config]`
+    Meshtastic write line lost its prefix even though it went through the
+    new lock, while everything immediately around it (including another
+    `[config]` write) was clean. Not cross-task interleaving — the message
+    printed just before it was itself complete, so nothing landed inside
+    this call's critical section. Reads as a USB-CDC-level single-write
+    truncation under real WiFi/WebServer load, a different and deeper
+    question than what this session set out to fix. Documented rather than
+    chased further given the hour and the lack of a logic analyzer in this
+    session's toolset.
+  - **Test suite:** unchanged at 73 host-native tests — every changed file
+    is Arduino-dependent (`Serial`, FreeRTOS), not part of the host-native
+    build.
+  - **Version: v0.5.3 -> v0.5.4.** PATCH-level — a correctness fix to
+    already-shipped diagnostic infrastructure, not new build-order scope.
+
 ## Next steps
 
 Phase 2's own exit criterion is now closed (run0007, 2h30m, see checklist
@@ -2506,13 +2566,14 @@ above) — remaining items are follow-through, in the order it's worth doing.
    same day it was built — see the Decisions log entry above for the real
    numbers (~55KB heap cost, exit-criterion counters held at 0 with the AP
    active, dashboard/downloads/settings all reachable from a real browser).
-   Two remaining loose ends from that session, not blockers: the two
-   `WebServer.cpp` log lines are now explained (benign, verified against
-   source) and connect/disconnect logging was added in response but not yet
-   itself bench-verified; and the Settings tab specifically — a save that
-   actually changes the boot-banner channel after a power cycle — has no
-   evidence either way in that session's log (no `[config]` line of any
-   kind), so still genuinely untested, not just unconfirmed.
+   **Both loose ends from that session closed 2026-08-24:** connect/
+   disconnect logging confirmed clean (`[wifi] client connected, 1 total` /
+   `disconnected, 0 total`, both intact) when a real phone joined and left
+   the AP; and the Settings tab specifically — directly confirmed this
+   time, not just inferred, via the `[config] Wrote ... reboot to apply.`
+   confirmation line appearing on save and a live Meshtastic packet at
+   exactly the saved 918.500MHz/SF8/BW125 after the power cycle (see this
+   session's Decisions log entry, same one that shipped the Serial mutex).
 1. **Done, 2026-08-23: the multi-hour unattended run (run0007, v0.2.5,
    2h30m).** See the Phase 2 checklist entry and the Decisions log entry
    above for the numbers — every exit-criterion counter held at its best
@@ -2618,3 +2679,25 @@ above) — remaining items are follow-through, in the order it's worth doing.
      (`5c`/`68`, same dBm ranges) show up in future runs from this
      location," which would confirm they're fixed nearby nodes rather than
      something specific to this session.
+   - **New, 2026-08-24: a single-write truncation that survives the Serial
+     mutex fix (`serial_lock.h`), rate unknown but low.** One
+     `writeProfileConfigToSD()` confirmation line came out as `18.500MHz
+     SF8 BW125.0 CR4/5 sync 0x2B — reboot to apply.` — missing its
+     `[config] Wrote /loratrace/config.txt (meshtastic): 9` prefix
+     entirely — during the same re-test session that confirmed the mutex
+     fix works (three other messages immediately around it, including
+     another `[config]` write for MeshCore, came through perfectly intact).
+     This rules out the cross-task interleaving the mutex was built to
+     stop: the `[status]` line printed immediately before it was itself
+     complete, with nothing extra appended, so no other task's output
+     landed inside this one's critical section — the mutex was almost
+     certainly held for the whole call. Reads instead like the USB-CDC
+     write itself dropping the front of a single locked call under load
+     (this happened right as a WiFi client was actively saving Settings,
+     i.e. real WebServer/WiFi-driver activity competing for the USB TX
+     path) — a lower-level driver question the tools available in this
+     session can't chase further (would want a logic analyzer on D+/D-, or
+     at minimum a lot more controlled reproduction). Left as a watch item
+     rather than dug into further given the hour; if it recurs, worth
+     trying an explicit `Serial.flush()` after the locked write, or a
+     larger USB-CDC TX buffer, as a first mitigation to test.

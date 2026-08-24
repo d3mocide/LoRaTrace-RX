@@ -7,6 +7,7 @@
 
 #include "board_pins.h"
 #include "nmea.h"
+#include "serial_lock.h"
 
 namespace {
 
@@ -79,17 +80,18 @@ void handleSentence(const char *s) {
             tv.tv_sec = (time_t)epoch;
             if (settimeofday(&tv, nullptr) == 0) {
                 systemTimeSet = true;
-                Serial.print(F("[gps] system clock set from GPS: "));
-                Serial.print(updated.year);
-                Serial.print('-');
-                Serial.print(updated.month);
-                Serial.print('-');
-                Serial.print(updated.day);
-                Serial.print(' ');
-                Serial.print(updated.hour);
-                Serial.print(':');
-                Serial.print(updated.minute);
-                Serial.println(F(" UTC — SD file timestamps are real from here."));
+                // One buffer, one locked Serial call — same pattern as
+                // main.cpp's [status] line, for the same reason
+                // (serial_lock.h): this races against every other task's
+                // own prints just like any other cross-core Serial write.
+                char line[80];
+                snprintf(line, sizeof(line),
+                         "[gps] system clock set from GPS: %u-%u-%u %u:%u UTC — SD file "
+                         "timestamps are real from here.",
+                         (unsigned)updated.year, (unsigned)updated.month, (unsigned)updated.day,
+                         (unsigned)updated.hour, (unsigned)updated.minute);
+                SerialLock lock(pdMS_TO_TICKS(200));
+                if (lock.held()) Serial.println(line);
             }
         }
     }

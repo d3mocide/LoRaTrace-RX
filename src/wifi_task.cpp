@@ -15,6 +15,7 @@
 #include "logger_task.h"
 #include "radio_task.h"
 #include "run_log.h"
+#include "serial_lock.h"
 #include "spi_bus.h"
 #include "web_assets.h"
 
@@ -312,14 +313,18 @@ void startAp() {
     server.begin();
     apActive = true;
 
-    // One buffer, one print call — not four separate ones. A hardware run
-    // showed this exact line print with the SSID silently missing once;
-    // see PROGRESS.md and main.cpp's loop() for the full read (unsynchronized
-    // Serial access across cores/tasks loses whole pieces of a multi-call
-    // sequence when another task's print lands in the middle of it).
+    // One buffer, one print call, under the Serial lock — a hardware run
+    // showed this exact line print with the SSID silently missing once
+    // (single call, no lock: PROGRESS.md 2026-08-23), and a second run
+    // showed it torn again (single call WITH the buffer fix but before this
+    // lock existed: PROGRESS.md 2026-08-24) — see serial_lock.h for why the
+    // buffer alone wasn't the actual fix.
     char line[64];
     snprintf(line, sizeof(line), "[wifi] AP started: %s @ %s", ssid, WIFI_AP_IP);
-    Serial.println(line);
+    {
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) Serial.println(line);
+    }
 }
 
 void stopAp() {
@@ -330,7 +335,8 @@ void stopAp() {
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_OFF);
     apActive = false;
-    Serial.println(F("[wifi] AP stopped."));
+    SerialLock lock(pdMS_TO_TICKS(200));
+    if (lock.held()) Serial.println(F("[wifi] AP stopped."));
 }
 
 // Logs a connect/disconnect the moment the station count changes, rather
@@ -350,7 +356,10 @@ void logClientCountChanges() {
     char line[48];
     snprintf(line, sizeof(line), "[wifi] client %s, %u total",
              clients > lastClientCount ? "connected" : "disconnected", (unsigned)clients);
-    Serial.println(line);
+    {
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) Serial.println(line);
+    }
     lastClientCount = clients;
 }
 

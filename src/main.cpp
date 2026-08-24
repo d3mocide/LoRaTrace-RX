@@ -42,6 +42,7 @@
 #include "io_expander.h"
 #include "logger_task.h"
 #include "radio_task.h"
+#include "serial_lock.h"
 #include "spi_bus.h"
 #include "ui_task.h"
 #include "version.h"
@@ -111,7 +112,12 @@ bool initDisplay() {
 // after setup). Keeping a copy here would race it for the same pixels.
 
 void fatal(const __FlashStringHelper *serialMsg, const __FlashStringHelper *splashMsg) {
-    Serial.println(serialMsg);
+    {
+        // Some fatal() call sites run after gpsTaskStart()/loggerTaskStart(),
+        // so this can race a Core 0 task's own print — see serial_lock.h.
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) Serial.println(serialMsg);
+    }
     splashLine(splashMsg, SPLASH_ERR);
     while (true) delay(1000);
 }
@@ -128,11 +134,25 @@ void setup() {
     unsigned long t0 = millis();
     while (!Serial && millis() - t0 < 3000) {}
 
-    Serial.print(F("LoRaTrace RX v"));
-    Serial.print(FIRMWARE_VERSION);
-    Serial.print(F(" ("));
-    Serial.print(FIRMWARE_BUILD_REV); // git SHA — identifies THIS binary
-    Serial.println(F(") — phase 5 (tasks + GPS + SD logging + WiFi + MeshCore + on-device menu)"));
+    // Before any task is started, so every later print (this function's own
+    // included) has it available — see serial_lock.h.
+    if (!serialLockInit()) {
+        // No Serial lock to report through — this is the one message in
+        // the whole file that can't route through itself. Best effort only.
+        Serial.println(F("FATAL: could not create the Serial mutex."));
+        while (true) delay(1000);
+    }
+
+    {
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) {
+            Serial.print(F("LoRaTrace RX v"));
+            Serial.print(FIRMWARE_VERSION);
+            Serial.print(F(" ("));
+            Serial.print(FIRMWARE_BUILD_REV); // git SHA — identifies THIS binary
+            Serial.println(F(") — phase 5 (tasks + GPS + SD logging + WiFi + MeshCore + on-device menu)"));
+        }
+    }
 
     displayReady = initDisplay();
     tft->setTextSize(2);
@@ -148,7 +168,10 @@ void setup() {
         fatal(F("FATAL: IO expander init failed — no I2C ACK at 0x43. Antenna switch off and GPS unpowered."),
               F("FATAL: IO expander"));
     }
-    Serial.println(F("IO expander: P0 high (antenna switch + GPS power)."));
+    {
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) Serial.println(F("IO expander: P0 high (antenna switch + GPS power)."));
+    }
     splashLine(F("IO expander: OK"));
 
     if (!spiBusInit()) {
@@ -175,7 +198,10 @@ void setup() {
     // Consumers before producer: the logger must be draining before the
     // radio starts filling, or the first burst is dropped for no reason.
     if (!gpsTaskStart()) {
-        Serial.println(F("WARN: GPS task failed to start — detections will log without position."));
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) {
+            Serial.println(F("WARN: GPS task failed to start — detections will log without position."));
+        }
         splashLine(F("GPS task: FAILED"), SPLASH_ERR);
     } else {
         splashLine(F("GPS task: started"));
@@ -193,33 +219,52 @@ void setup() {
     // *its* override (if any) the same way this boot resolved Meshtastic's,
     // rather than always falling back to channel_plans.h's hardcoded table.
     if (!radioTaskStart(activeChannel, MissionProfile::MESHTASTIC, channelOverrides, detectionQueue)) {
-        Serial.print(F("FATAL: radio start failed, RadioLib code "));
-        Serial.println(radioLastError());
+        {
+            SerialLock lock(pdMS_TO_TICKS(200));
+            if (lock.held()) {
+                Serial.print(F("FATAL: radio start failed, RadioLib code "));
+                Serial.println(radioLastError());
+            }
+        }
         splashLine("FATAL: radio " + String(radioLastError()), SPLASH_ERR);
         while (true) delay(1000);
     }
 
-    Serial.print(F("Active channel: "));
-    Serial.print(activeChannel.freq_mhz, 3);
-    Serial.print(F(" MHz, SF"));
-    Serial.print(activeChannel.sf);
-    Serial.print(F(", BW"));
-    Serial.print(activeChannel.bw_khz, 1);
-    Serial.print(F("kHz, CR4/"));
-    Serial.print(activeChannel.cr_denom);
-    Serial.print(F(", sync 0x"));
-    Serial.println(activeChannel.sync_word, HEX);
+    {
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) {
+            Serial.print(F("Active channel: "));
+            Serial.print(activeChannel.freq_mhz, 3);
+            Serial.print(F(" MHz, SF"));
+            Serial.print(activeChannel.sf);
+            Serial.print(F(", BW"));
+            Serial.print(activeChannel.bw_khz, 1);
+            Serial.print(F("kHz, CR4/"));
+            Serial.print(activeChannel.cr_denom);
+            Serial.print(F(", sync 0x"));
+            Serial.println(activeChannel.sync_word, HEX);
+        }
+    }
     splashLine(String(activeChannel.freq_mhz, 3) + "MHz SF" + activeChannel.sf);
     splashLine("BW" + String(activeChannel.bw_khz, 1) + " CR4/" + activeChannel.cr_denom +
                " sync 0x" + String(activeChannel.sync_word, HEX));
 
-    Serial.println(F("Radio task listening on Core 1."));
-    Serial.println(F("On-device menu: ,/. to move, Enter to open/select, Backspace to go back "
-                     "-- covers profile switch (Meshtastic/MeshCore, DESIGN.md S5) and WiFi."));
-
-    Serial.print(F("Free heap after task start: "));
-    Serial.print(ESP.getFreeHeap());
-    Serial.println(F(" bytes"));
+    {
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) {
+            Serial.println(F("Radio task listening on Core 1."));
+            // "` to open/close" — the ESC/backtick key, not literally the
+            // ASCII backtick as a menu action; matches the on-device menu's
+            // own footer hint (ui_task.cpp) after the 2026-08-24 rework that
+            // moved menu-open off Enter and onto this key.
+            Serial.println(F("On-device menu: ,/. to move, ` to open/close, Enter to act "
+                             "-- covers profile switch (Meshtastic/MeshCore, DESIGN.md S5), "
+                             "WiFi, and verbose debug logging."));
+            Serial.print(F("Free heap after task start: "));
+            Serial.print(ESP.getFreeHeap());
+            Serial.println(F(" bytes"));
+        }
+    }
 
     // Off until toggled (ui_task's on-device menu, Phase 5) — starting the
     // task itself is cheap, starting the AP is what actually costs RAM/CPU/
@@ -228,13 +273,21 @@ void setup() {
     // reason everything else in setup() draws its own splash line before
     // that point: this is the last call allowed to touch `tft` directly.
     if (!wifiTaskStart()) {
-        Serial.println(F("WARN: WiFi task failed to start — web UI unavailable this run."));
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) {
+            Serial.println(F("WARN: WiFi task failed to start — web UI unavailable this run."));
+        }
     } else {
         char ssid[32];
         wifiApSsid(ssid, sizeof(ssid));
-        Serial.print(F("WiFi: use the on-device menu to enable AP '"));
-        Serial.print(ssid);
-        Serial.println(F("'."));
+        {
+            SerialLock lock(pdMS_TO_TICKS(200));
+            if (lock.held()) {
+                Serial.print(F("WiFi: use the on-device menu to enable AP '"));
+                Serial.print(ssid);
+                Serial.println(F("'."));
+            }
+        }
         splashLine("WiFi: menu -> " + String(ssid));
     }
 
@@ -246,9 +299,13 @@ void setup() {
     if (!uiTaskStart(tft)) {
         // Non-fatal on purpose: a headless wardriver still logs, which is
         // the actual job. Serial keeps reporting either way.
-        Serial.println(F("WARN: UI task failed to start — continuing headless."));
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) Serial.println(F("WARN: UI task failed to start — continuing headless."));
     } else if (!uiKeyboardReady()) {
-        Serial.println(F("WARN: TCA8418 keyboard not detected — UI pages will auto-advance."));
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) {
+            Serial.println(F("WARN: TCA8418 keyboard not detected — UI pages will auto-advance."));
+        }
     }
     // The Launcher-return hint that used to print here is gone: it is static
     // documentation, identical on every boot, and it belongs in the README's
@@ -283,20 +340,16 @@ void loop() {
     // hold the logger has caused — the number that says whether batching is
     // starving the radio.
     //
-    // Built into one buffer and printed with a single Serial call, not the
-    // ~25 separate Serial.print() calls this used to be — this task's own
-    // loop() very likely runs on Core 1 (Arduino's default), the same core
-    // as radio_task, while wifi_task/logger_task/gps_task run on Core 0.
-    // Nothing serializes Serial access across cores, and a hardware run
-    // showed the cost directly: wifi_task's own multi-part prints (the
-    // config-save confirmation, in particular) came out with entire pieces
-    // silently missing when they landed mid-sequence against another
-    // task's prints — see PROGRESS.md. A single write() call to the Serial
-    // driver is far more likely to be atomic than N separate ones with
-    // nothing stopping another task's call from landing in the gaps between
-    // them, and this is the project's primary diagnostic line — every
-    // hardware test session's evidence comes from it, so it's worth
-    // protecting even though it hasn't shown visible corruption yet.
+    // Built into one buffer, then printed under serialLockTake() below —
+    // this task's own loop() very likely runs on Core 1 (Arduino's
+    // default), the same core as radio_task, while wifi_task/logger_task/
+    // gps_task run on Core 0, and this is the project's primary diagnostic
+    // line. One buffer alone was the original (2026-08-23) fix, on the
+    // theory that a single Serial call is far more likely to be atomic
+    // than several; a 2026-08-24 session proved a single call can still be
+    // torn by another core's call landing mid-write, so the lock (added
+    // that session, see serial_lock.h) is what actually protects this now
+    // — the single buffer just keeps the critical section short.
     char line[384];
     int n = snprintf(line, sizeof(line),
                      "[status] rx=%lu crcerr=%lu qdrop=%lu busmiss=%lu | rows=%lu rowdrop=%lu "
@@ -317,5 +370,12 @@ void loop() {
                      // walk right past a transient dip, and the dip is what
                      // actually ends a long run.
                      (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getMinFreeHeap());
-    if (n > 0) Serial.println(line);
+    if (n > 0) {
+        // One buffer, one call was the 2026-08-23 fix; this lock is the
+        // 2026-08-24 one — see serial_lock.h for why the first alone wasn't
+        // enough. A held-but-lost race here just means this cycle's line is
+        // skipped rather than torn; the next one is 5s away.
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) Serial.println(line);
+    }
 }

@@ -6,6 +6,7 @@
 #include <string.h> // strlen, for the meshtastic_/meshcore_ key-prefix strip below
 
 #include "detection.h" // missionProfileName(), for writeProfileConfigToSD()'s confirmation line
+#include "serial_lock.h"
 #include "spi_bus.h"
 
 // DESIGN.md §1: module front end tuned 868-923MHz, 923-928 still in US ISM
@@ -207,6 +208,13 @@ bool writeFullConfig(const ProfileOverrides &overrides) {
 
 } // namespace
 
+// This function, applyConfigLine(), and writeFullConfig() are all only
+// ever called from here, and this is only ever called once from main.cpp's
+// setup() before any task exists (main.cpp: "no tasks are running yet, so
+// no arbitration is needed for this read") — so none of their Serial
+// prints take serial_lock.h's lock. writeProfileConfigToSD() below is the
+// *runtime* entry point (wifi_task's settings save, called with every
+// other task live) and does take it, for real reasons — see there.
 bool loadProfileOverridesFromSD(ProfileOverrides &overrides, int8_t csPin, SPIClass &spi) {
     if (!SD.begin(csPin, spi)) {
         Serial.println(F("[config] No SD card detected (or mount failed) — using built-in default channels."));
@@ -259,7 +267,8 @@ bool writeProfileConfigToSD(MissionProfile profile, const ChannelParams &params,
                             const ProfileOverrides &current) {
     if (!channelFreqInRange(params.freq_mhz) || !channelSfInRange(params.sf) ||
         !channelCrInRange(params.cr_denom) || params.bw_khz <= 0.0f) {
-        Serial.println(F("[config] refusing to write out-of-range channel params."));
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) Serial.println(F("[config] refusing to write out-of-range channel params."));
         return false;
     }
 
@@ -271,7 +280,8 @@ bool writeProfileConfigToSD(MissionProfile profile, const ChannelParams &params,
     // "try again" over HTTP.
     SpiBusLock lock(pdMS_TO_TICKS(2000));
     if (!lock.held()) {
-        Serial.println(F("[config] could not get the SPI bus to write channel config."));
+        SerialLock slock(pdMS_TO_TICKS(200));
+        if (slock.held()) Serial.println(F("[config] could not get the SPI bus to write channel config."));
         return false;
     }
 
@@ -305,12 +315,14 @@ bool writeProfileConfigToSD(MissionProfile profile, const ChannelParams &params,
     // nothing at all before this. Mirrors loadProfileOverridesFromSD's own
     // success/failure prints for the same reason.
     //
-    // Built into one buffer and printed with a single call, not ~12
-    // separate ones — a hardware run showed this exact line print with
-    // most of its content silently missing ("8 BW5 sync — reboot to
-    // apply." instead of the full line) when it landed at the same moment
-    // as another task's own Serial output. See main.cpp's loop() for the
-    // full read on why (unsynchronized Serial access across cores/tasks).
+    // Built into one buffer, printed under the Serial lock — this exact
+    // line is the one that first proved the buffer alone wasn't enough: a
+    // 2026-08-23 hardware run caught it with most of its content silently
+    // missing ("8 BW5 sync — reboot to apply." instead of the full line),
+    // and a 2026-08-24 run (before this lock existed) caught it torn again
+    // ("BW62.5 CR4/5 sync 0x12 — reboot to apply." — everything before
+    // "BW62.5" gone) even with the single-buffer fix already in place. See
+    // serial_lock.h for the actual fix.
     char line[160]; // worst case ("meshtastic", 3-digit fields) measures ~111B — real margin, not a near-fit
     if (ok) {
         snprintf(line, sizeof(line),
@@ -322,6 +334,9 @@ bool writeProfileConfigToSD(MissionProfile profile, const ChannelParams &params,
         snprintf(line, sizeof(line), "[config] Failed to write %s (SD busy, missing, or read-only).",
                  CHANNEL_CONFIG_PATH);
     }
-    Serial.println(line);
+    {
+        SerialLock slock(pdMS_TO_TICKS(200));
+        if (slock.held()) Serial.println(line);
+    }
     return ok;
 }
