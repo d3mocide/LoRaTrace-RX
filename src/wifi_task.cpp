@@ -219,20 +219,66 @@ void handleNotFound() {
     server.send(404, "text/plain", "not found");
 }
 
+// Returns whichever profile name matches `arg`, or false if it's neither —
+// callers reject the request rather than guessing.
+bool parseProfileArg(const String &arg, MissionProfile &profile) {
+    if (arg == "meshtastic") {
+        profile = MissionProfile::MESHTASTIC;
+        return true;
+    }
+    if (arg == "meshcore") {
+        profile = MissionProfile::MESHCORE;
+        return true;
+    }
+    return false;
+}
+
+// Both profiles' currently-resolved values (override if loaded, else
+// hardcoded default — same resolvedChannelForProfile() radio_task.cpp uses
+// for a live switch), plus which one HOME_LISTEN is actually locked to
+// right now. Reads radioActiveOverrides()/radioActiveProfile() rather than
+// re-parsing config.txt — those are what the radio is actually doing, and a
+// save through handleConfigPost() below only updates them on the next boot,
+// same "not live" boundary the channel override itself already has.
 void handleConfigGet() {
-    const ChannelParams p = radioActiveChannel();
-    char json[160];
+    const ProfileOverrides ov = radioActiveOverrides();
+    const ChannelParams mt = resolvedChannelForProfile(ov, MissionProfile::MESHTASTIC);
+    const ChannelParams mc = resolvedChannelForProfile(ov, MissionProfile::MESHCORE);
+    char json[320]; // worst case (3-digit freq/sf/bw/sync on both profiles) measures ~201B — real margin
     snprintf(json, sizeof(json),
-             "{\"freq_mhz\":%.3f,\"sf\":%u,\"bw_khz\":%.1f,\"cr_denom\":%u,\"sync_word\":%u}",
-             (double)p.freq_mhz, (unsigned)p.sf, (double)p.bw_khz, (unsigned)p.cr_denom,
-             (unsigned)p.sync_word);
+             "{\"active_profile\":\"%s\","
+             "\"meshtastic\":{\"freq_mhz\":%.3f,\"sf\":%u,\"bw_khz\":%.1f,\"cr_denom\":%u,\"sync_word\":%u},"
+             "\"meshcore\":{\"freq_mhz\":%.3f,\"sf\":%u,\"bw_khz\":%.1f,\"cr_denom\":%u,\"sync_word\":%u}}",
+             missionProfileName((uint8_t)radioActiveProfile()), (double)mt.freq_mhz, (unsigned)mt.sf,
+             (double)mt.bw_khz, (unsigned)mt.cr_denom, (unsigned)mt.sync_word, (double)mc.freq_mhz,
+             (unsigned)mc.sf, (double)mc.bw_khz, (unsigned)mc.cr_denom, (unsigned)mc.sync_word);
     server.send(200, "application/json", json);
 }
 
+// Saves ONE profile's preset — which one comes from the required `profile`
+// field ("meshtastic" or "meshcore"), not from whichever profile happens to
+// be active right now. That distinction is the actual fix this endpoint
+// exists for: the old single-preset version captured whatever was
+// currently active, so saving while on MeshCore silently wrote MeshCore's
+// values into what the firmware would apply as a *Meshtastic* override on
+// the next boot (see PROGRESS.md Decisions log) — profile label and radio
+// config would disagree with each other. Naming the target profile
+// explicitly makes that impossible.
 void handleConfigPost() {
-    // Start from the currently active values so a form that only edits one
-    // field doesn't zero the rest.
-    ChannelParams p = radioActiveChannel();
+    if (!server.hasArg("profile")) {
+        server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing profile\"}");
+        return;
+    }
+    MissionProfile profile;
+    if (!parseProfileArg(server.arg("profile"), profile)) {
+        server.send(400, "application/json", "{\"ok\":false,\"error\":\"profile must be meshtastic or meshcore\"}");
+        return;
+    }
+
+    const ProfileOverrides current = radioActiveOverrides();
+    // Start from this profile's own currently-resolved values so a form
+    // that only edits one field doesn't zero the rest.
+    ChannelParams p = resolvedChannelForProfile(current, profile);
     if (server.hasArg("freq_mhz")) p.freq_mhz = server.arg("freq_mhz").toFloat();
     if (server.hasArg("sf")) p.sf = (uint8_t)server.arg("sf").toInt();
     if (server.hasArg("bw_khz")) p.bw_khz = server.arg("bw_khz").toFloat();
@@ -241,7 +287,7 @@ void handleConfigPost() {
         p.sync_word = (uint8_t)strtol(server.arg("sync_word").c_str(), nullptr, 0);
     }
 
-    if (!writeChannelConfigToSD(p)) {
+    if (!writeProfileConfigToSD(profile, p, current)) {
         server.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid values or SD unavailable\"}");
         return;
     }

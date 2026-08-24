@@ -141,7 +141,14 @@ avoid those frequencies.
 
 Mission profile is operator-selected (keyboard), not auto-detected. Switching
 profiles reconfigures which channel table `HOME_LISTEN`/`DISCOVERY_SWEEP`
-pull from; the state machine shape doesn't change.
+pull from; the state machine shape doesn't change. "Channel table" means
+each profile's *resolved* channel — its SD/web override if the operator set
+one, else the hardcoded default (`channel_plans.h`'s
+`resolvedChannelForProfile()`, config.h) — not just the hardcoded table
+directly. Per-profile since 2026-08-24: an earlier single-override design
+meant switching away from a profile and back silently dropped its override
+and reverted to the hardcoded default; see PROGRESS.md's Decisions log for
+the full story and `config.h`'s comments for the current schema.
 
 ## 6. Protocol fingerprinting (post-hoc classification)
 
@@ -476,9 +483,27 @@ project had left open since Phase 2 (§1's keyboard row, CLAUDE.md's house
 rule against guessing hardware tables): what does a raw TCA8418 event byte
 actually mean on this specific keyboard? Phase 5's UX scope — plain `,`/`.`
 to move, Enter to select, Backspace to go back, no Fn chord, no numeric
-entry (ROADMAP.md Phase 5) — only ever needs four specific keys identified,
-which is what makes a fully-sourced answer tractable here instead of
-needing a whole separate research phase.
+entry (ROADMAP.md Phase 5) — only ever needed four specific keys identified,
+which is what made a fully-sourced answer tractable here instead of needing
+a whole separate research phase. Extended twice since, same Phase, same
+sourcing chain:
+- Digits `1`-`5` as direct jumps to a numbered carousel page, so the
+  operator isn't limited to stepping through pages one at a time with
+  `,`/`.`. **Bench-confirmed 2026-08-24**, all five.
+- The same bench session that confirmed the digits also surfaced two live
+  UX findings, fixed the same day (PROGRESS.md Decisions log): Backspace
+  read as the wrong key for "leave the menu," swapped for the top-left key
+  — silkscreened ESC on the Cardputer-ADV even though the TCA8418 reports
+  its base character as backtick (RetroBreeze's reference documents this
+  directly: "There is no dedicated ESC key in the firmware... ESC is
+  accessed as Fn + backtick" — bound here as a **plain** press, no Fn, to
+  keep this project's existing no-chord rule rather than adopt the upstream
+  combo); and the operator tried the keyboard's printed Fn-arrow diamond
+  (`;`/`,`/`.`/`/` = up/left/down/right, also documented in RetroBreeze's
+  reference) expecting it to double as navigation — `,` and `.` already did
+  (they're the original move keys), so `;` and `/` are now wired in as
+  plain-press aliases for the same two actions. Neither addition is
+  bench-verified yet.
 
 Three independent sources, each covering one link in the chain from raw
 byte to key identity:
@@ -498,19 +523,25 @@ byte to key identity:
 3. **Physical (row, col) → which key it is** — RetroBreeze's
    `cardputer-keyboard-reference` (github.com/RetroBreeze/
    cardputer-keyboard-reference), which documents the Cardputer-**ADV**'s
-   full key map specifically (not the base Cardputer's GPIO-matrix variant).
-   Independently cross-checked against Launcher's own input handler, which
-   recognizes both Enter and Backspace by `col == 13` — matching
-   RetroBreeze's table exactly, from a second, independent source.
+   full key map specifically (not the base Cardputer's GPIO-matrix variant),
+   including its digit row 0 (`` ` ``,`1`-`9`,`0`,`-`,`=`,Backspace at
+   columns 0-13) and its Fn layer (§7/9 of the same reference: the Fn-arrow
+   diamond and the Fn+backtick ESC combo cited above). Independently
+   cross-checked against Launcher's own input handler, which recognizes
+   both Enter and Backspace by `col == 13` — matching RetroBreeze's table
+   exactly, from a second, independent source.
 
-Inverting step 2's formula for the four keys Phase 5 needs (Backspace,
-Enter, Comma, Period — all at physical col 10/11/13, per step 3) gives the
-exact raw press-byte constants in `src/keyboard.h`, which carries this same
-citation trail in its own comments so an implementer doesn't have to
-re-derive it. **Not yet bench-verified against real hardware** — same bar
-as every other sourced-not-measured fact in this section: press each of the
-four keys once and confirm the firmware recognizes exactly that key, per
-PROGRESS.md's Phase 5 checklist.
+Inverting step 2's formula for the eleven keys Phase 5 now uses (Enter,
+Comma, Period at physical col 10/11/13; backtick/ESC at col 0; Semicolon at
+row 2 col 11; Slash at row 3 col 12; digits `1`-`5` at physical row 0, col
+1-5 — all per step 3) gives the exact raw press-byte constants in
+`src/keyboard.h`, which carries this same citation trail in its own
+comments so an implementer doesn't have to re-derive it. **Bench-confirmed
+2026-08-24:** Comma, Period, and the five digit keys. Backtick/ESC and
+Semicolon/Slash are newer and **not yet bench-verified** — same bar as
+every other sourced-not-measured fact in this section: press each once and
+confirm the firmware recognizes exactly that key, per PROGRESS.md's Phase 5
+checklist.
 
 ## 11. References
 

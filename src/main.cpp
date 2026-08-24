@@ -73,6 +73,12 @@ constexpr uint8_t SPLASH_LINE_H = 10;   // px, text size 1
 
 // Meshtastic LongFast (US) unless overridden by /loratrace/config.txt on
 // SD — see config.h/config.cpp and sd-template/loratrace/config.txt.
+// `channelOverrides` holds BOTH profiles' overrides (per-profile since
+// 2026-08-24, see PROGRESS.md Decisions log); `activeChannel` below is just
+// the boot profile's resolved value, handed to radioTaskStart() alongside
+// `channelOverrides` itself so a later profile switch can resolve MeshCore's
+// override too, not just Meshtastic's.
+ProfileOverrides channelOverrides;
 ChannelParams activeChannel = CHANNEL_MESHTASTIC_LONGFAST_US;
 
 // Detection queue, Core 1 -> Core 0. 32 entries x 36B = ~1.2KB: deep enough
@@ -152,8 +158,14 @@ void setup() {
     // One-shot channel override, before the radio starts. Sequential with
     // everything else here — no tasks are running yet, so no arbitration is
     // needed for this read.
-    bool sdOverrideApplied = loadChannelConfigFromSD(activeChannel, PIN_SD_CS, sharedSpi());
-    splashLine(sdOverrideApplied ? F("Config: SD override") : F("Config: default"));
+    loadProfileOverridesFromSD(channelOverrides, PIN_SD_CS, sharedSpi());
+    activeChannel = resolvedChannelForProfile(channelOverrides, MissionProfile::MESHTASTIC);
+    // Specifically whether *this boot's profile* (Meshtastic) has an
+    // override, not whether the file had any override at all — a
+    // MeshCore-only override would otherwise make this splash line claim
+    // "SD override" while the channel actually in use is still the
+    // hardcoded Meshtastic default.
+    splashLine(channelOverrides.meshtastic_set ? F("Config: SD override") : F("Config: default"));
 
     detectionQueue = xQueueCreate(DETECTION_QUEUE_DEPTH, sizeof(Detection));
     if (detectionQueue == nullptr) {
@@ -175,11 +187,12 @@ void setup() {
     splashLine(F("Logger task: started"));
 
     // Boots on Meshtastic; MeshCore is reachable at runtime via ui_task's
-    // ~3s-hold gesture (DESIGN.md §5, radio_task.h). The SD-config override
-    // above applies to this boot profile only — switching to MeshCore uses
-    // its own verified table (channel_plans.h) unmodified, not a second
-    // override schema.
-    if (!radioTaskStart(activeChannel, MissionProfile::MESHTASTIC, detectionQueue)) {
+    // menu (DESIGN.md §5, radio_task.h). `channelOverrides` is passed along
+    // too, not just this boot profile's already-resolved `activeChannel` —
+    // radio_task.cpp holds onto it so a later switch to MeshCore resolves
+    // *its* override (if any) the same way this boot resolved Meshtastic's,
+    // rather than always falling back to channel_plans.h's hardcoded table.
+    if (!radioTaskStart(activeChannel, MissionProfile::MESHTASTIC, channelOverrides, detectionQueue)) {
         Serial.print(F("FATAL: radio start failed, RadioLib code "));
         Serial.println(radioLastError());
         splashLine("FATAL: radio " + String(radioLastError()), SPLASH_ERR);

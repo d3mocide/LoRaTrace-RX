@@ -398,7 +398,7 @@ void drawMenu() {
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
     tft->setCursor(2, tft->height() - 9);
-    tft->print(",/. move   Enter act   Bksp back");
+    tft->print(",/. move   Enter act   ` back");
 }
 
 void drawPage() {
@@ -421,11 +421,13 @@ void drawPage() {
     // Persistent, page-independent — replaces the two gesture-specific
     // hints (RADIO's "hold ~3s", WIFI's "hold ~1s") that used to live
     // inside individual page-draw functions, since both actions moved into
-    // one menu that isn't specific to either page any more.
+    // one menu that isn't specific to either page any more. "1-5 jump"
+    // added alongside the digit-key shortcuts, still well under the
+    // ~40-char/line budget at text size 1 on a 240px-wide panel.
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
     tft->setCursor(2, tft->height() - 9);
-    tft->print(",/. page   Enter menu");
+    tft->print(",/. page  1-5 jump  Enter menu");
 }
 
 void nextPage() {
@@ -436,6 +438,12 @@ void nextPage() {
 
 void prevPage() {
     page = (UiPage)(((uint8_t)page + (uint8_t)UiPage::COUNT - 1) % (uint8_t)UiPage::COUNT);
+    lastPageChange = millis();
+    tft->fillScreen(COL_BG);
+}
+
+void jumpToPage(UiPage p) {
+    page = p;
     lastPageChange = millis();
     tft->fillScreen(COL_BG);
 }
@@ -478,8 +486,25 @@ void uiTask(void *) {
                 mode = UiMode::MENU;
                 menuSelection = 0;
                 redraw = true;
+            } else if (action == KeyAction::JUMP_1) {
+                jumpToPage(UiPage::RADIO);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_2) {
+                jumpToPage(UiPage::CHANNEL);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_3) {
+                jumpToPage(UiPage::GPS);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_4) {
+                jumpToPage(UiPage::SYSTEM);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_5) {
+                jumpToPage(UiPage::WIFI);
+                redraw = true;
             }
             // BACK is a no-op here — nothing to go back to from the carousel.
+            // Digit jumps are only handled in this branch; the menu ignores
+            // them rather than reusing them for its own two-item selection.
         } else { // UiMode::MENU
             if (action == KeyAction::PREV) {
                 menuSelection = (int8_t)((menuSelection + MENU_ITEM_COUNT - 1) % MENU_ITEM_COUNT);

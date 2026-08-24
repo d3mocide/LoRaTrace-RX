@@ -105,6 +105,61 @@ void test_meshtastic_and_meshcore_dont_collide() {
     TEST_ASSERT_TRUE(delta > 1.0f);
 }
 
+// resolvedChannelForProfile() (added 2026-08-24, config.h/PROGRESS.md
+// Decisions log): with nothing loaded from SD, both profiles must resolve
+// to exactly the same hardcoded tables channelParamsForProfile() returns —
+// an untouched ProfileOverrides must never itself change behavior.
+void test_resolved_channel_with_no_overrides_matches_hardcoded() {
+    ProfileOverrides overrides; // default-constructed: both _set flags false
+
+    const ChannelParams meshtastic = resolvedChannelForProfile(overrides, MissionProfile::MESHTASTIC);
+    TEST_ASSERT_EQUAL_FLOAT(CHANNEL_MESHTASTIC_LONGFAST_US.freq_mhz, meshtastic.freq_mhz);
+    TEST_ASSERT_EQUAL_UINT8(CHANNEL_MESHTASTIC_LONGFAST_US.sync_word, meshtastic.sync_word);
+
+    const ChannelParams meshcore = resolvedChannelForProfile(overrides, MissionProfile::MESHCORE);
+    TEST_ASSERT_EQUAL_FLOAT(CHANNEL_MESHCORE_US_NARROW.freq_mhz, meshcore.freq_mhz);
+    TEST_ASSERT_EQUAL_UINT8(CHANNEL_MESHCORE_US_NARROW.sync_word, meshcore.sync_word);
+}
+
+// The actual fix this struct exists for (found 2026-08-24 bench testing):
+// each profile's override must be used when set, and the two must be
+// independent — setting one must never affect the other's resolution. This
+// is what a switch away from a profile and back now preserves, instead of
+// silently reverting to the hardcoded default the way the pre-2026-08-24
+// single-slot design did.
+void test_resolved_channel_uses_override_when_set() {
+    ProfileOverrides overrides;
+    overrides.meshtastic_set = true;
+    overrides.meshtastic = {918.5f, 8, 125.0f, 5, 0x2B}; // MeshOregon-style, DESIGN.md/PROGRESS.md
+
+    const ChannelParams meshtastic = resolvedChannelForProfile(overrides, MissionProfile::MESHTASTIC);
+    TEST_ASSERT_EQUAL_FLOAT(918.5f, meshtastic.freq_mhz);
+    TEST_ASSERT_EQUAL_UINT8(8, meshtastic.sf);
+
+    // MeshCore was never set — must still fall back to its own hardcoded
+    // default, not pick up Meshtastic's override or an uninitialised value.
+    const ChannelParams meshcore = resolvedChannelForProfile(overrides, MissionProfile::MESHCORE);
+    TEST_ASSERT_EQUAL_FLOAT(CHANNEL_MESHCORE_US_NARROW.freq_mhz, meshcore.freq_mhz);
+    TEST_ASSERT_EQUAL_UINT8(CHANNEL_MESHCORE_US_NARROW.sync_word, meshcore.sync_word);
+}
+
+// Profiles without their own HOME_LISTEN table (Reticulum, General
+// Exploration) fall back through to Meshtastic's *resolved* channel, same
+// as channelParamsForProfile() falls back to Meshtastic's hardcoded one —
+// including picking up a Meshtastic override, since there's no separate
+// override slot for them to have instead.
+void test_resolved_channel_falls_back_to_meshtastic_for_unmapped_profiles() {
+    ProfileOverrides overrides;
+    overrides.meshtastic_set = true;
+    overrides.meshtastic = {918.5f, 8, 125.0f, 5, 0x2B};
+
+    const ChannelParams reticulum = resolvedChannelForProfile(overrides, MissionProfile::RETICULUM);
+    TEST_ASSERT_EQUAL_FLOAT(918.5f, reticulum.freq_mhz);
+
+    const ChannelParams general = resolvedChannelForProfile(overrides, MissionProfile::GENERAL_EXPLORATION);
+    TEST_ASSERT_EQUAL_FLOAT(918.5f, general.freq_mhz);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_meshtastic_longfast_in_tuned_band);
@@ -116,5 +171,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_channel_params_for_profile);
     RUN_TEST(test_channel_params_for_profile_falls_back_to_meshtastic);
     RUN_TEST(test_next_home_listen_profile_toggles);
+    RUN_TEST(test_resolved_channel_with_no_overrides_matches_hardcoded);
+    RUN_TEST(test_resolved_channel_uses_override_when_set);
+    RUN_TEST(test_resolved_channel_falls_back_to_meshtastic_for_unmapped_profiles);
     return UNITY_END();
 }

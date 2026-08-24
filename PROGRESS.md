@@ -333,6 +333,30 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       pulled forward ahead of it (PROGRESS.md 2026-08-22 decisions log) —
       ROADMAP.md's phase numbers are the ones that actually shipped;
       this list had drifted from it
+  - [ ] **Bench-verify the per-profile channel config split — added
+        2026-08-24, not yet flashed.** Fixes a real bug found the same day:
+        the original single-preset config let a MeshCore-active Save
+        silently write MeshCore's values into what the firmware would apply
+        as a Meshtastic override next boot, and a profile switch (menu) back
+        to a profile always reverted to its hardcoded default rather than
+        keeping whatever was configured for it. Confirm on real hardware:
+        editing and saving the Meshtastic preset, then the MeshCore preset,
+        leaves both independently correct after a reboot (check the
+        `active_profile` badge and both panels' values, `GET /api/config`);
+        a mid-run profile switch (menu) picks up each profile's saved
+        override rather than its hardcoded default; and the auto-created
+        `/loratrace/config.txt` on a blank card actually contains both
+        `meshtastic_*`/`meshcore_*` blocks pre-filled with the current
+        hardcoded defaults. See PROGRESS.md's Decisions log for the full
+        design and the bug this replaces.
+      **Operational note for this project's own SD card:** its existing
+      `config.txt` (the real MeshOregon-style override from earlier
+      sessions) uses the OLD unprefixed key format (`freq_mhz=`, not
+      `meshtastic_freq_mhz=`) — those keys are now unrecognized and will be
+      skipped with a serial warning, silently reverting that card's boot
+      channel to the hardcoded Meshtastic default until the file is updated
+      to the new schema (or deleted, so the firmware regenerates it fresh).
+      Do this before the next bench session on that card.
 - [~] **Phase 4** — MeshCore profile: same `HOME_LISTEN` engine, MeshCore
       US-narrow table wired in as a second, keyboard-switchable profile
       (DESIGN.md §5). Built 2026-08-24, passing the full host-native suite
@@ -357,19 +381,33 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         holds don't bleed into it — both are duration buckets on the same
         physical gesture (ui_task.cpp), reasoned about but not bench-timed
         against an actual human thumb
-- [~] **Phase 5** — On-device menu UI. Built 2026-08-24, passing the full
-      host-native suite (66 tests); **not yet hardware-verified**. Pulled
-      forward ahead of `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's
-      request — see ROADMAP.md/CLAUDE.md Status. Corrected numbering
-      (2026-08-24): this checklist previously called this slot
-      `DISCOVERY_SWEEP` — ROADMAP.md's phase numbers are the ones that
-      actually shipped; this list had drifted from it, same kind of
-      correction already made for Phase 3/4 above
-  - [ ] Bench-verify all four sourced keys (`src/keyboard.h`): press
-        Backspace/Enter/Comma/Period once each, confirm the firmware
-        recognizes exactly that key and no other — the raw byte values are
-        derived and cross-cited against three independent sources (see
-        DESIGN.md §10) but never run against a real TCA8418
+- [~] **Phase 5** — On-device menu UI. Built 2026-08-24 (digit-key page
+      jumps, then the ESC/arrow-alias rework below, both added same day —
+      see Decisions log), passing the full host-native suite (70 tests);
+      **first hardware pass done, rest still open**. Pulled forward ahead of
+      `DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's request — see
+      ROADMAP.md/CLAUDE.md Status. Corrected numbering (2026-08-24): this
+      checklist previously called this slot `DISCOVERY_SWEEP` —
+      ROADMAP.md's phase numbers are the ones that actually shipped; this
+      list had drifted from it, same kind of correction already made for
+      Phase 3/4 above
+  - [x] **Bench-verify Comma/Period/'1'-'5' (`src/keyboard.h`) — closed
+        2026-08-24.** User confirmed on real hardware: all five digit keys
+        jump to the correct page, Comma and Period move the carousel/menu
+        selection as designed. This same pass is what surfaced the two
+        items below — Backspace felt wrong for "back," and the operator's
+        own attempt to use the keyboard's printed Fn-arrow diamond
+        (expecting `;`/`/` to also navigate) found they silently did
+        nothing, which is exactly the "unmapped key is safely ignored"
+        allowlist property working as designed, just not the UX wanted.
+  - [ ] **Bench-verify the backtick/ESC key and Semicolon/Slash aliases —
+        added 2026-08-24, not yet pressed on real hardware.** Newest and
+        least-cross-checked of the eleven: unlike Enter/the original
+        Backspace, nothing independently confirms these three specific
+        (row, col) positions the way Launcher's `col == 13` check did —
+        confirm the backtick/ESC key actually exits the menu, and that
+        Semicolon/Slash move the carousel/selection the same way Comma/
+        Period already do, not something else.
   - [ ] Confirm the menu's two actions behave identically to their old
         gesture equivalents: profile switch (`radioRequestProfileSwitch()`)
         and WiFi toggle (`wifiToggle()`) are unchanged Phase 3/4 code, only
@@ -378,10 +416,10 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [ ] Confirm the new CHANNEL status page reflects a live profile switch
         immediately (it reads `radioActiveChannel()`, already confirmed
         correct post-switch in Phase 4 — this just needs an on-screen look)
-  - [ ] Confirm the persistent `,/. page   Enter menu` / `,/. move   Enter
-        act   Bksp back` hint lines render without clipping/overlap on the
-        real 240×135 panel — laid out by inspection against the existing
-        page functions' y-coordinates, not measured on glass
+  - [ ] Confirm the persistent `,/. page  1-5 jump  Enter menu` / `,/. move
+        Enter act   \` back` hint lines render without clipping/overlap on
+        the real 240×135 panel — laid out by inspection against the
+        existing page functions' y-coordinates, not measured on glass
 - [ ] **Phase 6** — `DISCOVERY_SWEEP`
 - [ ] **Phase 7** — `ENERGY_SWEEP`
 
@@ -2144,6 +2182,195 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     described the pre-renumbering Phase 7) — left over from earlier
     renumbering passes that didn't reach every mention. Fixed opportunistically
     rather than left to compound, same reasoning as the Phase 4 entry above.
+- **2026-08-24** — Added digit-key page jumps ('1'-'5', direct to a numbered
+  carousel page) ahead of the Phase 5 hardware session, at the user's
+  request once they confirmed a full keyboard would be on hand for that
+  bench session anyway. Still Phase 5 scope, added before any of it has
+  touched real hardware — no version bump (same precedent as the MeshCore
+  table existing in `channel_plans.h` before Phase 4 wired it in).
+  - **Sourcing, same chain as the original four keys, re-verified rather
+    than recalled:** cloned `RetroBreeze/cardputer-keyboard-reference` and
+    `bmorcelli/Launcher` fresh this session (read-only) instead of trusting
+    memory of their content, given this project's own house rule against
+    guessing hardware tables and its history of a silent, costly wrong
+    value (the sync-word bug, 2026-08-23). Confirmed `_key_value_map`'s row
+    0 (`` ` ``,`1`-`9`,`0`,`-`,`=`,Backspace at columns 0-13 — Backspace at
+    col 13 matches the already-bench-pending constant, a consistency check
+    for free) and re-ran `mapRawKeyToPhysical()`'s formula by hand for
+    row 0/col 1-5, cross-checking the inversion against the four already-
+    derived constants (Comma/Period/Enter/Backspace) before trusting it for
+    new ones. Result: K=5/11/15/21/25 for '1'-'5'
+    (`KEY_RAW_1_PRESS`..`KEY_RAW_5_PRESS`, `src/keyboard.h`).
+  - **Weaker sourcing than Backspace/Enter, flagged rather than glossed
+    over:** those two had a second independent confirmation (Launcher's
+    input handler recognizing both by `col == 13`); the digit keys only have
+    RetroBreeze's table plus the formula, the same bar Comma/Period already
+    cleared. Reflected in a strengthened PROGRESS.md checklist item asking
+    for all five to be pressed individually, not just a couple as a spot
+    check.
+  - **Design choice: plain `KeyAction::JUMP_1..JUMP_5`, not a `JUMP` action
+    carrying a page index.** Keeps `keyboard.h` free of any dependency on
+    `ui_task.h`'s `UiPage` enum — `ui_task.cpp` does the 1:1 index mapping
+    itself (`jumpToPage()`). Digit keys are carousel-only; the menu ignores
+    them rather than repurposing them for its own two-item selection.
+  - **Verification: host-native only, same bar as the rest of Phase 5.**
+    `test/test_keyboard/` grew to cover all five new press bytes, their
+    release-byte counterparts, and the immediately-adjacent unmapped digits
+    ('6'-'9'/'0') as an allowlist boundary check — the case most likely to
+    catch an off-by-one in the new derivation. Not yet bench-verified
+    against a real TCA8418, same as the original four.
+- **2026-08-24 (later same day)** — First real Phase 5 hardware pass, and
+  two live findings from it acted on immediately. User confirmed on real
+  hardware: all five digit-jump keys work, Comma/Period move the
+  carousel/menu as designed. That same session surfaced two things only a
+  human hand on real keys was going to find:
+  1. **Backspace felt wrong for "leave the menu."** Swapped for the
+     top-left key instead — silkscreened ESC on the physical Cardputer-ADV
+     keycap, even though the TCA8418/RetroBreeze's own reference call its
+     base character backtick. Bound as a **plain** press (no Fn), per this
+     project's existing "no Fn chord" rule — RetroBreeze documents the
+     upstream convention as Fn+backtick ("There is no dedicated ESC key in
+     the firmware... ESC is accessed as Fn + backtick"), but this firmware
+     doesn't track Fn as a modifier at all and isn't starting now for one
+     key. `KEY_RAW_BACKSPACE_PRESS` removed outright rather than left
+     dead — nothing else used it. New constant `KEY_RAW_ESC_PRESS = 1`
+     (physical row 0, col 0).
+  2. **The operator, working from the same keycaps, tried the printed
+     Fn-arrow diamond** (`;`/`,`/`.`/`/` = up/left/down/right — also
+     RetroBreeze-documented) expecting it to double as navigation.
+     Reported back precisely: Left (`,`) and Down (`.`) already worked —
+     unsurprising, they're literally Comma/Period, already bound — while Up
+     (`;`) and Right (`/`) silently did nothing, because nothing in
+     `keyboard.h` had ever mapped them. Not a bug (the allowlist's whole
+     design point is that an unmapped key does nothing) but a real UX gap
+     once a full keyboard was actually in hand to notice it. Fixed by
+     adding `KEY_RAW_SEMICOLON_PRESS`/`KEY_RAW_SLASH_PRESS` as plain-press
+     **aliases** for the existing `KeyAction::PREV`/`NEXT` — no new
+     `KeyAction` values, since semantically these are exactly the same
+     "previous"/"next" the carousel and menu already had, just reachable
+     from a second physical key each. All four arrow-diamond keys (and
+     digits `1`-`5`) work without holding Fn.
+  - **Sourcing:** same three-source chain as everything else in
+    `keyboard.h`, re-verified against the already-cloned RetroBreeze/
+    Launcher checkouts from the digit-key entry above rather than
+    re-cloned. RetroBreeze's README documents both quirks explicitly (its
+    own ESC and Fn-arrow-diamond sections, cited in `keyboard.h`'s
+    comments and DESIGN.md §10) — this wasn't inferred from the key-value
+    table alone, it's stated outright as the intended role of these keys'
+    printed keycaps.
+  - **`KEY_RAW_ESC_PRESS`/`KEY_RAW_SEMICOLON_PRESS`/`KEY_RAW_SLASH_PRESS`
+    not yet bench-verified** — added and tested host-side same day as the
+    report that motivated them, not yet re-flashed and pressed. Tracked as
+    its own checklist item above rather than folded into "closed," since
+    conflating an untested change with an already-confirmed one is exactly
+    the kind of thing this log exists to avoid.
+  - **Test suite:** `test/test_keyboard/` renamed/added cases for the new
+    aliases (`test_semicolon_is_prev`, `test_slash_is_next`,
+    `test_esc_is_back`) and added `test_backspace_is_no_longer_mapped` as
+    an explicit regression pin — Backspace returning to "just an ordinary
+    ignored key" is an intentional behavior change, not an oversight, and
+    deserves its own test rather than quietly losing coverage when its old
+    test (`test_backspace_is_back`) was removed. 70 native tests total, up
+    from 67 (3 new: two alias tests plus the regression pin; the digit-jump
+    test from the prior entry already counted). Verified with the same
+    g++/Unity workaround (no `pio` in this environment) — all 70 pass.
+- **2026-08-24 (later same day)** — Per-profile channel config, requested by
+  the user after noticing the web settings page (screenshot: the old
+  single-panel "Active LoRa channel" form) only ever had one slot while
+  Meshtastic and MeshCore run genuinely different frequencies. Investigating
+  turned up a real bug, not just a missing nice-to-have:
+  - `main.cpp` always boots `MissionProfile::MESHTASTIC`, and the old
+    `loadChannelConfigFromSD()`/`writeChannelConfigToSD()` only ever
+    read/wrote ONE shared `ChannelParams` applied to that boot profile.
+    `radio_task.cpp`'s live profile switch (`radioRequestProfileSwitch()`)
+    called `channelParamsForProfile()` directly — the hardcoded table,
+    never the override — so **switching to MeshCore and back to Meshtastic
+    silently reverted Meshtastic to its hardcoded default**, dropping
+    whatever the operator had configured (e.g. their real MeshOregon-style
+    918.5MHz/SF8/BW125/CR4:5 settings, see the 2026-08-22 entries above).
+  - Worse: `handleConfigGet()`/`handleConfigPost()` read/wrote whatever
+    `radioActiveChannel()` currently was — **while active on MeshCore, the
+    Save button captured MeshCore's values and wrote them into the one
+    file that only ever gets read back as a *Meshtastic* override on the
+    next boot.** The device would then boot claiming Meshtastic while
+    actually tuned to MeshCore's frequency — profile label and radio config
+    silently disagreeing. This was reachable in the shipped Phase 3/4 web
+    UI, not a hypothetical.
+  - **Fix: `ProfileOverrides` (channel_plans.h)** — two independent slots
+    (`meshtastic`/`meshcore`, each with its own `_set` flag) instead of one
+    shared `ChannelParams`, plus `resolvedChannelForProfile(overrides,
+    profile)` — pure, host-testable — that returns the override if set,
+    else `channelParamsForProfile()`'s hardcoded table. Both the initial
+    boot channel (`main.cpp`) and every later profile switch
+    (`radio_task.cpp`) now go through this one function, which is what
+    keeps them from disagreeing the way the old design did. `radio_task.cpp`
+    holds its own copy (`activeOverrides`, set once at `radioTaskStart()`,
+    read-only after) and exposes it via a new `radioActiveOverrides()`
+    accessor — same small-POD, no-lock convention as `radioActiveChannel()`.
+  - **config.txt schema, breaking change:** `freq_mhz=`/`sf=`/etc. becomes
+    `meshtastic_freq_mhz=`/`meshcore_freq_mhz=`/etc. — prefixed per profile.
+    `config.cpp`'s `applyConfigLine()` now dispatches on the prefix to a
+    `ChannelParams*`/`bool*` pair rather than one shared struct; validation
+    (`channelFreqInRange()` etc.) is unchanged and still the single shared
+    source of truth wifi_task validates against. Deliberately not kept
+    backward-compatible with the old unprefixed keys — this project is
+    pre-1.0 and its own fails-safe design already handles this cleanly (an
+    old-format key is simply "unrecognized," logged and skipped, falling
+    back to the hardcoded default) rather than needing a compatibility
+    shim. **Operational consequence flagged in the Phase 3 checklist above:
+    this device's own SD card still has the old-format file** and needs
+    updating before its next bench session, or its Meshtastic override will
+    silently stop applying.
+  - **`writeProfileConfigToSD(profile, params, current)`** replaces the old
+    `writeChannelConfigToSD(params)`: takes the profile being saved plus
+    the full currently-loaded `ProfileOverrides`, overlays just that one
+    profile's new values, and rewrites the whole file with BOTH profiles'
+    blocks — the other profile's block is carried through unchanged from
+    `current`, never clobbered. `writeFullConfig()` (renamed from
+    `writeDefaultConfig()`) writes both blocks unconditionally so the file
+    is always complete and valid, whether or not either profile actually
+    has an override set.
+  - **Web UI (`web_assets.h`):** the single "Active LoRa channel" form
+    (screenshot) becomes two independent panels, "Meshtastic preset" /
+    "MeshCore preset", each with its own five fields and Save button
+    (`configForm-meshtastic`/`configForm-meshcore`, field ids prefixed
+    `mt_`/`mc_`). A small "active" badge next to whichever profile
+    `GET /api/config`'s new `active_profile` field names, so the page makes
+    it visually obvious which panel's values the radio is *actually* using
+    right now — the exact confusion (label says one thing, radio does
+    another) the bug above allowed. `POST /api/config` now requires a
+    `profile` field naming which panel's Save fired; without it (or an
+    unrecognized value) the request is rejected with 400 rather than
+    guessing. One shared JS submit handler bound to both forms
+    (`form.dataset.profile`/`form.dataset.prefix`) rather than duplicating
+    the handler twice.
+  - **Kept intentionally out of scope, confirmed with the user first:** no
+    new on-device menu item. The existing Profile-switch menu action
+    (`radioRequestProfileSwitch()`/`nextHomeListenProfile()`, Phase 4/5)
+    already covers "switch between defaulted frequencies for each
+    function" once it resolves overrides correctly, which is exactly what
+    this fix does — a second menu item would have been redundant. Also
+    unchanged: the existing "not live, reboot to apply" boundary — a web
+    Save still doesn't hot-reload the running SX1262, matching the
+    boundary the original single-preset design already had (and the same
+    reasoning: radio_task.cpp still never touches SD, keeping its
+    switch-mailbox path exactly as fast and simple as before).
+  - **Verification:** `test/test_channel_plans/` gained three cases for
+    `resolvedChannelForProfile()` (no-override matches hardcoded; a set
+    override is used and the two profiles stay independent; Reticulum/
+    General Exploration fall through to Meshtastic's *resolved* channel,
+    override included, mirroring `channelParamsForProfile()`'s existing
+    fallback) — pure logic, host-testable, no I/O. 73 native tests total,
+    up from 70, g++/Unity workaround, all passing. `config.cpp`/
+    `wifi_task.cpp`/`main.cpp`/`radio_task.cpp` themselves are
+    Arduino-dependent like the rest of this project's hardware-facing code
+    and were reviewed by inspection rather than compiled (no `pio` in this
+    environment) — genuinely unverified until the next hardware session,
+    tracked in the Phase 3 checklist above rather than claimed done.
+  - **Version: v0.5.0 -> v0.5.1.** PATCH-level per CLAUDE.md's own rule
+    ("PATCH for fixes adding no phase scope") — this hardens already-shipped
+    Phase 3/4 behavior (and fixes the real bug above) rather than landing
+    new build-order scope, so MINOR stays at Phase 5's `0.5`.
 
 ## Next steps
 

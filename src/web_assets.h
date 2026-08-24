@@ -108,6 +108,16 @@ const char INDEX_HTML[] PROGMEM = R"WEBPAGE(<!doctype html>
     margin: 22px 0 10px;
   }
   .section-title:first-child { margin-top: 0; }
+  .badge {
+    font-size: 10px;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--good);
+    border: 1px solid var(--good);
+    border-radius: 4px;
+    padding: 1px 6px;
+    vertical-align: middle;
+  }
   form {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -201,34 +211,63 @@ const char INDEX_HTML[] PROGMEM = R"WEBPAGE(<!doctype html>
   </section>
 
   <section id="tab-settings" class="tab">
-    <div class="section-title">Active LoRa channel</div>
-    <form id="configForm">
+    <div class="section-title">Meshtastic preset <span id="mt_activeBadge" class="badge"></span></div>
+    <form id="configForm-meshtastic" data-profile="meshtastic" data-prefix="mt">
       <div>
-        <label for="freq_mhz">Frequency (MHz)</label>
-        <input id="freq_mhz" name="freq_mhz" type="number" step="0.001" min="868" max="928">
+        <label for="mt_freq_mhz">Frequency (MHz)</label>
+        <input id="mt_freq_mhz" name="freq_mhz" type="number" step="0.001" min="868" max="928">
       </div>
       <div>
-        <label for="sf">Spreading factor (SF5–SF12)</label>
-        <input id="sf" name="sf" type="number" min="5" max="12">
+        <label for="mt_sf">Spreading factor (SF5–SF12)</label>
+        <input id="mt_sf" name="sf" type="number" min="5" max="12">
       </div>
       <div>
-        <label for="bw_khz">Bandwidth (kHz)</label>
-        <input id="bw_khz" name="bw_khz" type="number" step="0.1" min="0.1">
+        <label for="mt_bw_khz">Bandwidth (kHz)</label>
+        <input id="mt_bw_khz" name="bw_khz" type="number" step="0.1" min="0.1">
       </div>
       <div>
-        <label for="cr_denom">Coding rate denominator (4/5–4/8)</label>
-        <input id="cr_denom" name="cr_denom" type="number" min="5" max="8">
+        <label for="mt_cr_denom">Coding rate denominator (4/5–4/8)</label>
+        <input id="mt_cr_denom" name="cr_denom" type="number" min="5" max="8">
       </div>
       <div>
-        <label for="sync_word">Sync word (hex, e.g. 0x2B)</label>
-        <input id="sync_word" name="sync_word" type="text">
+        <label for="mt_sync_word">Sync word (hex, e.g. 0x2B)</label>
+        <input id="mt_sync_word" name="sync_word" type="text">
       </div>
       <div>
         <button class="primary" type="submit">Save</button>
-        <div id="configMsg"></div>
+        <div id="mt_configMsg"></div>
       </div>
-      <div class="note">Saved to /loratrace/config.txt — takes effect on next boot, same as editing the file by hand. The running radio is not touched.</div>
     </form>
+
+    <div class="section-title">MeshCore preset <span id="mc_activeBadge" class="badge"></span></div>
+    <form id="configForm-meshcore" data-profile="meshcore" data-prefix="mc">
+      <div>
+        <label for="mc_freq_mhz">Frequency (MHz)</label>
+        <input id="mc_freq_mhz" name="freq_mhz" type="number" step="0.001" min="868" max="928">
+      </div>
+      <div>
+        <label for="mc_sf">Spreading factor (SF5–SF12)</label>
+        <input id="mc_sf" name="sf" type="number" min="5" max="12">
+      </div>
+      <div>
+        <label for="mc_bw_khz">Bandwidth (kHz)</label>
+        <input id="mc_bw_khz" name="bw_khz" type="number" step="0.1" min="0.1">
+      </div>
+      <div>
+        <label for="mc_cr_denom">Coding rate denominator (4/5–4/8)</label>
+        <input id="mc_cr_denom" name="cr_denom" type="number" min="5" max="8">
+      </div>
+      <div>
+        <label for="mc_sync_word">Sync word (hex, e.g. 0x12)</label>
+        <input id="mc_sync_word" name="sync_word" type="text">
+      </div>
+      <div>
+        <button class="primary" type="submit">Save</button>
+        <div id="mc_configMsg"></div>
+      </div>
+    </form>
+
+    <div class="note">Each preset is independent — switching profiles on-device no longer drops whichever one you're not currently on. Saved to /loratrace/config.txt — takes effect on next boot, same as editing the file by hand. The running radio is not touched.</div>
   </section>
 
 </main>
@@ -283,35 +322,53 @@ function refreshRuns() {
   });
 }
 
+function fillPreset(prefix, c) {
+  document.getElementById(prefix + '_freq_mhz').value = c.freq_mhz;
+  document.getElementById(prefix + '_sf').value = c.sf;
+  document.getElementById(prefix + '_bw_khz').value = c.bw_khz;
+  document.getElementById(prefix + '_cr_denom').value = c.cr_denom;
+  document.getElementById(prefix + '_sync_word').value = '0x' + c.sync_word.toString(16).toUpperCase().padStart(2, '0');
+}
+
+// Both presets come back from one GET — the device resolves each profile's
+// override-or-default itself (channel_plans.h's resolvedChannelForProfile,
+// same function a live profile switch uses), so the two panels always
+// reflect what the radio would actually do, not just what's on the card.
 function loadConfig() {
   fetch('/api/config').then(r => r.json()).then(function (c) {
-    document.getElementById('freq_mhz').value = c.freq_mhz;
-    document.getElementById('sf').value = c.sf;
-    document.getElementById('bw_khz').value = c.bw_khz;
-    document.getElementById('cr_denom').value = c.cr_denom;
-    document.getElementById('sync_word').value = '0x' + c.sync_word.toString(16).toUpperCase().padStart(2, '0');
+    fillPreset('mt', c.meshtastic);
+    fillPreset('mc', c.meshcore);
+    document.getElementById('mt_activeBadge').textContent = c.active_profile === 'meshtastic' ? 'active' : '';
+    document.getElementById('mc_activeBadge').textContent = c.active_profile === 'meshcore' ? 'active' : '';
   }).catch(function () {});
 }
 
-document.getElementById('configForm').addEventListener('submit', function (e) {
-  e.preventDefault();
-  var msg = document.getElementById('configMsg');
-  msg.className = ''; msg.textContent = 'Saving…';
-  var body = new URLSearchParams(new FormData(e.target));
-  fetch('/api/config', { method: 'POST', body: body })
-    .then(r => r.json().then(function (j) { return { ok: r.ok, j: j }; }))
-    .then(function (res) {
-      if (res.ok && res.j.ok) {
-        msg.className = 'ok';
-        msg.textContent = 'Saved — reboot the device to apply.';
-      } else {
+// One handler bound to both preset forms — the only per-form difference is
+// which `profile` field rides along in the POST body, and data-profile on
+// the <form> already carries that.
+document.querySelectorAll('#configForm-meshtastic, #configForm-meshcore').forEach(function (form) {
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var prefix = form.dataset.prefix;
+    var msg = document.getElementById(prefix + '_configMsg');
+    msg.className = ''; msg.textContent = 'Saving…';
+    var body = new URLSearchParams(new FormData(e.target));
+    body.set('profile', form.dataset.profile);
+    fetch('/api/config', { method: 'POST', body: body })
+      .then(r => r.json().then(function (j) { return { ok: r.ok, j: j }; }))
+      .then(function (res) {
+        if (res.ok && res.j.ok) {
+          msg.className = 'ok';
+          msg.textContent = 'Saved — reboot the device to apply.';
+        } else {
+          msg.className = 'err';
+          msg.textContent = 'Rejected: ' + (res.j.error || 'invalid values');
+        }
+      }).catch(function () {
         msg.className = 'err';
-        msg.textContent = 'Rejected: ' + (res.j.error || 'invalid values');
-      }
-    }).catch(function () {
-      msg.className = 'err';
-      msg.textContent = 'Save failed — device unreachable.';
-    });
+        msg.textContent = 'Save failed — device unreachable.';
+      });
+  });
 });
 
 document.querySelectorAll('.tab-btn').forEach(function (btn) {
