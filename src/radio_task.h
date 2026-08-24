@@ -23,11 +23,18 @@
 #include "detection.h"
 
 // Starts the SX1262 on `channel`/`profile` and launches the task on Core 1.
-// `queue` receives Detection structs; it must outlive the task.
+// `queue` receives Detection structs; it must outlive the task. `overrides`
+// is the per-profile SD/web config main.cpp already loaded (config.h) —
+// copied in and held for the task's lifetime so a later
+// radioRequestProfileSwitch() resolves each profile's *current* override
+// rather than always falling back to channel_plans.h's hardcoded table
+// (the pre-2026-08-24 bug: switching away from a profile and back silently
+// dropped its override — see PROGRESS.md Decisions log).
 // Returns false if the radio failed to initialise or the task couldn't be
 // created — callers should treat that as fatal, since a wardriver with no
 // receiver has nothing to do.
-bool radioTaskStart(const ChannelParams &channel, MissionProfile profile, QueueHandle_t queue);
+bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
+                    const ProfileOverrides &overrides, QueueHandle_t queue);
 
 // Last RadioLib error code from begin()/startReceive() — including a live
 // profile switch's own begin() call, so a failed switch is visible the same
@@ -66,3 +73,13 @@ uint32_t radioBusMissCount();    // couldn't get the SPI bus in time
 // just the last thing config.txt said, since a bad/missing SD card at boot
 // or a runtime profile switch both mean those can differ.
 ChannelParams radioActiveChannel();
+
+// The per-profile SD/web overrides loaded at boot (config.h), exactly as
+// radioTaskStart() received them — this task's copy is the one
+// radioRequestProfileSwitch() actually resolves against, so wifi_task's
+// settings page reads from here rather than re-parsing config.txt itself
+// (which would risk disagreeing with what the radio is actually doing).
+// Same small-POD, no-lock convention as radioActiveChannel() above. Does
+// NOT reflect a save made through writeProfileConfigToSD() until the next
+// boot — same "not live" boundary as the channel override itself.
+ProfileOverrides radioActiveOverrides();

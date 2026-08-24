@@ -124,6 +124,16 @@ Phase 2 task set running, radio counters staying at 0 with the AP active) —
 the actual go/no-go this phase used to be gated behind, now answerable on
 real hardware but not yet answered.
 
+**2026-08-24 addendum:** the channel-config settings page originally
+shipped here had a real bug, not just a missing feature — one shared
+preset applied to whichever profile was active at Save time, so saving
+while on MeshCore silently corrupted what the firmware would apply as a
+*Meshtastic* override on the next boot, and a profile switch back to a
+profile always reverted to its hardcoded default regardless of what had
+been configured for it. Fixed the same day with per-profile overrides
+(`ProfileOverrides`, `channel_plans.h`) — see PROGRESS.md's Decisions log
+for the full design. Still not hardware-verified, v0.5.1.
+
 **Phase 4 (MeshCore profile) built, not yet hardware-verified**: the
 MeshCore US-narrow table (910.525MHz/SF7/BW62.5/CR5) already existed in
 `channel_plans.h` from earlier sync-word research — what Phase 4 actually

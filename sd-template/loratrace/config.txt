@@ -2,22 +2,40 @@
 #
 # Copy this whole loratrace/ folder to the root of your SD card. On boot,
 # LoRaTrace RX reads this file and uses it to override the built-in
-# Meshtastic LongFast (US) default (906.875MHz / SF11 / BW250kHz / CR4:8).
+# per-profile defaults:
+#   Meshtastic LongFast (US): 906.875MHz / SF11 / BW250kHz / CR4:8
+#   MeshCore US/Canada narrow: 910.525MHz / SF7 / BW62.5kHz / CR4:5
+#
+# One block per mission profile (meshtastic_*/meshcore_*) — each is
+# independent. That matters once you're actually switching profiles
+# on-device (the menu's Profile item): a custom Meshtastic frequency and
+# MeshCore's stock default (or vice versa) coexist, and switching back to a
+# profile no longer drops whatever you'd customized for it.
 #
 # No SD card, no loratrace/ folder, a missing/unreadable file, or an
-# out-of-range value all fail safe back to that hardcoded default — a bad
-# line here just gets a warning on serial and gets skipped, it won't brick
-# the boot.
+# out-of-range value all fail safe back to that profile's hardcoded default
+# — a bad line here just gets a warning on serial and gets skipped, it
+# won't brick the boot.
 #
 # Uncomment/edit the lines below with your local mesh's actual settings
 # (e.g. a regional preset like MeshOregon) — check your own node's radio
-# config, don't guess. Lines starting with # are ignored. All four keys
-# are optional; any you omit keep the hardcoded default for that field.
+# config, don't guess. Lines starting with # are ignored. All keys are
+# optional; any you omit keep that profile's hardcoded default for that
+# field.
 
-# freq_mhz=906.875
-# sf=11
-# bw_khz=250.0
-# cr_denom=8
+# --- Meshtastic preset ---
+# meshtastic_freq_mhz=906.875
+# meshtastic_sf=11
+# meshtastic_bw_khz=250.0
+# meshtastic_cr_denom=8
+# meshtastic_sync_word=0x2B
+
+# --- MeshCore preset ---
+# meshcore_freq_mhz=910.525
+# meshcore_sf=7
+# meshcore_bw_khz=62.5
+# meshcore_cr_denom=5
+# meshcore_sync_word=0x12
 
 # LoRa sync word — hex (0x2B) or decimal (43), any value 0x00-0xFF.
 #
@@ -26,12 +44,11 @@
 # nothing from the protocol you're aiming at while still picking up
 # unrelated traffic that happens to match.
 #
-#   0x2B  current Meshtastic (v1.2+) — the built-in default
-#   0x12  pre-1.2 Meshtastic, and RadioLib's generic "private" default;
-#         a fair amount of non-Meshtastic hobbyist LoRa gear sits here too
+#   0x2B  current Meshtastic (v1.2+) — the built-in Meshtastic default
+#   0x12  pre-1.2 Meshtastic, and RadioLib's generic "private" default —
+#         also MeshCore's own verified value, the built-in MeshCore default
 #   0x34  reserved for LoRaWAN — per Meshtastic's own source, don't use it
 #         expecting mesh traffic
 #
-# Leave commented unless you're deliberately testing: the built-in default
-# already matches current Meshtastic.
-# sync_word=0x2B
+# Leave commented unless you're deliberately testing: the built-in defaults
+# already match current Meshtastic and MeshCore.

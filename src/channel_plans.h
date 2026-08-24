@@ -134,6 +134,40 @@ inline MissionProfile nextHomeListenProfile(MissionProfile current) {
                                                   : MissionProfile::MESHTASTIC;
 }
 
+// Per-profile SD/web overrides (config.h owns loading this from
+// /loratrace/config.txt; wifi_task.cpp owns writing it). Two independent
+// slots, not one shared ChannelParams — the whole point is that a
+// Meshtastic override and a MeshCore override are different settings that
+// must survive a profile switch independently of each other (found
+// 2026-08-24: the single-slot design that predates this let a switch back
+// to a profile silently drop its override and revert to the hardcoded
+// default, see PROGRESS.md Decisions log). RETICULUM/GENERAL_EXPLORATION
+// get no slot, same reason they get no ChannelParams constant above — they
+// have no fixed HOME_LISTEN channel to override.
+struct ProfileOverrides {
+    bool meshtastic_set = false;
+    ChannelParams meshtastic{};
+    bool meshcore_set = false;
+    ChannelParams meshcore{};
+};
+
+// Resolves the channel to actually use for `profile` right now: the
+// operator's SD/web override if one was loaded, else the hardcoded default
+// (channelParamsForProfile() above). Pure — no I/O, host-testable — so
+// both the initial boot channel (main.cpp) and every later profile switch
+// (radio_task.cpp's radioRequestProfileSwitch()) make this decision through
+// the exact same function instead of each re-deriving it, which is what
+// keeps them from drifting apart the way the pre-2026-08-24 design did.
+inline ChannelParams resolvedChannelForProfile(const ProfileOverrides &overrides, MissionProfile profile) {
+    switch (profile) {
+        case MissionProfile::MESHCORE:
+            return overrides.meshcore_set ? overrides.meshcore : channelParamsForProfile(profile);
+        case MissionProfile::MESHTASTIC:
+        default:
+            return overrides.meshtastic_set ? overrides.meshtastic : channelParamsForProfile(profile);
+    }
+}
+
 // --- Not yet parameterized — build-order phase 5/6, DESIGN.md §3/§9 ---
 //
 // MeshCore legacy (pre-migration, may still be in the wild): ~915MHz,

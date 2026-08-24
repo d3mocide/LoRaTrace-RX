@@ -19,9 +19,12 @@
 // cost actually goes away, not just goes idle.
 //
 // Settings saved from the web UI write to the same /loratrace/config.txt
-// loadChannelConfigFromSD() already reads (config.h) and apply on the next
-// boot — no attempt to hot-reload the running SX1262 from a different task.
-// See config.h's writeChannelConfigToSD() for why.
+// loadProfileOverridesFromSD() already reads (config.h) and apply on the
+// next boot — no attempt to hot-reload the running SX1262 from a different
+// task. See config.h's writeProfileConfigToSD() for why. Per-profile since
+// 2026-08-24: the settings page has one preset panel per mission profile
+// (Meshtastic/MeshCore), each saved independently — see PROGRESS.md
+// Decisions log for why a single shared preset wasn't enough.
 
 #include <stddef.h>
 #include <stdint.h>

@@ -3,7 +3,9 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <stdlib.h> // strtol, for the hex-or-decimal sync_word parse below
+#include <string.h> // strlen, for the meshtastic_/meshcore_ key-prefix strip below
 
+#include "detection.h" // missionProfileName(), for writeProfileConfigToSD()'s confirmation line
 #include "spi_bus.h"
 
 // DESIGN.md §1: module front end tuned 868-923MHz, 923-928 still in US ISM
@@ -17,12 +19,14 @@ bool channelCrInRange(uint8_t cr) { return cr >= 5 && cr <= 8; }
 
 namespace {
 
-// Applies one "key=value" line to `params`. Returns true if a recognized,
-// in-range key was applied. Rejects recognized-but-out-of-range values
-// with a warning instead of silently accepting them — a bad frequency or
-// SF here means the radio tunes to the wrong place and hears nothing,
-// which is exactly the failure mode this whole project exists to avoid.
-bool applyConfigLine(const String &rawLine, ChannelParams &params) {
+// Applies one "key=value" line to whichever of `overrides`'s two profile
+// slots the key's prefix names, setting that slot's `_set` flag when at
+// least one field lands. Returns true if a recognized, in-range key was
+// applied. Rejects recognized-but-out-of-range values with a warning
+// instead of silently accepting them — a bad frequency or SF here means the
+// radio tunes to the wrong place and hears nothing, which is exactly the
+// failure mode this whole project exists to avoid.
+bool applyConfigLine(const String &rawLine, ProfileOverrides &overrides) {
     String line = rawLine;
     line.trim();
     if (line.length() == 0 || line.startsWith("#")) return false;
@@ -36,46 +40,80 @@ bool applyConfigLine(const String &rawLine, ChannelParams &params) {
     val.trim();
     if (key.length() == 0 || val.length() == 0) return false;
 
-    if (key == "freq_mhz") {
+    // Prefix picks which profile this line belongs to — everything else
+    // (bounds, parsing) is identical between the two, so the actual field
+    // logic below is written once against a `ChannelParams&`/`bool&` pair
+    // rather than duplicated per profile.
+    ChannelParams *params;
+    bool *setFlag;
+    String field;
+    if (key.startsWith("meshtastic_")) {
+        params = &overrides.meshtastic;
+        setFlag = &overrides.meshtastic_set;
+        field = key.substring(strlen("meshtastic_"));
+    } else if (key.startsWith("meshcore_")) {
+        params = &overrides.meshcore;
+        setFlag = &overrides.meshcore_set;
+        field = key.substring(strlen("meshcore_"));
+    } else {
+        Serial.print(F("[config] unrecognized key '"));
+        Serial.print(key);
+        Serial.println(F("', ignoring (expected a meshtastic_ or meshcore_ prefix)."));
+        return false;
+    }
+
+    if (field == "freq_mhz") {
         float v = val.toFloat();
         if (!channelFreqInRange(v)) {
-            Serial.print(F("[config] freq_mhz "));
+            Serial.print(F("[config] "));
+            Serial.print(key);
+            Serial.print(F(" "));
             Serial.print(v, 3);
             Serial.println(F(" outside 868-928MHz, ignoring this field."));
             return false;
         }
-        params.freq_mhz = v;
+        params->freq_mhz = v;
+        *setFlag = true;
         return true;
     }
-    if (key == "sf") {
+    if (field == "sf") {
         long v = val.toInt();
         if (v < 1 || !channelSfInRange((uint8_t)v)) {
-            Serial.print(F("[config] sf "));
+            Serial.print(F("[config] "));
+            Serial.print(key);
+            Serial.print(F(" "));
             Serial.print(v);
             Serial.println(F(" outside 5-12, ignoring this field."));
             return false;
         }
-        params.sf = (uint8_t)v;
+        params->sf = (uint8_t)v;
+        *setFlag = true;
         return true;
     }
-    if (key == "bw_khz") {
+    if (field == "bw_khz") {
         float v = val.toFloat();
         if (v <= 0.0f) {
-            Serial.println(F("[config] bw_khz must be positive, ignoring this field."));
+            Serial.print(F("[config] "));
+            Serial.print(key);
+            Serial.println(F(" must be positive, ignoring this field."));
             return false;
         }
-        params.bw_khz = v;
+        params->bw_khz = v;
+        *setFlag = true;
         return true;
     }
-    if (key == "cr_denom") {
+    if (field == "cr_denom") {
         long v = val.toInt();
         if (v < 1 || !channelCrInRange((uint8_t)v)) {
-            Serial.print(F("[config] cr_denom "));
+            Serial.print(F("[config] "));
+            Serial.print(key);
+            Serial.print(F(" "));
             Serial.print(v);
             Serial.println(F(" outside 5-8, ignoring this field."));
             return false;
         }
-        params.cr_denom = (uint8_t)v;
+        params->cr_denom = (uint8_t)v;
+        *setFlag = true;
         return true;
     }
     // Accepts hex ("0x2B") or decimal ("43") — strtol base 0 picks by
@@ -83,16 +121,19 @@ bool applyConfigLine(const String &rawLine, ChannelParams &params) {
     // tested on the bench without a reflash (e.g. current Meshtastic 0x2B
     // vs. pre-1.2 / RadioLib-default 0x12), which is what the 2026-08-23
     // missed-packet investigation needed and didn't have.
-    if (key == "sync_word") {
+    if (field == "sync_word") {
         char *end = nullptr;
         long v = strtol(val.c_str(), &end, 0);
         if (end == val.c_str() || *end != '\0' || v < 0 || v > 0xFF) {
-            Serial.print(F("[config] sync_word '"));
+            Serial.print(F("[config] "));
+            Serial.print(key);
+            Serial.print(F(" '"));
             Serial.print(val);
             Serial.println(F("' is not a byte in 0x00-0xFF, ignoring this field."));
             return false;
         }
-        params.sync_word = (uint8_t)v;
+        params->sync_word = (uint8_t)v;
+        *setFlag = true;
         return true;
     }
 
@@ -102,100 +143,127 @@ bool applyConfigLine(const String &rawLine, ChannelParams &params) {
     return false;
 }
 
-// Writes `defaults` out to CHANNEL_CONFIG_PATH as an active (uncommented)
-// config, so the file is a valid, loadable config in its own right from the
-// moment it's created — not just a commented-out template the operator has
-// to uncomment first. Assumes CHANNEL_CONFIG_DIR already exists. Returns
-// false (logging why) if the SD card won't accept the write, e.g. read-only.
-bool writeDefaultConfig(const ChannelParams &defaults) {
+// Writes one profile's five key=value lines under `prefix`, resolved to
+// either its loaded override or its hardcoded default — the file always
+// ends up with a complete, valid block for both profiles, never a partial
+// one, whether or not an override was actually set for it.
+void writeProfileBlock(File &f, const char *prefix, MissionProfile profile,
+                       const ProfileOverrides &overrides) {
+    const ChannelParams p = resolvedChannelForProfile(overrides, profile);
+    f.print(prefix);
+    f.print(F("freq_mhz="));
+    f.println(p.freq_mhz, 3);
+    f.print(prefix);
+    f.print(F("sf="));
+    f.println(p.sf);
+    f.print(prefix);
+    f.print(F("bw_khz="));
+    f.println(p.bw_khz, 1);
+    f.print(prefix);
+    f.print(F("cr_denom="));
+    f.println(p.cr_denom);
+    f.print(prefix);
+    f.print(F("sync_word=0x"));
+    f.println(p.sync_word, HEX);
+}
+
+// Writes `overrides` out to CHANNEL_CONFIG_PATH — both profiles' blocks,
+// each resolved to its override if set, else its hardcoded default — as an
+// active (uncommented) config, so the file is a valid, loadable config in
+// its own right from the moment it's created, not just a commented-out
+// template the operator has to uncomment first. Assumes CHANNEL_CONFIG_DIR
+// already exists. Returns false (logging why) if the SD card won't accept
+// the write, e.g. read-only.
+bool writeFullConfig(const ProfileOverrides &overrides) {
     File f = SD.open(CHANNEL_CONFIG_PATH, FILE_WRITE);
     if (!f) {
         Serial.print(F("[config] Could not create "));
         Serial.print(CHANNEL_CONFIG_PATH);
-        Serial.println(F(" (SD may be read-only) — using built-in default channel."));
+        Serial.println(F(" (SD may be read-only) — using built-in default channels."));
         return false;
     }
 
     f.println(F("# LoRaTrace RX — channel config"));
     f.println(F("#"));
-    f.println(F("# Auto-created on first boot with an SD card present, set to the"));
-    f.println(F("# built-in Meshtastic LongFast (US) default. Edit the values below for"));
-    f.println(F("# your local mesh (e.g. a regional preset like MeshOregon) — check your"));
-    f.println(F("# own node's radio config, don't guess. Lines starting with # are"));
-    f.println(F("# ignored. An out-of-range value is rejected with a warning on serial"));
-    f.println(F("# and skipped, not applied — it won't brick the boot."));
+    f.println(F("# One block per mission profile (meshtastic_*/meshcore_*) — each is"));
+    f.println(F("# independent, so a custom Meshtastic frequency and MeshCore's stock"));
+    f.println(F("# default (or vice versa) can coexist, and switching profiles on-device"));
+    f.println(F("# no longer drops whichever one you're not currently on. Auto-created on"));
+    f.println(F("# first boot with an SD card present, set to both profiles' built-in"));
+    f.println(F("# defaults. Edit the values below for your local mesh (e.g. a regional"));
+    f.println(F("# preset like MeshOregon) — check your own node's radio config, don't"));
+    f.println(F("# guess. Lines starting with # are ignored. An out-of-range value is"));
+    f.println(F("# rejected with a warning on serial and skipped, not applied — it won't"));
+    f.println(F("# brick the boot."));
     f.println();
-    f.print(F("freq_mhz="));
-    f.println(defaults.freq_mhz, 3);
-    f.print(F("sf="));
-    f.println(defaults.sf);
-    f.print(F("bw_khz="));
-    f.println(defaults.bw_khz, 1);
-    f.print(F("cr_denom="));
-    f.println(defaults.cr_denom);
-    f.print(F("sync_word=0x"));
-    f.println(defaults.sync_word, HEX);
+    f.println(F("# Meshtastic preset"));
+    writeProfileBlock(f, "meshtastic_", MissionProfile::MESHTASTIC, overrides);
+    f.println();
+    f.println(F("# MeshCore preset"));
+    writeProfileBlock(f, "meshcore_", MissionProfile::MESHCORE, overrides);
     f.close();
     return true;
 }
 
 } // namespace
 
-bool loadChannelConfigFromSD(ChannelParams &params, int8_t csPin, SPIClass &spi) {
+bool loadProfileOverridesFromSD(ProfileOverrides &overrides, int8_t csPin, SPIClass &spi) {
     if (!SD.begin(csPin, spi)) {
-        Serial.println(F("[config] No SD card detected (or mount failed) — using built-in default channel."));
+        Serial.println(F("[config] No SD card detected (or mount failed) — using built-in default channels."));
         return false;
     }
 
     // First card ever seen by this firmware: create /loratrace/config.txt
-    // with the current defaults so operators have a file to edit in place,
+    // with both profiles' current (here: hardcoded, since `overrides` is
+    // still fresh) defaults so operators have a file to edit in place,
     // instead of needing to hand-copy sd-template/loratrace/ themselves.
     if (!SD.exists(CHANNEL_CONFIG_DIR)) {
         SD.mkdir(CHANNEL_CONFIG_DIR);
     }
     if (!SD.exists(CHANNEL_CONFIG_PATH)) {
-        if (writeDefaultConfig(params)) {
+        if (writeFullConfig(overrides)) {
             Serial.print(F("[config] Created default "));
             Serial.print(CHANNEL_CONFIG_PATH);
-            Serial.println(F(" — using built-in default channel."));
+            Serial.println(F(" — using built-in default channels."));
         }
-        return false; // file we just wrote matches `params` already — nothing to apply
+        return false; // file we just wrote matches `overrides` already — nothing to apply
     }
 
     File f = SD.open(CHANNEL_CONFIG_PATH);
     if (!f) {
         Serial.print(F("[config] "));
         Serial.print(CHANNEL_CONFIG_PATH);
-        Serial.println(F(" not found — using built-in default channel."));
+        Serial.println(F(" not found — using built-in default channels."));
         return false;
     }
 
     bool appliedAny = false;
     while (f.available()) {
         String line = f.readStringUntil('\n');
-        if (applyConfigLine(line, params)) appliedAny = true;
+        if (applyConfigLine(line, overrides)) appliedAny = true;
     }
     f.close();
 
     if (appliedAny) {
-        Serial.print(F("[config] Applied channel override from "));
+        Serial.print(F("[config] Applied channel override(s) from "));
         Serial.println(CHANNEL_CONFIG_PATH);
     } else {
         Serial.print(F("[config] "));
         Serial.print(CHANNEL_CONFIG_PATH);
-        Serial.println(F(" found but had no valid keys — using built-in default channel."));
+        Serial.println(F(" found but had no valid keys — using built-in default channels."));
     }
     return appliedAny;
 }
 
-bool writeChannelConfigToSD(const ChannelParams &params) {
+bool writeProfileConfigToSD(MissionProfile profile, const ChannelParams &params,
+                            const ProfileOverrides &current) {
     if (!channelFreqInRange(params.freq_mhz) || !channelSfInRange(params.sf) ||
         !channelCrInRange(params.cr_denom) || params.bw_khz <= 0.0f) {
         Serial.println(F("[config] refusing to write out-of-range channel params."));
         return false;
     }
 
-    // Runtime call, unlike loadChannelConfigFromSD's boot-time one — the
+    // Runtime call, unlike loadProfileOverridesFromSD's boot-time one — the
     // radio/GPS/logger tasks are all live and sharing this same physical
     // SPI bus, so this must arbitrate for it. A bounded wait, not
     // portMAX_DELAY: an operator-triggered settings save is not worth
@@ -207,21 +275,34 @@ bool writeChannelConfigToSD(const ChannelParams &params) {
         return false;
     }
 
+    // Start from `current` (the state already loaded at boot) and overlay
+    // just the one profile being saved — the other profile's block is
+    // rewritten unchanged, so saving Meshtastic's preset can never clobber
+    // a previously-saved MeshCore one, or vice versa.
+    ProfileOverrides updated = current;
+    if (profile == MissionProfile::MESHCORE) {
+        updated.meshcore = params;
+        updated.meshcore_set = true;
+    } else {
+        updated.meshtastic = params;
+        updated.meshtastic_set = true;
+    }
+
     // Delete-then-recreate rather than truncate-in-place: a new config that
     // happens to be shorter than the one it replaces must not leave trailing
     // bytes of the old file behind (e.g. a stray old key=value line past the
-    // new content's end, silently corrupting the file). writeDefaultConfig()
-    // already writes an arbitrary ChannelParams in the exact key=value
-    // format loadChannelConfigFromSD() parses — reused as-is here rather
+    // new content's end, silently corrupting the file). writeFullConfig()
+    // already writes an arbitrary ProfileOverrides in the exact key=value
+    // format loadProfileOverridesFromSD() parses — reused as-is here rather
     // than duplicating that format a second time.
     SD.remove(CHANNEL_CONFIG_PATH);
-    const bool ok = writeDefaultConfig(params);
+    const bool ok = writeFullConfig(updated);
 
     // A save triggered from the web UI (wifi_task) has no other visible
     // confirmation on the device — the browser shows its own success/error
     // message, but the operator standing at the device with a serial
     // console open (exactly the debugging situation this is for) saw
-    // nothing at all before this. Mirrors loadChannelConfigFromSD's own
+    // nothing at all before this. Mirrors loadProfileOverridesFromSD's own
     // success/failure prints for the same reason.
     //
     // Built into one buffer and printed with a single call, not ~12
@@ -230,11 +311,13 @@ bool writeChannelConfigToSD(const ChannelParams &params) {
     // apply." instead of the full line) when it landed at the same moment
     // as another task's own Serial output. See main.cpp's loop() for the
     // full read on why (unsynchronized Serial access across cores/tasks).
-    char line[128]; // longest case measured at 97 bytes (incl. the multi-byte em dash) — real margin, not a near-fit
+    char line[160]; // worst case ("meshtastic", 3-digit fields) measures ~111B — real margin, not a near-fit
     if (ok) {
-        snprintf(line, sizeof(line), "[config] Wrote %s: %.3fMHz SF%u BW%.1f CR4/%u sync 0x%X — reboot to apply.",
-                 CHANNEL_CONFIG_PATH, (double)params.freq_mhz, (unsigned)params.sf, (double)params.bw_khz,
-                 (unsigned)params.cr_denom, (unsigned)params.sync_word);
+        snprintf(line, sizeof(line),
+                 "[config] Wrote %s (%s): %.3fMHz SF%u BW%.1f CR4/%u sync 0x%X — reboot to apply.",
+                 CHANNEL_CONFIG_PATH, missionProfileName((uint8_t)profile), (double)params.freq_mhz,
+                 (unsigned)params.sf, (double)params.bw_khz, (unsigned)params.cr_denom,
+                 (unsigned)params.sync_word);
     } else {
         snprintf(line, sizeof(line), "[config] Failed to write %s (SD busy, missing, or read-only).",
                  CHANNEL_CONFIG_PATH);

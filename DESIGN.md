@@ -141,7 +141,14 @@ avoid those frequencies.
 
 Mission profile is operator-selected (keyboard), not auto-detected. Switching
 profiles reconfigures which channel table `HOME_LISTEN`/`DISCOVERY_SWEEP`
-pull from; the state machine shape doesn't change.
+pull from; the state machine shape doesn't change. "Channel table" means
+each profile's *resolved* channel — its SD/web override if the operator set
+one, else the hardcoded default (`channel_plans.h`'s
+`resolvedChannelForProfile()`, config.h) — not just the hardcoded table
+directly. Per-profile since 2026-08-24: an earlier single-override design
+meant switching away from a profile and back silently dropped its override
+and reverted to the hardcoded default; see PROGRESS.md's Decisions log for
+the full story and `config.h`'s comments for the current schema.
 
 ## 6. Protocol fingerprinting (post-hoc classification)
 

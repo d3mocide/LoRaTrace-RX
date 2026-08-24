@@ -333,6 +333,30 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       pulled forward ahead of it (PROGRESS.md 2026-08-22 decisions log) —
       ROADMAP.md's phase numbers are the ones that actually shipped;
       this list had drifted from it
+  - [ ] **Bench-verify the per-profile channel config split — added
+        2026-08-24, not yet flashed.** Fixes a real bug found the same day:
+        the original single-preset config let a MeshCore-active Save
+        silently write MeshCore's values into what the firmware would apply
+        as a Meshtastic override next boot, and a profile switch (menu) back
+        to a profile always reverted to its hardcoded default rather than
+        keeping whatever was configured for it. Confirm on real hardware:
+        editing and saving the Meshtastic preset, then the MeshCore preset,
+        leaves both independently correct after a reboot (check the
+        `active_profile` badge and both panels' values, `GET /api/config`);
+        a mid-run profile switch (menu) picks up each profile's saved
+        override rather than its hardcoded default; and the auto-created
+        `/loratrace/config.txt` on a blank card actually contains both
+        `meshtastic_*`/`meshcore_*` blocks pre-filled with the current
+        hardcoded defaults. See PROGRESS.md's Decisions log for the full
+        design and the bug this replaces.
+      **Operational note for this project's own SD card:** its existing
+      `config.txt` (the real MeshOregon-style override from earlier
+      sessions) uses the OLD unprefixed key format (`freq_mhz=`, not
+      `meshtastic_freq_mhz=`) — those keys are now unrecognized and will be
+      skipped with a serial warning, silently reverting that card's boot
+      channel to the hardcoded Meshtastic default until the file is updated
+      to the new schema (or deleted, so the firmware regenerates it fresh).
+      Do this before the next bench session on that card.
 - [~] **Phase 4** — MeshCore profile: same `HOME_LISTEN` engine, MeshCore
       US-narrow table wired in as a second, keyboard-switchable profile
       (DESIGN.md §5). Built 2026-08-24, passing the full host-native suite
@@ -2250,6 +2274,103 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
     from 67 (3 new: two alias tests plus the regression pin; the digit-jump
     test from the prior entry already counted). Verified with the same
     g++/Unity workaround (no `pio` in this environment) — all 70 pass.
+- **2026-08-24 (later same day)** — Per-profile channel config, requested by
+  the user after noticing the web settings page (screenshot: the old
+  single-panel "Active LoRa channel" form) only ever had one slot while
+  Meshtastic and MeshCore run genuinely different frequencies. Investigating
+  turned up a real bug, not just a missing nice-to-have:
+  - `main.cpp` always boots `MissionProfile::MESHTASTIC`, and the old
+    `loadChannelConfigFromSD()`/`writeChannelConfigToSD()` only ever
+    read/wrote ONE shared `ChannelParams` applied to that boot profile.
+    `radio_task.cpp`'s live profile switch (`radioRequestProfileSwitch()`)
+    called `channelParamsForProfile()` directly — the hardcoded table,
+    never the override — so **switching to MeshCore and back to Meshtastic
+    silently reverted Meshtastic to its hardcoded default**, dropping
+    whatever the operator had configured (e.g. their real MeshOregon-style
+    918.5MHz/SF8/BW125/CR4:5 settings, see the 2026-08-22 entries above).
+  - Worse: `handleConfigGet()`/`handleConfigPost()` read/wrote whatever
+    `radioActiveChannel()` currently was — **while active on MeshCore, the
+    Save button captured MeshCore's values and wrote them into the one
+    file that only ever gets read back as a *Meshtastic* override on the
+    next boot.** The device would then boot claiming Meshtastic while
+    actually tuned to MeshCore's frequency — profile label and radio config
+    silently disagreeing. This was reachable in the shipped Phase 3/4 web
+    UI, not a hypothetical.
+  - **Fix: `ProfileOverrides` (channel_plans.h)** — two independent slots
+    (`meshtastic`/`meshcore`, each with its own `_set` flag) instead of one
+    shared `ChannelParams`, plus `resolvedChannelForProfile(overrides,
+    profile)` — pure, host-testable — that returns the override if set,
+    else `channelParamsForProfile()`'s hardcoded table. Both the initial
+    boot channel (`main.cpp`) and every later profile switch
+    (`radio_task.cpp`) now go through this one function, which is what
+    keeps them from disagreeing the way the old design did. `radio_task.cpp`
+    holds its own copy (`activeOverrides`, set once at `radioTaskStart()`,
+    read-only after) and exposes it via a new `radioActiveOverrides()`
+    accessor — same small-POD, no-lock convention as `radioActiveChannel()`.
+  - **config.txt schema, breaking change:** `freq_mhz=`/`sf=`/etc. becomes
+    `meshtastic_freq_mhz=`/`meshcore_freq_mhz=`/etc. — prefixed per profile.
+    `config.cpp`'s `applyConfigLine()` now dispatches on the prefix to a
+    `ChannelParams*`/`bool*` pair rather than one shared struct; validation
+    (`channelFreqInRange()` etc.) is unchanged and still the single shared
+    source of truth wifi_task validates against. Deliberately not kept
+    backward-compatible with the old unprefixed keys — this project is
+    pre-1.0 and its own fails-safe design already handles this cleanly (an
+    old-format key is simply "unrecognized," logged and skipped, falling
+    back to the hardcoded default) rather than needing a compatibility
+    shim. **Operational consequence flagged in the Phase 3 checklist above:
+    this device's own SD card still has the old-format file** and needs
+    updating before its next bench session, or its Meshtastic override will
+    silently stop applying.
+  - **`writeProfileConfigToSD(profile, params, current)`** replaces the old
+    `writeChannelConfigToSD(params)`: takes the profile being saved plus
+    the full currently-loaded `ProfileOverrides`, overlays just that one
+    profile's new values, and rewrites the whole file with BOTH profiles'
+    blocks — the other profile's block is carried through unchanged from
+    `current`, never clobbered. `writeFullConfig()` (renamed from
+    `writeDefaultConfig()`) writes both blocks unconditionally so the file
+    is always complete and valid, whether or not either profile actually
+    has an override set.
+  - **Web UI (`web_assets.h`):** the single "Active LoRa channel" form
+    (screenshot) becomes two independent panels, "Meshtastic preset" /
+    "MeshCore preset", each with its own five fields and Save button
+    (`configForm-meshtastic`/`configForm-meshcore`, field ids prefixed
+    `mt_`/`mc_`). A small "active" badge next to whichever profile
+    `GET /api/config`'s new `active_profile` field names, so the page makes
+    it visually obvious which panel's values the radio is *actually* using
+    right now — the exact confusion (label says one thing, radio does
+    another) the bug above allowed. `POST /api/config` now requires a
+    `profile` field naming which panel's Save fired; without it (or an
+    unrecognized value) the request is rejected with 400 rather than
+    guessing. One shared JS submit handler bound to both forms
+    (`form.dataset.profile`/`form.dataset.prefix`) rather than duplicating
+    the handler twice.
+  - **Kept intentionally out of scope, confirmed with the user first:** no
+    new on-device menu item. The existing Profile-switch menu action
+    (`radioRequestProfileSwitch()`/`nextHomeListenProfile()`, Phase 4/5)
+    already covers "switch between defaulted frequencies for each
+    function" once it resolves overrides correctly, which is exactly what
+    this fix does — a second menu item would have been redundant. Also
+    unchanged: the existing "not live, reboot to apply" boundary — a web
+    Save still doesn't hot-reload the running SX1262, matching the
+    boundary the original single-preset design already had (and the same
+    reasoning: radio_task.cpp still never touches SD, keeping its
+    switch-mailbox path exactly as fast and simple as before).
+  - **Verification:** `test/test_channel_plans/` gained three cases for
+    `resolvedChannelForProfile()` (no-override matches hardcoded; a set
+    override is used and the two profiles stay independent; Reticulum/
+    General Exploration fall through to Meshtastic's *resolved* channel,
+    override included, mirroring `channelParamsForProfile()`'s existing
+    fallback) — pure logic, host-testable, no I/O. 73 native tests total,
+    up from 70, g++/Unity workaround, all passing. `config.cpp`/
+    `wifi_task.cpp`/`main.cpp`/`radio_task.cpp` themselves are
+    Arduino-dependent like the rest of this project's hardware-facing code
+    and were reviewed by inspection rather than compiled (no `pio` in this
+    environment) — genuinely unverified until the next hardware session,
+    tracked in the Phase 3 checklist above rather than claimed done.
+  - **Version: v0.5.0 -> v0.5.1.** PATCH-level per CLAUDE.md's own rule
+    ("PATCH for fixes adding no phase scope") — this hardens already-shipped
+    Phase 3/4 behavior (and fixes the real bug above) rather than landing
+    new build-order scope, so MINOR stays at Phase 5's `0.5`.
 
 ## Next steps
 

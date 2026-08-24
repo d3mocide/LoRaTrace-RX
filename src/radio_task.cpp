@@ -15,6 +15,11 @@ TaskHandle_t radioTaskHandle = nullptr;
 QueueHandle_t detectionQueue = nullptr;
 ChannelParams activeChannel;
 MissionProfile activeProfile = MissionProfile::MESHTASTIC;
+// Per-profile SD/web overrides, copied in once at radioTaskStart() and
+// otherwise read-only — every radioRequestProfileSwitch() resolves against
+// this same copy, which is what keeps a switch from reverting to the
+// hardcoded default (channel_plans.h) the way the pre-2026-08-24 design did.
+ProfileOverrides activeOverrides;
 
 // One-slot mailbox for radioRequestProfileSwitch(): xQueueOverwrite always
 // succeeds and always leaves only the most recent request in place, so a
@@ -171,9 +176,11 @@ void radioTask(void *) {
 
 } // namespace
 
-bool radioTaskStart(const ChannelParams &channel, MissionProfile profile, QueueHandle_t queue) {
+bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
+                    const ProfileOverrides &overrides, QueueHandle_t queue) {
     activeChannel = channel;
     activeProfile = profile;
+    activeOverrides = overrides;
     detectionQueue = queue;
 
     // Depth-1 mailbox for radioRequestProfileSwitch(). Created here (not
@@ -231,9 +238,17 @@ MissionProfile radioActiveProfile() {
     return activeProfile; // same small-POD, no-lock convention as above
 }
 
+ProfileOverrides radioActiveOverrides() {
+    return activeOverrides; // same small-POD, no-lock convention as above
+}
+
 bool radioRequestProfileSwitch(MissionProfile profile) {
     if (profileSwitchQueue == nullptr || radioTaskHandle == nullptr) return false;
-    PendingSwitch req{profile, channelParamsForProfile(profile)};
+    // resolvedChannelForProfile(), not channelParamsForProfile() directly —
+    // this is the fix for the pre-2026-08-24 bug where switching to a
+    // profile always used its hardcoded table, silently dropping whatever
+    // SD/web override had been loaded for it at boot.
+    PendingSwitch req{profile, resolvedChannelForProfile(activeOverrides, profile)};
     xQueueOverwrite(profileSwitchQueue, &req);
     // Wakes the radio task immediately even if it's parked in the 5s
     // liveness wait in radioTask()'s ulTaskNotifyTake — without this the
