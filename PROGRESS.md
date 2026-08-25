@@ -3754,3 +3754,25 @@ above) — remaining items are follow-through, in the order it's worth doing.
     actually shows red on a card-pulled boot, not just "SD: OK" on the
     happy path every session so far has tested.
   - **Version: unchanged, v0.6.4.**
+
+- **2026-08-25 (even later still) — Boot mark, round 3: wordmark moved
+  back beside the mark, reversing round 2's size-3/full-width layout.**
+  Direct operator feedback: round 1's original beside-the-arcs placement
+  "was perfect," and now that the log is down to 3 real hardware-check
+  lines (round 2), the space problem that motivated moving the wordmark
+  in the first place no longer exists — round 2 solved a problem round 2
+  itself had already made moot by the time the wordmark change landed.
+  Reverted `playBootMark()`'s wordmark/version back to size 2, positioned
+  beside the mark (`MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6, 14`/`32`, the
+  exact round-1 coordinates), and `MARK_LOG_Y` back to 46 (from round 2's
+  88) — the 3-line checklist has always fit comfortably there regardless
+  of which wordmark layout is above it. Mockup reverted to match and
+  republished at the same link before implementing.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS** — RAM/flash
+    both unchanged from round 2 (50332B/969193B) — expected, since this
+    is a pure constant/coordinate change (`setTextSize(3)`->`(2)`,
+    repositioned `setCursor()` calls), not new code. `pio test -e native`
+    **90/90** unaffected, `-Wall -Wextra` found zero new warnings. Still
+    not bench-tested on real hardware — same standing caveat as rounds 1
+    and 2.
+  - **Version: unchanged, v0.6.4.**

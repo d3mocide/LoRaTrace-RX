@@ -586,6 +586,16 @@ size 3. `pio run -e cardputer-adv` **SUCCESS** — flash actually
 real hardware.** See PROGRESS.md's Decisions log for the full
 investigation, including which lines were and weren't real checks.
 
+**2026-08-25 (even later still) — boot mark, round 3: wordmark reverted
+back beside the mark.** Round 2 moved the wordmark to a bigger, full-width
+band below the mark to use height freed by trimming the log to 3 lines —
+but that same trim had already removed the actual space pressure, so
+there was nothing left for the move to solve. Direct operator feedback
+that round 1's original beside-the-arcs placement, size 2, "was perfect"
+— reverted to it exactly (same coordinates), `MARK_LOG_Y` back to 46.
+`pio run`/`pio test` unaffected (a pure coordinate/size-constant change,
+no new code). Still not bench-tested on real hardware.
+
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.

@@ -161,11 +161,12 @@ constexpr float MARK_ARC_END_DEG = 134.1f;   // canvas  44.1° + 90
 // Where the diagnostic log picks up: aligned under the first (innermost)
 // arc's rightmost edge, per direct operator feedback on the mockup ("fall
 // in line with the first signal arc") rather than the old flush-left x=4.
-// Y sits below the wordmark/version block now that the log itself is only
-// 3 lines (round 2, see below) — freed height that used to belong to a
-// 7-line log now belongs to a bigger wordmark instead.
+// Y sits right after the arcs/wordmark/version block — with the log down
+// to 3 real hardware-check lines (round 2), there was never a genuine
+// space shortage here, unlike the 7-line original this layout was first
+// tuned against.
 constexpr int16_t MARK_LOG_X = MARK_ANCHOR_X + MARK_ARC_RADII[0];
-constexpr int16_t MARK_LOG_Y = 88;
+constexpr int16_t MARK_LOG_Y = 46;
 
 void playBootMark() {
     if (!displayReady) return;
@@ -192,24 +193,22 @@ void playBootMark() {
         delay(i == 2 ? 200 : 120);
     }
 
-    // Wordmark + version, in their own full-width band below the mark
-    // (round 2 — was squeezed beside the arcs at size 2; trimming the
-    // diagnostic log to 3 real hardware-check lines instead of 7 freed
-    // enough height to give the wordmark its own row at size 3 instead).
-    // "LoRaTrace RX" at size 3 is 12 chars * 18px = 216px — fits at x=4
-    // with 20px to spare, but would overflow the 240px panel from
-    // MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6 (the old beside-the-mark
-    // position), which is why this moved rather than just growing in
-    // place. Plain reveals (no fade), same reason as the arcs above.
-    tft->setTextSize(3);
+    // Wordmark + version, beside the mark (round 3: reverses round 2's
+    // full-width-below-the-mark-at-size-3 layout). Round 2's move was to
+    // free room for a 3-line checklist that, by then, had already been
+    // freed by trimming the log itself — there was no real space problem
+    // left to solve, and direct operator feedback was that this original
+    // placement read cleaner. Plain reveals (no fade), same reason as the
+    // arcs above.
+    tft->setTextSize(2);
     tft->setTextColor(SPLASH_FG, SPLASH_BG);
-    tft->setCursor(4, 44);
+    tft->setCursor(MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6, 14);
     tft->print(F("LoRaTrace RX"));
     delay(150);
 
     tft->setTextSize(1);
     tft->setTextColor(SPLASH_GREEN, SPLASH_BG);
-    tft->setCursor(4, 72);
+    tft->setCursor(MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6, 32);
     tft->print(String("v") + FIRMWARE_VERSION);
     delay(250);
 
