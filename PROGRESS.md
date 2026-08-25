@@ -3912,3 +3912,64 @@ above) — remaining items are follow-through, in the order it's worth doing.
     measured.
   - **Version: v0.6.4 -> v0.6.5.** PATCH-level — a correctness fix to the
     existing boot sequence, no new build-order scope.
+- **2026-08-25 (even later still) — v0.6.6: the boot mark's arcs were
+  rotated 90° off — fixed and verified by simulation, not just re-read.**
+  Same reboot photo used for the v0.6.5 investigation also showed the
+  problem round 4/5 explicitly flagged as unverified: the icon's arcs
+  drooped down off the pole tip like a wilted flag, instead of fanning
+  right like the approved mockup.
+  - **Root cause: the round 4/5 angle-convention comment was wrong, not
+    just unverified.** It claimed `fillArc()` measures degrees from 12
+    o'clock (0°), clockwise, and added a +90° constant to convert from
+    the mockup canvas's 0°=3-o'clock-clockwise convention — stated as
+    "confirmed against the vendored Arduino_GFX.cpp." That confirmation
+    was a re-read of the source's scanline math, not an actual trace of
+    what it computes. This session ported `writeFillArcHelper()` line for
+    line to Python and rasterized `fillArc(cx, cy, r, r-2, θ, θ+1, ...)`
+    for probe angles around the full circle to empirically map angle to
+    on-screen direction. Result: `fillArc()` already uses 0° = 3 o'clock,
+    clockwise — the *same* convention as canvas, not the 12-o'clock one
+    the comment claimed. The +90° was therefore a real bug: it rotated
+    the whole mark 90° clockwise, turning the intended right-facing
+    signal fan into a downward droop. (Sanity check: with the old
+    `45.3°`/`134.1°` values, `writeFillArcHelper`'s own quadrant-trim
+    logic — `if (end<180 && start<180) y = 0` — collapses the scan range
+    to `y >= cy` only, i.e. strictly the *bottom* half of the circle
+    relative to the anchor. That alone should have been a tell in round
+    4/5 that the arc could not be symmetric about the horizontal-right
+    axis as intended.)
+  - **The fix:** `MARK_ARC_START_DEG`/`MARK_ARC_END_DEG` (`main.cpp`) now
+    hold the mockup's canvas angles directly — `-44.7f`/`44.1f` — with no
+    conversion applied, since none is needed. Rasterized both the old and
+    new values with the same ported scanline logic before shipping:
+    the old angles produce a shape entirely below the anchor (dy range
+    +5 to +21, matching the photo's droop); the new angles produce a
+    shape entirely to the right of the anchor, symmetric top-to-bottom
+    (dx range +5 to +21, dy range -15 to +15) — a nested right-facing
+    bracket, matching the approved mockup. Rendered as a small preview
+    bitmap from the same simulation and visually confirmed it reads as
+    a right-facing signal/WiFi fan before committing to the change.
+  - **Also specifically re-checked the "black box" artifact** this
+    session's round 4/5 entry logged as reported-but-unreproducible (in
+    a mockup screenshot, not on real hardware). Cropped and 4x-zoomed the
+    same reboot photo's dark regions; a brightness+contrast-boosted pass
+    first appeared to show a faint box, but a side-by-side *raw*
+    (unenhanced) crop of the identical region showed nothing — the "box"
+    was JPEG compression block structure made visible by the enhancement
+    itself, not real panel content. **Still unreproduced on real
+    hardware, now including this on-device photo, not just the mockup.**
+    (The short diagonal mark near the photo's bottom-left corner is
+    expected content, not an artifact: it's the diagonal-foot path's
+    first segment, `MARK_PATH_X0/Y0` at `(6,130)` — round 4/5's own
+    addition — rendering in isolation because the panel's bottom-left
+    corner is far from the pole's main vertical run.)
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS**, RAM/flash
+    **byte-identical** to v0.6.5 (50332/327680B, 969529/3342336B) —
+    expected, a two-constant value change touches no code path shape.
+    `pio test -e native` **90/90** unaffected (`main.cpp` isn't part of
+    the host-native build). **Not yet re-confirmed on real hardware** —
+    same standing caveat as every boot-mark round to date; the next bench
+    pass should specifically confirm the arcs now read as a right-facing
+    fan on the actual ST7789V2, not just in this session's simulation.
+  - **Version: v0.6.5 -> v0.6.6.** PATCH-level — a correctness fix to
+    already-shipped boot-mark geometry, no new build-order scope.

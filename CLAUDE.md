@@ -649,6 +649,39 @@ report was a single photo, not a bench session) — worth a deliberate
 warm-reset check next session specifically watching for whether the old
 frame is now fully gone rather than just shortened.
 
+**2026-08-25 (even later still) — v0.6.6: the boot mark's signal arcs
+were rotated 90° off from the intended design.** Same reboot photo the
+operator sent for the v0.6.5 flash bug also showed the arcs drooping
+down off the pole tip like a wilted flag, not fanning out to the right
+like the approved mockup. Root cause: round 4/5's comment claiming
+`fillArc()` measures degrees from 12 o'clock, clockwise, and adding a
++90° offset to convert from the mockup canvas's 3-o'clock-clockwise
+convention, was simply wrong — checked this time by porting
+`writeFillArcHelper()`'s actual scanline math to Python and rasterizing
+it directly rather than re-reading the same doc comment, which is what
+produced the wrong claim the first time. `fillArc()` already uses 0° = 3
+o'clock, clockwise — the *same* convention as canvas — so the +90° was a
+real bug that rotated the whole mark 90° clockwise: "facing right"
+became "facing down." Fix: `MARK_ARC_START_DEG`/`MARK_ARC_END_DEG`
+(`main.cpp`) now carry the mockup's canvas angles (`-44.7°`/`44.1°`)
+unconverted. Simulated before/after with the ported scanline logic and
+confirmed the fixed angles rasterize to the intended right-facing
+nested-bracket shape, not just asserted it. Also specifically checked
+the same photo for the "black box" artifact PROGRESS.md's round 4/5
+entry logged as unreproduced (in a mockup screenshot, not on-device) —
+brightness/contrast-enhanced crops of the reboot photo initially showed
+what looked like a box, but a side-by-side raw (unenhanced) crop of the
+same region showed nothing — the "box" was JPEG block artifacts made
+visible by the enhancement itself, not real display content. Still
+unreproduced on real hardware; the small diagonal mark near the bottom
+left of that photo is the diagonal-foot path's own first segment
+(`MARK_PATH_X0/Y0` at (6,130)), not an artifact. `pio run -e
+cardputer-adv` **SUCCESS**, RAM/flash byte-identical to v0.6.5 (a
+two-constant value change). `pio test -e native` **90/90** unaffected.
+**Not yet re-confirmed on real hardware** — same standing caveat as
+every boot-mark round; next bench pass should confirm the arcs now read
+as a right-facing signal fan on the actual panel.
+
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.

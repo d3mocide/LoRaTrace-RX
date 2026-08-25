@@ -151,15 +151,20 @@ void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
 // rescaled to this real budget rather than copied at its preview
 // proportions.
 //
-// Angle convention: Arduino_GFX's fillArc()/drawArc() measure degrees from
-// 12 o'clock (0°), increasing clockwise (confirmed against the vendored
-// Arduino_GFX.cpp — writeFillArcHelper's scanline math, adapted from
-// TFT_eSPI's well-known smooth-arc fill). The mockup's canvas arcs used
-// the browser canvas convention instead (0° = 3 o'clock, clockwise) — the
-// 90° constant below is exactly that conversion, not a tuned/guessed
-// offset, so the on-device arcs open the same direction (toward 3 o'clock,
-// swept between roughly 1 and 5 o'clock) as the approved preview. The
-// swept angle itself is unchanged since round 3 — only the radii grew.
+// Angle convention (corrected 2026-08-25, v0.6.6 — see PROGRESS.md):
+// round 4/5's comment claimed fillArc() measures from 12 o'clock (0°)
+// clockwise and added a +90° offset to convert from the mockup's canvas
+// convention (0° = 3 o'clock, clockwise) — that claim was wrong. Actually
+// tracing writeFillArcHelper()'s scanline math (not just reading its doc
+// comment) by rasterizing it directly shows fillArc() already uses 0° = 3
+// o'clock, clockwise — the *same* convention as canvas. The +90° was
+// therefore a real bug, not a conversion: it rotated the mark 90°
+// clockwise, so the icon rendered as a downward "droop" off the pole tip
+// instead of the intended right-facing signal fan (photo-confirmed on
+// real hardware, operator report). Fix is to drop the offset and use the
+// mockup's canvas angles directly — no conversion needed between the two.
+// The swept angle's width is unchanged since round 3 — only the radii
+// grew, and now the rotation is fixed.
 constexpr int16_t MARK_ANCHOR_X = 30;
 constexpr int16_t MARK_ANCHOR_Y = 28;
 // Diagonal-foot path (round 5, the shipped pick over a straight run
@@ -172,8 +177,8 @@ constexpr int16_t MARK_PATH_X2 = 14, MARK_PATH_Y2 = 32;  // elbow, just below th
 // path then runs elbow -> anchor, completing the shape.
 constexpr int16_t MARK_ARC_RADII[3] = {9, 15, 21};
 constexpr int16_t MARK_ARC_THICKNESS = 2;
-constexpr float MARK_ARC_START_DEG = 45.3f;  // canvas -44.7° + 90
-constexpr float MARK_ARC_END_DEG = 134.1f;   // canvas  44.1° + 90
+constexpr float MARK_ARC_START_DEG = -44.7f; // canvas angle, unconverted — see note above
+constexpr float MARK_ARC_END_DEG = 44.1f;    // canvas angle, unconverted — see note above
 // Wordmark/version sit beside the mark, right of its outermost arc.
 constexpr int16_t MARK_WORD_X = MARK_ANCHOR_X + MARK_ARC_RADII[2] + 8; // = 59
 constexpr int16_t MARK_WORD_Y = 20;
