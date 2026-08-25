@@ -39,6 +39,8 @@ src/
   [x] logger_task.cpp / .h       # dequeue, GPS-stamp, batched SD writes, Core 0
   [x] ui_task.cpp / .h           # keyboard + display; arrived phase 2, not phase 6 as originally proposed — operator asked for field-readable status before a multi-hour run without a tethered laptop (see PROGRESS.md decisions log)
   [x] keyboard.h                 # TCA8418 raw-event -> KeyAction decode for 4 keys, pure/host-testable (phase 5; not in original proposal, see PROGRESS.md decisions log)
+  [x] ui_menu.h                  # grouped root/group menu state machine, pure/host-testable (phase 6; not in original proposal, see PROGRESS.md decisions log)
+  [x] ui_labels.h                # BRAND.md on-device label lookups, pure/host-testable (phase 6; not in original proposal, see PROGRESS.md decisions log)
   [x] wifi_task.cpp / .h         # WiFi AP + web UI, off until toggled (phase 3; not in original proposal, see PROGRESS.md decisions log)
   [x] web_assets.h               # embedded single-page web UI (phase 3)
   [x] channel_plans.h            # per-profile RF param tables (see DESIGN.md §3)
@@ -260,6 +262,36 @@ was reviewed for its grouped-menu and toast-notice structure — not its
 gamification layer, mascot, or aesthetic, all of which BRAND.md's
 guardrails already rule out. See ROADMAP.md's Phase 6 entry and
 PROGRESS.md's Decisions log for the full session.
+
+**Phase 6 (UI architecture redesign) built, not yet hardware-verified**
+(2026-08-25, v0.6.0): `ui_task.cpp` rebuilt on top of two new pure/
+host-testable headers, `ui_menu.h` (`MenuState` — the root/group grouped
+menu described above) and `ui_labels.h` (BRAND.md's profile/mode display
+strings). "Profile" is a DIRECT root row (fires the switch immediately,
+unchanged behavior from Phase 4/5); "System" is a GROUP row holding WiFi
+and Debug, the two toggles Phase 3/Phase-5-bench-day added — the same two
+levels deep this redesign's whole point was to establish before Phase 7
+(`DISCOVERY_SWEEP`) needs a third row. A toast overlay (`ui_task.cpp`'s
+`showToast()`) confirms whatever just fired, drawn on top of the carousel
+*and* the menu itself, not gated behind any measured heap number: this
+project draws direct-to-panel with no `M5Canvas`-style framebuffer
+(DESIGN.md §1), so the toast is a 40-byte static buffer, not a dynamic
+allocation — there was no RAM lever here to gate behind the way WiFi's AP
+needed one. RADIO/CHANNEL/GPS/SYSTEM/WIFI all gained a second, right-hand
+column (a shared `statBlock()` helper) using width the old single-column
+layout left blank; GPS's new column also closes a real gap the old layout
+had — satellites *used* was never shown once a fix landed, only
+satellites-in-view before one. Host-native tests added
+(`test/test_ui_menu/`, `test/test_ui_labels/`) cover `MenuState`'s
+navigation/wrap/fire behavior and every BRAND.md label lookup — **87/87
+`pio test -e native` passing**, and `pio run -e cardputer-adv` **SUCCESS**
+(static RAM 50296/327680B, flash 956797/3342336B per the build report),
+both actually run this session rather than assumed. **Not yet bench-tested
+against the real ST7789V2 panel** — the redesigned column layout's exact
+pixel positions are sourced from arithmetic against the 240x135 panel, and
+a compiling build says nothing about whether they clip or overlap on real
+glass. Same bar every other visual change in this project has shipped at
+before its own bench pass (see PROGRESS.md's Phase 6 checklist).
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna

@@ -426,16 +426,52 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         (`,/. page  1-5 jump  Enter menu` -> `` ,/. page  1-5 jump  ` menu ``)
         to match the ESC-opens-the-menu rework above; the menu's own hint
         line (`` ,/. move   Enter act   ` back ``) didn't need to change.
-- [ ] **Phase 6** — UI architecture redesign. Promoted ahead of
-      `DISCOVERY_SWEEP` 2026-08-25 (see Decisions log below) — not started.
-      Scope: a grouped menu (root categories opening sub-lists, replacing
-      the flat list Phase 5 shipped and had already outgrown by one item),
-      a toast/notice layer for transient feedback, reorganized status
-      pages (the current five are single-column text with real unused
-      width on the 240px panel), and BRAND.md's on-device labels
-      (`Watch`/`Probe`/`Sweep`, `Mesh Trace`/`Core Trace`/etc.) adopted as
-      the UI's display strings, kept separate from the `meshtastic`/
-      `meshcore` identifiers logged to `detections.csv`.
+- [~] **Phase 6** — UI architecture redesign. Promoted ahead of
+      `DISCOVERY_SWEEP` 2026-08-25 (see Decisions log below). **Built
+      2026-08-25 (v0.6.0). PlatformIO isn't normally available in this
+      session's environment (no `pio` on PATH), so `ui_menu.h`/
+      `ui_labels.h`'s logic was first verified with a standalone g++
+      harness (not committed) as a fallback — but `pip install
+      platformio` worked, so both real checks this project's own CI runs
+      were actually run here too, not just reasoned through:**
+      `pio test -e native` — **87/87 passed** (test_ui_menu's 11 +
+      test_ui_labels' 3 are new; 73 carried over from Phase 5 unaffected).
+      `pio run -e cardputer-adv` — **SUCCESS**, confirming `ui_task.cpp`
+      itself compiles clean against real Arduino/RadioLib/GFX-Library/
+      TCA8418 headers (the native suite never touches this file — it needs
+      Arduino.h). Static RAM 50296/327680B (15.3%), flash 956797/3342336B
+      (28.6%) per the build report — build-time footprint, not a runtime
+      `ESP.getFreeHeap()` reading, which stays the number that actually
+      matters and is still unmeasured on real hardware:
+  - [x] `ui_menu.h` — `MenuState`, the grouped root/group menu, pure and
+        host-tested (`test/test_ui_menu/`, 11 tests): open/close, root and
+        group PREV/NEXT wraparound, DIRECT vs. GROUP root rows, firing an
+        action at either level, BACK peeling exactly one level, JUMP/NONE
+        staying no-ops throughout.
+  - [x] `ui_labels.h` — BRAND.md's profile/mode display strings, pure and
+        host-tested (`test/test_ui_labels/`, 3 tests): every profile label
+        matches BRAND.md's table and none collide.
+  - [x] `ui_task.cpp` rewired onto both: "Profile" (DIRECT) + "System"
+        (GROUP: WiFi, Debug) as the root table, a toast overlay
+        (`showToast()`) confirming whatever just fired, and a second
+        right-hand column (`statBlock()`) added to all five carousel pages
+        using width the old single-column layout left blank — GPS's new
+        column also closes a real gap (satellites *used* was never shown
+        once a fix landed, only satellites-in-view before one).
+  - [ ] **Bench-verify against the real ST7789V2 panel** — not done yet.
+        The redesigned layout's pixel positions are sourced from
+        arithmetic against the known 240x135 geometry, not visually
+        confirmed: check every column/row for clipping or overlap
+        (especially the toast band sitting just above the footer hint,
+        and a GROUP list with more than ~4 items eventually reaching that
+        same band), confirm the header's "MENU > System" breadcrumb and
+        the longer BRAND.md profile labels don't crowd the battery
+        indicator, and re-press all eleven keyboard.h keys against the new
+        three-level (carousel/root/group) navigation.
+  - [ ] Re-confirm WiFi heap/counter numbers (ROADMAP.md Phase 3's
+        go/no-go) still hold with the redesigned `ui_task.cpp` running —
+        no new dynamic allocation was added (the toast is a static
+        buffer), but this hasn't been measured on real hardware yet.
 - [ ] **Phase 7** — `DISCOVERY_SWEEP`
 - [ ] **Phase 8** — `ENERGY_SWEEP`
 
