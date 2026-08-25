@@ -256,12 +256,15 @@ on their own row.
   direct-to-panel partial-window writes, no framebuffer (this doc's
   existing ~65KB framebuffer caution still applies), just organized better.
 - **Adopt BRAND.md's on-device labels** (`Watch`/`Probe`/`Sweep` for
-  HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP; `Mesh Trace`/`Open Trace`/
-  `Spectrum Trace` for the four profiles, with Meshtastic/MeshCore as
-  plain sub-profile names selected inside "Mesh Trace" rather than two
-  competing top-level names — BRAND.md's Interface Naming table, revised
-  2026-08-25 mid-implementation once the menu itself became a "Mesh Trace"
-  group over "Meshtastic"/"MeshCore") as the strings the UI actually
+  HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP; plain profile names —
+  `Meshtastic`/`MeshCore`/`Reticulum`/`Spectrum` — grouped under one
+  "Profile" menu row, not branded per-profile names. BRAND.md's Interface
+  Naming table went through two revisions the same day mid-implementation:
+  first a "Mesh Trace" family name over Meshtastic/MeshCore sub-profiles,
+  then walked back entirely once it was clear that branding every profile
+  its own "___ Trace" name made four settings on one sniffer read like
+  four separate tools — "Profile" was already this doc's preferred word
+  for the axis before either revision) as the strings the UI actually
   displays. Kept as a separate UI-label layer, not a rename of the
   internal identifiers: `detection.h`'s `missionProfileName()` keeps
   emitting `meshtastic`/`meshcore` into `detections.csv` exactly as every

@@ -32,9 +32,9 @@
 // an action directly.
 //
 // SELECT_MESHTASTIC/SELECT_MESHCORE replace the single PROFILE_SWITCH this
-// enum used to carry (2026-08-25, BRAND.md's "Revised 2026-08-25" note):
-// "Mesh Trace" is a GROUP root row now, not a two-way cycle-on-Enter, so
-// picking a sub-profile is two distinct direct selections inside it rather
+// enum used to carry (2026-08-25, BRAND.md's Interface Naming section):
+// "Profile" is a GROUP root row now, not a two-way cycle-on-Enter, so
+// picking a profile is two distinct direct selections inside it rather
 // than one action that always means "whichever one isn't active."
 enum class MenuAction : uint8_t {
     NONE = 0,

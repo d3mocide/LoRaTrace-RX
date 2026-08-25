@@ -9,13 +9,13 @@
 
 namespace {
 
-// Mirrors the real ui_task.cpp table shape as of the 2026-08-25 "Mesh Trace
-// is a group" revision (BRAND.md, ui_menu.h's MenuAction comment): both
-// root rows are GROUP now — "Mesh Trace" opens onto its two sub-profiles
-// instead of firing a cycle-on-select action, same as "System" already did.
-// Without depending on ui_task.cpp itself, so this test exercises the same
-// structure production code uses.
-constexpr MenuEntry kMeshTraceGroup[] = {
+// Mirrors the real ui_task.cpp table shape as of the 2026-08-25 "Profile is
+// a group" revision (BRAND.md's Interface Naming section, ui_menu.h's
+// MenuAction comment): both root rows are GROUP now — "Profile" opens onto
+// the real profile names instead of firing a cycle-on-select action, same
+// as "System" already did. Without depending on ui_task.cpp itself, so
+// this test exercises the same structure production code uses.
+constexpr MenuEntry kProfileGroup[] = {
     {"Meshtastic", MenuAction::SELECT_MESHTASTIC},
     {"MeshCore", MenuAction::SELECT_MESHCORE},
 };
@@ -26,7 +26,7 @@ constexpr MenuEntry kSystemGroup[] = {
 };
 
 constexpr RootEntry kRoots[] = {
-    {"Mesh Trace", RootKind::GROUP, MenuAction::NONE, kMeshTraceGroup, 2},
+    {"Profile", RootKind::GROUP, MenuAction::NONE, kProfileGroup, 2},
     {"System", RootKind::GROUP, MenuAction::NONE, kSystemGroup, 2},
 };
 constexpr uint8_t kRootCount = 2;
@@ -90,8 +90,8 @@ void test_select_group_root_opens_group_at_first_item() {
     TEST_ASSERT_EQUAL_UINT8(0, menu.groupIndex());
 }
 
-void test_select_mesh_trace_root_opens_group_at_first_item() {
-    // rootIndex 0 == "Mesh Trace" itself is a GROUP row now (2026-08-25) —
+void test_select_profile_root_opens_group_at_first_item() {
+    // rootIndex 0 == "Profile" itself is a GROUP row now (2026-08-25) —
     // this is the case test_select_direct_root_... used to cover before
     // that revision, so it's worth its own check on the real kRoots shape.
     MenuState menu(kRoots, kRootCount);
@@ -102,10 +102,10 @@ void test_select_mesh_trace_root_opens_group_at_first_item() {
     TEST_ASSERT_EQUAL_UINT8(0, menu.groupIndex());
 }
 
-void test_select_mesh_trace_group_items_fire_sub_profile_actions() {
+void test_select_profile_group_items_fire_profile_actions() {
     MenuState menu(kRoots, kRootCount);
     menu.open();
-    menu.handle(KeyAction::SELECT); // enter Mesh Trace's group, at "Meshtastic"
+    menu.handle(KeyAction::SELECT); // enter Profile's group, at "Meshtastic"
     TEST_ASSERT_TRUE(MenuAction::SELECT_MESHTASTIC == menu.handle(KeyAction::SELECT));
     TEST_ASSERT_TRUE(MenuLevel::GROUP == menu.level());
     menu.handle(KeyAction::NEXT); // "MeshCore"
@@ -185,8 +185,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_root_next_prev_wrap);
     RUN_TEST(test_select_direct_root_fires_action_and_stays_at_root);
     RUN_TEST(test_select_group_root_opens_group_at_first_item);
-    RUN_TEST(test_select_mesh_trace_root_opens_group_at_first_item);
-    RUN_TEST(test_select_mesh_trace_group_items_fire_sub_profile_actions);
+    RUN_TEST(test_select_profile_root_opens_group_at_first_item);
+    RUN_TEST(test_select_profile_group_items_fire_profile_actions);
     RUN_TEST(test_group_next_prev_wrap);
     RUN_TEST(test_select_group_item_fires_its_action_and_stays_in_group);
     RUN_TEST(test_back_from_group_returns_to_root_not_closed);

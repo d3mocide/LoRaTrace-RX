@@ -40,16 +40,21 @@ bool keyboardReady = false;
 UiPage page = UiPage::RADIO;
 uint32_t lastPageChange = 0;
 
-// Phase 6 root table, revised 2026-08-25 (BRAND.md's "Mesh Trace is a
-// profile family" note): both root rows are GROUP now. "Mesh Trace" opens
-// onto its two sub-profiles (Meshtastic, MeshCore) instead of cycling one
-// at a time on Enter the way Phase 4/5 did; "System" still holds the
-// WiFi/Debug toggles Phase 3/Phase-5-bench-day added. Two root rows is not
-// a hardcoded ceiling — DISCOVERY_SWEEP (Phase 7) / ENERGY_SWEEP (Phase 8)
-// each get their own row or group here without touching MenuState itself,
-// which is the whole point of this redesign (ROADMAP.md Phase 6,
-// PROGRESS.md 2026-08-25 Decisions log).
-constexpr MenuEntry MESH_TRACE_GROUP_ITEMS[] = {
+// Phase 6 root table, revised twice 2026-08-25 (BRAND.md's "Revised again"
+// note has the full rationale): both root rows are GROUP. "Profile" opens
+// onto the real, technical profile names — Meshtastic, MeshCore today;
+// Reticulum/Spectrum join once they have a real HOME_LISTEN table (Phase
+// 8) — instead of cycling one at a time on Enter the way Phase 4/5 did.
+// Deliberately not branded as "Mesh Trace" or similar: these are LoRa
+// presets on one sniffer, not sibling products, and BRAND.md already had
+// "Profile" as its preferred word for exactly this axis before an earlier
+// same-day revision briefly tried a per-profile brand name instead.
+// "System" still holds the WiFi/Debug toggles Phase 3/Phase-5-bench-day
+// added. Two root rows is not a hardcoded ceiling — DISCOVERY_SWEEP (Phase
+// 7) / ENERGY_SWEEP (Phase 8) each get their own row or group here without
+// touching MenuState itself, which is the whole point of this redesign
+// (ROADMAP.md Phase 6, PROGRESS.md 2026-08-25 Decisions log).
+constexpr MenuEntry PROFILE_GROUP_ITEMS[] = {
     {"Meshtastic", MenuAction::SELECT_MESHTASTIC},
     {"MeshCore", MenuAction::SELECT_MESHCORE},
 };
@@ -58,7 +63,7 @@ constexpr MenuEntry SYSTEM_GROUP_ITEMS[] = {
     {"Debug", MenuAction::DEBUG_TOGGLE},
 };
 constexpr RootEntry ROOT_ITEMS[] = {
-    {"Mesh Trace", RootKind::GROUP, MenuAction::NONE, MESH_TRACE_GROUP_ITEMS, 2},
+    {"Profile", RootKind::GROUP, MenuAction::NONE, PROFILE_GROUP_ITEMS, 2},
     {"System", RootKind::GROUP, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 2},
 };
 constexpr uint8_t ROOT_COUNT = 2;
@@ -227,7 +232,7 @@ void drawHeader() {
 
 // Persistent status line in the footer band (Phase 6) — profile
 // left-anchored, page position right-anchored. Carousel only: the menu
-// already shows the active profile on its own "Mesh Trace" root row, and
+// already shows the active profile on its own "Profile" root row, and
 // the header breadcrumb already says which group is open. Drawn before
 // drawToast() so a toast simply paints over it for its duration and this
 // reappears once the toast clears.
@@ -237,10 +242,8 @@ void drawFooterStatus() {
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
 
-    char profileBuf[32];
-    uiActiveProfileLabel(radioActiveProfile(), profileBuf, sizeof(profileBuf));
     tft->setCursor(2, y);
-    tft->print(profileBuf);
+    tft->print(uiProfileLabel(radioActiveProfile()));
 
     char posBuf[8];
     snprintf(posBuf, sizeof(posBuf), "%u/%u", (unsigned)page + 1, (unsigned)UiPage::COUNT);
@@ -595,8 +598,8 @@ void drawMenuRow(int16_t y, const char *rowLabel, const char *value, bool select
     }
 }
 
-// What a group row's value column shows. Generic over both groups (Mesh
-// Trace's sub-profiles and System's toggles) — MenuState/RootEntry are
+// What a group row's value column shows. Generic over both groups
+// (Profile's choices and System's toggles) — MenuState/RootEntry are
 // data-driven on purpose (ui_menu.h), and this stays a single switch on
 // MenuAction rather than one function per group, the same way
 // drawMenuGroup() below stays one function for both.
@@ -616,11 +619,11 @@ void drawMenuRoot() {
     for (uint8_t i = 0; i < ROOT_COUNT; i++) {
         const RootEntry &r = ROOT_ITEMS[i];
         char value[24];
-        if (r.groupItems == MESH_TRACE_GROUP_ITEMS) {
-            // Root row still surfaces the live sub-profile (unlike
-            // System's bare ">") so the active protocol reads without
-            // drilling into the group.
-            snprintf(value, sizeof(value), "%s >", uiSubProfileLabel(radioActiveProfile()));
+        if (r.groupItems == PROFILE_GROUP_ITEMS) {
+            // Root row still surfaces the live profile (unlike System's
+            // bare ">") so the active protocol reads without drilling
+            // into the group.
+            snprintf(value, sizeof(value), "%s >", uiProfileLabel(radioActiveProfile()));
         } else {
             snprintf(value, sizeof(value), ">");
         }
@@ -728,17 +731,14 @@ void fireMenuAction(MenuAction action) {
             // documented: this queues the switch, it doesn't apply it —
             // the header/menu still show the outgoing profile until
             // radio_task's own loop picks the request up, typically the
-            // next redraw tick. Direct target switch now, not a cycle —
+            // next redraw tick. Direct target switch, not a cycle —
             // picking Meshtastic vs. MeshCore is a distinct selection
-            // inside Mesh Trace's group, not "whichever one isn't active"
-            // (BRAND.md's 2026-08-25 revision).
+            // inside Profile's group, not "whichever one isn't active."
             const MissionProfile target = (action == MenuAction::SELECT_MESHTASTIC)
                                                ? MissionProfile::MESHTASTIC
                                                : MissionProfile::MESHCORE;
             radioRequestProfileSwitch(target);
-            char profileBuf[32];
-            uiActiveProfileLabel(target, profileBuf, sizeof(profileBuf));
-            snprintf(msg, sizeof(msg), "%s", profileBuf);
+            snprintf(msg, sizeof(msg), "Profile: %s", uiProfileLabel(target));
             showToast(msg);
             break;
         }

@@ -28,11 +28,11 @@
 //     backtick/ESC key opens the menu at its root; Enter is a no-op (no
 //     menu is open yet to act on).
 //   - **Menu root**: the same move keys move a highlighted root row; Enter
-//     opens a GROUP row's sub-list (both root rows are groups now — see
-//     ROOT_ITEMS in ui_task.cpp and BRAND.md's 2026-08-25 "Mesh Trace is a
-//     group" revision); the backtick/ESC key closes the menu back to the
-//     carousel. Digit keys are ignored here, same as Phase 5.
-//   - **Menu group** (inside a GROUP row, "Mesh Trace" or "System"): the
+//     opens a GROUP row's sub-list (both root rows are groups — see
+//     ROOT_ITEMS in ui_task.cpp and BRAND.md's Interface Naming section);
+//     the backtick/ESC key closes the menu back to the carousel. Digit
+//     keys are ignored here, same as Phase 5.
+//   - **Menu group** (inside a GROUP row, "Profile" or "System"): the
 //     same move keys move a highlighted item within the group; Enter fires
 //     it (a direct profile switch to Meshtastic/MeshCore, or the WiFi/Debug
 //     toggles — the same radio_task.h/wifi_task.h/logger_task.h calls

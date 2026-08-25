@@ -324,6 +324,30 @@ per the operator's request, to build on for Phase 7/8's menu additions
 without a fresh mockup built from scratch each time:
 https://claude.ai/code/artifact/84eb5187-9f26-4fc1-8b6b-39f9969a86ea
 
+**v0.6.1's "Mesh Trace" branding walked back the same day (v0.6.2).** The
+operator reviewed the shipped naming and pushed back: branding
+Meshtastic/MeshCore as a "Mesh Trace" family — and Reticulum/General
+Exploration as "Open Trace"/"Spectrum Trace" — made four settings on one
+sniffer read like four separate products, and overloaded "Trace" three
+ways (the product name, a per-profile brand, and a saved-session noun).
+**Profile** replaces all four "___ Trace" names — not a new word, it was
+already this doc's own preferred term ("'Profile' instead of 'attack
+mode'") before the Trace-branding detour. Presets keep their real names:
+**Meshtastic**, **MeshCore**, **Reticulum**, **Spectrum** (short for
+General Exploration). **Trace goes back to meaning exactly one thing: a
+saved session or run.** `ui_task.cpp`'s root menu barely changes shape —
+still two groups, the label just changes from "Mesh Trace" to "Profile" —
+and `ui_labels.h` collapses back to one flat `uiProfileLabel()`, since
+there's no branded family left to compose a family/sub-profile string
+from. `test_ui_labels` shrinks from 7 tests to 3 (one flat lookup +
+collision check instead of a two-tier one); `test_ui_menu` stays at 13,
+just its fixture's root label renamed. **92/92 -> 88/88 `pio test -e
+native` passing**, `pio run -e cardputer-adv` **SUCCESS** (RAM
+50304/327680B, flash 957645/3342336B) — both actually run. The design
+mockup was corrected and republished again at the same link above, its
+before/after section's genuinely historical parts (Phase 5's frozen
+record) left untouched as always.
+
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.

@@ -432,21 +432,24 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       the same day (v0.6.1)** after the operator reviewed a pixel-accurate
       HTML/Canvas mockup of the actual `ui_task.cpp` draw calls (a rolling
       preview artifact, ~9 rounds of concrete visual feedback against
-      screenshots) and green-lit it for real implementation — see Decisions
-      log below for the full mockup-review history and where the preserved
-      design-reference artifact lives. v0.6.1 is a substantially larger
-      change than v0.6.0's first pass, not a fix: every page was redrawn,
-      not just the menu.
-      `pio test -e native` — **92/92 passed** (test_ui_menu grew from 11 to
-      13 tests covering the new Mesh Trace group; test_ui_labels' 7 cover
-      the family/sub-profile split; `test_channel_plans` lost one test —
-      `nextHomeListenProfile()`'s toggle-coverage — because the function
-      itself was deleted as dead code once Mesh Trace's group selects a
-      target profile directly instead of cycling one-at-a-time).
+      screenshots) and green-lit it for real implementation, **then
+      revised again the same day (v0.6.2)** once the operator questioned
+      the naming itself: branding each profile "___ Trace" made four
+      settings on one sniffer read like four separate tools. See Decisions
+      log below for both review histories and where the preserved
+      design-reference artifact lives. Neither v0.6.1 nor v0.6.2 is a small
+      fix on v0.6.0: every page was redrawn, and v0.6.2 walks the profile
+      axis back to plain, unbranded names.
+      `pio test -e native` — **88/88 passed** (test_ui_menu stayed at 13,
+      just its "Mesh Trace" fixture label renamed to "Profile";
+      test_ui_labels shrank from 7 to 3 now that there's one flat
+      `uiProfileLabel()` instead of a family/sub-profile split;
+      `test_channel_plans` stays at 11, unaffected this round —
+      `nextHomeListenProfile()`'s test was already removed in v0.6.1).
       `pio run -e cardputer-adv` — **SUCCESS**, confirming `ui_task.cpp`
       itself compiles clean against real Arduino/RadioLib/GFX-Library/
       TCA8418 headers (the native suite never touches this file — it needs
-      Arduino.h). Static RAM 50304/327680B (15.4%), flash 957753/3342336B
+      Arduino.h). Static RAM 50304/327680B (15.4%), flash 957645/3342336B
       (28.7%) per the build report — build-time footprint, not a runtime
       `ESP.getFreeHeap()` reading, which stays the number that actually
       matters and is still unmeasured on real hardware:
@@ -454,22 +457,25 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         host-tested (`test/test_ui_menu/`, 13 tests): open/close, root and
         group PREV/NEXT wraparound, DIRECT vs. GROUP root rows, firing an
         action at either level, BACK peeling exactly one level, JUMP/NONE
-        staying no-ops throughout, and (new in v0.6.1) selecting the "Mesh
-        Trace" root opens its group and each sub-item fires its own direct
-        `SELECT_MESHTASTIC`/`SELECT_MESHCORE` action.
+        staying no-ops throughout, and selecting the "Profile" root opens
+        its group with each item firing its own direct
+        `SELECT_MESHTASTIC`/`SELECT_MESHCORE` action (`MenuAction` itself
+        didn't change in v0.6.2 — only the root row's *label*, "Mesh
+        Trace" -> "Profile", did).
   - [x] `ui_labels.h` — BRAND.md's profile/mode display strings, pure and
-        host-tested (`test/test_ui_labels/`, 7 tests): `uiTraceModeLabel()`/
-        `uiSubProfileLabel()`/`uiActiveProfileLabel()` (v0.6.1's
-        family/sub-profile split, replacing the old flat
-        `uiProfileLabel()`) match BRAND.md's table, families don't collide
-        with each other, and Meshtastic/MeshCore correctly *do* share one
-        family name on purpose.
+        host-tested (`test/test_ui_labels/`, 3 tests): one flat
+        `uiProfileLabel()` (v0.6.2 — replacing v0.6.1's
+        `uiTraceModeLabel()`/`uiSubProfileLabel()`/`uiActiveProfileLabel()`
+        family/sub-profile split, which itself replaced an even older flat
+        function of the same name) matches BRAND.md's table and none of
+        the four profiles collide.
   - [x] `ui_task.cpp` fully re-rewired onto the reviewed mockup, not just
         the first pass's menu change:
-    - **Root table**: both rows are GROUP now — "Mesh Trace" opens onto
+    - **Root table**: both rows are GROUP — "Profile" opens onto
       Meshtastic/MeshCore (a direct pick, not Phase 4/5's cycle-on-Enter)
-      and still shows the live sub-profile on its own root row; "System"
-      unchanged (WiFi, Debug).
+      and still shows the live profile on its own root row; "System"
+      unchanged (WiFi, Debug). v0.6.1 briefly branded this row "Mesh
+      Trace"; v0.6.2 walked that back the same day (Decisions log).
     - **Header**: profile name and page position removed (crowded the
       battery indicator on the longest BRAND.md labels); replaced by three
       always-visible status dots — GPS fix state, heap health, and a new
@@ -510,12 +516,12 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         was redrawn, not just the menu. Check every column/row for
         clipping or overlap (the new status-dot cluster against the
         battery indicator, the toast slide/countdown-bar band, a GROUP
-        list against the footer), confirm the header's "MENU > Mesh Trace"
+        list against the footer), confirm the header's "MENU > Profile"
         / "MENU > System" breadcrumbs read correctly, watch the RX pulse
         dot and RADIO's flash bar actually track live detections without
         looking stuck on or stuck off, and re-press all eleven keyboard.h
         keys against the three-level (carousel/root/group) navigation with
-        Mesh Trace's new sub-profile picks.
+        Profile's Meshtastic/MeshCore picks.
   - [ ] Re-confirm WiFi heap/counter numbers (ROADMAP.md Phase 3's
         go/no-go) still hold with the redesigned `ui_task.cpp` running —
         no new dynamic allocation was added (the toast is still a static
@@ -2986,3 +2992,53 @@ above) — remaining items are follow-through, in the order it's worth doing.
     actual shipped state, so it stays useful for scoping Phase 7/8's menu
     additions without needing a fresh mockup built from scratch each time.
     Link: https://claude.ai/code/artifact/84eb5187-9f26-4fc1-8b6b-39f9969a86ea
+- **2026-08-25 — v0.6.1's "Mesh Trace" branding walked back to plain
+  "Profile" (v0.6.2), same day.** Direct continuation of the entry above —
+  the user reviewed the shipped v0.6.1 naming and pushed back: "I'm
+  thinking the trace naming doesn't make sense. We kind of have a sniffer
+  named trace that sniffs different protocols that are really LoRa
+  presets." The real problem, once named: "Trace" was doing three jobs at
+  once — the product name (LoRaTrace), a per-profile brand (Mesh Trace/
+  Open Trace/Spectrum Trace), and a saved-session noun (a Trace) — and
+  branding every profile its own "___ Trace" name made four settings on
+  one receiver read like four separate products.
+  - **Proposed fix, confirmed before implementing:** drop per-profile
+    branding entirely; call the axis **Profile** — not a new coinage,
+    already this doc's own preferred word ("Voice and Tone": "'Profile'
+    instead of 'attack mode'") from before the Trace-branding detour ever
+    started. Presets get their real, technical names instead of marketed
+    ones: **Meshtastic**, **MeshCore**, **Reticulum**, and **Spectrum**
+    (short for General Exploration, the one profile without its own
+    proper noun). **Trace goes back to meaning exactly one thing: a saved
+    session or run.** Menu shape barely moves — still two root groups,
+    just the group label changes from "Mesh Trace" to "Profile," and
+    Reticulum/Spectrum will slot in as two more flat entries in that same
+    group once Phase 8 gives them a real channel table, no new nesting
+    decision needed.
+  - **Real changes:** `BRAND.md` (Interface Naming section rewritten with
+    a "Revised again 2026-08-25" note — Mesh Trace/Open Trace/Spectrum
+    Trace all retired, replaced by the flat Profile table above), a
+    rewritten `ui_labels.h` (`uiTraceModeLabel()`/`uiSubProfileLabel()`/
+    `uiActiveProfileLabel()` collapsed back into one flat
+    `uiProfileLabel()`), `ui_task.cpp`'s `ROOT_ITEMS` (root row 0 relabeled
+    "Profile," `PROFILE_GROUP_ITEMS` renamed from `MESH_TRACE_GROUP_ITEMS`,
+    `drawFooterStatus()`/`drawMenuRoot()`/`fireMenuAction()` simplified to
+    the flat label — no more family/sub-profile composition, since there's
+    no branded family left to compose from), `ui_menu.h`'s comments (the
+    `MenuAction` enum itself — `SELECT_MESHTASTIC`/`SELECT_MESHCORE` —
+    didn't need to change, only what the root row is called), and
+    `test_ui_labels`/`test_ui_menu` updated to match. Verified for real:
+    `pio test -e native` **88/88**, `pio run -e cardputer-adv` **SUCCESS**
+    (RAM 50304/327680B, flash 957645/3342336B) — see the Phase 6 checklist
+    entry above for the updated numbers.
+  - **Design artifact corrected again**, same republish workflow as the
+    entry above: `drawMenuRootV2`'s root-row label, `drawProfileGroupV2`,
+    every preset's `profile` field, and the intro/compare-section prose all
+    walked back from "Mesh Trace: Meshtastic" composition to a plain
+    "Meshtastic" — verified with the same Node.js DOM-stub harness
+    (`dom_harness.js`) before republishing, no throws. The genuinely
+    historical bits (the Phase-5 `render()`/`drawLegacy*` functions, and
+    the `systemBeforeState` snapshot that predates even v0.6.0) were left
+    untouched, same "don't rewrite frozen history" rule this file has
+    followed since the before/after section was first built. Same link as
+    above, still the living reference for Phase 7/8.
