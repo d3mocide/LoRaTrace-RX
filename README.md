@@ -16,15 +16,34 @@ general LoRa/spectrum exploration.
 
 ## Status
 
-**Phase 1 complete and hardware-verified**: radio, antenna path, SD config
-override, display, and protocol-correct Meshtastic RX all confirmed on real
-hardware, with heap stable under sustained receive.
+**Current version: v0.6.4.** Phases 1-6 are built and hardware-verified —
+Meshtastic War Drive (radio, antenna path, GPS, batched SD logging),
+MeshCore as a second selectable profile, an on-demand WiFi web dashboard,
+and a redesigned on-device menu UI (grouped menu, a live-updating status
+display, brightness control, and a Trace pause/standby battery lever). One
+item from Phase 6 is still open — see `PROGRESS.md`'s checklist for exactly
+what. Phase 7 (`DISCOVERY_SWEEP`, non-default-channel scanning) and Phase 8
+(`ENERGY_SWEEP`, Reticulum/Spectrum) haven't started yet.
 
-**Phase 2 (MVP-Beta) built and largely hardware-verified**: the
-task/queue architecture, GPS task and batched SD logger are in place, and
-the GPS now reaches a fix on this board. What remains is the exit criterion
-itself — a multi-hour unattended run whose logs come back clean. See
-`PROGRESS.md` for the live checklist.
+- **Phase 1** — radio, antenna path, SD config override, display, and
+  protocol-correct Meshtastic RX, all confirmed on real hardware with heap
+  stable under sustained receive.
+- **Phase 2 (MVP-Beta)** — the task/queue architecture, GPS task, and
+  batched SD logger held up over a genuine multi-hour unattended run
+  (2.5h, every drop/error counter at 0 the whole time).
+- **Phase 3** — an on-demand WiFi access point + web dashboard (off by
+  default; see "Web dashboard" below) for pulling runs and editing channel
+  settings without ejecting the SD card.
+- **Phase 4** — MeshCore as a second, keyboard-switchable profile on the
+  same radio engine.
+- **Phase 5** — the first real on-device keyboard menu, replacing timed
+  hold-gestures.
+- **Phase 6** — a full UI rework: a grouped, nestable menu; live status
+  dots and a toast layer; reorganized status pages; a battery-saving
+  Trace pause/standby; and real PWM-driven backlight brightness control.
+
+See `PROGRESS.md` for the live, phase-by-phase checklist and the
+hardware-verification history behind each item above.
 
 ## Output files
 
@@ -103,27 +122,54 @@ lines.
 ## Configuration
 
 By default LoRaTrace RX locks to Meshtastic LongFast (US):
-906.875MHz / SF11 / BW250kHz / CR4:8. The first time it boots with an SD
+906.875MHz / SF11 / BW250kHz / CR4:8, and MeshCore's US-narrow default:
+910.525MHz / SF7 / BW62.5kHz / CR5. The first time it boots with an SD
 card that doesn't already have one, it creates `/loratrace/config.txt` on
-the card pre-filled with those defaults — just edit that file in place for
-a non-default regional preset (e.g. MeshOregon) and reboot. See the file's
-own comments for the format. (`sd-template/loratrace/` still exists if you
-want to prepare a card offline before ever booting the device with it.) A
-missing card, a read-only card, or out-of-range values all fail safe back
-to the hardcoded default.
+the card pre-filled with both defaults, one block per profile
+(`meshtastic_freq_mhz=`, `meshcore_freq_mhz=`, etc. — each profile has its
+own independent set of keys, so editing one never touches the other's
+saved values). Edit either block in place for a non-default regional
+preset (e.g. MeshOregon) and reboot — see the file's own comments for the
+format, or use the web dashboard's Settings tab instead of hand-editing
+(below). (`sd-template/loratrace/` still exists if you want to prepare a
+card offline before ever booting the device with it.) A missing card, a
+read-only card, or out-of-range values all fail safe back to the hardcoded
+default for that profile. Channel changes apply on next boot, not live —
+switching profiles on the running device (menu or web) always uses
+whatever was last saved for that profile.
 
 ## Display
 
 Boot progress (firmware version, antenna-switch/radio status, active
 channel, and any FATAL error) is shown on the built-in LCD as well as over
-serial. Once the tasks are running the panel shows five read-only status
-pages — RADIO, CHANNEL, GPS, SYSTEM, WIFI — with a battery indicator and a
-heartbeat dot on every one, plus a keyboard-driven menu (profile switch,
-WiFi toggle, verbose debug toggle). `,`/`.` cycle pages or move the menu
-selection, digits `1`-`5` jump straight to a page, Enter acts on the
-highlighted menu row, and the backtick/ESC key opens/closes the menu; with
-no keyboard detected the pages rotate on their own, so a device sitting on
-a dashboard still cycles through everything.
+serial. Once the tasks are running the panel shows four read-only status
+pages — RADIO, CHANNEL, GPS, SYSTEM (WiFi status lives inside SYSTEM's
+2x2 grid) — with a battery indicator and header status dots (GPS fix,
+heap health, live RX activity) on every one, plus a footer line showing the
+active profile and page position. A keyboard-driven, nestable menu covers
+every operator-facing toggle: Trace pause/standby (a root-level row — pause
+the radio-listening pipeline to save power without losing GPS fix), Profile
+(switch between Meshtastic/MeshCore), and System (WiFi toggle, verbose
+debug toggle, and Display, which holds a live brightness slider and a
+configurable idle-dim timeout). `,`/`.` cycle pages or move the current
+menu level's selection, digits `1`-`5` jump straight to a page, Enter acts
+on the highlighted row (or scrubs a slider), and the backtick/ESC key
+opens/closes the menu and steps back up one level at a time; with no
+keyboard detected the pages rotate on their own, so a device sitting on a
+dashboard still cycles through everything. A toast band confirms whatever
+action just fired.
 
-A UI architecture redesign (grouped menu, more toggles, reorganized status
-pages) is Phase 6 — see ROADMAP.md.
+## Web dashboard
+
+An on-demand WiFi access point (off by default — toggle it from the
+System menu, never running unattended during a drive unless you turn it
+on) hosts a small embedded web page at `192.168.4.1` once it's up. Three
+tabs: a live status dashboard (the same counters the on-device SYSTEM/
+RADIO pages and serial `[status]` line already expose, plus whether Trace
+is active or paused), a run browser to download `detections.csv`/
+`session.csv` per run without ejecting the SD card, and a Settings tab with
+one independent panel per profile for editing channel parameters — the
+same `config.txt` the SD card holds, applied on next boot. Measured cost:
+roughly 55-60KB of heap while the AP is up, with no impact on radio/GPS/SD
+reliability under real traffic — see `PROGRESS.md` for the numbers and
+what's still open there.

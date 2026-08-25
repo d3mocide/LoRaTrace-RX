@@ -6,6 +6,14 @@ source, `DESIGN.md` is the "why" source. Don't let them drift.
 
 ## Current status (2026-08-22)
 
+**Note, 2026-08-25 doc pass:** this section is Phase 0/1 history, kept as
+written per this file's own convention of not rewriting past entries. For
+what's actually true today: **v0.6.4, Phase 6 (UI architecture redesign)
+built and bench-verified**, Phases 1-5 complete and hardware-verified. See
+CLAUDE.md's Status section for the running narrative, or the Build-order
+checklist immediately below for the live phase-by-phase state. Phase 7
+(`DISCOVERY_SWEEP`) and Phase 8 (`ENERGY_SWEEP`) are not started.
+
 Phase 0 (project scaffold) complete. Phase 1 (RadioLib bring-up, now
 including optional SD-based channel config) **boots successfully on real
 hardware** (SD-dropped via Launcher, not direct USB flash): antenna-switch
@@ -225,11 +233,14 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         with the actual per-rotation mapping. Build-clean; **not yet
         bench-tested** — needs a reflash and a new photo to confirm the
         glitch is actually gone, not just theoretically explained
-- [~] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta).
-      **Written 2026-08-23, not yet hardware-verified.** All three tasks,
-      the cross-core queue, the shared-SPI mutex, and the batched CSV logger
-      exist; 26 host tests cover every pure-logic path. What's outstanding
-      is the part only hardware can answer:
+- [x] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta).
+      **Fully hardware-verified — 2026-08-25 doc pass fixed a stale marker
+      here:** this header and its intro line still read "not yet
+      hardware-verified" even though every sub-item below, including the
+      literal 2.5-hour unattended-run exit criterion, had long since closed.
+      All three tasks, the cross-core queue, the shared-SPI mutex, and the
+      batched CSV logger exist and are confirmed on real hardware; 26 host
+      tests cover every pure-logic path.
   - [x] **GPS UART confirmed working on hardware 2026-08-23.** After the P0
         power fix and the pin A/B, the probe latched immediately on
         **RX=G15 / TX=G13** and streamed valid NMEA — 80 sentences per 5s,
@@ -326,15 +337,20 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         shrinking.
 - [x] **Phase 3** — Web Command Center (WiFi AP + web UI). Built and passing
       the full host-native suite; the go/no-go heap/counter spike this phase
-      was gated behind was answered (see the 2026-08-22/23 entries above) —
-      **still not bench-verified against real hardware**, per CLAUDE.md's
-      Status section. Corrected numbering (2026-08-24): this checklist
-      previously called Phase 3 "MeshCore profile," written before WiFi got
-      pulled forward ahead of it (PROGRESS.md 2026-08-22 decisions log) —
-      ROADMAP.md's phase numbers are the ones that actually shipped;
-      this list had drifted from it
-  - [ ] **Bench-verify the per-profile channel config split — added
-        2026-08-24, not yet flashed.** Fixes a real bug found the same day:
+      was gated behind was answered (see the 2026-08-22/23 entries above).
+      **Bench-verified against real hardware, 2026-08-24** (Next steps item 0
+      / Decisions log): dashboard/downloads/settings all reachable from a
+      real browser, connect/disconnect logging confirmed clean, and the
+      Settings tab round-trip confirmed directly (`[config] Wrote ...` line
+      on save, a live Meshtastic packet at exactly the saved 918.500MHz/SF8/
+      BW125 after the power cycle) — this line used to say "still not
+      bench-verified"; that was stale, fixed 2026-08-25 doc pass. Corrected
+      numbering (2026-08-24): this checklist previously called Phase 3
+      "MeshCore profile," written before WiFi got pulled forward ahead of it
+      (PROGRESS.md 2026-08-22 decisions log) — ROADMAP.md's phase numbers
+      are the ones that actually shipped; this list had drifted from it
+  - [~] **Bench-verify the per-profile channel config split — added
+        2026-08-24.** Fixes a real bug found the same day:
         the original single-preset config let a MeshCore-active Save
         silently write MeshCore's values into what the firmware would apply
         as a Meshtastic override next boot, and a profile switch (menu) back
@@ -349,6 +365,18 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         `meshtastic_*`/`meshcore_*` blocks pre-filled with the current
         hardcoded defaults. See PROGRESS.md's Decisions log for the full
         design and the bug this replaces.
+        **Half-closed, 2026-08-25 doc pass (confirmed with the operator):**
+        run0022 (2026-08-24, verbose-debug session) saved the Meshtastic
+        preset via the web Settings tab, power-cycled, and confirmed the
+        applied channel matched exactly (918.500MHz/SF8/BW125/CR4:5) before
+        switching live to MeshCore — the Meshtastic side of the original bug
+        scenario is real-hardware-confirmed. **Still open:** the MeshCore
+        preset itself was never independently saved via the web UI and
+        checked for persistence after a reboot/switch — the other half of
+        the original bug (a MeshCore-active Save corrupting the Meshtastic
+        override) was fixed in code and covered by `test_channel_plans`'s
+        three new cases, but that specific save-MeshCore/reboot/verify
+        sequence hasn't been run on hardware yet.
       **Operational note for this project's own SD card:** its existing
       `config.txt` (the real MeshOregon-style override from earlier
       sessions) uses the OLD unprefixed key format (`freq_mhz=`, not
@@ -426,7 +454,7 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         (`,/. page  1-5 jump  Enter menu` -> `` ,/. page  1-5 jump  ` menu ``)
         to match the ESC-opens-the-menu rework above; the menu's own hint
         line (`` ,/. move   Enter act   ` back ``) didn't need to change.
-- [~] **Phase 6** — UI architecture redesign. Promoted ahead of
+- [x] **Phase 6** — UI architecture redesign. Promoted ahead of
       `DISCOVERY_SWEEP` 2026-08-25 (see Decisions log below). **First cut
       built 2026-08-25 (v0.6.0)**, then **fully iterated and re-implemented
       the same day (v0.6.1)** after the operator reviewed a pixel-accurate
@@ -440,6 +468,27 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       design-reference artifact lives. Neither v0.6.1 nor v0.6.2 is a small
       fix on v0.6.0: every page was redrawn, and v0.6.2 walks the profile
       axis back to plain, unbranded names.
+      **Then bench-tested against real hardware for the first time
+      (v0.6.2 -> v0.6.3, 2026-08-25 evening)** — the redesign compiled and
+      matched its mockup, but direct-to-panel drawing had two real failure
+      modes a build report couldn't catch (full-screen flicker, toast-time
+      tearing); root-caused and fixed with an off-screen
+      `Arduino_Canvas_Indexed` (~32KB one-time `malloc()`, not RGB565's
+      ~63KB) that every draw call now targets, blitted to the panel in one
+      `tft->flush()` SPI burst. Same session also fixed a menu-label
+      overflow and an inverted WiFi-toggle toast, and added Trace pause/
+      standby (a real `radio.sleep(true)` battery lever, promoted to a
+      root-level menu row). **Then v0.6.3 -> v0.6.4** added real PWM
+      backlight control (replacing the flat digitalWrite on/off, after a
+      real M5GFX-sourced non-linear-duty-curve bug was root-caused and
+      fixed), a 5-100% brightness slider, a configurable idle-dim timeout,
+      both persisted to SD, and genuine menu nesting (`MenuState`
+      generalized to a depth-bounded recursive model, `MAX_DEPTH = 4`) for
+      "System > Display > Brightness/Idle dim." See the 2026-08-25 (evening)
+      and (later still) Decisions log entries below for the full sessions —
+      both were bench-verified on the attached Cardputer at multiple points
+      during the session, not just assumed from a clean build. **Current
+      version: v0.6.4.**
       `pio test -e native` — **88/88 passed** (test_ui_menu stayed at 13,
       just its "Mesh Trace" fixture label renamed to "Profile";
       test_ui_labels shrank from 7 to 3 now that there's one flat
@@ -511,29 +560,133 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       against the ESP32-S3FN8's real ~512KB no-PSRAM SRAM ceiling) fills
       the space under "k heap" that used to be blank. `UiPage::COUNT` is 4
       now, not 5 (`ui_task.h`).
-  - [ ] **Bench-verify against the real ST7789V2 panel** — not done yet,
-        and now a bigger check than the v0.6.0 pass covered: every page
-        was redrawn, not just the menu. Check every column/row for
-        clipping or overlap (the new status-dot cluster against the
-        battery indicator, the toast slide/countdown-bar band, a GROUP
-        list against the footer), confirm the header's "MENU > Profile"
-        / "MENU > System" breadcrumbs read correctly, watch the RX pulse
-        dot and RADIO's flash bar actually track live detections without
-        looking stuck on or stuck off, and re-press all eleven keyboard.h
-        keys against the three-level (carousel/root/group) navigation with
-        Profile's Meshtastic/MeshCore picks.
-  - [ ] Re-confirm WiFi heap/counter numbers (ROADMAP.md Phase 3's
+  - [x] **Bench-verify against the real ST7789V2 panel — closed 2026-08-25,
+        across the v0.6.3/v0.6.4 sessions.** The canvas rewrite eliminated
+        the flicker/tearing found on first contact with real glass (see
+        entry above); the menu-label overflow and inverted WiFi-toast bugs
+        were both found and fixed by using the device normally; the nested
+        3-level menu (System > Display > Brightness) and its full
+        breadcrumb trail were exercised reaching the brightness slider; and
+        Trace pause/resume plus a profile switch fired *while* paused were
+        both confirmed correctly waking and retuning the radio. **Confirmed
+        with the operator (2026-08-25 doc pass):** the header's RX-pulse dot
+        and RADIO page's flash bar were watched tracking live incoming
+        detections on real hardware, not just reasoned through. Not
+        separately re-itemized: a full one-by-one re-press of all eleven
+        `keyboard.h` keys — Phase 5 already bench-confirmed each of them
+        individually, and Phase 6 changed `ui_task.cpp`'s *interpretation*
+        of those actions (menu depth, slider entry) rather than
+        `keyboard.h`'s raw-byte decode, so a fresh per-key pass wasn't
+        treated as a separate gate here.
+  - [ ] **Re-confirm WiFi heap/counter numbers** (ROADMAP.md Phase 3's
         go/no-go) still hold with the redesigned `ui_task.cpp` running —
-        no new dynamic allocation was added (the toast is still a static
-        buffer), but this hasn't been measured on real hardware yet.
-  - [ ] Confirm the bounded fast-redraw bursts (toast slide/countdown, RX
+        **confirmed still open, 2026-08-25 doc pass (operator: "not yet
+        re-tested").** This is more than a formality now: v0.6.3 added a
+        real one-time ~32KB canvas `malloc()` on top of the WiFi AP's own
+        ~55-56KB, and neither the AP-up heap delta nor
+        `crc_err`/`queue_drop`/`bus_miss`/`row_drop` staying at 0 has been
+        re-measured with both live at once since the canvas landed. Next
+        bench session: toggle WiFi on with the AP under real traffic (mirror
+        the 2026-08-24 800+-detection test) and record `ESP.getFreeHeap()`
+        before/after plus the four counters.
+  - [x] ~~Confirm the bounded fast-redraw bursts (toast slide/countdown, RX
         pulse) don't visibly compete with SD flush timing or GPS mutex
-        contention during a genuinely busy RX session on real hardware —
-        reasoned through as safe (display is its own SPI host, GPS reads
-        use a non-blocking 0-tick try from the header), not yet observed
-        under real sustained traffic.
-- [ ] **Phase 7** — `DISCOVERY_SWEEP`
-- [ ] **Phase 8** — `ENERGY_SWEEP`
+        contention~~ — **resolved/superseded, 2026-08-25 doc pass (confirmed
+        with the operator).** The mechanism this item was about no longer
+        exists: v0.6.3's canvas rewrite deleted the toast-only "fast-redraw
+        burst" path entirely (nothing left to protect once every frame is
+        atomic) — `fullRedraw()` now runs unconditionally at every cadence,
+        idle tick and animation tick alike, ending in one `tft->flush()`.
+        The display is its own SPI host regardless (CLAUDE.md), so this was
+        never real contention with SD's bus; the v0.6.4 session's extended
+        live debugging (a background serial monitor through repeated
+        brightness/menu interaction) surfaced no counter regressions either.
+  - [x] **Trace pause/standby — bench-verified 2026-08-25 (v0.6.3).** A
+        second radio-task mailbox puts the SX1262 into `radio.sleep(true)`
+        (warm sleep) instead of continuous RX; resuming is a plain
+        `radio.startReceive()`. Confirmed on real hardware: pausing/
+        resuming, and — the case that actually mattered, since a stale
+        pause silently swallowing an operator's profile choice would be a
+        real bug — switching profiles *while* paused correctly wakes and
+        retunes the radio rather than leaving it asleep on the old channel.
+  - [x] **Real backlight PWM, brightness slider, idle-dim timeout, and menu
+        nesting — bench-verified 2026-08-25 (v0.6.4).** The naive linear-PWM
+        first attempt blacked the panel out at several duty values (root
+        cause: this display needs LovyanGFX/M5GFX's exact non-linear
+        256Hz/9-bit/`offset=16` curve, not a naive linear map — sourced from
+        M5GFX's own `board_M5CardputerADV` code, not guessed a third time).
+        With the correct curve, all 4 original presets (25/50/75/100%)
+        confirmed working live via a background serial monitor watching
+        `[backlight]` diagnostic lines while brightness was cycled on the
+        device, both before and after the fix. The new 5-100%/5%-step
+        slider, the configurable idle-dim timeout, and the "System >
+        Display > Brightness/Idle dim" nested menu path were all confirmed
+        working post-fix, operator-confirmed before this entry was written.
+        **Not fully closed:** the 5-20% brightness range is new territory
+        this session opened (the old fixed-preset menu never went below
+        25%) and still needs its own dedicated low-end bench sweep — flagged
+        as a watch item, not assumed safe just because the formula's intent
+        is to keep low values in regulation.
+- [ ] **Phase 7** — `DISCOVERY_SWEEP`. **Not started; broken out below
+      2026-08-25 doc pass** — this checklist previously had no sub-items at
+      all, unlike every phase before it. Sub-items are pulled directly from
+      DESIGN.md §4/§5/§9 and ROADMAP.md's Phase 7 section, not new scope —
+      flagging that as a distinction worth keeping, since this doc's own
+      Decisions log entries have shown more than once that "no sub-items"
+      quietly reads as "not really planned yet" until a phase is already
+      underway.
+  - [ ] Curated candidate frequency list per profile — non-default
+        Meshtastic channel-hash slots, legacy-config MeshCore — weighted by
+        [[meshmapper-pipeline]]'s real-world observed frequencies for this
+        area where available, not scraped defaults alone (DESIGN.md §3, §9
+        step 7; CLAUDE.md's "Related context" note)
+  - [ ] CAD `symNum` tuning bench-tested against Semtech AN1200.48 before
+        trusting any false-positive/miss rate this phase reports (DESIGN.md
+        §7 open item, carried since Phase 0)
+  - [ ] `DISCOVERY_SWEEP(profile)` radio-task state: bounded-duration
+        (DESIGN.md §5 says "a few seconds"), CAD-cycles the curated
+        candidate list, logs hits, returns to `HOME_LISTEN` — confirm it
+        never blocks the radio task longer than that bounded window
+        (CLAUDE.md's "radio task must never block" constraint applies here
+        same as everywhere else)
+  - [ ] Sweep results/trigger surfaced as new entries under Phase 6's
+        existing grouped menu — explicitly *not* a reason to reopen UI
+        architecture a second time (DESIGN.md §9 step 7, ROADMAP.md Phase 7)
+  - [ ] `detections.csv`/`session.csv` check: a `DISCOVERY_SWEEP` hit logs
+        cleanly alongside `HOME_LISTEN` detections without a format change
+        that breaks concatenating against already-logged runs (DESIGN.md
+        §8's own "check the header before concatenating" rule)
+  - [ ] Bench-verify against a real non-default-channel Meshtastic
+        transmitter and/or a legacy-config MeshCore node once one is
+        available to test against
+- [ ] **Phase 8** — `ENERGY_SWEEP`. **Not started; broken out below
+      2026-08-25 doc pass**, same reasoning as Phase 7 above. Sub-items
+      pulled from DESIGN.md §4/§5/§8/§9 and ROADMAP.md's Phase 8 section.
+  - [ ] `ENERGY_SWEEP` implemented as its own top-level radio-task state,
+        mutually exclusive with `HOME_LISTEN`/`DISCOVERY_SWEEP` (DESIGN.md
+        §5) — FSK/OOK RSSI sweep across the full 868–923MHz range
+  - [ ] Periodic LoRa-mode CAD checks layered in at common SF/BW combos
+        (7/8/9 × 125/250/500/62.5kHz, DESIGN.md §4) alongside the RSSI sweep
+  - [ ] Reticulum heuristic: a LoRa CAD hit at a frequency not matching a
+        known Meshtastic/MeshCore channel gets flagged as a Reticulum/
+        unclassified-private-LoRa candidate (DESIGN.md §4, §6's
+        fingerprinting table)
+  - [ ] Rolling-noise-floor threshold filtering for `ENERGY_SWEEP` data
+        before logging — DESIGN.md §8.1 already specifies *why* (log peaks
+        only, or the card fills fast for near-zero value) but the actual
+        threshold logic doesn't exist yet
+  - [ ] 923–928MHz front-end rolloff characterized via an empirical RSSI
+        noise-floor sweep, so the UI/docs can be honest about reduced
+        sensitivity in that sub-band instead of silently under-reporting
+        (ROADMAP.md Phase 8, DESIGN.md §7 open item)
+  - [ ] Reticulum and Spectrum (General Exploration) become real selectable
+        entries in Phase 6's Profile menu group once this phase gives them
+        an actual channel table — today they fall through to Meshtastic's
+        resolved channel in `channelParamsForProfile()`/
+        `resolvedChannelForProfile()`, and the v0.6.2 Decisions log entry
+        already notes they'll "slot in as two more flat entries... once
+        Phase 8 gives them a real channel table, no new nesting decision
+        needed"
 
 ## Open questions (from DESIGN.md §7 — verify before / during build)
 
