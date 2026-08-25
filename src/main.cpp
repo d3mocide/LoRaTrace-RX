@@ -287,10 +287,21 @@ void playBootMark() {
 
 bool initDisplay() {
     tftSPI.begin(PIN_TFT_SCLK, -1 /* MISO unused */, PIN_TFT_MOSI, PIN_TFT_CS);
-    backlightInit(); // LEDC PWM, starts at 100% — see backlight.h
     if (!tft->begin()) return false;
     tft->fillScreen(SPLASH_BG);
     tft->setTextSize(1);
+    // Backlight comes up AFTER the panel is already cleared to black, not
+    // before — the ST7789's GRAM survives a warm reset (only the MCU
+    // resets; the panel's own supply rail doesn't), so whatever ui_task
+    // last drew is still sitting in it. backlightInit() drives the
+    // backlight straight to 100% (see backlight.h); doing that before
+    // tft->begin()'s panel wake sequence + fillScreen() finish lit up that
+    // stale frame for the ~120ms+ it takes the panel to come back up,
+    // which is exactly the "flashes the old page, then the boot mark"
+    // symptom reported after a reboot. Ordering the clear first means the
+    // backlight only ever illuminates a screen this boot has already
+    // written.
+    backlightInit();
     return true;
 }
 

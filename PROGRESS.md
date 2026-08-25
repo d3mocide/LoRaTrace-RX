@@ -3868,3 +3868,47 @@ above) — remaining items are follow-through, in the order it's worth doing.
     report earlier this round that couldn't be reproduced in the mockup.
   - **Version: unchanged, v0.6.4** (cosmetic boot-sequence polish, same
     reasoning as rounds 1-3 — no new phase scope).
+- **2026-08-25 (even later still) — v0.6.5: fixed a warm-reboot flash of
+  the previous session's page before the boot mark.** Operator report,
+  photo-confirmed: rebooting the device (photo shows `GNSS`/`LoRa`
+  Cardputer-Adv/StampS3A hardware, not a firmware label — separate from
+  the actual bug) briefly showed whatever `ui_task` had last drawn before
+  the boot mark's black background and arcs took over, described as
+  "temporarily shows the radio cards info then does the boot loader."
+  - **Root cause: ordering, not corruption or a stale framebuffer bug in
+    the new v0.6.3 canvas.** The ST7789 panel's GRAM survives a warm
+    reset — the ESP32-S3 resets, but the panel's own supply rail doesn't
+    get power-cycled by an EN/software reset — so whatever frame `ui_task`
+    last rendered is still physically sitting on the glass the instant
+    `setup()` starts. `main.cpp`'s `initDisplay()` was calling
+    `backlightInit()` (drives the LEDC-PWM backlight straight to 100%,
+    `backlight.cpp`) *before* `tft->begin()`'s panel wake sequence and the
+    boot-time `tft->fillScreen(SPLASH_BG)` had actually overwritten that
+    frame with black. The ST7789 datasheet's own sleep-out sequence needs
+    a real settle delay after `begin()`'s reset pulse, so there was a
+    genuine multi-frame window where the backlight was already on and the
+    old page was still the only thing in GRAM.
+  - **The fix:** reordered `initDisplay()` — `tft->begin()` and
+    `tft->fillScreen(SPLASH_BG)` now run first, `backlightInit()` last, so
+    the backlight only ever illuminates a screen this boot has already
+    written to black. Three lines moved, no new state, no new control
+    flow. The one behavior change in the failure path: if `tft->begin()`
+    itself fails, `backlightInit()` is no longer called at all (previously
+    it always ran first regardless) — harmless, since `displayReady`
+    stays false either way and `splashLine()`/`playBootMark()` already
+    no-op on that path, so nothing was ever visible there to lose.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS**, RAM and
+    flash **byte-identical** to v0.6.4 (50332/327680B, 969529/3342336B) —
+    expected, since this is a pure call-order swap of two existing
+    functions, not new code. `pio test -e native` **90/90** unaffected
+    (`main.cpp`'s boot sequence isn't part of the host-native build, so
+    this class of bug is inherently untestable off real hardware). **Not
+    yet re-confirmed against a genuine warm reboot on the bench** — the
+    report was one photo from the field, not a bench session with the
+    fix applied; next session should specifically power-cycle and
+    EN-reset the device a few times watching for whether the prior page
+    is now fully invisible, not just shortened, since the exact
+    reset-to-backlight-on timing on this specific board hasn't been
+    measured.
+  - **Version: v0.6.4 -> v0.6.5.** PATCH-level — a correctness fix to the
+    existing boot sequence, no new build-order scope.

@@ -626,6 +626,29 @@ far (longest path, biggest arcs, a new animated region), so it's the
 one most worth a careful bench pass next session. See PROGRESS.md's
 Decisions log for the full mockup-review process and exact numbers.
 
+**2026-08-25 (even later still) — v0.6.5: reboot flashed the previous
+session's page before the boot mark took over.** Operator-reported and
+photo-confirmed: on a warm reboot, the panel briefly showed whatever
+`ui_task` had last drawn (a status page's tiles/"cards" — the report
+called it "radio cards info") before the boot mark's black background
+and arcs appeared. Root cause was ordering, not corruption: the ST7789's
+GRAM survives a warm reset (only the MCU resets — the panel's own supply
+rail doesn't), so the prior frame is still sitting in it at power-on, and
+`initDisplay()` was calling `backlightInit()` — which drives the
+backlight straight to 100% — *before* `tft->begin()`'s panel wake
+sequence and the boot-time `fillScreen()` had actually cleared that
+frame. `main.cpp`'s `initDisplay()` now clears first, backlight second:
+`tft->begin()` + `fillScreen(SPLASH_BG)` run before `backlightInit()` is
+ever called, so the backlight only ever lights a screen this boot has
+already written to black. A pure call-order swap, no new state or
+control flow, so `pio run -e cardputer-adv` came back **byte-identical**
+(RAM 50332B, flash 969529B) and `pio test -e native` **90/90** — neither
+touches `main.cpp`'s boot sequence, this is a real-hardware-only bug
+class. **Not yet re-confirmed on hardware against a genuine reboot** (the
+report was a single photo, not a bench session) — worth a deliberate
+warm-reset check next session specifically watching for whether the old
+frame is now fully gone rather than just shortened.
+
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.
