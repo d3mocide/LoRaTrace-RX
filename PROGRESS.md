@@ -426,8 +426,18 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         (`,/. page  1-5 jump  Enter menu` -> `` ,/. page  1-5 jump  ` menu ``)
         to match the ESC-opens-the-menu rework above; the menu's own hint
         line (`` ,/. move   Enter act   ` back ``) didn't need to change.
-- [ ] **Phase 6** — `DISCOVERY_SWEEP`
-- [ ] **Phase 7** — `ENERGY_SWEEP`
+- [ ] **Phase 6** — UI architecture redesign. Promoted ahead of
+      `DISCOVERY_SWEEP` 2026-08-25 (see Decisions log below) — not started.
+      Scope: a grouped menu (root categories opening sub-lists, replacing
+      the flat list Phase 5 shipped and had already outgrown by one item),
+      a toast/notice layer for transient feedback, reorganized status
+      pages (the current five are single-column text with real unused
+      width on the 240px panel), and BRAND.md's on-device labels
+      (`Watch`/`Probe`/`Sweep`, `Mesh Trace`/`Core Trace`/etc.) adopted as
+      the UI's display strings, kept separate from the `meshtastic`/
+      `meshcore` identifiers logged to `detections.csv`.
+- [ ] **Phase 7** — `DISCOVERY_SWEEP`
+- [ ] **Phase 8** — `ENERGY_SWEEP`
 
 ## Open questions (from DESIGN.md §7 — verify before / during build)
 
@@ -2701,3 +2711,100 @@ above) — remaining items are follow-through, in the order it's worth doing.
      rather than dug into further given the hour; if it recurs, worth
      trying an explicit `Serial.flush()` after the locked write, or a
      larger USB-CDC TX buffer, as a first mitigation to test.
+- **2026-08-25 — UI architecture redesign promoted to Phase 6,
+  `DISCOVERY_SWEEP`/`ENERGY_SWEEP` pushed to Phase 7/8.** Session started
+  as a question about Phase 6 (`DISCOVERY_SWEEP`) planning; turned into a
+  scope decision after the user asked directly whether Phase 5 was really
+  finished and floated wanting new features toggled through the UI going
+  forward.
+  - **Phase 5 status check.** Confirmed complete against its own declared
+    scope — PROGRESS.md's checklist and CLAUDE.md's Status section both
+    already marked every sub-item closed and hardware-bench-verified
+    2026-08-24. Not a reopening of unfinished work. But the check surfaced
+    the real issue: the menu had already grown past its own documented
+    scope once, silently. `ui_task.cpp`'s own comment still read "the menu
+    has exactly two items this phase" while a third row (`Debug`,
+    `loggerDebugToggle()`) had been added the same bench day with no
+    framework change and no comment update — see this file's 2026-08-24
+    entries. `DISCOVERY_SWEEP` would add at least a fourth item the same
+    way, `ENERGY_SWEEP` a fifth after it.
+  - **User's principle, adopted as a house rule (CLAUDE.md):** new
+    operator-facing behavior gets an on-device menu toggle, not a silent
+    default or a web-UI-only setting. This was already the de facto
+    pattern (WiFi off-by-default+toggle, the MeshCore switch, the Debug
+    toggle) but had never been written down, which is exactly how the
+    Debug row landed without anyone treating it as a UI decision.
+  - **Current UI critique (user, confirmed against `ui_task.cpp`):** the
+    five carousel pages (RADIO/CHANNEL/GPS/SYSTEM/WIFI) are single-column
+    stacked text (`drawRadioPage()` etc.) — real unused width on the
+    240x135 panel, values organized one-per-line rather than grouped.
+  - **M5PORKCHOP review (github.com/0ct0sec/M5PORKCHOP), read-only, cloned
+    locally for reference — not linked as a dependency, not cloned for its
+    content.** It's a Cardputer-ADV WiFi/BLE pentesting tool with the same
+    240x135/no-PSRAM hardware constraints as this project, so its UI
+    engineering choices are genuinely comparable even though its feature
+    set (packet capture, deauth, BLE spam) is not. Reviewed:
+    `src/ui/menu.h` — a "Sirloin-style grouped modal": `RootItem` entries
+    are either `RootType::DIRECT` (opens a mode) or `RootType::GROUP`
+    (opens a `MenuItem` sub-list via `GroupId`), same input model
+    throughout. `src/ui/display.h` — a `NoticeKind` (REWARD/STATUS/WARNING/
+    ERROR) x `NoticeChannel` (AUTO/TOAST/TOP_BAR) abstraction for transient
+    messages, decoupled from whatever screen is showing. `src/ui/
+    swine_stats.h` — a tabbed stats screen (`StatsTab`: STATS/BOOSTS/
+    WIGLE) as one model for grouping related values instead of one
+    per line. Also present, and explicitly **not** part of this redesign:
+    a full RPG XP/leveling/achievement system (`src/core/xp.h`, 60
+    achievement bitflags, class tiers, buffs/debuffs), an animated ASCII
+    mascot with a mood/dialogue system (`src/piglet/`), and a voice/tone
+    (its own README: "the difference between tool and weapon is the hand
+    holding it. wink. wink.") that's the deliberate opposite of BRAND.md's
+    "calm, precise, instrument-like... closer to a survey receiver... than
+    a red-team utility or hacker toy" direction and its explicit guardrails
+    against mascot/gamified/neon aesthetics. Structure reviewed and partly
+    adopted; content, tone, and aesthetic were not.
+  - **Three decisions, via AskUserQuestion:**
+    1. **Grouped menu**, not a longer flat scrolling list — root categories
+       (e.g. Profile, Radio Mode, System) open short sub-lists, same four
+       keys throughout. Chosen because a flat list is the thing that's
+       already outgrown itself once; scrolling a longer flat list doesn't
+       fix that, it just delays the next overflow.
+    2. **Add a toast/notice layer**, not inline-only feedback. Its actual
+       heap cost is unmeasured and must be measured and reported before it
+       ships — same discipline as every other RAM-hungry addition in this
+       project (WiFi AP's ~55-56KB number is the precedent this follows,
+       not an estimate to trust on paper).
+    3. **Adopt BRAND.md's on-device labels now** (`Watch`/`Probe`/`Sweep`
+       for HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP; `Mesh Trace`/`Core
+       Trace`/`Open Trace`/`Spectrum Trace` for the four profiles) as the
+       UI's actual display strings — a table BRAND.md has carried since it
+       was written but the on-device UI never used. Deliberately kept as a
+       separate display layer, not a rename of `detection.h`'s
+       `missionProfileName()`: that function's output (`meshtastic`,
+       `meshcore`) is what's already written into every `detections.csv`
+       a real run has produced, and DESIGN.md §8 already has a "don't
+       concatenate runs across a format change without checking the
+       header" rule for exactly this kind of risk.
+  - **Renumbering applied:** Phase 6 is now the UI architecture redesign;
+    `DISCOVERY_SWEEP` moves to Phase 7, `ENERGY_SWEEP` to Phase 8. Updated
+    ROADMAP.md (Phases section, Versioning table), DESIGN.md (§1 pin
+    table, §7's preamble-length note, §8.3's start/stop-gate note, §9
+    build order), CLAUDE.md (proposed-layout's `fingerprint.h` line, new
+    house rule, new Status entry), this file's Build-order checklist, and
+    README.md's now-doubly-stale "three pages... still Phase 6" paragraph
+    (also fixed the page count while in there — it's five pages now, not
+    three, independent of today's renumbering). Also fixed forward
+    references to the old phase numbers left in code comments
+    (`radio_task.h`, `detection.h`, `channel_plans.h` x3, `main.cpp`,
+    `board_pins.h`) — same "fix stale phase-number references
+    opportunistically" precedent already used for `detection.h`'s
+    phase-4-vs-5 fingerprinting comment on 2026-08-24. Historical
+    Decisions-log entries above (including this file's own 2026-08-22/23
+    "Phase 6" mentions, back when that number meant "the eventual full
+    interactive UI") were deliberately left as written — they're a record
+    of what was true when they were written, not a live cross-reference,
+    same convention this log has followed for every earlier renumbering.
+  - **Not done in this session:** no code changes to `ui_task.cpp`/`.h`
+    itself. This entry is planning/scope capture only — the grouped-menu
+    implementation, the toast layer's real heap measurement, the
+    redesigned status-page layouts, and the BRAND.md label wiring are all
+    still open work under the new Phase 6 checklist entry above.

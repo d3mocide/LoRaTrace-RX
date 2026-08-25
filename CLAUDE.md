@@ -45,7 +45,7 @@ src/
   [x] board_pins.h               # pin map + IO-expander register constants (not in original proposal, see PROGRESS.md decisions log)
   [x] version.h                  # FIRMWARE_VERSION, single source for boot banner + release tags
   [x] config.h / .cpp            # boot-time SD channel-config override + runtime write-back for wifi_task's settings page (not in original proposal, see PROGRESS.md decisions log)
-  [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 6+)
+  [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 7+)
   --- added during phase 2, not in the original proposal ---
   [x] detection.h                # the ~36B queue record + Meshtastic header parse + §8 CSV
   [x] nmea.h                     # NMEA primitives (field split, checksum, coord conversion)
@@ -89,6 +89,14 @@ sd-template/loratrace/
   model** — it doesn't necessarily; MeshCore's own docs warn against this.
 - No large heap buffers. Detection struct is small (~40B); flush to SD
   often rather than accumulating.
+- **New operator-facing behavior gets an on-device menu toggle**, not just
+  a web-UI-only setting or a silent default. Established 2026-08-25 after
+  Phase 5's menu grew a third item (verbose debug) the same day it
+  shipped, with no framework change to absorb it — see PROGRESS.md's
+  Decisions log and ROADMAP.md's Phase 6 (UI architecture redesign).
+  Doesn't apply to one-shot boot-time config (channel overrides,
+  `config.txt`) — this is about anything that changes runtime behavior
+  while the device is already running.
 - **Bump `src/version.h` when a phase lands.** `MAJOR.MINOR` tracks the
   build-order phase (ROADMAP.md Versioning: v0.1.x = phase 1, v0.2.x =
   phase 2, ...), `PATCH` for fixes adding no phase scope. It is bumped by
@@ -230,6 +238,28 @@ anomaly** (a different `[config]` line lost its prefix despite the lock,
 while everything around it was clean) reads as a lower-level USB-CDC
 single-write truncation, not cross-task interleaving — logged as a watch
 item in PROGRESS.md rather than chased further without a logic analyzer.
+
+**2026-08-25 — Phase 5 confirmed complete; UI architecture redesign
+promoted to Phase 6, `DISCOVERY_SWEEP`/`ENERGY_SWEEP` pushed to 7/8.**
+Phase 5's own checklist is fully closed (PROGRESS.md) — this isn't a
+reopening of unfinished work. What prompted the reorder: Phase 5's menu
+was scoped to exactly two toggles and had already grown a third (verbose
+debug) by the end of the same bench day, with no framework change and only
+a stale in-code comment left marking the drift. Rather than let
+`DISCOVERY_SWEEP` bolt on a fourth item the same way, a UI architecture
+redesign now sits at Phase 6: a grouped menu (root categories opening
+sub-lists, replacing the flat list), a toast/notice layer for transient
+feedback, reorganized status pages (the current five are single-column
+text with real unused width on the 240px panel), and adoption of
+BRAND.md's on-device labels (`Watch`/`Probe`/`Sweep`, `Mesh Trace`/`Core
+Trace`/etc.) as the UI's display strings — kept separate from the
+`meshtastic`/`meshcore` identifiers `detection.h` writes to
+`detections.csv`, which stay unchanged for log-format stability.
+M5PORKCHOP (github.com/0ct0sec/M5PORKCHOP, cloned read-only for reference)
+was reviewed for its grouped-menu and toast-notice structure — not its
+gamification layer, mascot, or aesthetic, all of which BRAND.md's
+guardrails already rule out. See ROADMAP.md's Phase 6 entry and
+PROGRESS.md's Decisions log for the full session.
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna

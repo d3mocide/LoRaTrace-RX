@@ -49,7 +49,7 @@
 #include "wifi_task.h"
 
 // Boot-status splash — PROGRESS.md decisions log: a narrow, deliberate
-// exception to CLAUDE.md's "no UI yet," not the Phase 6 ui_task. Own SPI
+// exception to CLAUDE.md's "no UI yet," not ui_task's own redraw loop. Own SPI
 // host (HSPI), fully disjoint pins from the radio/SD bus (board_pins.h), so
 // it needs no spi_bus arbitration. If initDisplay() fails, splashLine()
 // silently no-ops and boot proceeds exactly as it would have.

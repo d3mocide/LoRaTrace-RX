@@ -72,7 +72,7 @@ assumptions), not a pitch.
 - **Meshtastic's 104-slot hash space:** Phase 1–2 only lock to the
   LongFast US default (slot 20). That's most of the real-world traffic,
   but a mesh running a non-default channel name lands on a different slot
-  and is invisible to `HOME_LISTEN`. `DISCOVERY_SWEEP` (phase 4) is what
+  and is invisible to `HOME_LISTEN`. `DISCOVERY_SWEEP` (phase 7) is what
   closes that gap — until then, be precise in docs/UI that "Meshtastic
   profile" means "default channel," not "all Meshtastic traffic."
 
@@ -217,17 +217,79 @@ per this project's own standing rule, not yet bench-verified against real
 hardware (see PROGRESS.md's Phase 5 checklist): press each of the four keys
 once and confirm the firmware recognizes exactly that key and no other.
 
-### Phase 6 — `DISCOVERY_SWEEP`
+### Phase 6 — UI architecture redesign
+**Goal:** rework `ui_task` before `DISCOVERY_SWEEP` (or anything after it)
+adds another ad hoc entry to a framework that was never designed to hold
+more than a couple of toggles. Pulled forward ahead of `DISCOVERY_SWEEP` at
+the user's request (2026-08-25) — same restructuring precedent as WiFi's
+Phase-3 pull-forward and the menu UI's own Phase-5 pull-forward, both
+already in this doc's history. Unlike those two, this isn't new subsystem
+bring-up: it's a scoped rework of `ui_task.cpp`/`.h`, the one file the next
+two phases would otherwise keep bolting onto.
+**Why now, not later:** Phase 5 shipped exactly two menu items by design
+(PROGRESS.md/DESIGN.md §9) and had already grown a third — the verbose
+serial-debug toggle — by the end of the same day, with no framework change
+and a stale in-code comment (`ui_task.cpp`'s "the menu has exactly two
+items this phase") as the only trace of the drift. `DISCOVERY_SWEEP` would
+add at least a fourth item (a sweep trigger) and `ENERGY_SWEEP` a fifth
+after it; fixing the shape once beats letting two more features each bolt
+on their own row.
+**Deliverable:**
+- **Grouped menu**, replacing the flat, fixed-size list `MENU_ITEM_COUNT`
+  indexes into today. Root categories (e.g. Profile, Radio Mode, System)
+  open short sub-lists, same four input keys throughout (`,`/`.` move,
+  Enter act, backtick/ESC back/close) — a shape borrowed structurally from
+  M5PORKCHOP's (github.com/0ct0sec/M5PORKCHOP) "Sirloin-style grouped
+  modal" `Menu` class (`src/ui/menu.h` in that repo: `RootItem` entries are
+  either `DIRECT` actions or `GROUP`s that open a `MenuItem` sub-list) —
+  reviewed for that structural idea only, not its content or aesthetic
+  (see note below).
+- **Toast/notice layer** for transient feedback — a toggle firing, later a
+  sweep hit — that isn't tied to whichever carousel/menu row happens to be
+  on screen. Real RAM cost gets measured and reported before it ships,
+  same discipline as every other RAM-hungry addition this project has made
+  (WiFi AP's ~55-56KB measurement is the precedent, not an estimate).
+- **Redesigned status pages.** The current five (RADIO/CHANNEL/GPS/
+  SYSTEM/WIFI) are single-column stacked text (`ui_task.cpp`
+  `drawRadioPage()` etc.) with real unused width on a 240px panel. Group
+  related values into blocks instead of one value per line — still
+  direct-to-panel partial-window writes, no framebuffer (this doc's
+  existing ~65KB framebuffer caution still applies), just organized better.
+- **Adopt BRAND.md's on-device labels** (`Watch`/`Probe`/`Sweep` for
+  HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP; `Mesh Trace`/`Core Trace`/
+  `Open Trace`/`Spectrum Trace` for the four profiles) as the strings the
+  UI actually displays. Kept as a separate UI-label layer, not a rename of
+  the internal identifiers: `detection.h`'s `missionProfileName()` keeps
+  emitting `meshtastic`/`meshcore` into `detections.csv` exactly as every
+  already-logged run expects — DESIGN.md §8's own "don't concatenate runs
+  across a format change without checking the header" rule applies here
+  too, and there's no reason to risk it for a cosmetic rename.
+- **Design reference, not a dependency:** M5PORKCHOP was cloned locally
+  (read-only) and reviewed for its menu grouping, its `NoticeKind`/
+  `NoticeChannel` toast abstraction (`src/ui/display.h`), and how it
+  organizes a stats/status screen (`src/ui/swine_stats.h`). Its
+  gamification layer (XP/levels/achievements, `src/core/xp.h`), the piglet
+  mascot/mood system (`src/piglet/`), and its aesthetic and voice are
+  explicitly **not** part of this redesign — BRAND.md's own guardrails
+  already rule out mascots, gamified framing, and anything outside the
+  "field instrument, not a consumer app" positioning. Structure was worth
+  learning from; the pig was not coming with it.
+**Blocking unknowns:** the toast layer's actual heap cost, unmeasured
+until built. Whether the ST7789V2's partial-window writes can carry the
+denser block layout above without needing a framebuffer — an assumption to
+confirm during implementation, not before.
+
+### Phase 7 — `DISCOVERY_SWEEP`
 **Deliverable:** bounded-duration CAD-cycle sweep of a curated candidate
 list per active profile — non-default Meshtastic slots, legacy MeshCore.
 **Blocking unknowns:** curated candidate lists should be weighted by
 MeshMapper-observed frequencies ([[meshmapper-pipeline]], per CLAUDE.md)
 where available, not scraped defaults alone. CAD `symNum` tuning (§7)
 needs bench testing against Semtech AN1200.48 before trusting false-
-positive/miss rates. New sweep results are additional entries in Phase 5's
-menu/screen framework, not a reason to reopen UI architecture.
+positive/miss rates. New sweep results are additional entries in Phase 6's
+grouped menu, not a reason to reopen UI architecture a second time.
 
-### Phase 7 — `ENERGY_SWEEP`
+### Phase 8 — `ENERGY_SWEEP`
 **Deliverable:** Reticulum and General Exploration profiles — FSK/OOK RSSI
 sweep across 868–923MHz with periodic LoRa CAD checks at common SF/BW
 combos.
@@ -311,7 +373,7 @@ set allows, and measure the real number instead of assuming one.
 - `RadioLib` compiles in support for many radio families by default;
   disabling the ones we don't use (`RADIOLIB_EXCLUDE_*` build flags, only
   SX126x needed here) is a cheap, real size reduction worth doing before
-  Phase 7 (`ENERGY_SWEEP`, the other RAM/flash-hungry feature after WiFi),
+  Phase 8 (`ENERGY_SWEEP`, the other RAM/flash-hungry feature after WiFi),
   not just a nice-to-have.
 - CI now measures the actual `firmware.bin` size on every build (see
   below) — track it there instead of trusting an estimate.
@@ -355,19 +417,29 @@ reports can use.
 | v0.3.x | Phase 3 (Web Command Center: WiFi AP + web UI) |
 | v0.4.x | Phase 4 (MeshCore) |
 | v0.5.x | Phase 5 (on-device menu UI) |
-| v0.6.x | Phase 6 (discovery sweep) |
-| v0.7.x | Phase 7 (energy sweep: Reticulum + General Exploration) |
+| v0.6.x | Phase 6 (UI architecture redesign) |
+| v0.7.x | Phase 7 (discovery sweep) |
+| v0.8.x | Phase 8 (energy sweep: Reticulum + General Exploration) |
 | v1.0.x | all four profiles built, on-device UI covers all of them |
 
 **Renumbered 2026-08-24** (same restructuring precedent as WiFi's Phase-3
 pull-forward): the on-device UI overhaul moved from a trailing "Phase 7
 polish" step to Phase 5, at the user's request, pushing `DISCOVERY_SWEEP`
 and `ENERGY_SWEEP` down one each. What `v1.0` means moved with it — it used
-to be "Phase 7, all profiles + UI stable," and Phase 7 is `ENERGY_SWEEP`
-now, not UI. Proposed replacement above (all four profiles + UI, landing
-right after `v0.7.x`) is a placeholder for the same total phase count as
-before, not a re-litigated decision — revisit if it stops fitting once
-Phase 6/7 are actually in hand.
+to be "Phase 7, all profiles + UI stable," and Phase 7 was `ENERGY_SWEEP`
+at the time, not UI.
+
+**Renumbered again 2026-08-25**, same precedent a second time: reviewing
+Phase 5's own menu against what `DISCOVERY_SWEEP` would add to it surfaced
+that the menu had already grown past its documented two-item scope (a
+third, `Debug`, row landed the same day with no framework change) — see
+PROGRESS.md's Decisions log for the full session. Rather than let
+`DISCOVERY_SWEEP` and `ENERGY_SWEEP` each bolt on their own ad hoc entry, a
+UI architecture redesign now sits at Phase 6, pushing `DISCOVERY_SWEEP` to
+7 and `ENERGY_SWEEP` to 8. `v1.0`'s meaning (all four profiles + UI stable)
+is unchanged by this move — it's still a placeholder for the same total
+phase count, not a re-litigated decision — revisit if it stops fitting once
+Phase 6/7/8 are actually in hand.
 
 ## Non-goals
 

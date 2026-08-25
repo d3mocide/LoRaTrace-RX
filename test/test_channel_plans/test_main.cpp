@@ -77,7 +77,7 @@ void test_channel_params_for_profile() {
 }
 
 // Profiles without a HOME_LISTEN table (Reticulum, General Exploration —
-// ENERGY_SWEEP only, phase 6) must fall back to Meshtastic rather than
+// ENERGY_SWEEP only, phase 8) must fall back to Meshtastic rather than
 // silently returning an unrelated/uninitialised table.
 void test_channel_params_for_profile_falls_back_to_meshtastic() {
     const ChannelParams reticulum = channelParamsForProfile(MissionProfile::RETICULUM);
