@@ -69,10 +69,24 @@ Arduino_GFX *tft = new Arduino_ST7789(
 );
 bool displayReady = false;
 int16_t splashY = 0;
-constexpr uint16_t SPLASH_BG = 0x0000;  // RGB565 black
-constexpr uint16_t SPLASH_FG = 0xFFFF;  // RGB565 white
-constexpr uint16_t SPLASH_ERR = 0xF800; // RGB565 red
-constexpr uint8_t SPLASH_LINE_H = 10;   // px, text size 1
+// splashX starts at the old flush-left margin so a FATAL firing before
+// playBootMark() runs (or if display init itself failed) still reads
+// exactly as it always has — playBootMark() moves it in once the mark has
+// actually drawn, not before.
+int16_t splashX = 4;
+constexpr uint16_t SPLASH_BG = 0x0000;    // RGB565 black
+constexpr uint16_t SPLASH_FG = 0xFFFF;    // RGB565 white
+constexpr uint16_t SPLASH_ERR = 0xF800;   // RGB565 red
+constexpr uint8_t SPLASH_LINE_H = 10;     // px, text size 1
+// Boot-mark accent colours (2026-08-25, operator-approved concept: see the
+// "Signal Acquired" mockup). Deliberately distinct from every accent
+// already in use on-device — SPLASH_GREEN isn't ui_pages.cpp's COL_GOOD,
+// and SPLASH_AMBER isn't its COL_WARN — this mark is a one-shot boot
+// moment, not a status colour, and shouldn't borrow meaning from either.
+// Muted sage green / warm amber-gold, quantized to RGB565 from #4aa273 /
+// #deb221 respectively.
+constexpr uint16_t SPLASH_GREEN = 0x4D0E;
+constexpr uint16_t SPLASH_AMBER = 0xDD84;
 
 // Meshtastic LongFast (US) unless overridden by /loratrace/config.txt on
 // SD — see config.h/config.cpp and sd-template/loratrace/config.txt.
@@ -96,9 +110,179 @@ QueueHandle_t detectionQueue = nullptr;
 void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
     if (!displayReady) return;
     tft->setTextColor(color, SPLASH_BG);
-    tft->setCursor(4, splashY);
+    tft->setCursor(splashX, splashY);
     tft->println(msg);
     splashY += SPLASH_LINE_H;
+}
+
+// Boot mark (2026-08-25) — replaces the old plain-text "LoRaTrace RX" /
+// version lines with BRAND.md's unbuilt logo concept: an L-shaped path
+// resolving into three signal arcs. Procedural (drawLine/fillArc calls, a
+// handful of coordinate constants), not a bitmap — first call anywhere in
+// the firmware to Arduino_GFX's fillArc()/drawArc(). No alpha blending
+// (RGB565 has none, same constraint ui_task's toast/RX-pulse already
+// worked around) — motion here is hard colour swaps and staged reveals,
+// not fades.
+//
+// Round 4/5 (same day, this pass): grew the mark ~1.5x (radii 6/10/14 ->
+// 9/15/21) once the log shrank to 3 real hardware-check lines (round 2)
+// and left real negative space unused (operator screenshot). Round 4
+// briefly split "LoRaTrace"/"RX" onto separate lines to hit wordmark
+// size 3 (the full string is 216px at size 3, and no icon size leaves
+// that much room free beside it on a 240px panel) — reversed the same
+// day (round 5) on direct feedback that the two words need to stay
+// together on one line; settled at size 2 (144px), with "RX" kept in the
+// mark's own green rather than white. Real firmware needs no manual
+// width math for this two-colour line, unlike the mockup's canvas
+// preview (which had a real ctx.measureText() gap bug along the way,
+// see PROGRESS.md): Arduino_GFX's print() just continues from wherever
+// the cursor ended up after the previous call. The L-path also grew into
+// a longer "diagonal foot" shape (3 segments instead of 1), reaching
+// down near the panel's bottom edge instead of stopping at a short
+// accent stroke — the operator's own two phrasings ("start at the very
+// bottom," "cut diagonally to the left right before the bottom") were
+// built as two real options in the mockup and compared before picking
+// this one. Also new this round: a signal-trace flourish across the
+// panel's lower third, previously empty — see drawSignalTraceFrame()
+// below.
+//
+// Sourced from the approved preview at
+// https://claude.ai/code/artifact/e6e635f3-f5af-4d2a-8eab-549de61a8e20,
+// rescaled to this real budget rather than copied at its preview
+// proportions.
+//
+// Angle convention: Arduino_GFX's fillArc()/drawArc() measure degrees from
+// 12 o'clock (0°), increasing clockwise (confirmed against the vendored
+// Arduino_GFX.cpp — writeFillArcHelper's scanline math, adapted from
+// TFT_eSPI's well-known smooth-arc fill). The mockup's canvas arcs used
+// the browser canvas convention instead (0° = 3 o'clock, clockwise) — the
+// 90° constant below is exactly that conversion, not a tuned/guessed
+// offset, so the on-device arcs open the same direction (toward 3 o'clock,
+// swept between roughly 1 and 5 o'clock) as the approved preview. The
+// swept angle itself is unchanged since round 3 — only the radii grew.
+constexpr int16_t MARK_ANCHOR_X = 30;
+constexpr int16_t MARK_ANCHOR_Y = 28;
+// Diagonal-foot path (round 5, the shipped pick over a straight run
+// compared alongside it in the mockup): a short kick left just before
+// the bottom edge, like a foot anchoring the line, straight up to an
+// elbow just below the mark, then into the anchor.
+constexpr int16_t MARK_PATH_X0 = 6, MARK_PATH_Y0 = 130;  // path start, near the bottom edge
+constexpr int16_t MARK_PATH_X1 = 14, MARK_PATH_Y1 = 108; // foot kick
+constexpr int16_t MARK_PATH_X2 = 14, MARK_PATH_Y2 = 32;  // elbow, just below the mark
+// path then runs elbow -> anchor, completing the shape.
+constexpr int16_t MARK_ARC_RADII[3] = {9, 15, 21};
+constexpr int16_t MARK_ARC_THICKNESS = 2;
+constexpr float MARK_ARC_START_DEG = 45.3f;  // canvas -44.7° + 90
+constexpr float MARK_ARC_END_DEG = 134.1f;   // canvas  44.1° + 90
+// Wordmark/version sit beside the mark, right of its outermost arc.
+constexpr int16_t MARK_WORD_X = MARK_ANCHOR_X + MARK_ARC_RADII[2] + 8; // = 59
+constexpr int16_t MARK_WORD_Y = 20;
+constexpr int16_t MARK_VERSION_Y = 38;
+// Where the diagnostic log picks up: aligned under the first (innermost)
+// arc's rightmost edge, per direct operator feedback on the mockup ("fall
+// in line with the first signal arc") rather than the old flush-left x=4.
+constexpr int16_t MARK_LOG_X = MARK_ANCHOR_X + MARK_ARC_RADII[0]; // = 39
+constexpr int16_t MARK_LOG_Y = 66;
+
+// Signal-trace flourish (round 4/5): a fixed jagged sample pattern rotated
+// through a handful of discrete frames — same "a few discrete steps, not
+// a continuous loop" approach the arcs above use — filling the panel's
+// lower third. Not real randomness on purpose: a fixed pattern reads as a
+// consistent "signal" frame to frame rather than noise. Ambient, not a
+// progress bar: this plays entirely within playBootMark(), before the
+// real hardware-check lines below even print, so it does not and should
+// not claim to track their progress — it's a "still listening" flourish.
+constexpr int16_t TRACE_PATTERN[12] = {0, -3, 2, -6, 5, -2, 4, -5, 1, -4, 3, -1};
+constexpr uint8_t TRACE_PATTERN_LEN = 12;
+constexpr int16_t TRACE_Y = 112;
+constexpr int16_t TRACE_AMP = 9;
+constexpr int16_t TRACE_X0 = MARK_LOG_X; // = 39, anchored under the log column
+constexpr int16_t TRACE_X1 = 236;
+constexpr uint8_t TRACE_FRAMES = 7;
+constexpr uint16_t TRACE_FRAME_MS = 110;
+// Dim baseline under the trace, quantized from #2d5940 — the same muted
+// green family as SPLASH_GREEN but visually receded, giving the trace a
+// reference line to read against (same "show the axis" instinct as
+// ui_pages.cpp's drawFreqBar() track on the real CHANNEL page).
+constexpr uint16_t SPLASH_GREEN_DIM = 0x2AC8;
+
+void drawSignalTraceFrame(uint8_t frame) {
+    // Band clear, not a full-panel redraw — avoids trailing garbage from
+    // the previous frame while leaving the mark/wordmark above untouched.
+    tft->fillRect(0, TRACE_Y - TRACE_AMP - 2, TFT_PANEL_WIDTH, TRACE_AMP * 2 + 4, SPLASH_BG);
+
+    int16_t prevX = TRACE_X0;
+    int16_t prevY = TRACE_Y + TRACE_PATTERN[frame % TRACE_PATTERN_LEN];
+    for (uint8_t i = 1; i <= TRACE_PATTERN_LEN; i++) {
+        const int16_t x = TRACE_X0 + (int32_t)(TRACE_X1 - TRACE_X0) * i / TRACE_PATTERN_LEN;
+        const int16_t y = TRACE_Y + TRACE_PATTERN[(i + frame) % TRACE_PATTERN_LEN];
+        tft->drawLine(prevX, prevY, x, y, SPLASH_GREEN);
+        prevX = x;
+        prevY = y;
+    }
+    tft->drawLine(TRACE_X0, TRACE_Y + TRACE_AMP + 6, TRACE_X1, TRACE_Y + TRACE_AMP + 6, SPLASH_GREEN_DIM);
+}
+
+void playBootMark() {
+    if (!displayReady) return;
+
+    // Diagonal-foot L-path, drawn as three connected segments rather than
+    // one so it reads as traced rather than stamped — cheap motion with
+    // no per-pixel interpolation.
+    tft->drawLine(MARK_PATH_X0, MARK_PATH_Y0, MARK_PATH_X1, MARK_PATH_Y1, SPLASH_GREEN);
+    delay(90);
+    tft->drawLine(MARK_PATH_X1, MARK_PATH_Y1, MARK_PATH_X2, MARK_PATH_Y2, SPLASH_GREEN);
+    delay(90);
+    tft->drawLine(MARK_PATH_X2, MARK_PATH_Y2, MARK_ANCHOR_X, MARK_ANCHOR_Y, SPLASH_GREEN);
+    tft->fillCircle(MARK_ANCHOR_X, MARK_ANCHOR_Y, 1, SPLASH_GREEN);
+    delay(220);
+
+    // Three arcs, sequential "acquire" (Take B of the mockup, the
+    // operator's pick over the simultaneous "radar ping" take): each
+    // lands amber, holds briefly, then locks over to green — a hard
+    // colour swap, not a fade, since RGB565 has no alpha to fade through.
+    for (uint8_t i = 0; i < 3; i++) {
+        const int16_t r = MARK_ARC_RADII[i];
+        tft->fillArc(MARK_ANCHOR_X, MARK_ANCHOR_Y, r, r - MARK_ARC_THICKNESS,
+                     MARK_ARC_START_DEG, MARK_ARC_END_DEG, SPLASH_AMBER);
+        delay(140);
+        tft->fillArc(MARK_ANCHOR_X, MARK_ANCHOR_Y, r, r - MARK_ARC_THICKNESS,
+                     MARK_ARC_START_DEG, MARK_ARC_END_DEG, SPLASH_GREEN);
+        delay(i == 2 ? 200 : 120);
+    }
+
+    // Wordmark, one line, kept together per round 5's direct feedback
+    // (round 4 briefly split "LoRaTrace"/"RX" across two lines to hit
+    // size 3 — reversed the same day). Two consecutive print() calls need
+    // no manual width math the way the mockup's canvas preview did (see
+    // the function-level comment above) — "RX" just continues from
+    // wherever "LoRaTrace " actually left the cursor.
+    tft->setTextSize(2);
+    tft->setCursor(MARK_WORD_X, MARK_WORD_Y);
+    tft->setTextColor(SPLASH_FG, SPLASH_BG);
+    tft->print(F("LoRaTrace "));
+    tft->setTextColor(SPLASH_GREEN, SPLASH_BG);
+    tft->print(F("RX"));
+    delay(150);
+
+    tft->setTextSize(1);
+    tft->setTextColor(SPLASH_GREEN, SPLASH_BG);
+    tft->setCursor(MARK_WORD_X, MARK_VERSION_Y);
+    tft->print(String("v") + FIRMWARE_VERSION);
+    delay(250);
+
+    // Signal-trace flourish: a handful of discrete frames, then holds on
+    // its last frame — see the constants/comment above for why this
+    // plays here rather than trailing the real checklist lines below.
+    for (uint8_t frame = 0; frame < TRACE_FRAMES; frame++) {
+        drawSignalTraceFrame(frame);
+        delay(TRACE_FRAME_MS);
+    }
+
+    // Hand off to splashLine()'s log sequence, aligned under the first arc
+    // instead of the old x=4.
+    splashX = MARK_LOG_X;
+    splashY = MARK_LOG_Y;
 }
 
 bool initDisplay() {
@@ -152,17 +336,12 @@ void setup() {
             Serial.print(FIRMWARE_VERSION);
             Serial.print(F(" ("));
             Serial.print(FIRMWARE_BUILD_REV); // git SHA — identifies THIS binary
-            Serial.println(F(") — phase 5 (tasks + GPS + SD logging + WiFi + MeshCore + on-device menu)"));
+            Serial.println(F(") — tasks + GPS + SD logging + WiFi + MeshCore + on-device menu"));
         }
     }
 
     displayReady = initDisplay();
-    tft->setTextSize(2);
-    splashLine(F("LoRaTrace RX"));
-    splashY += SPLASH_LINE_H;
-    tft->setTextSize(1);
-    splashLine(String("v") + FIRMWARE_VERSION + " -- phase 5");
-    splashY += SPLASH_LINE_H / 2;
+    playBootMark();
 
     // P0 high: RF antenna switch AND GPS power. Fatal because both halves
     // of this device's job depend on it.
@@ -183,17 +362,21 @@ void setup() {
     // One-shot channel override, before the radio starts. Sequential with
     // everything else here — no tasks are running yet, so no arbitration is
     // needed for this read.
-    loadProfileOverridesFromSD(channelOverrides, PIN_SD_CS, sharedSpi());
+    bool sdMounted = false;
+    loadProfileOverridesFromSD(channelOverrides, PIN_SD_CS, sharedSpi(), &sdMounted);
     activeChannel = resolvedChannelForProfile(channelOverrides, MissionProfile::MESHTASTIC);
     // Card is already mounted by the call above (or there's no card, in
     // which case this fails safe the same way) — no separate SD.begin().
     loadDisplaySettingsFromSD(displaySettings);
-    // Specifically whether *this boot's profile* (Meshtastic) has an
-    // override, not whether the file had any override at all — a
-    // MeshCore-only override would otherwise make this splash line claim
-    // "SD override" while the channel actually in use is still the
-    // hardcoded Meshtastic default.
-    splashLine(channelOverrides.meshtastic_set ? F("Config: SD override") : F("Config: default"));
+    // Real hardware check (SD.begin()'s own result), not "was a config
+    // applied" — a mounted card with no override file is a fine, expected
+    // state, not something the boot checklist should flag red. Whether an
+    // override actually applied is still in serial (config.cpp's own
+    // "[config] ..." lines) and on the CHANNEL page once the UI starts;
+    // it stopped being splash-worthy once the splash became a pass/fail
+    // hardware checklist rather than a settings dump (round 2 — see
+    // PROGRESS.md).
+    splashLine(sdMounted ? F("SD: OK") : F("SD: MISSING"), sdMounted ? SPLASH_FG : SPLASH_ERR);
 
     detectionQueue = xQueueCreate(DETECTION_QUEUE_DEPTH, sizeof(Detection));
     if (detectionQueue == nullptr) {
@@ -202,20 +385,28 @@ void setup() {
 
     // Consumers before producer: the logger must be draining before the
     // radio starts filling, or the first burst is dropped for no reason.
+    // No splash line either way (round 2): gpsTaskStart() only spawns a
+    // FreeRTOS task and creates a mutex, it never actually talks to the
+    // GPS module — a "GPS: OK" line here would be a check that doesn't
+    // check anything, the opposite of what the trimmed splash is trying
+    // to be honest about. Real fix status is a glance away on the GPS
+    // page moments after boot. Failure still gets a serial WARN, since
+    // that's a genuinely rare/actionable condition (OOM), just not one
+    // that belongs on a hardware-presence checklist.
     if (!gpsTaskStart()) {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) {
             Serial.println(F("WARN: GPS task failed to start — detections will log without position."));
         }
-        splashLine(F("GPS task: FAILED"), SPLASH_ERR);
-    } else {
-        splashLine(F("GPS task: started"));
     }
 
     if (!loggerTaskStart(detectionQueue)) {
         fatal(F("FATAL: logger task failed to start."), F("FATAL: logger task"));
     }
-    splashLine(F("Logger task: started"));
+    // No splash line on success either (round 2, same reasoning as GPS
+    // above): this is RTOS resource allocation, not a hardware check, and
+    // its only failure mode is already fatal() — reaching the next line
+    // already proves it succeeded.
 
     // Boots on Meshtastic; MeshCore is reachable at runtime via ui_task's
     // menu (DESIGN.md §5, radio_task.h). `channelOverrides` is passed along
@@ -234,6 +425,10 @@ void setup() {
         splashLine("FATAL: radio " + String(radioLastError()), SPLASH_ERR);
         while (true) delay(1000);
     }
+    // radio.begin() above is a real SPI transaction with the SX1262 (see
+    // radio_task.cpp), so this line — unlike the GPS/logger lines removed
+    // above — is a genuine hardware check, not just "a task started."
+    splashLine(F("Radio: OK"));
 
     {
         SerialLock lock(pdMS_TO_TICKS(200));
@@ -250,9 +445,11 @@ void setup() {
             Serial.println(activeChannel.sync_word, HEX);
         }
     }
-    splashLine(String(activeChannel.freq_mhz, 3) + "MHz SF" + activeChannel.sf);
-    splashLine("BW" + String(activeChannel.bw_khz, 1) + " CR4/" + activeChannel.cr_denom +
-               " sync 0x" + String(activeChannel.sync_word, HEX));
+    // No splash line for the channel detail any more (round 2) — it's
+    // still every boot in serial above, and on-device on the CHANNEL page
+    // moments after boot; showing it on the splash too was often just the
+    // hardcoded default (nothing configured yet) and read as more
+    // meaningful than it was.
 
     {
         SerialLock lock(pdMS_TO_TICKS(200));
@@ -293,7 +490,10 @@ void setup() {
                 Serial.println(F("'."));
             }
         }
-        splashLine("WiFi: menu -> " + String(ssid));
+        // No splash line (round 2) — the same SSID text is what the
+        // WiFi-toggle toast already shows the moment an operator actually
+        // turns the AP on (ui_actions.cpp), which is the point they need
+        // it, not before.
     }
 
     // UI last: it takes ownership of the display, so everything above gets

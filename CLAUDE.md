@@ -37,7 +37,10 @@ src/
   [x] radio_task.cpp / .h        # HOME_LISTEN, owns SX1262, Core 1, never blocks
   [x] gps_task.cpp / .h          # NMEA parse, last-fix mutex, Core 0
   [x] logger_task.cpp / .h       # dequeue, GPS-stamp, batched SD writes, Core 0
-  [x] ui_task.cpp / .h           # keyboard + display; arrived phase 2, not phase 6 as originally proposed — operator asked for field-readable status before a multi-hour run without a tethered laptop (see PROGRESS.md decisions log)
+  [x] ui_task.cpp / .h           # lifecycle + input decode + main loop; arrived phase 2, not phase 6 as originally proposed — operator asked for field-readable status before a multi-hour run without a tethered laptop (see PROGRESS.md decisions log)
+  [x] ui_pages.cpp               # status-page + menu/toast drawing, split out of ui_task.cpp (2026-08-25 cleanup pass, not a phase item — see PROGRESS.md decisions log)
+  [x] ui_actions.cpp             # menu-action business logic (radio/wifi/backlight/SD calls a fired menu row makes), split out of ui_task.cpp same pass
+  [x] ui_task_shared.h           # private, non-public state/helpers shared only across the three files above — not part of ui_task.h's own two-function API
   [x] keyboard.h                 # TCA8418 raw-event -> KeyAction decode for 4 keys, pure/host-testable (phase 5; not in original proposal, see PROGRESS.md decisions log)
   [x] ui_menu.h                  # grouped root/group menu state machine, pure/host-testable (phase 6; not in original proposal, see PROGRESS.md decisions log)
   [x] ui_labels.h                # BRAND.md on-device label lookups, pure/host-testable (phase 6; not in original proposal, see PROGRESS.md decisions log)
@@ -56,11 +59,22 @@ src/
   [x] serial_lock.h / .cpp       # mutex guarding cross-core Serial writes (not in original proposal, see PROGRESS.md decisions log)
   [x] io_expander.h / .cpp       # PI4IOE5V6408 P0: antenna switch AND GPS power
   [x] gps_probe.cpp              # standalone GPS bring-up sketch ([env:gps-probe])
+  [x] battery.h / .cpp           # voltage + charge % via GPIO10/ADC1, M5Unified's board_M5CardputerADV constants (phase 2)
+  [x] run_log.h                  # one wardrive = one /loratrace/runNNNN/ directory; run numbering (phase 2)
+  [x] session_log.h              # session.csv periodic health record — Phase 2 exit-criterion evidence (phase 2)
+  --- added during phase 6, not in the original proposal ---
+  [x] backlight.h / .cpp         # ST7789V2 backlight PWM (LEDC), M5GFX's non-linear duty curve for this exact pin
+  [x] display_settings.h / .cpp  # brightness + idle-dim timeout, persisted to /loratrace/display.txt, separate from config.h's channel-override scope
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native
   [x] test_detection/            # queue-record + CSV, fixtures are REAL captured packets
   [x] test_gps_parse/            # NMEA -> fix, mostly about REFUSING a bad position
   [x] test_keyboard/             # raw TCA8418 event byte -> KeyAction, allowlist-only
+  [x] test_battery/              # voltage/percent conversion, pure logic
+  [x] test_run_log/              # run-directory numbering
+  [x] test_session_log/          # session.csv row formatting
+  [x] test_ui_labels/            # ui_labels.h's uiProfileLabel() lookups (phase 6)
+  [x] test_ui_menu/              # ui_menu.h's MenuState, recursive/depth-bounded (phase 6)
 .github/workflows/
   [x] build.yml                  # pio run + pio test on every push/PR + rolling dev-latest release
   [x] release.yml                # vX.Y.Z tag -> draft GitHub Release with Launcher-ready .bin
@@ -499,6 +513,118 @@ selected in real time) before the M5GFX root cause was found, then
 reconfirmed after — not just built and assumed. See PROGRESS.md's
 Decisions log for the full session, including the exact duty-curve math and
 the specific 20kHz/1kHz dead ends ruled out along the way.
+
+**2026-08-25 (later still) — docs/code cleanup pass, requested by the
+operator ahead of Phase 7/8.** A survey found `ui_task.cpp` at 1265 lines
+mixing six largely-independent concerns (page drawing, menu/toast
+rendering, keyboard-to-action decode, cross-task business logic, animation
+timing, canvas lifecycle) — the only real "monolith" signal in the tree.
+Split into `ui_task.cpp` (lifecycle/input/main loop), `ui_pages.cpp`
+(drawing), `ui_actions.cpp` (menu-action business logic), and a new
+private `ui_task_shared.h` for the state genuinely shared across the
+three — `ui_task.h`'s own two-function public API is unchanged. Caught two
+real bugs along the way rather than shipping them: a `#include
+"detection.h"` initially flagged as dead actually wasn't (a direct call to
+`detectionFormatTimestamp()` a narrower grep pattern missed; a passing
+build had only masked it via a transitive include through `radio_task.h`),
+and the split itself introduced a real linker collision (`ui_task.cpp`'s
+internal `tft` pointer, once given external linkage to share across the
+new files, collided with `main.cpp`'s own pre-existing global `tft` for
+the boot splash) — caught immediately by `ld`, fixed by renaming ui_task's
+copy to `uiTft`. Also fixed a stale `"phase 5"` string hardcoded into the
+boot banner/splash (the device was on Phase 6/v0.6.4) and closed out an
+already-resolved `TODO(verify)` on the display pins. `pio run -e
+cardputer-adv` **SUCCESS** — RAM byte-identical to the pre-split baseline
+(50328B), flash +180B (expected cross-translation-unit cost). `pio test -e
+native` **90/90**, unchanged. A one-off `-Wall -Wextra` pass found no new
+warnings anywhere in the split. **Not yet bench-tested against real
+hardware** — a real compile/link/test pass is stronger evidence than this
+project's usual "reviewed by inspection" fallback, but this is still the
+display/input subsystem, and a compiling build has never been proof glass
+renders correctly here. See PROGRESS.md's Decisions log and Phase 6
+checklist for the full session.
+
+**2026-08-25 (later still) — boot mark: BRAND.md's unbuilt logo concept
+built.** The plain-text "LoRaTrace RX" / version splash lines are now a
+procedural boot-mark animation — an L-shaped path resolving into three
+signal arcs (BRAND.md's own long-unbuilt concept), sequential arc reveal
+with an amber "lock" flash on each (chosen over a simultaneous "radar
+ping" take via a mocked-up preview, artifact link in PROGRESS.md), then
+the wordmark and version line. The diagnostic boot log underneath is
+unchanged in content, just repositioned to align under the mark's first
+arc per direct feedback on the mockup. Drawn with `Arduino_GFX`'s
+`fillArc()`/`drawArc()` (first use of either anywhere in this firmware —
+angle convention verified against the vendored source, not assumed: 0° is
+12 o'clock, clockwise), not a bitmap. `pio run -e cardputer-adv`
+**SUCCESS** (+6.0KB flash, +4B RAM — the flash number is real cost
+verified by measurement, not the smaller estimate first assumed), `pio
+test -e native` **90/90** unaffected. **Not yet bench-tested on real
+hardware** — direct-to-panel drawing on the one part of this project that
+has never gotten a layout fully right without a real bench pass. See
+PROGRESS.md's Decisions log for the mockup-review process and the real
+engineering deltas (geometry rescaled, angle convention, flash cost)
+found only by actually building it.
+
+**2026-08-25 (even later still) — boot mark, round 2: trimmed to a real
+3-line hardware checklist.** The operator asked what actually dictates a
+successful boot; checking the code rather than assuming found that
+`gpsTaskStart()` never talks to the GPS module at all (it only spawns a
+task) — the old "GPS task: started" line would look identical for a
+working GPS and a dead one. Operator chose (via `AskUserQuestion`) to drop
+GPS from the checklist entirely rather than fake a check or pay ~1.5-2s to
+make it real. Radio and IO expander were already genuine hardware checks
+(`radio.begin()`'s SPI transaction, the antenna-switch I2C write); SD
+needed a real fix — `loadProfileOverridesFromSD()`'s one bool couldn't
+tell "no SD card" from "SD fine, nothing configured," now split via a new
+optional out-parameter. Freq/BW detail, config-source, and WiFi-SSID lines
+all moved off the splash (still in serial, still on-device once the UI
+starts). 3 lines instead of 7 freed enough height for the wordmark to move
+off "squeezed beside the arcs at size 2" onto its own full-width band at
+size 3. `pio run -e cardputer-adv` **SUCCESS** — flash actually
+**decreased** 1.25KB (fewer String-concatenating splashLine() calls),
+`pio test -e native` **90/90** unaffected. **Still not bench-tested on
+real hardware.** See PROGRESS.md's Decisions log for the full
+investigation, including which lines were and weren't real checks.
+
+**2026-08-25 (even later still) — boot mark, round 3: wordmark reverted
+back beside the mark.** Round 2 moved the wordmark to a bigger, full-width
+band below the mark to use height freed by trimming the log to 3 lines —
+but that same trim had already removed the actual space pressure, so
+there was nothing left for the move to solve. Direct operator feedback
+that round 1's original beside-the-arcs placement, size 2, "was perfect"
+— reverted to it exactly (same coordinates), `MARK_LOG_Y` back to 46.
+`pio run`/`pio test` unaffected (a pure coordinate/size-constant change,
+no new code). Still not bench-tested on real hardware.
+
+**2026-08-25 (even later still) — boot mark, rounds 4/5: bigger icon,
+diagonal-foot path, signal-trace flourish.** The panel had real unused
+space below the 3-line checklist (operator screenshot); round 4 grew the
+mark ~1.5x (radii 9/15/21, anchor 30/28) and briefly split "LoRaTrace"/
+"RX" onto two lines to hit wordmark size 3 (the full string is 216px at
+size 3, no icon size leaves that much room beside it on a 240px panel) —
+reversed the same day (round 5) on direct feedback the two words need to
+stay together; settled at one line, size 2, with "RX" kept in
+`SPLASH_GREEN`. That feedback round also caught a real mockup-only bug
+(a naive 6px/char width assumption left a visible gap before "RX" in the
+canvas preview, fixed with real `ctx.measureText()`, verified via a
+headless re-render) — irrelevant to real firmware, where `tft->print()`
+just continues from the actual cursor position. The L-path grew into a
+3-segment "diagonal foot" reaching near the panel's bottom edge, chosen
+over a straight run built alongside it in the mockup after the operator
+explicitly confirmed the pick. New: a signal-trace flourish across the
+panel's lower third — 7 discrete frames of a fixed jagged pattern, same
+"steps not a continuous loop" approach as the arcs, deliberately ambient
+(plays inside `playBootMark()`, before the real SD/IO/Radio checklist
+lines print, so it never claims to track their progress). `pio run -e
+cardputer-adv` **SUCCESS** — RAM byte-identical to round 3 (50332B),
+flash **+336B** (969529B) — a small delta despite more geometry, since
+`fillArc()`/`drawLine()`/`fillRect()` were already linked in. `pio test
+-e native` **90/90** unaffected, a direct `-Wall -Wextra` compile of
+`main.cpp` found zero warnings. **Still not bench-tested on real
+hardware** — this round adds the most geometry of any boot-mark round so
+far (longest path, biggest arcs, a new animated region), so it's the
+one most worth a careful bench pass next session. See PROGRESS.md's
+Decisions log for the full mockup-review process and exact numbers.
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna

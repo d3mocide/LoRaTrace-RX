@@ -215,8 +215,11 @@ bool writeFullConfig(const ProfileOverrides &overrides) {
 // prints take serial_lock.h's lock. writeProfileConfigToSD() below is the
 // *runtime* entry point (wifi_task's settings save, called with every
 // other task live) and does take it, for real reasons — see there.
-bool loadProfileOverridesFromSD(ProfileOverrides &overrides, int8_t csPin, SPIClass &spi) {
-    if (!SD.begin(csPin, spi)) {
+bool loadProfileOverridesFromSD(ProfileOverrides &overrides, int8_t csPin, SPIClass &spi,
+                                 bool *sdMounted) {
+    const bool mounted = SD.begin(csPin, spi);
+    if (sdMounted != nullptr) *sdMounted = mounted;
+    if (!mounted) {
         Serial.println(F("[config] No SD card detected (or mount failed) — using built-in default channels."));
         return false;
     }

@@ -6,6 +6,14 @@ source, `DESIGN.md` is the "why" source. Don't let them drift.
 
 ## Current status (2026-08-22)
 
+**Note, 2026-08-25 doc pass:** this section is Phase 0/1 history, kept as
+written per this file's own convention of not rewriting past entries. For
+what's actually true today: **v0.6.4, Phase 6 (UI architecture redesign)
+built and bench-verified**, Phases 1-5 complete and hardware-verified. See
+CLAUDE.md's Status section for the running narrative, or the Build-order
+checklist immediately below for the live phase-by-phase state. Phase 7
+(`DISCOVERY_SWEEP`) and Phase 8 (`ENERGY_SWEEP`) are not started.
+
 Phase 0 (project scaffold) complete. Phase 1 (RadioLib bring-up, now
 including optional SD-based channel config) **boots successfully on real
 hardware** (SD-dropped via Launcher, not direct USB flash): antenna-switch
@@ -225,11 +233,14 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         with the actual per-rotation mapping. Build-clean; **not yet
         bench-tested** — needs a reflash and a new photo to confirm the
         glitch is actually gone, not just theoretically explained
-- [~] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta).
-      **Written 2026-08-23, not yet hardware-verified.** All three tasks,
-      the cross-core queue, the shared-SPI mutex, and the batched CSV logger
-      exist; 26 host tests cover every pure-logic path. What's outstanding
-      is the part only hardware can answer:
+- [x] **Phase 2** — task/queue architecture, GPS, SD, Logger (MVP-Beta).
+      **Fully hardware-verified — 2026-08-25 doc pass fixed a stale marker
+      here:** this header and its intro line still read "not yet
+      hardware-verified" even though every sub-item below, including the
+      literal 2.5-hour unattended-run exit criterion, had long since closed.
+      All three tasks, the cross-core queue, the shared-SPI mutex, and the
+      batched CSV logger exist and are confirmed on real hardware; 26 host
+      tests cover every pure-logic path.
   - [x] **GPS UART confirmed working on hardware 2026-08-23.** After the P0
         power fix and the pin A/B, the probe latched immediately on
         **RX=G15 / TX=G13** and streamed valid NMEA — 80 sentences per 5s,
@@ -326,15 +337,20 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         shrinking.
 - [x] **Phase 3** — Web Command Center (WiFi AP + web UI). Built and passing
       the full host-native suite; the go/no-go heap/counter spike this phase
-      was gated behind was answered (see the 2026-08-22/23 entries above) —
-      **still not bench-verified against real hardware**, per CLAUDE.md's
-      Status section. Corrected numbering (2026-08-24): this checklist
-      previously called Phase 3 "MeshCore profile," written before WiFi got
-      pulled forward ahead of it (PROGRESS.md 2026-08-22 decisions log) —
-      ROADMAP.md's phase numbers are the ones that actually shipped;
-      this list had drifted from it
-  - [ ] **Bench-verify the per-profile channel config split — added
-        2026-08-24, not yet flashed.** Fixes a real bug found the same day:
+      was gated behind was answered (see the 2026-08-22/23 entries above).
+      **Bench-verified against real hardware, 2026-08-24** (Next steps item 0
+      / Decisions log): dashboard/downloads/settings all reachable from a
+      real browser, connect/disconnect logging confirmed clean, and the
+      Settings tab round-trip confirmed directly (`[config] Wrote ...` line
+      on save, a live Meshtastic packet at exactly the saved 918.500MHz/SF8/
+      BW125 after the power cycle) — this line used to say "still not
+      bench-verified"; that was stale, fixed 2026-08-25 doc pass. Corrected
+      numbering (2026-08-24): this checklist previously called Phase 3
+      "MeshCore profile," written before WiFi got pulled forward ahead of it
+      (PROGRESS.md 2026-08-22 decisions log) — ROADMAP.md's phase numbers
+      are the ones that actually shipped; this list had drifted from it
+  - [~] **Bench-verify the per-profile channel config split — added
+        2026-08-24.** Fixes a real bug found the same day:
         the original single-preset config let a MeshCore-active Save
         silently write MeshCore's values into what the firmware would apply
         as a Meshtastic override next boot, and a profile switch (menu) back
@@ -349,6 +365,18 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         `meshtastic_*`/`meshcore_*` blocks pre-filled with the current
         hardcoded defaults. See PROGRESS.md's Decisions log for the full
         design and the bug this replaces.
+        **Half-closed, 2026-08-25 doc pass (confirmed with the operator):**
+        run0022 (2026-08-24, verbose-debug session) saved the Meshtastic
+        preset via the web Settings tab, power-cycled, and confirmed the
+        applied channel matched exactly (918.500MHz/SF8/BW125/CR4:5) before
+        switching live to MeshCore — the Meshtastic side of the original bug
+        scenario is real-hardware-confirmed. **Still open:** the MeshCore
+        preset itself was never independently saved via the web UI and
+        checked for persistence after a reboot/switch — the other half of
+        the original bug (a MeshCore-active Save corrupting the Meshtastic
+        override) was fixed in code and covered by `test_channel_plans`'s
+        three new cases, but that specific save-MeshCore/reboot/verify
+        sequence hasn't been run on hardware yet.
       **Operational note for this project's own SD card:** its existing
       `config.txt` (the real MeshOregon-style override from earlier
       sessions) uses the OLD unprefixed key format (`freq_mhz=`, not
@@ -426,7 +454,7 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         (`,/. page  1-5 jump  Enter menu` -> `` ,/. page  1-5 jump  ` menu ``)
         to match the ESC-opens-the-menu rework above; the menu's own hint
         line (`` ,/. move   Enter act   ` back ``) didn't need to change.
-- [~] **Phase 6** — UI architecture redesign. Promoted ahead of
+- [x] **Phase 6** — UI architecture redesign. Promoted ahead of
       `DISCOVERY_SWEEP` 2026-08-25 (see Decisions log below). **First cut
       built 2026-08-25 (v0.6.0)**, then **fully iterated and re-implemented
       the same day (v0.6.1)** after the operator reviewed a pixel-accurate
@@ -440,6 +468,27 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       design-reference artifact lives. Neither v0.6.1 nor v0.6.2 is a small
       fix on v0.6.0: every page was redrawn, and v0.6.2 walks the profile
       axis back to plain, unbranded names.
+      **Then bench-tested against real hardware for the first time
+      (v0.6.2 -> v0.6.3, 2026-08-25 evening)** — the redesign compiled and
+      matched its mockup, but direct-to-panel drawing had two real failure
+      modes a build report couldn't catch (full-screen flicker, toast-time
+      tearing); root-caused and fixed with an off-screen
+      `Arduino_Canvas_Indexed` (~32KB one-time `malloc()`, not RGB565's
+      ~63KB) that every draw call now targets, blitted to the panel in one
+      `tft->flush()` SPI burst. Same session also fixed a menu-label
+      overflow and an inverted WiFi-toggle toast, and added Trace pause/
+      standby (a real `radio.sleep(true)` battery lever, promoted to a
+      root-level menu row). **Then v0.6.3 -> v0.6.4** added real PWM
+      backlight control (replacing the flat digitalWrite on/off, after a
+      real M5GFX-sourced non-linear-duty-curve bug was root-caused and
+      fixed), a 5-100% brightness slider, a configurable idle-dim timeout,
+      both persisted to SD, and genuine menu nesting (`MenuState`
+      generalized to a depth-bounded recursive model, `MAX_DEPTH = 4`) for
+      "System > Display > Brightness/Idle dim." See the 2026-08-25 (evening)
+      and (later still) Decisions log entries below for the full sessions —
+      both were bench-verified on the attached Cardputer at multiple points
+      during the session, not just assumed from a clean build. **Current
+      version: v0.6.4.**
       `pio test -e native` — **88/88 passed** (test_ui_menu stayed at 13,
       just its "Mesh Trace" fixture label renamed to "Profile";
       test_ui_labels shrank from 7 to 3 now that there's one flat
@@ -511,29 +560,150 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       against the ESP32-S3FN8's real ~512KB no-PSRAM SRAM ceiling) fills
       the space under "k heap" that used to be blank. `UiPage::COUNT` is 4
       now, not 5 (`ui_task.h`).
-  - [ ] **Bench-verify against the real ST7789V2 panel** — not done yet,
-        and now a bigger check than the v0.6.0 pass covered: every page
-        was redrawn, not just the menu. Check every column/row for
-        clipping or overlap (the new status-dot cluster against the
-        battery indicator, the toast slide/countdown-bar band, a GROUP
-        list against the footer), confirm the header's "MENU > Profile"
-        / "MENU > System" breadcrumbs read correctly, watch the RX pulse
-        dot and RADIO's flash bar actually track live detections without
-        looking stuck on or stuck off, and re-press all eleven keyboard.h
-        keys against the three-level (carousel/root/group) navigation with
-        Profile's Meshtastic/MeshCore picks.
-  - [ ] Re-confirm WiFi heap/counter numbers (ROADMAP.md Phase 3's
+  - [x] **Bench-verify against the real ST7789V2 panel — closed 2026-08-25,
+        across the v0.6.3/v0.6.4 sessions.** The canvas rewrite eliminated
+        the flicker/tearing found on first contact with real glass (see
+        entry above); the menu-label overflow and inverted WiFi-toast bugs
+        were both found and fixed by using the device normally; the nested
+        3-level menu (System > Display > Brightness) and its full
+        breadcrumb trail were exercised reaching the brightness slider; and
+        Trace pause/resume plus a profile switch fired *while* paused were
+        both confirmed correctly waking and retuning the radio. **Confirmed
+        with the operator (2026-08-25 doc pass):** the header's RX-pulse dot
+        and RADIO page's flash bar were watched tracking live incoming
+        detections on real hardware, not just reasoned through. Not
+        separately re-itemized: a full one-by-one re-press of all eleven
+        `keyboard.h` keys — Phase 5 already bench-confirmed each of them
+        individually, and Phase 6 changed `ui_task.cpp`'s *interpretation*
+        of those actions (menu depth, slider entry) rather than
+        `keyboard.h`'s raw-byte decode, so a fresh per-key pass wasn't
+        treated as a separate gate here.
+  - [ ] **Re-confirm WiFi heap/counter numbers** (ROADMAP.md Phase 3's
         go/no-go) still hold with the redesigned `ui_task.cpp` running —
-        no new dynamic allocation was added (the toast is still a static
-        buffer), but this hasn't been measured on real hardware yet.
-  - [ ] Confirm the bounded fast-redraw bursts (toast slide/countdown, RX
+        **confirmed still open, 2026-08-25 doc pass (operator: "not yet
+        re-tested").** This is more than a formality now: v0.6.3 added a
+        real one-time ~32KB canvas `malloc()` on top of the WiFi AP's own
+        ~55-56KB, and neither the AP-up heap delta nor
+        `crc_err`/`queue_drop`/`bus_miss`/`row_drop` staying at 0 has been
+        re-measured with both live at once since the canvas landed. Next
+        bench session: toggle WiFi on with the AP under real traffic (mirror
+        the 2026-08-24 800+-detection test) and record `ESP.getFreeHeap()`
+        before/after plus the four counters.
+  - [x] ~~Confirm the bounded fast-redraw bursts (toast slide/countdown, RX
         pulse) don't visibly compete with SD flush timing or GPS mutex
-        contention during a genuinely busy RX session on real hardware —
-        reasoned through as safe (display is its own SPI host, GPS reads
-        use a non-blocking 0-tick try from the header), not yet observed
-        under real sustained traffic.
-- [ ] **Phase 7** — `DISCOVERY_SWEEP`
-- [ ] **Phase 8** — `ENERGY_SWEEP`
+        contention~~ — **resolved/superseded, 2026-08-25 doc pass (confirmed
+        with the operator).** The mechanism this item was about no longer
+        exists: v0.6.3's canvas rewrite deleted the toast-only "fast-redraw
+        burst" path entirely (nothing left to protect once every frame is
+        atomic) — `fullRedraw()` now runs unconditionally at every cadence,
+        idle tick and animation tick alike, ending in one `tft->flush()`.
+        The display is its own SPI host regardless (CLAUDE.md), so this was
+        never real contention with SD's bus; the v0.6.4 session's extended
+        live debugging (a background serial monitor through repeated
+        brightness/menu interaction) surfaced no counter regressions either.
+  - [x] **Trace pause/standby — bench-verified 2026-08-25 (v0.6.3).** A
+        second radio-task mailbox puts the SX1262 into `radio.sleep(true)`
+        (warm sleep) instead of continuous RX; resuming is a plain
+        `radio.startReceive()`. Confirmed on real hardware: pausing/
+        resuming, and — the case that actually mattered, since a stale
+        pause silently swallowing an operator's profile choice would be a
+        real bug — switching profiles *while* paused correctly wakes and
+        retunes the radio rather than leaving it asleep on the old channel.
+  - [x] **Real backlight PWM, brightness slider, idle-dim timeout, and menu
+        nesting — bench-verified 2026-08-25 (v0.6.4).** The naive linear-PWM
+        first attempt blacked the panel out at several duty values (root
+        cause: this display needs LovyanGFX/M5GFX's exact non-linear
+        256Hz/9-bit/`offset=16` curve, not a naive linear map — sourced from
+        M5GFX's own `board_M5CardputerADV` code, not guessed a third time).
+        With the correct curve, all 4 original presets (25/50/75/100%)
+        confirmed working live via a background serial monitor watching
+        `[backlight]` diagnostic lines while brightness was cycled on the
+        device, both before and after the fix. The new 5-100%/5%-step
+        slider, the configurable idle-dim timeout, and the "System >
+        Display > Brightness/Idle dim" nested menu path were all confirmed
+        working post-fix, operator-confirmed before this entry was written.
+        **Not fully closed:** the 5-20% brightness range is new territory
+        this session opened (the old fixed-preset menu never went below
+        25%) and still needs its own dedicated low-end bench sweep — flagged
+        as a watch item, not assumed safe just because the formula's intent
+        is to keep low values in regulation.
+  - [ ] **`ui_task.cpp` split into `ui_task.cpp`/`ui_pages.cpp`/
+        `ui_actions.cpp`/`ui_task_shared.h` (2026-08-25 cleanup pass) — not
+        yet bench-verified on real hardware.** A structural refactor, not a
+        behavior change: `pio run -e cardputer-adv` (RAM byte-identical to
+        the pre-split baseline, flash +180B) and `pio test -e native`
+        (90/90) both pass, and a one-off `-Wall -Wextra` pass found no new
+        warnings — see this session's own Decisions log entry for the full
+        verification, including a real linker bug (a `tft` naming
+        collision with `main.cpp`) the build caught and this session fixed.
+        No behavior was intentionally changed, but this project's own rule
+        is that a compiling build doesn't confirm real glass renders
+        correctly — the next hardware session should re-run carousel
+        paging, all three menu levels (root/group/slider, including the
+        Brightness slider and nested Display group), Trace pause/resume,
+        and idle-dim, the same checks Phase 6's v0.6.2-v0.6.4 bench passes
+        already established, before trusting this split at that same
+        confidence level.
+- [ ] **Phase 7** — `DISCOVERY_SWEEP`. **Not started; broken out below
+      2026-08-25 doc pass** — this checklist previously had no sub-items at
+      all, unlike every phase before it. Sub-items are pulled directly from
+      DESIGN.md §4/§5/§9 and ROADMAP.md's Phase 7 section, not new scope —
+      flagging that as a distinction worth keeping, since this doc's own
+      Decisions log entries have shown more than once that "no sub-items"
+      quietly reads as "not really planned yet" until a phase is already
+      underway.
+  - [ ] Curated candidate frequency list per profile — non-default
+        Meshtastic channel-hash slots, legacy-config MeshCore — weighted by
+        [[meshmapper-pipeline]]'s real-world observed frequencies for this
+        area where available, not scraped defaults alone (DESIGN.md §3, §9
+        step 7; CLAUDE.md's "Related context" note)
+  - [ ] CAD `symNum` tuning bench-tested against Semtech AN1200.48 before
+        trusting any false-positive/miss rate this phase reports (DESIGN.md
+        §7 open item, carried since Phase 0)
+  - [ ] `DISCOVERY_SWEEP(profile)` radio-task state: bounded-duration
+        (DESIGN.md §5 says "a few seconds"), CAD-cycles the curated
+        candidate list, logs hits, returns to `HOME_LISTEN` — confirm it
+        never blocks the radio task longer than that bounded window
+        (CLAUDE.md's "radio task must never block" constraint applies here
+        same as everywhere else)
+  - [ ] Sweep results/trigger surfaced as new entries under Phase 6's
+        existing grouped menu — explicitly *not* a reason to reopen UI
+        architecture a second time (DESIGN.md §9 step 7, ROADMAP.md Phase 7)
+  - [ ] `detections.csv`/`session.csv` check: a `DISCOVERY_SWEEP` hit logs
+        cleanly alongside `HOME_LISTEN` detections without a format change
+        that breaks concatenating against already-logged runs (DESIGN.md
+        §8's own "check the header before concatenating" rule)
+  - [ ] Bench-verify against a real non-default-channel Meshtastic
+        transmitter and/or a legacy-config MeshCore node once one is
+        available to test against
+- [ ] **Phase 8** — `ENERGY_SWEEP`. **Not started; broken out below
+      2026-08-25 doc pass**, same reasoning as Phase 7 above. Sub-items
+      pulled from DESIGN.md §4/§5/§8/§9 and ROADMAP.md's Phase 8 section.
+  - [ ] `ENERGY_SWEEP` implemented as its own top-level radio-task state,
+        mutually exclusive with `HOME_LISTEN`/`DISCOVERY_SWEEP` (DESIGN.md
+        §5) — FSK/OOK RSSI sweep across the full 868–923MHz range
+  - [ ] Periodic LoRa-mode CAD checks layered in at common SF/BW combos
+        (7/8/9 × 125/250/500/62.5kHz, DESIGN.md §4) alongside the RSSI sweep
+  - [ ] Reticulum heuristic: a LoRa CAD hit at a frequency not matching a
+        known Meshtastic/MeshCore channel gets flagged as a Reticulum/
+        unclassified-private-LoRa candidate (DESIGN.md §4, §6's
+        fingerprinting table)
+  - [ ] Rolling-noise-floor threshold filtering for `ENERGY_SWEEP` data
+        before logging — DESIGN.md §8.1 already specifies *why* (log peaks
+        only, or the card fills fast for near-zero value) but the actual
+        threshold logic doesn't exist yet
+  - [ ] 923–928MHz front-end rolloff characterized via an empirical RSSI
+        noise-floor sweep, so the UI/docs can be honest about reduced
+        sensitivity in that sub-band instead of silently under-reporting
+        (ROADMAP.md Phase 8, DESIGN.md §7 open item)
+  - [ ] Reticulum and Spectrum (General Exploration) become real selectable
+        entries in Phase 6's Profile menu group once this phase gives them
+        an actual channel table — today they fall through to Meshtastic's
+        resolved channel in `channelParamsForProfile()`/
+        `resolvedChannelForProfile()`, and the v0.6.2 Decisions log entry
+        already notes they'll "slot in as two more flat entries... once
+        Phase 8 gives them a real channel table, no new nesting decision
+        needed"
 
 ## Open questions (from DESIGN.md §7 — verify before / during build)
 
@@ -3315,3 +3485,386 @@ above) — remaining items are follow-through, in the order it's worth doing.
     v0.6.3 had it been caught sooner) plus operator-requested UI/persistence
     upgrades, all inside Phase 6's existing UI scope, not a new build-order
     phase.
+
+- **2026-08-25 (later still) — Docs/code cleanup pass and `ui_task.cpp`
+  split, requested by the operator after asking whether the codebase was
+  "becoming a monolith" ahead of Phase 7/8.** A survey (file sizes, stale
+  comments, dead code, doc-vs-code drift) found `ui_task.cpp` at 1265
+  lines — 2.75x the next-largest file — mixing six largely-independent
+  concerns: page drawing, menu/toast rendering, keyboard-to-action decode,
+  cross-task business logic, animation timing, and canvas lifecycle. Given
+  ROADMAP.md's own Phase 7 plan has `DISCOVERY_SWEEP` land as "additional
+  entries in Phase 6's grouped menu" — i.e. more code into this same file —
+  splitting now, before that lands, was judged cheaper than splitting a
+  larger file later.
+  - **Small fixes first:** CLAUDE.md's "Proposed layout" tree was missing
+    five real file pairs (`backlight.*`, `battery.*`, `display_settings.*`,
+    `run_log.h`, `session_log.h`) and five test dirs — added. `main.cpp`
+    hardcoded `"phase 5"` into the boot-serial banner and splash text while
+    the device was actually on Phase 6/v0.6.4 — the exact class of mismatch
+    this project's own version-provenance discipline exists to prevent;
+    fixed by dropping the redundant literal entirely (it was never derived
+    from `FIRMWARE_VERSION`) rather than just bumping it to "6," which would
+    only recreate the same drift next phase. `board_pins.h`'s display-pins
+    `TODO(verify)` was already resolved (Phase 1 hardware-verified
+    2026-08-23) but never removed — updated to say so.
+  - **A real bug caught mid-cleanup, not just theoretical:** the initial
+    survey flagged `ui_task.cpp`'s `#include "detection.h"` as dead (no
+    grep hits for `Detection`/`detectionFormatCsv`/`missionProfileName`).
+    It was removed, and a `pio run -e cardputer-adv` baseline still
+    succeeded — but only because `detection.h` was still reaching the file
+    transitively through `radio_task.h`. Re-checking before the split
+    surfaced the actual bug: `drawGpsPage()` calls
+    `detectionFormatTimestamp()` directly, which the original grep pattern
+    never matched. Restored the include immediately, before it could get
+    buried inside the split. Lesson logged here on purpose: a build passing
+    is not proof an include is unused when a transitive path exists —
+    ROADMAP.md's own "verify, don't assume" discipline applies to include
+    hygiene too, not just hardware claims.
+  - **PlatformIO was not installed in this session's environment** (every
+    prior session's own notes on this — "no pio in this environment" — held
+    true here too, initially). `pip install platformio` worked cleanly
+    against this session's network access, giving a real `pio run -e
+    cardputer-adv` / `pio test -e native` toolchain for the whole session
+    rather than the "reviewed by inspection, not compiled" fallback this
+    project has repeatedly had to fall back on. Worth remembering for a
+    future session that hits the same "no pio" wall: try installing it
+    before assuming inspection-only review is the ceiling.
+  - **The split:** `ui_task.cpp` (1265 lines) became four files —
+    `ui_task.cpp` (484 lines: task lifecycle, keyboard input decode, the
+    main loop, and every piece of shared operator-facing state, since this
+    file owns seeding it from SD at boot and persisting it back),
+    `ui_pages.cpp` (712 lines: every `drawHeader()`/`drawPage()`/status-page/
+    menu/toast drawing function), `ui_actions.cpp` (130 lines: just
+    `fireMenuAction()` — the radio/WiFi/logger/backlight/SD calls a fired
+    menu row makes), and a new private header `ui_task_shared.h` (93 lines)
+    declaring the `extern` state and the handful of functions
+    (`drawHeader()`, `drawPage()`, `fireMenuAction()`, `showToast()`,
+    `toastActive()`, `rxPulseActive()`) that genuinely cross the three
+    `.cpp` files — not part of `ui_task.h`'s own public two-function API,
+    which is unchanged. Mechanical move, not a rewrite: comments preserved
+    throughout, only two needed fixing because they said "below" referring
+    to a function that moved to a different file (`fireMenuAction()`'s and
+    `drawToast()`'s own references to `uiTask()`).
+  - **A real linker bug the split itself caused, caught immediately by the
+    build, not missed:** giving `ui_task.cpp`'s internal `tft` pointer
+    external linkage (needed so `ui_pages.cpp` could draw to it) collided
+    with `main.cpp`'s own pre-existing global `Arduino_GFX *tft` (the raw
+    boot-splash panel handle) — invisible before the split because
+    `ui_task.cpp`'s `tft` had internal (anonymous-namespace) linkage the
+    whole time. `ld` caught it immediately: "multiple definition of
+    `tft`." Fixed by renaming ui_task's own copy to `uiTft` throughout the
+    three split files (a plain `sed` rename, then a clean rebuild + full
+    test run to confirm nothing else broke). Left as a documented example
+    of exactly why "reviewed by inspection" is a weaker guarantee than a
+    real compile — this specific bug was invisible to manual code reading
+    ahead of time and only surfaced because a real toolchain was available
+    this session.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS** — RAM
+    50328/327680B, byte-for-byte identical to the pre-split baseline; flash
+    964437/3342336B, +180B over the pre-split baseline (964257B after the
+    small fixes), an expected, negligible cost of cross-translation-unit
+    calls that could previously inline within one file. `pio test -e
+    native` **90/90**, unchanged (`ui_task.cpp`/`ui_pages.cpp`/
+    `ui_actions.cpp` were never part of the host-native suite — they need
+    Arduino.h). A one-off pass with `-Wall -Wextra` (not a permanent
+    `platformio.ini` change) found zero new warnings from any of the four
+    split-related files or `main.cpp`; the two warnings that pass surfaced
+    are both pre-existing, in files this session never touched
+    (`detection.h`, `gps_task.cpp`).
+  - **What this is not:** a hardware bench pass. Every check above is a
+    real compile/link/test run, not "reviewed by inspection" — genuinely
+    stronger evidence than most of this project's non-hardware-verified
+    changes get — but `ui_task.cpp`/`ui_pages.cpp` are still the display/
+    input subsystem, and this project's own standing rule is that a
+    compiling build says nothing about whether real glass renders
+    correctly. Nothing here changed behavior on purpose, and the RAM number
+    matching the pre-split baseline exactly is a good sign, but the next
+    hardware session should still re-run the same panel/menu/input checks
+    Phase 6's own bench passes already established (carousel paging, all
+    three menu levels including the Brightness slider, Trace pause/resume,
+    idle-dim) before trusting this at the same confidence level as
+    v0.6.2-v0.6.4's own hardware-confirmed work.
+  - **Version: unchanged, v0.6.4.** No behavior change and no new
+    build-order scope — a structural cleanup pass, not a phase item or a
+    functional patch.
+
+- **2026-08-25 (later still) — Boot mark: BRAND.md's unbuilt logo concept
+  finally built, replacing the plain-text boot splash.** The operator
+  asked to make the boot splash "more dynamic and fun," pointing out it
+  reads "like an old static BIOS." BRAND.md already had an unbuilt concept
+  for exactly this — "an L-shaped path that transitions into three signal
+  arcs" — but its own tone guardrails (calm, instrument-like, not a
+  "hacker toy," no neon/consumerized aesthetics) sit in real tension with
+  "fun," so that was surfaced directly via `AskUserQuestion` before
+  building anything: tone ("polished, still restrained" — chosen),
+  content (BRAND.md's own arc concept — chosen), motion ("fuller
+  sequence" — chosen), and whether to mock it up visually first before
+  touching firmware, given this project has no display simulator (yes —
+  chosen, same discipline as Phase 6's own mockup workflow).
+  - **Mockup, "Signal Acquired"** (https://claude.ai/code/artifact/e6e635f3-f5af-4d2a-8eab-549de61a8e20):
+    a canvas simulation at real 240x135 device resolution, RGB565-
+    quantized colour, two takes on the arc reveal (Take A: all three arcs
+    together, "radar ping"; Take B: arcs resolve one at a time with an
+    amber "lock" flash each, "sequential acquire"). Operator picked
+    **Take B**, with one refinement: the diagnostic log text (previously
+    flush-left at the panel's edge) should align under the mark's first
+    arc instead — implemented as `LOG_X = ANCHOR.x + ARC_RADII[0]`, both
+    in the mockup and, after, in real firmware.
+  - **Real implementation, `main.cpp`:** a new `playBootMark()` replaces
+    the two old `splashLine()` calls that used to print "LoRaTrace RX" /
+    "vX.Y.Z" as plain text. Procedural — `drawLine()`/`fillArc()`/
+    `fillCircle()` calls against a handful of coordinate constants
+    (`MARK_ANCHOR_*`, `MARK_PATH_*`, `MARK_ARC_RADII`), not a bitmap —
+    still direct-to-panel, still one-shot inside `initDisplay()`/`setup()`
+    before any task starts, same model the splash has always used; no
+    canvas, no interaction with Phase 6's flicker fix (that fix exists for
+    a *redraw loop*, and this is a short sequence that runs once). Two new
+    colours, `SPLASH_GREEN`/`SPLASH_AMBER` (0x4D0E/0xDD84), deliberately
+    distinct from `ui_pages.cpp`'s `COL_GOOD`/`COL_WARN` — a one-shot boot
+    accent shouldn't borrow meaning from an on-device status colour. No
+    alpha (RGB565 has none, same constraint the toast/RX-pulse work
+    already documented) — the amber-to-green "lock" is a hard colour
+    swap, not a fade, and the wordmark/version lines just appear, same as
+    every other line in this splash always has.
+  - **Real engineering deltas from the mockup, found only by actually
+    building it, not assumed:**
+    - **Geometry rescaled down.** The mockup's first-pass proportions (a
+      mark spanning ~88px of the panel's 135px height) were sized without
+      checking them against the real diagnostic log's full line count —
+      up to 7 lines in the success path (IO expander, config, GPS task,
+      logger task, freq/SF, BW/CR/sync, and a conditional WiFi SSID
+      line). At that size the mark would have pushed the longest real
+      sequence off the bottom of the panel. Shrunk the mark to fit in the
+      top ~44px (`MARK_ANCHOR_Y=24`, `MARK_ARC_RADII={6,10,14}`, vs. the
+      mockup's original `{10,17,24}` around `y=60`), leaving the log its
+      original ~90px of room — comfortably fits even the 7-line case.
+      Mockup corrected to match, not left showing stale proportions.
+    - **Angle convention, verified against the vendored source, not
+      assumed.** Arduino_GFX's `fillArc()`/`drawArc()` measure degrees
+      from 12 o'clock, clockwise (confirmed by reading
+      `writeFillArcHelper()` in the vendored `Arduino_GFX.cpp` — the same
+      well-known TFT_eSPI-derived scanline ring-fill algorithm, not
+      guessed from the function signature alone). The mockup's canvas
+      arcs used the browser canvas convention (0°=3 o'clock, clockwise)
+      instead. Converting is a fixed +90° offset between the two
+      conventions (not a tuned/guessed value) — `MARK_ARC_START_DEG`/
+      `MARK_ARC_END_DEG` (45.3°/134.1°) are exactly the mockup's
+      `ARC_START`/`ARC_SWEEP` radians converted through that offset, so
+      the arcs open the same direction on real glass as in the approved
+      preview.
+    - **Flash cost measurably higher than first guessed.** The code
+      comment originally claimed "a few hundred bytes" (reasoning that
+      procedural drawing is cheap); the actual measured delta is **+6.0KB**
+      (970441B vs. 964437B, `pio run -e cardputer-adv`) — because this is
+      the first call anywhere in the firmware to `fillArc()`/`drawArc()`,
+      so most of that 6KB is the arc-fill scanline math (and its float
+      sin/cos/fmodf) linking in for the first time, not a per-call cost.
+      Comment corrected to the measured number rather than left wrong —
+      still trivial against a 3.34MB partition at 29% used. RAM: +4B.
+    - **FATAL visibility preserved deliberately, not by accident.** A new
+      `splashX` global (mirrors the existing `splashY` pattern) defaults
+      to the old flush-left `4` and is only moved to the arc-aligned
+      position by `playBootMark()` once the mark has actually drawn — so
+      a FATAL firing before the mark plays (or if `initDisplay()` itself
+      failed) still reads exactly as it always has, not at a
+      not-yet-established new margin.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS** (RAM
+    50332/327680B, +4B; flash 970441/3342336B, +6004B), `pio test -e
+    native` **90/90** unaffected (main.cpp isn't part of the host-native
+    suite), a `-Wall -Wextra` pass found zero new warnings. **Not yet
+    bench-tested on real hardware** — this is direct-to-panel drawing on
+    the one part of this project's history that has *never* gotten a
+    layout right on the first try without a real bench pass (the original
+    2026-08-22 IPS-offset bug, and Phase 6's own flicker/tearing only
+    found once real glass was in front of it). The angle-convention read
+    and the rescaled-geometry fit are both reasoned carefully against
+    source and real line counts, not guessed — but per this project's own
+    standing rule, that is still "reviewed by inspection," not proof the
+    arcs land where intended or that the log fits cleanly on real glass.
+    Next bench session: confirm the arcs open toward 3 o'clock as
+    intended (not mirrored/rotated), confirm all 7 log lines are legible
+    and none clip the bottom edge, and time the actual ~1.7s added to
+    boot.
+  - **Version: unchanged, v0.6.4.** A boot-splash visual change, not new
+    build-order scope.
+
+- **2026-08-25 (even later still) — Boot mark, round 2: the diagnostic log
+  trimmed to a real 3-line hardware checklist, freeing room for a bigger
+  wordmark.** The operator asked directly: "do we need all 7 lines... what
+  dictates a successful boot?", naming SD/IO-board/GPS/LoRa as the things
+  that actually matter. Investigated each of the 7 original lines against
+  the real code (`gpsTaskStart()`/`radioTaskStart()` in `gps_task.cpp`/
+  `radio_task.cpp`) rather than assuming the splash text already meant
+  what it said, and surfaced a real finding before touching anything:
+  - **`gpsTaskStart()` doesn't check the GPS hardware at all** — it only
+    creates a mutex and spawns a FreeRTOS task; it never talks to the GPS
+    module. The old "GPS task: started" line would read identically for a
+    working GPS and a dead/unpowered one. Relabeling it "GPS: OK" would
+    have been a check that doesn't check anything — the opposite of what
+    this trim was trying to do. Surfaced directly via `AskUserQuestion`
+    (a real check with ~1.5-2s added latency to wait for a first NMEA
+    sentence, vs. keeping it honestly informational, vs. dropping it) —
+    **operator chose to drop GPS from the checklist entirely**, since fix
+    status is already a glance away on the GPS page moments after boot.
+  - **Radio and IO expander were already real checks** — `radioTaskStart()`
+    calls `radio.begin()`, a genuine SPI transaction with the SX1262, and
+    `ioExpanderInit()` does real I2C writes to the antenna-switch chip,
+    both already `fatal()`-gated on failure. Just needed an explicit
+    success-path splash line for radio (one never existed before this).
+  - **SD had a real, separate gap**, not just a relabeling opportunity:
+    `loadProfileOverridesFromSD()`'s one bool return means "was an
+    override applied" — a missing SD card and a mounted card with no
+    config file both report the same "Config: default" on the old splash,
+    genuinely indistinguishable without reading serial. Fixed with a new
+    optional `bool *sdMounted` out-parameter (single call site, low risk)
+    exposing `SD.begin()`'s own result separately from the
+    applied-override count.
+  - **Second `AskUserQuestion`, confirmed dropping the rest**: freq/SF/
+    BW/CR/sync detail, the config-source line, and the WiFi SSID line all
+    move off the splash — still in serial always, and on CHANNEL/SYSTEM
+    once the UI starts (the WiFi SSID specifically is what the
+    WiFi-toggle toast already shows the moment it's actually needed).
+    Also dropped on the same reasoning as GPS, without a separate ask
+    since it followed directly from the operator's own stated principle:
+    "Logger task: started," which — like the old GPS line — only confirms
+    RTOS resource allocation, not a hardware check, and whose only
+    failure mode is already `fatal()`-gated (reaching the next line
+    already proves it succeeded).
+  - **Layout redesigned, not just shortened.** 3 lines instead of 7 frees
+    real height (checklist now starts at y=88 instead of y=46) — spent on
+    the wordmark rather than left blank: moved from squeezed beside the
+    arcs at size 2 to its own full-width band below the mark at size 3
+    ("LoRaTrace RX," 216px, fits at x=4 with 20px to spare — would have
+    overflowed the 240px panel from its old beside-the-mark position at
+    that size, which is why it moved rather than just grew in place).
+    Mockup updated to the new proportions and republished at the same
+    link before implementing, same discipline as round 1.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS** — RAM
+    50332/327680B (unchanged from round 1), flash **969193/3342336B**, a
+    **1.25KB decrease** from round 1's 970441B: fewer `String`-
+    concatenating `splashLine()` calls (the freq/BW/SSID lines each built
+    a temporary `String`) outweighed the new `bool` out-param and SD
+    check. `pio test -e native` **90/90** unaffected, `-Wall -Wextra`
+    found zero new warnings. **Still not bench-tested on real hardware**
+    — same standing caveat as round 1's entry; this round changes the
+    exact same direct-to-panel layout that's never gotten it fully right
+    without a bench pass. Next session should additionally confirm the
+    size-3 wordmark doesn't clip at the right edge and that "SD: MISSING"
+    actually shows red on a card-pulled boot, not just "SD: OK" on the
+    happy path every session so far has tested.
+  - **Version: unchanged, v0.6.4.**
+
+- **2026-08-25 (even later still) — Boot mark, round 3: wordmark moved
+  back beside the mark, reversing round 2's size-3/full-width layout.**
+  Direct operator feedback: round 1's original beside-the-arcs placement
+  "was perfect," and now that the log is down to 3 real hardware-check
+  lines (round 2), the space problem that motivated moving the wordmark
+  in the first place no longer exists — round 2 solved a problem round 2
+  itself had already made moot by the time the wordmark change landed.
+  Reverted `playBootMark()`'s wordmark/version back to size 2, positioned
+  beside the mark (`MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6, 14`/`32`, the
+  exact round-1 coordinates), and `MARK_LOG_Y` back to 46 (from round 2's
+  88) — the 3-line checklist has always fit comfortably there regardless
+  of which wordmark layout is above it. Mockup reverted to match and
+  republished at the same link before implementing.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS** — RAM/flash
+    both unchanged from round 2 (50332B/969193B) — expected, since this
+    is a pure constant/coordinate change (`setTextSize(3)`->`(2)`,
+    repositioned `setCursor()` calls), not new code. `pio test -e native`
+    **90/90** unaffected, `-Wall -Wextra` found zero new warnings. Still
+    not bench-tested on real hardware — same standing caveat as rounds 1
+    and 2.
+  - **Version: unchanged, v0.6.4.**
+
+- **2026-08-25 (even later still) — Boot mark, rounds 4/5: bigger icon,
+  diagonal-foot path, and a signal-trace flourish, all reviewed in the
+  mockup before touching `main.cpp`.** With the log at its round-2/3 size
+  (3 lines) the panel had real unused space below the mark — flagged
+  directly from an operator screenshot ("what can we do with all this
+  space? can we add some more dynamic loading with the signal trace?").
+  Round 4 grew the mark ~1.5x (`MARK_ARC_RADII` 6/10/14 -> 9/15/21,
+  `MARK_ANCHOR_X/Y` 26/24 -> 30/28) and briefly split the wordmark across
+  two lines ("LoRaTrace" at size 3, "RX" on its own line at size 2) to
+  let the primary word hit size 3 — the full "LoRaTrace RX" string is
+  216px at size 3, and no icon size leaves that much room free beside it
+  on a 240px panel, so a single line at size 3 was never going to fit.
+  Direct feedback the same session ("thats a lot of space between it and
+  RX so I don't see how the two wouldn't fit on that line") walked the
+  split back (round 5): reverted to one line at size 2 (144px), keeping
+  round 4's one real improvement — "RX" drawn in `SPLASH_GREEN` rather
+  than white, tying its colour to the mark. That feedback also caught a
+  genuine mockup-only bug: the canvas preview had assumed a naive
+  6px/char advance to position "RX" right after "LoRaTrace ", which is
+  exactly correct for real firmware's Arduino_GFX bitmap font but wrong
+  for the mockup's JetBrains Mono webfont — left a visible gap in the
+  screenshot that made "there's room for size 3" look true when the real
+  slack (~37px at size 2, against ~72px size 3 would need) said
+  otherwise. Fixed in the mockup with real `ctx.measureText()`, confirmed
+  by re-rendering headless before and after (`playwright-core` +
+  `page.waitForTimeout()`, needed because raw `chrome --headless
+  --screenshot --virtual-time-budget` doesn't reliably let a
+  `requestAnimationFrame`-driven animation settle). A second reported
+  artifact — a black box near the bottom right of one screenshot — could
+  not be reproduced in any clean headless render; reported honestly as
+  unreproduced rather than claimed fixed, with a stale-cache hard-refresh
+  suggested as the likely explanation. Real firmware needs none of the
+  mockup's width workaround: `tft->print()` continues from wherever the
+  cursor actually ended up after the previous call, so "LoRaTrace "/"RX"
+  is just two consecutive `print()` calls with two `setTextColor()`s
+  between them.
+  - **The path grew into a real "diagonal foot" shape.** The operator
+    described the longer path two ways in one message ("start at the
+    very bottom," "cut diagonally to the left right before the bottom")
+    that read as two different shapes rather than two phrasings of one —
+    built both as a real toggle in the mockup (`PATH_STRAIGHT` vs.
+    `PATH_FOOT`) instead of guessing, then got an explicit pick in a
+    follow-up ("the diagonal foot is the move"). Shipped as a 3-segment
+    path — `(6,130)` near the bottom edge, a kick to `(14,108)`, straight
+    up to the elbow at `(14,32)`, then into the anchor — replacing round
+    1-3's flat 2-point path that stopped at a short accent stroke well
+    above the panel's bottom edge.
+  - **New: a signal-trace flourish fills the panel's lower third.** A
+    fixed 12-point jagged sample pattern (`TRACE_PATTERN`, not real
+    randomness — a fixed pattern reads as consistent "signal" frame to
+    frame rather than noise) rotated through 7 discrete frames
+    (`drawSignalTraceFrame()`, `TRACE_FRAME_MS = 110`), each frame a
+    `fillRect()` band-clear plus 12 `drawLine()` segments, ending with a
+    dim baseline (`SPLASH_GREEN_DIM = 0x2AC8`, quantized from `#2d5940`,
+    same muted-green family as `SPLASH_GREEN` but visually receded) so
+    the trace has a reference line to read against. Same "a few discrete
+    steps, not a continuous loop" approach the arcs already use, for the
+    same reason: no per-frame interpolation cost, no alpha to fade
+    through. **Deliberately ambient, not a progress bar** — it plays
+    entirely inside `playBootMark()`, before the real hardware-check
+    lines (`SD: OK`, `IO expander: OK`, `Radio: OK`) even print later in
+    `setup()`, so it does not and should not claim to track their
+    progress; it's a "still listening" flourish, not literal loading
+    feedback. This was an open question after the mockup pass — the
+    mockup's own notes already leaned this way, and nothing since gave a
+    reason to move it later in `setup()` instead, so it shipped
+    self-contained as designed.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS** — RAM
+    **50332/327680B, byte-for-byte unchanged** from round 3, flash
+    **969529/3342336B, a 336B increase** from round 3's 969193B — a much
+    smaller delta than rounds 1-3's multi-KB moves despite visibly more
+    geometry and a new function, because `fillArc()`/`drawLine()`/
+    `fillRect()` were already linked in from earlier rounds; this pass
+    added coordinates and a small loop, not new library machinery.
+    `pio test -e native` **90/90** unaffected (`main.cpp` isn't part of
+    the native env). A direct `-Wall -Wextra` compile of `main.cpp`
+    alone (matching `platformio.ini`'s real flags) found zero warnings.
+    Mockup already reflected this design before implementation (the
+    "living reference" convention from round 1 onward) and needed no
+    further changes to match what shipped. **Still not bench-tested on
+    real hardware** — same standing caveat as every round of this boot
+    mark: a compiling build has never been proof this exact
+    direct-to-panel layout is correct on real glass, and this round adds
+    the most geometry of any round so far (longer path, bigger arcs, a
+    new animated region). Next session should specifically confirm the
+    diagonal foot's `(6,130)` start doesn't clip the panel's bottom edge
+    and that the trace band's `fillRect()` clears cleanly against the
+    real ST7789V2 without any residual artifact, given the "black box"
+    report earlier this round that couldn't be reproduced in the mockup.
+  - **Version: unchanged, v0.6.4** (cosmetic boot-sequence polish, same
+    reasoning as rounds 1-3 — no new phase scope).

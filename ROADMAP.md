@@ -55,6 +55,15 @@ assumptions), not a pitch.
   meaningful bite out of a few-hundred-KB heap. Use direct-to-panel
   partial-window writes (LovyanGFX/M5GFX style) instead of buffering a
   whole frame, especially once WiFi is in the picture.
+  **Superseded 2026-08-25 (Phase 6's own hardware bench pass):** real
+  glass proved direct-to-panel wrong for this UI — every intermediate draw
+  call is visible the instant it happens, causing real flicker/tearing a
+  build report can't catch. The actual fix was an off-screen
+  `Arduino_Canvas_Indexed` framebuffer, just an indexed 1-byte/pixel one
+  (~32KB, since this UI only ever uses 6 colours) rather than a full RGB565
+  one (~63KB) — see PROGRESS.md's v0.6.2 -> v0.6.3 Decisions log entry for
+  the full root-cause and the near-miss (an `SPIClass::beginTransaction()`
+  deadlock) ruled out along the way.
 - **`ENERGY_SWEEP` (Reticulum / General Exploration):** a single SX1262
   cannot listen to the whole 868–923MHz band at once. The design's
   sweep-then-return-to-listen approach is the right shape for this
@@ -252,9 +261,10 @@ on their own row.
 - **Redesigned status pages.** The current five (RADIO/CHANNEL/GPS/
   SYSTEM/WIFI) are single-column stacked text (`ui_task.cpp`
   `drawRadioPage()` etc.) with real unused width on a 240px panel. Group
-  related values into blocks instead of one value per line — still
-  direct-to-panel partial-window writes, no framebuffer (this doc's
-  existing ~65KB framebuffer caution still applies), just organized better.
+  related values into blocks instead of one value per line. (As-proposed
+  this assumed direct-to-panel partial-window writes, no framebuffer — the
+  real hardware bench pass overturned that; see the Hardware feasibility
+  section above and this phase's Status note below.)
 - **Adopt BRAND.md's on-device labels** (`Watch`/`Probe`/`Sweep` for
   HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP; plain profile names —
   `Meshtastic`/`MeshCore`/`Reticulum`/`Spectrum` — grouped under one
@@ -285,6 +295,21 @@ on their own row.
 until built. Whether the ST7789V2's partial-window writes can carry the
 denser block layout above without needing a framebuffer — an assumption to
 confirm during implementation, not before.
+**Status:** built and bench-verified against real hardware, v0.6.4
+(2026-08-25). The toast layer's heap cost answer turned out to be a
+framebuffer after all — direct-to-panel drawing caused real flicker/tearing
+on first contact with the actual glass, fixed with an off-screen indexed
+canvas (~32KB, not the ~65KB a full RGB565 framebuffer would cost) rather
+than the partial-window approach this section originally assumed; see
+PROGRESS.md's Phase 6 checklist and its v0.6.2 -> v0.6.4 Decisions log
+entries for the full bench-verification history, including two genuine bugs
+the first hardware session found and fixed (menu-label overflow, an
+inverted WiFi-toggle toast) and two operator-requested additions that
+landed inside this same phase (Trace pause/standby; real PWM backlight
+brightness + a nested "System > Display" menu). **One item still
+open:** the WiFi AP heap/counter go/no-go (ROADMAP.md Phase 3) hasn't been
+re-measured since the canvas's own ~32KB allocation landed — see
+PROGRESS.md.
 
 ### Phase 7 — `DISCOVERY_SWEEP`
 **Deliverable:** bounded-duration CAD-cycle sweep of a curated candidate
