@@ -116,10 +116,14 @@ to the hardcoded default.
 
 Boot progress (firmware version, antenna-switch/radio status, active
 channel, and any FATAL error) is shown on the built-in LCD as well as over
-serial. Once the tasks are running the panel switches to three read-only
-status pages — RADIO, GPS, SYSTEM — with a battery indicator and a
-heartbeat dot on every one. Any key advances the page; with no keyboard
-detected the pages rotate on their own, so a device sitting on a dashboard
-still cycles through everything.
+serial. Once the tasks are running the panel shows five read-only status
+pages — RADIO, CHANNEL, GPS, SYSTEM, WIFI — with a battery indicator and a
+heartbeat dot on every one, plus a keyboard-driven menu (profile switch,
+WiFi toggle, verbose debug toggle). `,`/`.` cycle pages or move the menu
+selection, digits `1`-`5` jump straight to a page, Enter acts on the
+highlighted menu row, and the backtick/ESC key opens/closes the menu; with
+no keyboard detected the pages rotate on their own, so a device sitting on
+a dashboard still cycles through everything.
 
-Full interactive UI (menus, profile switching) is still Phase 6.
+A UI architecture redesign (grouped menu, more toggles, reorganized status
+pages) is Phase 6 — see ROADMAP.md.

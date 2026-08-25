@@ -31,8 +31,8 @@ SD promptly rather than accumulating.
 | PI4IOE5V6408 IO expander | I2C, addr 0x43 | SDA G8, SCL G9 | Boot init only |
 | GPS (ATGM336H) | UART @ 115200 8N1 | RX G13, TX G15 | GPS task |
 | microSD | SPI, same bus as SX1262 (CS G12, shared SCK/MOSI/MISO — §7) | CS G12 | Logger task |
-| ST7789V2 LCD | SPI, own host, isolated from the radio/SD bus above | DC G34, CS G37, SCK G36, MOSI G35, RST G33, BL G38 | UI task (Phase 6); boot-status splash only for now — PROGRESS.md |
-| Keyboard | Cardputer-ADV: TCA8418 I2C controller, addr 0x34, same SDA/SCL (G8/G9) as the IO expander above, different address — not the plain GPIO matrix the base (non-ADV) Cardputer uses | G8/G9 (ADV) | UI task (Phase 6, not wired up yet) |
+| ST7789V2 LCD | SPI, own host, isolated from the radio/SD bus above | DC G34, CS G37, SCK G36, MOSI G35, RST G33, BL G38 | UI task (built phase 2, redesigned phase 6 — PROGRESS.md) |
+| Keyboard | Cardputer-ADV: TCA8418 I2C controller, addr 0x34, same SDA/SCL (G8/G9) as the IO expander above, different address — not the plain GPIO matrix the base (non-ADV) Cardputer uses | G8/G9 (ADV) | UI task (wired phase 5, §10) |
 
 **Startup requirement:** the antenna path is gated by an IO expander — **P0 on
 the PI4IOE5V6408 must be driven high once at boot** or the radio hears
@@ -210,9 +210,10 @@ Meshtastic's value is now verified from upstream firmware source and set in
       frames decode fine at 8, confirmed on hardware 2026-08-23. Left as-is
       deliberately: continuous RX syncs on whatever preamble arrives, so
       this only bites the duty-cycled/CAD scanning in §4 (DISCOVERY_SWEEP,
-      ROADMAP.md phase 5 — corrected 2026-08-24; MeshCore's HOME_LISTEN
-      profile landed as phase 4 instead, and doesn't touch CAD timing at
-      all). Re-evaluate during that phase with a bench test, not before.
+      ROADMAP.md phase 7 as of the 2026-08-25 renumbering — see ROADMAP.md
+      Versioning; MeshCore's HOME_LISTEN profile landed as phase 4 instead,
+      and doesn't touch CAD timing at all). Re-evaluate during that phase
+      with a bench test, not before.
 - [x] **microSD bus** — SPI or SDMMC, and whether it shares a host with the
       display, on this specific Cardputer-Adv revision. **Bench-confirmed
       (2026-08-22):** first real-hardware boot log shows `SD.begin(PIN_SD_CS,
@@ -410,9 +411,9 @@ monitor toggles DTR and resets the board, so bench sessions accumulate run
 folders holding a single health row and no detections. That is the honest
 consequence of "a run is a power-on" and is left alone rather than papered
 over: such runs are trivially identifiable (`rx=0`, one row) and cost a few
-hundred bytes. A future UI-driven start/stop gate (Phase 5's menu could grow
-one) would make the run boundary an operator decision instead, at which
-point this stops happening.
+hundred bytes. A future UI-driven start/stop gate (Phase 6's redesigned
+menu could grow one) would make the run boundary an operator decision
+instead, at which point this stops happening.
 
 Absolute time comes from GPS, because this board has no verified RTC. That
 has one consequence worth stating plainly: **rows written before the first
@@ -468,13 +469,19 @@ still self-describing via uptime.
 4. Add MeshCore profile (910.525/SF7/BW62.5/CR5) — same engine, new table
 5. On-device menu UI (`ui_task`) — replaces Phase 3/4's timed hold-gestures
    with real keyboard-driven navigation and a settings/mode-toggle menu.
-   Moved ahead of steps 6/7 at the user's request (ROADMAP.md Phase 5 for
+   Moved ahead of steps 6-8 at the user's request (ROADMAP.md Phase 5 for
    the full rationale, same precedent as step 3 moving ahead of MeshCore).
    See §10 for the keyboard-decode sourcing this depends on.
-6. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
+6. UI architecture redesign — reworks step 5's flat menu into grouped
+   categories before steps 7/8 each add to it, plus a toast/notice layer
+   and reorganized status pages. Moved ahead of `DISCOVERY_SWEEP` at the
+   user's request (ROADMAP.md Phase 6 for the full rationale, same
+   restructuring precedent as steps 3 and 5 moving ahead of their
+   original slots)
+7. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
    MeshMapper-observed frequencies where available — adds entries to step
-   5's menu/screen framework, doesn't reopen UI architecture
-7. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
+   6's grouped menu, doesn't reopen UI architecture a second time
+8. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
 
 ## 10. Keyboard input decode (Phase 5)
 

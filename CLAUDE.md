@@ -39,13 +39,15 @@ src/
   [x] logger_task.cpp / .h       # dequeue, GPS-stamp, batched SD writes, Core 0
   [x] ui_task.cpp / .h           # keyboard + display; arrived phase 2, not phase 6 as originally proposed — operator asked for field-readable status before a multi-hour run without a tethered laptop (see PROGRESS.md decisions log)
   [x] keyboard.h                 # TCA8418 raw-event -> KeyAction decode for 4 keys, pure/host-testable (phase 5; not in original proposal, see PROGRESS.md decisions log)
+  [x] ui_menu.h                  # grouped root/group menu state machine, pure/host-testable (phase 6; not in original proposal, see PROGRESS.md decisions log)
+  [x] ui_labels.h                # BRAND.md on-device label lookups, pure/host-testable (phase 6; not in original proposal, see PROGRESS.md decisions log)
   [x] wifi_task.cpp / .h         # WiFi AP + web UI, off until toggled (phase 3; not in original proposal, see PROGRESS.md decisions log)
   [x] web_assets.h               # embedded single-page web UI (phase 3)
   [x] channel_plans.h            # per-profile RF param tables (see DESIGN.md §3)
   [x] board_pins.h               # pin map + IO-expander register constants (not in original proposal, see PROGRESS.md decisions log)
   [x] version.h                  # FIRMWARE_VERSION, single source for boot banner + release tags
   [x] config.h / .cpp            # boot-time SD channel-config override + runtime write-back for wifi_task's settings page (not in original proposal, see PROGRESS.md decisions log)
-  [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 6+)
+  [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 7+)
   --- added during phase 2, not in the original proposal ---
   [x] detection.h                # the ~36B queue record + Meshtastic header parse + §8 CSV
   [x] nmea.h                     # NMEA primitives (field split, checksum, coord conversion)
@@ -89,6 +91,14 @@ sd-template/loratrace/
   model** — it doesn't necessarily; MeshCore's own docs warn against this.
 - No large heap buffers. Detection struct is small (~40B); flush to SD
   often rather than accumulating.
+- **New operator-facing behavior gets an on-device menu toggle**, not just
+  a web-UI-only setting or a silent default. Established 2026-08-25 after
+  Phase 5's menu grew a third item (verbose debug) the same day it
+  shipped, with no framework change to absorb it — see PROGRESS.md's
+  Decisions log and ROADMAP.md's Phase 6 (UI architecture redesign).
+  Doesn't apply to one-shot boot-time config (channel overrides,
+  `config.txt`) — this is about anything that changes runtime behavior
+  while the device is already running.
 - **Bump `src/version.h` when a phase lands.** `MAJOR.MINOR` tracks the
   build-order phase (ROADMAP.md Versioning: v0.1.x = phase 1, v0.2.x =
   phase 2, ...), `PATCH` for fixes adding no phase scope. It is bumped by
@@ -230,6 +240,113 @@ anomaly** (a different `[config]` line lost its prefix despite the lock,
 while everything around it was clean) reads as a lower-level USB-CDC
 single-write truncation, not cross-task interleaving — logged as a watch
 item in PROGRESS.md rather than chased further without a logic analyzer.
+
+**2026-08-25 — Phase 5 confirmed complete; UI architecture redesign
+promoted to Phase 6, `DISCOVERY_SWEEP`/`ENERGY_SWEEP` pushed to 7/8.**
+Phase 5's own checklist is fully closed (PROGRESS.md) — this isn't a
+reopening of unfinished work. What prompted the reorder: Phase 5's menu
+was scoped to exactly two toggles and had already grown a third (verbose
+debug) by the end of the same bench day, with no framework change and only
+a stale in-code comment left marking the drift. Rather than let
+`DISCOVERY_SWEEP` bolt on a fourth item the same way, a UI architecture
+redesign now sits at Phase 6: a grouped menu (root categories opening
+sub-lists, replacing the flat list), a toast/notice layer for transient
+feedback, reorganized status pages (the current five are single-column
+text with real unused width on the 240px panel), and adoption of
+BRAND.md's on-device labels (`Watch`/`Probe`/`Sweep`, `Mesh Trace`/`Open
+Trace`/etc. — the profile-naming table itself was revised again the same
+day, see below) as the UI's display strings — kept separate from the
+`meshtastic`/`meshcore` identifiers `detection.h` writes to
+`detections.csv`, which stay unchanged for log-format stability.
+M5PORKCHOP (github.com/0ct0sec/M5PORKCHOP, cloned read-only for reference)
+was reviewed for its grouped-menu and toast-notice structure — not its
+gamification layer, mascot, or aesthetic, all of which BRAND.md's
+guardrails already rule out. See ROADMAP.md's Phase 6 entry and
+PROGRESS.md's Decisions log for the full session.
+
+**Phase 6 (UI architecture redesign) built, not yet hardware-verified**
+(2026-08-25, first pass v0.6.0): `ui_task.cpp` rebuilt on top of two new
+pure/host-testable headers, `ui_menu.h` (`MenuState` — the root/group
+grouped menu described above) and `ui_labels.h` (BRAND.md's profile/mode
+display strings). A toast overlay confirms whatever just fired; RADIO/
+CHANNEL/GPS/SYSTEM/WIFI all gained a second, right-hand column using width
+the old single-column layout left blank. Verified with `pio test -e
+native` and `pio run -e cardputer-adv`, both actually run rather than
+assumed, but **not yet bench-tested against the real ST7789V2 panel** —
+the layout's exact pixel positions were sourced from arithmetic against
+the 240x135 panel, and a compiling build says nothing about whether they
+clip or overlap on real glass.
+
+**Phase 6 fully re-implemented the same day (v0.6.1)** after the operator
+reviewed a pixel-accurate HTML/Canvas mockup of the actual `ui_task.cpp`
+draw calls (~9 rounds of concrete visual feedback against screenshots) and
+green-lit it — a substantially larger change than v0.6.0's first pass, not
+a fix: every page was redrawn, not just the menu. Mid-review the user
+identified a modeling problem — "Mesh Trace is a mode, the profile
+selector is a sub of mesh trace" — confirmed as "Mesh Trace becomes a
+[family]... we select what profile we are sniffing," which is now
+BRAND.md's Interface Naming table (own "Revised 2026-08-25" note there):
+Meshtastic and MeshCore collapse into one family name ("Mesh Trace"),
+"Core Trace" is retired, Open Trace/Spectrum Trace are unaffected. Real
+changes: `BRAND.md` (table + revision note), `ui_labels.h` (flat
+`uiProfileLabel()` -> `uiTraceModeLabel()`/`uiSubProfileLabel()`/
+`uiActiveProfileLabel()`), `ui_menu.h`'s `MenuAction` enum
+(`PROFILE_SWITCH` -> `SELECT_MESHTASTIC`/`SELECT_MESHCORE` — both root
+rows are GROUP now, "Mesh Trace" opens onto its two sub-profiles instead
+of cycling one at a time), `channel_plans.h`'s `nextHomeListenProfile()`
+deleted as dead code, and a full `ui_task.cpp`/`.h` port: header status
+dots (GPS fix, heap health, RX activity — replacing the old idle
+heartbeat blink outright), profile/page-position moved into a new footer
+status line, a redesigned toast (flush-bottom slide-in band with a
+countdown bar, driven by a bounded ~60ms fast-redraw burst for its own
+~1.4s lifetime rather than a continuous loop), CHANNEL's frequency-position
+bar (868–923MHz, the SX1262's real tuned range, DESIGN.md §1) plus a rough
+time-on-air estimate, GPS's constellation counts as 4 bars instead of a
+text line, and WIFI folded into SYSTEM's now-2x2 grid with a heap-fraction
+bar (`UiPage::COUNT` is 4, not 5). Two things had no real-hardware
+equivalent and were adapted rather than copied literally: the mockup's
+alpha-blended RX-pulse decay became a binary hold-then-revert (RGB565/
+Arduino_GFX has no cheap alpha blending), while the toast's slide/
+countdown-bar animation needed no alpha at all — just per-frame rectangle
+geometry.
+
+Host-native tests: `test_ui_menu` grew from 11 to 13 (Mesh Trace group
+coverage), `test_ui_labels` now 7 (family/sub-profile split),
+`test_channel_plans` lost the deleted function's test — **92/92 `pio test
+-e native` passing**, and `pio run -e cardputer-adv` **SUCCESS** (static
+RAM 50304/327680B, flash 957753/3342336B per the build report), both
+actually run rather than assumed. **Still not bench-tested against the
+real ST7789V2 panel** — same bar every other visual change in this project
+has shipped at before its own bench pass, and now a bigger check than the
+v0.6.0 pass covered since every page changed (see PROGRESS.md's Phase 6
+checklist). The design mockup itself was preserved as a living reference
+per the operator's request, to build on for Phase 7/8's menu additions
+without a fresh mockup built from scratch each time:
+https://claude.ai/code/artifact/84eb5187-9f26-4fc1-8b6b-39f9969a86ea
+
+**v0.6.1's "Mesh Trace" branding walked back the same day (v0.6.2).** The
+operator reviewed the shipped naming and pushed back: branding
+Meshtastic/MeshCore as a "Mesh Trace" family — and Reticulum/General
+Exploration as "Open Trace"/"Spectrum Trace" — made four settings on one
+sniffer read like four separate products, and overloaded "Trace" three
+ways (the product name, a per-profile brand, and a saved-session noun).
+**Profile** replaces all four "___ Trace" names — not a new word, it was
+already this doc's own preferred term ("'Profile' instead of 'attack
+mode'") before the Trace-branding detour. Presets keep their real names:
+**Meshtastic**, **MeshCore**, **Reticulum**, **Spectrum** (short for
+General Exploration). **Trace goes back to meaning exactly one thing: a
+saved session or run.** `ui_task.cpp`'s root menu barely changes shape —
+still two groups, the label just changes from "Mesh Trace" to "Profile" —
+and `ui_labels.h` collapses back to one flat `uiProfileLabel()`, since
+there's no branded family left to compose a family/sub-profile string
+from. `test_ui_labels` shrinks from 7 tests to 3 (one flat lookup +
+collision check instead of a two-tier one); `test_ui_menu` stays at 13,
+just its fixture's root label renamed. **92/92 -> 88/88 `pio test -e
+native` passing**, `pio run -e cardputer-adv` **SUCCESS** (RAM
+50304/327680B, flash 957645/3342336B) — both actually run. The design
+mockup was corrected and republished again at the same link above, its
+before/after section's genuinely historical parts (Phase 5's frozen
+record) left untouched as always.
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna

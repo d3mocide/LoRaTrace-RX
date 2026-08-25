@@ -87,7 +87,7 @@ struct ChannelParams {
 //
 // This is ONE slot out of a 104-slot hash space, not full protocol
 // coverage — non-default channel names land on other slots and are only
-// caught by DISCOVERY_SWEEP (DESIGN.md §4, build-order phase 4).
+// caught by DISCOVERY_SWEEP (DESIGN.md §4, build-order phase 7).
 constexpr ChannelParams CHANNEL_MESHTASTIC_LONGFAST_US = {
     .freq_mhz = 906.875f,
     .sf = 11,
@@ -112,7 +112,7 @@ constexpr ChannelParams CHANNEL_MESHCORE_US_NARROW = {
 // "switching profiles reconfigures which channel table HOME_LISTEN...
 // pull[s] from"). Only MESHTASTIC and MESHCORE have a concrete table today —
 // RETICULUM and GENERAL_EXPLORATION are ENERGY_SWEEP-only by design (§3/§4,
-// phase 6) and never get one, so they fall back to the Meshtastic default
+// phase 8) and never get one, so they fall back to the Meshtastic default
 // here rather than being a compile error a caller has to guard against.
 inline ChannelParams channelParamsForProfile(MissionProfile profile) {
     switch (profile) {
@@ -120,18 +120,6 @@ inline ChannelParams channelParamsForProfile(MissionProfile profile) {
         case MissionProfile::MESHTASTIC:
         default: return CHANNEL_MESHTASTIC_LONGFAST_US;
     }
-}
-
-// Phase 4: the operator-selected, mutually-exclusive profile switch DESIGN.md
-// §5 describes. Only two profiles currently have a HOME_LISTEN table to
-// switch between, so this is a toggle rather than a general "next" —
-// anything other than MESHCORE (including a future RETICULUM/
-// GENERAL_EXPLORATION, which don't have a table per channelParamsForProfile
-// above) lands back on MESHTASTIC rather than advancing somewhere with
-// nothing to listen on.
-inline MissionProfile nextHomeListenProfile(MissionProfile current) {
-    return current == MissionProfile::MESHTASTIC ? MissionProfile::MESHCORE
-                                                  : MissionProfile::MESHTASTIC;
 }
 
 // Per-profile SD/web overrides (config.h owns loading this from
@@ -177,7 +165,7 @@ inline ChannelParams resolvedChannelForProfile(const ProfileOverrides &overrides
 //
 // Reticulum: no fixed target by design. Communities deliberately pick
 // arbitrary settings offset from Meshtastic/MeshCore to avoid collision.
-// Handled entirely by ENERGY_SWEEP (build-order phase 6) — never gets a
+// Handled entirely by ENERGY_SWEEP (build-order phase 8) — never gets a
 // ChannelParams entry.
 //
 // General Exploration: full 868-923MHz sweep, any SF/BW/CR. Also an

@@ -10,21 +10,36 @@
 // Cardputer-ADV row/col-to-character keymap yet, so nothing beyond
 // undifferentiated press/release timing was trustworthy.
 //
-// Phase 5 replaces both of those gestures with a real menu, now that
-// keyboard.h has a sourced (partly bench-verified — see its own comments
-// and PROGRESS.md's Phase 5 checklist) decode for eleven specific keys:
-// ',' or ';' / '.' or '/' move (the Fn-arrow diamond's left/up and
-// down/right, both pairs alias the same action), Enter selects, the
-// backtick/ESC key goes back, '1'-'5' jump straight to a numbered carousel
-// page. Modes built from those keys throughout:
+// Phase 5 replaced the old timed hold-gestures with a real menu, using
+// keyboard.h's sourced (partly bench-verified — see its own comments and
+// PROGRESS.md's Phase 5 checklist) decode for eleven specific keys: ',' or
+// ';' / '.' or '/' move (the Fn-arrow diamond's left/up and down/right,
+// both pairs alias the same action), Enter selects, the backtick/ESC key
+// goes back, '1'-'5' jump straight to a numbered carousel page.
+//
+// Phase 6 (ROADMAP.md, UI architecture redesign) replaces Phase 5's flat,
+// fixed-size menu with a grouped one (ui_menu.h's MenuState) — Phase 5's
+// menu shipped scoped to exactly two toggles and had already grown a third
+// (verbose debug) the same bench day, with no framework change to absorb
+// it (PROGRESS.md 2026-08-25 Decisions log). Same four input keys
+// throughout, now three levels instead of two:
 //   - **Carousel** (default): ','/';'/'.'/'/' cycle the read-only status
-//     pages below; digits '1'-'5' jump straight to one of them; Enter opens
-//     the menu; the backtick/ESC key does nothing (nowhere to go back to).
-//   - **Menu**: the same move keys move a highlighted selection; Enter
-//     activates it (profile switch or WiFi toggle — the same
-//     radio_task.h/wifi_task.h calls the old gestures made); the
-//     backtick/ESC key returns to the carousel. Digit keys are ignored here
-//     — the menu has its own two-item selection.
+//     pages below; digits '1'-'5' jump straight to one of them; the
+//     backtick/ESC key opens the menu at its root; Enter is a no-op (no
+//     menu is open yet to act on).
+//   - **Menu root**: the same move keys move a highlighted root row; Enter
+//     opens a GROUP row's sub-list (both root rows are groups — see
+//     ROOT_ITEMS in ui_task.cpp and BRAND.md's Interface Naming section);
+//     the backtick/ESC key closes the menu back to the carousel. Digit
+//     keys are ignored here, same as Phase 5.
+//   - **Menu group** (inside a GROUP row, "Profile" or "System"): the
+//     same move keys move a highlighted item within the group; Enter fires
+//     it (a direct profile switch to Meshtastic/MeshCore, or the WiFi/Debug
+//     toggles — the same radio_task.h/wifi_task.h/logger_task.h calls
+//     Phase 3/4/5 already made); the backtick/ESC key returns to the menu
+//     root, not all the way to the carousel.
+// A toast overlay (ui_task.cpp's showToast()) confirms whatever action just
+// fired, independent of which page/menu level is on screen afterward.
 // Deliberately not a general keymap or text-entry UI — see keyboard.h for
 // why eleven keys is enough for this scope (DESIGN.md/PROGRESS.md Phase 5).
 //
@@ -38,13 +53,15 @@
 // deliberate: RADIO first because it's the reason the device exists,
 // CHANNEL right after it since it's RADIO's own RF detail (the actual
 // active freq/SF/BW/CR/sync word — added Phase 5, previously visible only
-// over Serial or the web UI), GPS/SYSTEM/WIFI unchanged after.
+// over Serial or the web UI), GPS/SYSTEM unchanged after. WIFI is gone as
+// its own page (Phase 6 UI redesign, 2026-08-25) — folded into SYSTEM as a
+// fourth stat block, since AP-on/off plus client count didn't need a whole
+// carousel slot of its own once SYSTEM had room for a 2x2 grid.
 enum class UiPage : uint8_t {
     RADIO = 0,
     CHANNEL,
     GPS,
     SYSTEM,
-    WIFI,
     COUNT,
 };
 

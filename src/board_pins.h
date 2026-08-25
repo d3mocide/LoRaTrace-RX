@@ -108,7 +108,7 @@ constexpr int8_t PIN_SD_CS = 12;
 // --- radio/SD bus above (DESIGN.md §1: shared-bus display refreshes ---
 // --- jitter CAD timing; this is the isolation that rule is about).  ---
 // DESIGN.md §1's hardware table listed this as "internal" (unspecified)
-// pending Phase 6. Pulled forward here for the Phase 1 boot-status splash
+// before ui_task existed. Pulled forward here for the Phase 1 boot-status splash
 // (PROGRESS.md decisions log) — pins and IPS column/row offsets are NOT
 // independently bench-verified against this board; they're taken directly
 // from a project confirmed working on real Cardputer/Cardputer-ADV

@@ -426,8 +426,114 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         (`,/. page  1-5 jump  Enter menu` -> `` ,/. page  1-5 jump  ` menu ``)
         to match the ESC-opens-the-menu rework above; the menu's own hint
         line (`` ,/. move   Enter act   ` back ``) didn't need to change.
-- [ ] **Phase 6** — `DISCOVERY_SWEEP`
-- [ ] **Phase 7** — `ENERGY_SWEEP`
+- [~] **Phase 6** — UI architecture redesign. Promoted ahead of
+      `DISCOVERY_SWEEP` 2026-08-25 (see Decisions log below). **First cut
+      built 2026-08-25 (v0.6.0)**, then **fully iterated and re-implemented
+      the same day (v0.6.1)** after the operator reviewed a pixel-accurate
+      HTML/Canvas mockup of the actual `ui_task.cpp` draw calls (a rolling
+      preview artifact, ~9 rounds of concrete visual feedback against
+      screenshots) and green-lit it for real implementation, **then
+      revised again the same day (v0.6.2)** once the operator questioned
+      the naming itself: branding each profile "___ Trace" made four
+      settings on one sniffer read like four separate tools. See Decisions
+      log below for both review histories and where the preserved
+      design-reference artifact lives. Neither v0.6.1 nor v0.6.2 is a small
+      fix on v0.6.0: every page was redrawn, and v0.6.2 walks the profile
+      axis back to plain, unbranded names.
+      `pio test -e native` — **88/88 passed** (test_ui_menu stayed at 13,
+      just its "Mesh Trace" fixture label renamed to "Profile";
+      test_ui_labels shrank from 7 to 3 now that there's one flat
+      `uiProfileLabel()` instead of a family/sub-profile split;
+      `test_channel_plans` stays at 11, unaffected this round —
+      `nextHomeListenProfile()`'s test was already removed in v0.6.1).
+      `pio run -e cardputer-adv` — **SUCCESS**, confirming `ui_task.cpp`
+      itself compiles clean against real Arduino/RadioLib/GFX-Library/
+      TCA8418 headers (the native suite never touches this file — it needs
+      Arduino.h). Static RAM 50304/327680B (15.4%), flash 957645/3342336B
+      (28.7%) per the build report — build-time footprint, not a runtime
+      `ESP.getFreeHeap()` reading, which stays the number that actually
+      matters and is still unmeasured on real hardware:
+  - [x] `ui_menu.h` — `MenuState`, the grouped root/group menu, pure and
+        host-tested (`test/test_ui_menu/`, 13 tests): open/close, root and
+        group PREV/NEXT wraparound, DIRECT vs. GROUP root rows, firing an
+        action at either level, BACK peeling exactly one level, JUMP/NONE
+        staying no-ops throughout, and selecting the "Profile" root opens
+        its group with each item firing its own direct
+        `SELECT_MESHTASTIC`/`SELECT_MESHCORE` action (`MenuAction` itself
+        didn't change in v0.6.2 — only the root row's *label*, "Mesh
+        Trace" -> "Profile", did).
+  - [x] `ui_labels.h` — BRAND.md's profile/mode display strings, pure and
+        host-tested (`test/test_ui_labels/`, 3 tests): one flat
+        `uiProfileLabel()` (v0.6.2 — replacing v0.6.1's
+        `uiTraceModeLabel()`/`uiSubProfileLabel()`/`uiActiveProfileLabel()`
+        family/sub-profile split, which itself replaced an even older flat
+        function of the same name) matches BRAND.md's table and none of
+        the four profiles collide.
+  - [x] `ui_task.cpp` fully re-rewired onto the reviewed mockup, not just
+        the first pass's menu change:
+    - **Root table**: both rows are GROUP — "Profile" opens onto
+      Meshtastic/MeshCore (a direct pick, not Phase 4/5's cycle-on-Enter)
+      and still shows the live profile on its own root row; "System"
+      unchanged (WiFi, Debug). v0.6.1 briefly branded this row "Mesh
+      Trace"; v0.6.2 walked that back the same day (Decisions log).
+    - **Header**: profile name and page position removed (crowded the
+      battery indicator on the longest BRAND.md labels); replaced by three
+      always-visible status dots — GPS fix state, heap health, and a new
+      RX-activity pulse that replaces the old idle heartbeat blink outright
+      (the heartbeat only proved the UI task's own loop was alive, not that
+      anything was actually being heard).
+    - **Footer status line** (`drawFooterStatus()`, carousel only): profile
+      left-anchored, page position right-anchored — where the header text
+      moved to. The old persistent key-hint line (`,/. page 1-5 jump ` menu
+      `) is gone; the toast band now owns that space instead.
+    - **Toast**: redesigned to a flush-bottom band that slides up on show
+      and carries a shrinking countdown bar — both are plain per-frame
+      rectangle geometry (no alpha blending, unlike the mockup's decaying
+      RX-pulse glow, which has no cheap Arduino_GFX/RGB565 equivalent and
+      was ported as a binary hold-then-revert instead), driven by a bounded
+      ~60ms fast-redraw burst for the toast's ~1.4s lifetime rather than a
+      continuous animation loop.
+    - **RADIO**: right column moved from x=132 to x=170 (matches
+      GPS/CHANNEL's column start); a solid flash bar under "log" during an
+      active RX pulse.
+    - **CHANNEL**: redistributed down the full page height instead of
+      clustered under the header; a frequency *position* bar (868–923MHz,
+      the SX1262's real tuned range per DESIGN.md §1, not the full
+      902–928MHz US ISM band) plus a rough time-on-air estimate
+      (`estimateTimeOnAirMs()`, deliberately not spec-precise) in the right
+      column.
+    - **GPS**: the old dim "GP:12 GL:6…" text line replaced by 4 small
+      per-constellation bars in the right column, visible in both the
+      fixed and no-fix states.
+    - **SYSTEM**: WIFI's carousel page is gone — merged in as a 2x2 grid's
+      4th block (SSID moved into the WiFi-toggle toast message instead of
+      living on this page) — and a heap-fraction bar (`drawHeapBar()`,
+      against the ESP32-S3FN8's real ~512KB no-PSRAM SRAM ceiling) fills
+      the space under "k heap" that used to be blank. `UiPage::COUNT` is 4
+      now, not 5 (`ui_task.h`).
+  - [ ] **Bench-verify against the real ST7789V2 panel** — not done yet,
+        and now a bigger check than the v0.6.0 pass covered: every page
+        was redrawn, not just the menu. Check every column/row for
+        clipping or overlap (the new status-dot cluster against the
+        battery indicator, the toast slide/countdown-bar band, a GROUP
+        list against the footer), confirm the header's "MENU > Profile"
+        / "MENU > System" breadcrumbs read correctly, watch the RX pulse
+        dot and RADIO's flash bar actually track live detections without
+        looking stuck on or stuck off, and re-press all eleven keyboard.h
+        keys against the three-level (carousel/root/group) navigation with
+        Profile's Meshtastic/MeshCore picks.
+  - [ ] Re-confirm WiFi heap/counter numbers (ROADMAP.md Phase 3's
+        go/no-go) still hold with the redesigned `ui_task.cpp` running —
+        no new dynamic allocation was added (the toast is still a static
+        buffer), but this hasn't been measured on real hardware yet.
+  - [ ] Confirm the bounded fast-redraw bursts (toast slide/countdown, RX
+        pulse) don't visibly compete with SD flush timing or GPS mutex
+        contention during a genuinely busy RX session on real hardware —
+        reasoned through as safe (display is its own SPI host, GPS reads
+        use a non-blocking 0-tick try from the header), not yet observed
+        under real sustained traffic.
+- [ ] **Phase 7** — `DISCOVERY_SWEEP`
+- [ ] **Phase 8** — `ENERGY_SWEEP`
 
 ## Open questions (from DESIGN.md §7 — verify before / during build)
 
@@ -2701,3 +2807,238 @@ above) — remaining items are follow-through, in the order it's worth doing.
      rather than dug into further given the hour; if it recurs, worth
      trying an explicit `Serial.flush()` after the locked write, or a
      larger USB-CDC TX buffer, as a first mitigation to test.
+- **2026-08-25 — UI architecture redesign promoted to Phase 6,
+  `DISCOVERY_SWEEP`/`ENERGY_SWEEP` pushed to Phase 7/8.** Session started
+  as a question about Phase 6 (`DISCOVERY_SWEEP`) planning; turned into a
+  scope decision after the user asked directly whether Phase 5 was really
+  finished and floated wanting new features toggled through the UI going
+  forward.
+  - **Phase 5 status check.** Confirmed complete against its own declared
+    scope — PROGRESS.md's checklist and CLAUDE.md's Status section both
+    already marked every sub-item closed and hardware-bench-verified
+    2026-08-24. Not a reopening of unfinished work. But the check surfaced
+    the real issue: the menu had already grown past its own documented
+    scope once, silently. `ui_task.cpp`'s own comment still read "the menu
+    has exactly two items this phase" while a third row (`Debug`,
+    `loggerDebugToggle()`) had been added the same bench day with no
+    framework change and no comment update — see this file's 2026-08-24
+    entries. `DISCOVERY_SWEEP` would add at least a fourth item the same
+    way, `ENERGY_SWEEP` a fifth after it.
+  - **User's principle, adopted as a house rule (CLAUDE.md):** new
+    operator-facing behavior gets an on-device menu toggle, not a silent
+    default or a web-UI-only setting. This was already the de facto
+    pattern (WiFi off-by-default+toggle, the MeshCore switch, the Debug
+    toggle) but had never been written down, which is exactly how the
+    Debug row landed without anyone treating it as a UI decision.
+  - **Current UI critique (user, confirmed against `ui_task.cpp`):** the
+    five carousel pages (RADIO/CHANNEL/GPS/SYSTEM/WIFI) are single-column
+    stacked text (`drawRadioPage()` etc.) — real unused width on the
+    240x135 panel, values organized one-per-line rather than grouped.
+  - **M5PORKCHOP review (github.com/0ct0sec/M5PORKCHOP), read-only, cloned
+    locally for reference — not linked as a dependency, not cloned for its
+    content.** It's a Cardputer-ADV WiFi/BLE pentesting tool with the same
+    240x135/no-PSRAM hardware constraints as this project, so its UI
+    engineering choices are genuinely comparable even though its feature
+    set (packet capture, deauth, BLE spam) is not. Reviewed:
+    `src/ui/menu.h` — a "Sirloin-style grouped modal": `RootItem` entries
+    are either `RootType::DIRECT` (opens a mode) or `RootType::GROUP`
+    (opens a `MenuItem` sub-list via `GroupId`), same input model
+    throughout. `src/ui/display.h` — a `NoticeKind` (REWARD/STATUS/WARNING/
+    ERROR) x `NoticeChannel` (AUTO/TOAST/TOP_BAR) abstraction for transient
+    messages, decoupled from whatever screen is showing. `src/ui/
+    swine_stats.h` — a tabbed stats screen (`StatsTab`: STATS/BOOSTS/
+    WIGLE) as one model for grouping related values instead of one
+    per line. Also present, and explicitly **not** part of this redesign:
+    a full RPG XP/leveling/achievement system (`src/core/xp.h`, 60
+    achievement bitflags, class tiers, buffs/debuffs), an animated ASCII
+    mascot with a mood/dialogue system (`src/piglet/`), and a voice/tone
+    (its own README: "the difference between tool and weapon is the hand
+    holding it. wink. wink.") that's the deliberate opposite of BRAND.md's
+    "calm, precise, instrument-like... closer to a survey receiver... than
+    a red-team utility or hacker toy" direction and its explicit guardrails
+    against mascot/gamified/neon aesthetics. Structure reviewed and partly
+    adopted; content, tone, and aesthetic were not.
+  - **Three decisions, via AskUserQuestion:**
+    1. **Grouped menu**, not a longer flat scrolling list — root categories
+       (e.g. Profile, Radio Mode, System) open short sub-lists, same four
+       keys throughout. Chosen because a flat list is the thing that's
+       already outgrown itself once; scrolling a longer flat list doesn't
+       fix that, it just delays the next overflow.
+    2. **Add a toast/notice layer**, not inline-only feedback. Its actual
+       heap cost is unmeasured and must be measured and reported before it
+       ships — same discipline as every other RAM-hungry addition in this
+       project (WiFi AP's ~55-56KB number is the precedent this follows,
+       not an estimate to trust on paper).
+    3. **Adopt BRAND.md's on-device labels now** (`Watch`/`Probe`/`Sweep`
+       for HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP; `Mesh Trace`/`Core
+       Trace`/`Open Trace`/`Spectrum Trace` for the four profiles) as the
+       UI's actual display strings — a table BRAND.md has carried since it
+       was written but the on-device UI never used. Deliberately kept as a
+       separate display layer, not a rename of `detection.h`'s
+       `missionProfileName()`: that function's output (`meshtastic`,
+       `meshcore`) is what's already written into every `detections.csv`
+       a real run has produced, and DESIGN.md §8 already has a "don't
+       concatenate runs across a format change without checking the
+       header" rule for exactly this kind of risk.
+  - **Renumbering applied:** Phase 6 is now the UI architecture redesign;
+    `DISCOVERY_SWEEP` moves to Phase 7, `ENERGY_SWEEP` to Phase 8. Updated
+    ROADMAP.md (Phases section, Versioning table), DESIGN.md (§1 pin
+    table, §7's preamble-length note, §8.3's start/stop-gate note, §9
+    build order), CLAUDE.md (proposed-layout's `fingerprint.h` line, new
+    house rule, new Status entry), this file's Build-order checklist, and
+    README.md's now-doubly-stale "three pages... still Phase 6" paragraph
+    (also fixed the page count while in there — it's five pages now, not
+    three, independent of today's renumbering). Also fixed forward
+    references to the old phase numbers left in code comments
+    (`radio_task.h`, `detection.h`, `channel_plans.h` x3, `main.cpp`,
+    `board_pins.h`) — same "fix stale phase-number references
+    opportunistically" precedent already used for `detection.h`'s
+    phase-4-vs-5 fingerprinting comment on 2026-08-24. Historical
+    Decisions-log entries above (including this file's own 2026-08-22/23
+    "Phase 6" mentions, back when that number meant "the eventual full
+    interactive UI") were deliberately left as written — they're a record
+    of what was true when they were written, not a live cross-reference,
+    same convention this log has followed for every earlier renumbering.
+  - **Not done in this session:** no code changes to `ui_task.cpp`/`.h`
+    itself. This entry is planning/scope capture only — the grouped-menu
+    implementation, the toast layer's real heap measurement, the
+    redesigned status-page layouts, and the BRAND.md label wiring are all
+    still open work under the new Phase 6 checklist entry above.
+- **2026-08-25 — Phase 6 fully implemented (v0.6.1) after mockup review;
+  Mesh Trace regrouped as a profile family; design artifact preserved as a
+  living reference.** Direct continuation of the same day's entry above.
+  v0.6.0 (built earlier the same day) was a first, narrower pass — the
+  grouped menu and a second status-page column, reasoned through and
+  verified against `pio test -e native`/`pio run -e cardputer-adv` but not
+  against any visual check, since this project has no display simulator.
+  - **Built a pixel-accurate HTML/Canvas mockup** (not committed to the
+    repo — an Artifact) simulating the real ST7789V2 output: transcribed
+    directly from `ui_task.cpp`'s actual draw calls (cursor math, RGB565
+    colors converted to their real 8-bit sRGB equivalents, a bitmap-style
+    font chosen to match the on-device look), with a "before/after" compare
+    section built from the literal committed v0.6.0 drawing functions kept
+    byte-for-byte unedited alongside the proposed redesign, so the compare
+    never blurred what was actually shipped against what was still a
+    proposal. Verified with a custom Node.js DOM/canvas-stub harness
+    (`dom_harness.js`, not committed) before every republish — real click/
+    toggle interactions and multiple animation frames, not just a syntax
+    check — which caught three real bugs before they ever reached this
+    file: a menu row's label/value separator baked into trailing spaces on
+    table entries (moved into the shared row-drawing function instead), a
+    toast not drawing at all while the menu was open (fixed by drawing it
+    unconditionally at the end of the page-dispatch function regardless of
+    branch), and a WiFi-client-count buffer sized dangerously close to
+    overflowing on `"255"`.
+  - **~9 rounds of concrete visual feedback**, each against a screenshot
+    (sometimes annotated) of the mockup, each acted on before the next
+    round: dropped the persistent footer key-hint line and the idle
+    heartbeat blink; added GPS-fix/heap-health status dots to the header
+    plus 5px clearance from the battery reading; moved the active profile
+    name and page position out of the header into a new footer status
+    line (profile left-anchored, position right-anchored); widened and
+    repositioned the right-hand column on RADIO/CHANNEL/GPS/SYSTEM so all
+    four land at the same x=170 start GPS's sats/qual column already used;
+    redesigned CHANNEL (a frequency-position bar against the SX1262's real
+    868–923MHz tuned range, DESIGN.md §1, plus a rough time-on-air
+    estimate) after the first cut read as "cluttered and top-heavy";
+    redesigned GPS's constellation counts as 4 small bars in the right
+    column instead of a dim digit-by-digit text line; widened the gap
+    between SYSTEM's two right-hand columns and added a heap-fraction bar
+    under "k heap" (against the ESP32-S3FN8's real ~512KB no-PSRAM SRAM
+    ceiling, same upper-bound-for-context framing as the frequency bar).
+  - **The regroup that triggered BRAND.md's revision.** Mid-review the user
+    named a modeling problem directly: "Mesh Trace is a mode, the profile
+    selector is a sub of mesh trace as we select what we are tracing."
+    First implemented in the mockup as a menu-*structure* change only
+    (Profile becomes a GROUP row opening onto Meshtastic/MeshCore), while
+    flagging that "Mesh Trace"/"Core Trace" were still kept as two parallel
+    BRAND.md names rather than one actually becoming the parent of the
+    other — and asking whether the user meant the deeper rename too.
+    Confirmed: **"Mesh Trace becomes a [family]... we select what profile
+    we are sniffing."** BRAND.md's Interface Naming table revised the same
+    session (own "Revised 2026-08-25" note there) — Meshtastic and MeshCore
+    collapse into one family name, "Core Trace" is retired outright, Open
+    Trace/Spectrum Trace are unaffected (each is a single profile with no
+    sub-choice). Deliberately **not** called a "mode" in docs/code despite
+    being a natural word for it in conversation — HOME_LISTEN/
+    DISCOVERY_SWEEP/ENERGY_SWEEP already own "mode" (Watch/Probe/Sweep) for
+    the radio's own operating state, a different axis from which network
+    family is being traced; overloading the word would make the two
+    impossible to talk about separately.
+  - **"Green lit to implement"** — the user's explicit go-ahead once the
+    mockup reached this state. Real changes, this session: `BRAND.md`
+    (table + revision note), `ui_labels.h` (flat `uiProfileLabel()` ->
+    `uiTraceModeLabel()`/`uiSubProfileLabel()`/`uiActiveProfileLabel()`,
+    `test_ui_labels` rewritten to match), `ui_menu.h`'s `MenuAction` enum
+    (`PROFILE_SWITCH` -> `SELECT_MESHTASTIC`/`SELECT_MESHCORE`,
+    `test_ui_menu` updated — a synthetic DIRECT-root fixture added since no
+    production root row is DIRECT any more, to keep that branch of
+    `MenuState` covered), `channel_plans.h`'s `nextHomeListenProfile()`
+    deleted as dead code (nothing calls a cycle-toggle once the menu picks
+    a target profile directly), and the full `ui_task.cpp`/`.h` port
+    detailed in the Phase 6 checklist entry above. Two things had no
+    real-hardware equivalent and were adapted rather than copied literally:
+    the mockup's alpha-blended RX-pulse decay became a binary hold-then-
+    revert (RGB565/Arduino_GFX has no cheap alpha blending), and the
+    toast's slide-in/countdown-bar animation — which needed no alpha at
+    all, just per-frame rectangle geometry — is driven by a bounded ~60ms
+    fast-redraw burst for its own ~1.4s lifetime rather than a continuous
+    animation loop.
+  - **Design artifact preserved as a living reference**, per the user's
+    explicit request ("save your rolling preview artifact as a design
+    document that we can build on and use later when it comes to
+    enhancements"): republished with its before/after comparison intact
+    and its own proposed-vs-committed sections now describing v0.6.1's
+    actual shipped state, so it stays useful for scoping Phase 7/8's menu
+    additions without needing a fresh mockup built from scratch each time.
+    Link: https://claude.ai/code/artifact/84eb5187-9f26-4fc1-8b6b-39f9969a86ea
+- **2026-08-25 — v0.6.1's "Mesh Trace" branding walked back to plain
+  "Profile" (v0.6.2), same day.** Direct continuation of the entry above —
+  the user reviewed the shipped v0.6.1 naming and pushed back: "I'm
+  thinking the trace naming doesn't make sense. We kind of have a sniffer
+  named trace that sniffs different protocols that are really LoRa
+  presets." The real problem, once named: "Trace" was doing three jobs at
+  once — the product name (LoRaTrace), a per-profile brand (Mesh Trace/
+  Open Trace/Spectrum Trace), and a saved-session noun (a Trace) — and
+  branding every profile its own "___ Trace" name made four settings on
+  one receiver read like four separate products.
+  - **Proposed fix, confirmed before implementing:** drop per-profile
+    branding entirely; call the axis **Profile** — not a new coinage,
+    already this doc's own preferred word ("Voice and Tone": "'Profile'
+    instead of 'attack mode'") from before the Trace-branding detour ever
+    started. Presets get their real, technical names instead of marketed
+    ones: **Meshtastic**, **MeshCore**, **Reticulum**, and **Spectrum**
+    (short for General Exploration, the one profile without its own
+    proper noun). **Trace goes back to meaning exactly one thing: a saved
+    session or run.** Menu shape barely moves — still two root groups,
+    just the group label changes from "Mesh Trace" to "Profile," and
+    Reticulum/Spectrum will slot in as two more flat entries in that same
+    group once Phase 8 gives them a real channel table, no new nesting
+    decision needed.
+  - **Real changes:** `BRAND.md` (Interface Naming section rewritten with
+    a "Revised again 2026-08-25" note — Mesh Trace/Open Trace/Spectrum
+    Trace all retired, replaced by the flat Profile table above), a
+    rewritten `ui_labels.h` (`uiTraceModeLabel()`/`uiSubProfileLabel()`/
+    `uiActiveProfileLabel()` collapsed back into one flat
+    `uiProfileLabel()`), `ui_task.cpp`'s `ROOT_ITEMS` (root row 0 relabeled
+    "Profile," `PROFILE_GROUP_ITEMS` renamed from `MESH_TRACE_GROUP_ITEMS`,
+    `drawFooterStatus()`/`drawMenuRoot()`/`fireMenuAction()` simplified to
+    the flat label — no more family/sub-profile composition, since there's
+    no branded family left to compose from), `ui_menu.h`'s comments (the
+    `MenuAction` enum itself — `SELECT_MESHTASTIC`/`SELECT_MESHCORE` —
+    didn't need to change, only what the root row is called), and
+    `test_ui_labels`/`test_ui_menu` updated to match. Verified for real:
+    `pio test -e native` **88/88**, `pio run -e cardputer-adv` **SUCCESS**
+    (RAM 50304/327680B, flash 957645/3342336B) — see the Phase 6 checklist
+    entry above for the updated numbers.
+  - **Design artifact corrected again**, same republish workflow as the
+    entry above: `drawMenuRootV2`'s root-row label, `drawProfileGroupV2`,
+    every preset's `profile` field, and the intro/compare-section prose all
+    walked back from "Mesh Trace: Meshtastic" composition to a plain
+    "Meshtastic" — verified with the same Node.js DOM-stub harness
+    (`dom_harness.js`) before republishing, no throws. The genuinely
+    historical bits (the Phase-5 `render()`/`drawLegacy*` functions, and
+    the `systemBeforeState` snapshot that predates even v0.6.0) were left
+    untouched, same "don't rewrite frozen history" rule this file has
+    followed since the before/after section was first built. Same link as
+    above, still the living reference for Phase 7/8.

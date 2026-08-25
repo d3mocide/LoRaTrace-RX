@@ -96,18 +96,42 @@ The compact mark can be **LTRX**, or a symbol derived from a route line, map pin
 
 UI labels can extend the brand while staying readable on-device.
 
-Suggested profile and mode naming:
+**Revised again 2026-08-25**, same day, walking back the revision directly
+above this note: branding every profile as its own "___ Trace" name (Mesh
+Trace, Core Trace, Open Trace, Spectrum Trace) overloaded "Trace" three
+ways at once — the product name (LoRaTrace), a per-profile brand, and a
+saved session — and made four settings on one sniffer read like four
+separate tools. LoRaTrace is one receiver; Meshtastic/MeshCore/Reticulum/
+General Exploration are LoRa presets it can be pointed at, not sibling
+products. **Profile** replaces all four "___ Trace" names as the one word
+for that axis — not a new coinage, it's already this doc's own preferred
+term ("Voice and Tone" below: "'Profile' instead of 'attack mode'"); the
+Trace-branding detour was overriding vocabulary this doc already had.
+Presets keep their real, technical names instead of marketed ones —
+**Meshtastic**, **MeshCore**, **Reticulum**, and **Spectrum** (short for
+General Exploration, the one profile without its own proper noun to fall
+back on). **Trace now means exactly one thing: a saved session or run** —
+"start a Trace," "your saved Traces" — the meaning it always had underneath
+the branding, now the only one left standing.
 
 | Design concept | UI label |
 |---|---|
-| Meshtastic profile | Mesh Trace |
-| MeshCore profile | Core Trace |
-| Reticulum profile | Open Trace |
-| General exploration profile | Spectrum Trace |
+| Profile selector (on-device menu group) | Profile |
+| — Meshtastic profile | Meshtastic |
+| — MeshCore profile | MeshCore |
+| — Reticulum profile | Reticulum |
+| — General Exploration profile | Spectrum |
 | HOME_LISTEN | Watch |
 | DISCOVERY_SWEEP | Probe |
 | ENERGY_SWEEP | Sweep |
 | Saved session or run | Trace |
+
+"Profile" and "mode" stay two different axes, same reasoning as before this
+revision: HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP own "mode" (Watch/Probe/
+Sweep) for what the radio is currently doing; Profile is which LoRa preset
+it's doing that with. A persistent status line showing both composes them
+plainly — "Meshtastic," "Watch" — no combined label needed now that neither
+side carries brand text of its own.
 
 These labels align well with the project name and keep the interface compact for a small embedded display.
 
@@ -129,7 +153,7 @@ Example on-device screen copy:
 
 ```text
 LoRaTrace RX
-PROFILE  Spectrum Trace
+PROFILE  Spectrum
 MODE     Sweep
 GPS      45.5231, -122.6765
 EVENTS   0142
