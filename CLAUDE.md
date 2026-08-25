@@ -682,6 +682,32 @@ two-constant value change). `pio test -e native` **90/90** unaffected.
 every boot-mark round; next bench pass should confirm the arcs now read
 as a right-facing signal fan on the actual panel.
 
+**2026-08-25 (even later still) — v0.6.7: the trace flourish was erasing
+part of the pole/diagonal-foot on every animation frame.** Operator
+screenshot (from the corrected-arcs build, not a blurry phone photo this
+time — a clean render, so this one was a real bug, not a JPEG-enhancement
+false positive like the "black box") showed a solid black gap partway
+down the pole, with only the diagonal foot's tail surviving below it —
+same symptom the operator said was also visible in last session's HTML
+mockup. Root cause: `drawSignalTraceFrame()`'s per-frame band clear
+(`fillRect(0, ..., TFT_PANEL_WIDTH, ...)`) cleared the **full panel
+width**, not just the trace's own drawing region (`TRACE_X0` to
+`TRACE_X1`, i.e. x=39 to 236) — but the diagonal-foot segment and the
+pole's own tail (drawn once, earlier, at x=6-14) physically sit inside
+that same horizontal y-band (y≈101-123). Every one of the 7 animation
+frames re-clearing x=0-240 wiped a bit more of them, and since nothing
+ever redraws in x<39, the final frame left that region flat black. Fix:
+clip the band-clear to `[TRACE_X0, TRACE_X1)` — the exact x-range the
+trace pattern itself draws in — since nothing else the trace owns lives
+outside that range and nothing needs re-clearing there.
+Simulated the fix (pole/path/arcs/trace, all 7 frames, faithfully
+replicating the real draw calls) before shipping: the pole and diagonal
+foot now render fully intact and continuous end to end. `pio run -e
+cardputer-adv` **SUCCESS**, RAM/flash byte-identical to v0.6.6
+(50332/327680B, 969529/3342336B) — same call, narrower bounds. `pio test
+-e native` **90/90** unaffected. **Not yet re-confirmed on real
+hardware** — same standing caveat as every boot-mark round.
+
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.

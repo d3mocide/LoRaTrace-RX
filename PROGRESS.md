@@ -3973,3 +3973,56 @@ above) — remaining items are follow-through, in the order it's worth doing.
     fan on the actual ST7789V2, not just in this session's simulation.
   - **Version: v0.6.5 -> v0.6.6.** PATCH-level — a correctness fix to
     already-shipped boot-mark geometry, no new build-order scope.
+- **2026-08-25 (even later still) — v0.6.7: the signal-trace flourish was
+  erasing the pole/diagonal-foot on every animation frame.** Operator
+  screenshot of the corrected-arcs build showed a solid black gap
+  partway down the pole, with only the diagonal foot's tail surviving
+  below it — reported as also visible in last session's HTML mockup.
+  Unlike the "black box" report chased down in the v0.6.6 entry above,
+  this one was a clean render (not a compressed phone photo), so there
+  was no enhancement artifact to rule out — it needed tracing through the
+  actual draw calls instead.
+  - **Root cause:** `drawSignalTraceFrame()` (`main.cpp`) clears a
+    horizontal band before drawing each of the trace's 7 animation
+    frames — `fillRect(0, TRACE_Y - TRACE_AMP - 2, TFT_PANEL_WIDTH,
+    TRACE_AMP * 2 + 4, SPLASH_BG)`. That's the **full panel width**
+    (x=0-240), not the trace's own drawing region (`TRACE_X0` to
+    `TRACE_X1`, i.e. x=39-236). The diagonal-foot path segment
+    (`MARK_PATH_X0/Y0` at (6,130) to `MARK_PATH_X1/Y1` at (14,108)) and
+    the pole's own tail (the vertical run down to y=108) are drawn once,
+    earlier in `playBootMark()`, and physically fall inside this exact
+    y-band (`TRACE_Y=112 ± TRACE_AMP=9`, plus 2px padding — y≈101 to
+    123) at x=6-14, well left of `TRACE_X0=39`. Every one of the 7 frames
+    re-clearing x=0-240 wiped a bit more of that already-drawn artwork,
+    and since nothing in `drawSignalTraceFrame()` ever redraws x<39,
+    the final frame left that region flat black — a solid gap between
+    the visible upper pole and the surviving tail of the foot (the part
+    of the foot below y=123, outside the band). The round 4/5 comment
+    on that line ("leaving the mark/wordmark above untouched") was true
+    as far as it went — the arcs and wordmark are well above `TRACE_Y`
+    — but never accounted for the L-path's own bottom segments dipping
+    into the same y-range.
+  - **The fix:** clip the band-clear to `[TRACE_X0, TRACE_X1)` — the
+    exact x-range the trace pattern itself ever draws in —
+    `fillRect(TRACE_X0, TRACE_Y - TRACE_AMP - 2, TRACE_X1 - TRACE_X0,
+    TRACE_AMP * 2 + 4, SPLASH_BG)`. Nothing the trace owns lives outside
+    that x-range, and nothing needs re-clearing there since the pole/foot
+    are drawn exactly once, before the animation loop even starts — no
+    reason to keep touching x<39 on every frame.
+  - **Verification:** simulated the full sequence (path segments, all 3
+    arcs at the corrected angles, all 7 trace frames) with the same
+    ported-to-Python draw logic used for the v0.6.6 arc fix, faithfully
+    replicating `drawLine`/`fillRect`/the arc rasterizer's real behavior
+    rather than just reasoning about it — confirmed the pole and
+    diagonal foot now render fully intact and continuous end to end, with
+    the trace band correctly confined to its own region. `pio run -e
+    cardputer-adv` **SUCCESS**, RAM/flash **byte-identical** to v0.6.6
+    (50332/327680B, 969529/3342336B) — same single `fillRect()` call,
+    narrower bounds, no new code. `pio test -e native` **90/90**
+    unaffected (`main.cpp` isn't part of the host-native build). **Not
+    yet re-confirmed on real hardware** — same standing caveat as every
+    boot-mark round; next bench pass should confirm the full mark (path,
+    arcs, and trace together) renders clean start to finish on the actual
+    panel, not just in simulation.
+  - **Version: v0.6.6 -> v0.6.7.** PATCH-level — a correctness fix to
+    already-shipped boot-mark geometry, no new build-order scope.

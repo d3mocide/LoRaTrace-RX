@@ -214,7 +214,15 @@ constexpr uint16_t SPLASH_GREEN_DIM = 0x2AC8;
 void drawSignalTraceFrame(uint8_t frame) {
     // Band clear, not a full-panel redraw — avoids trailing garbage from
     // the previous frame while leaving the mark/wordmark above untouched.
-    tft->fillRect(0, TRACE_Y - TRACE_AMP - 2, TFT_PANEL_WIDTH, TRACE_AMP * 2 + 4, SPLASH_BG);
+    // Clipped to [TRACE_X0, TRACE_X1), the exact x-range the trace itself
+    // draws in — NOT the full panel width (bug found 2026-08-25, v0.6.7):
+    // the diagonal-foot path segment and the pole's own tail (drawn once,
+    // earlier in playBootMark(), at x < TRACE_X0) physically sit inside
+    // this same y-band, so a full-width clear here wiped a little more of
+    // them on every one of the 7 animation frames, and nothing ever
+    // redrew them — left a solid black gap where the lower pole/foot used
+    // to be, with only the foot's tail (below the band) surviving.
+    tft->fillRect(TRACE_X0, TRACE_Y - TRACE_AMP - 2, TRACE_X1 - TRACE_X0, TRACE_AMP * 2 + 4, SPLASH_BG);
 
     int16_t prevX = TRACE_X0;
     int16_t prevY = TRACE_Y + TRACE_PATTERN[frame % TRACE_PATTERN_LEN];
