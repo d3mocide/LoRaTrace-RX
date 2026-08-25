@@ -28,14 +28,16 @@
 //     backtick/ESC key opens the menu at its root; Enter is a no-op (no
 //     menu is open yet to act on).
 //   - **Menu root**: the same move keys move a highlighted root row; Enter
-//     either fires a DIRECT row's action immediately (e.g. profile switch)
-//     or opens a GROUP row's sub-list; the backtick/ESC key closes the menu
-//     back to the carousel. Digit keys are ignored here, same as Phase 5.
-//   - **Menu group** (inside a GROUP row, e.g. "System"): the same move
-//     keys move a highlighted item within the group; Enter fires it (WiFi
-//     toggle, Debug toggle — the same radio_task.h/wifi_task.h/
-//     logger_task.h calls Phase 3/4/5 already made); the backtick/ESC key
-//     returns to the menu root, not all the way to the carousel.
+//     opens a GROUP row's sub-list (both root rows are groups now — see
+//     ROOT_ITEMS in ui_task.cpp and BRAND.md's 2026-08-25 "Mesh Trace is a
+//     group" revision); the backtick/ESC key closes the menu back to the
+//     carousel. Digit keys are ignored here, same as Phase 5.
+//   - **Menu group** (inside a GROUP row, "Mesh Trace" or "System"): the
+//     same move keys move a highlighted item within the group; Enter fires
+//     it (a direct profile switch to Meshtastic/MeshCore, or the WiFi/Debug
+//     toggles — the same radio_task.h/wifi_task.h/logger_task.h calls
+//     Phase 3/4/5 already made); the backtick/ESC key returns to the menu
+//     root, not all the way to the carousel.
 // A toast overlay (ui_task.cpp's showToast()) confirms whatever action just
 // fired, independent of which page/menu level is on screen afterward.
 // Deliberately not a general keymap or text-entry UI — see keyboard.h for
@@ -51,13 +53,15 @@
 // deliberate: RADIO first because it's the reason the device exists,
 // CHANNEL right after it since it's RADIO's own RF detail (the actual
 // active freq/SF/BW/CR/sync word — added Phase 5, previously visible only
-// over Serial or the web UI), GPS/SYSTEM/WIFI unchanged after.
+// over Serial or the web UI), GPS/SYSTEM unchanged after. WIFI is gone as
+// its own page (Phase 6 UI redesign, 2026-08-25) — folded into SYSTEM as a
+// fourth stat block, since AP-on/off plus client count didn't need a whole
+// carousel slot of its own once SYSTEM had room for a 2x2 grid.
 enum class UiPage : uint8_t {
     RADIO = 0,
     CHANNEL,
     GPS,
     SYSTEM,
-    WIFI,
     COUNT,
 };
 

@@ -40,25 +40,25 @@ bool keyboardReady = false;
 UiPage page = UiPage::RADIO;
 uint32_t lastPageChange = 0;
 
-// Phase 6: the grouped menu (ui_menu.h) replaces Phase 5's flat, fixed-size
-// list — see ui_menu.h's own header comment for why. "Carousel mode" is now
-// simply !menu.isOpen(), so this file no longer tracks a separate UiMode
-// enum the way Phase 5 did; menu.isOpen()/menu.level() are the single
-// source of truth for whether the carousel or the menu is on screen.
-//
-// Root table: "Profile" is a DIRECT row (cycles the mission profile
-// immediately, same action Phase 3/4 built); "System" is a GROUP holding
-// the WiFi and Debug toggles Phase 3/Phase-5-bench-day added. Two root rows
-// is not a hardcoded ceiling — DISCOVERY_SWEEP (Phase 7) and ENERGY_SWEEP
-// (Phase 8) each get to add their own row (or their own group) here without
-// touching MenuState itself, which is the whole point of this redesign
-// (ROADMAP.md Phase 6, PROGRESS.md 2026-08-25 Decisions log).
+// Phase 6 root table, revised 2026-08-25 (BRAND.md's "Mesh Trace is a
+// profile family" note): both root rows are GROUP now. "Mesh Trace" opens
+// onto its two sub-profiles (Meshtastic, MeshCore) instead of cycling one
+// at a time on Enter the way Phase 4/5 did; "System" still holds the
+// WiFi/Debug toggles Phase 3/Phase-5-bench-day added. Two root rows is not
+// a hardcoded ceiling — DISCOVERY_SWEEP (Phase 7) / ENERGY_SWEEP (Phase 8)
+// each get their own row or group here without touching MenuState itself,
+// which is the whole point of this redesign (ROADMAP.md Phase 6,
+// PROGRESS.md 2026-08-25 Decisions log).
+constexpr MenuEntry MESH_TRACE_GROUP_ITEMS[] = {
+    {"Meshtastic", MenuAction::SELECT_MESHTASTIC},
+    {"MeshCore", MenuAction::SELECT_MESHCORE},
+};
 constexpr MenuEntry SYSTEM_GROUP_ITEMS[] = {
     {"WiFi", MenuAction::WIFI_TOGGLE},
     {"Debug", MenuAction::DEBUG_TOGGLE},
 };
 constexpr RootEntry ROOT_ITEMS[] = {
-    {"Profile", RootKind::DIRECT, MenuAction::PROFILE_SWITCH, nullptr, 0},
+    {"Mesh Trace", RootKind::GROUP, MenuAction::NONE, MESH_TRACE_GROUP_ITEMS, 2},
     {"System", RootKind::GROUP, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 2},
 };
 constexpr uint8_t ROOT_COUNT = 2;
@@ -66,16 +66,16 @@ MenuState menu(ROOT_ITEMS, ROOT_COUNT);
 
 // Toast layer (Phase 6): a brief overlay message for feedback that isn't
 // tied to whichever menu row happens to be highlighted — e.g. confirming a
-// toggle fired right before BACK leaves the menu, or (Phase 7+) a sweep
-// hit landing while some other carousel page is on screen. No canvas/
-// framebuffer involved (this project draws direct-to-panel, unlike
-// M5PORKCHOP's M5Canvas-based compositing — DESIGN.md §1's no-framebuffer
-// rule stays intact): the only cost is this static buffer, not a dynamic
-// allocation, so there's no heap number to gate behind the way WiFi's AP
-// needed one.
-char toastMsg[40] = {0};
+// toggle fired right before BACK leaves the menu. No canvas/framebuffer
+// involved (this project draws direct-to-panel — DESIGN.md §1's
+// no-framebuffer rule stays intact): the only cost is this static buffer,
+// not a dynamic allocation, so there's no heap number to gate behind the
+// way WiFi's AP needed one.
+char toastMsg[48] = {0};
 uint32_t toastShownAt = 0;
 constexpr uint32_t TOAST_DURATION_MS = 1400;
+constexpr uint32_t TOAST_SLIDE_MS = 150;
+constexpr int16_t TOAST_H = 16;
 
 void showToast(const char *msg) {
     strncpy(toastMsg, msg, sizeof(toastMsg) - 1);
@@ -87,10 +87,31 @@ bool toastActive() {
     return toastMsg[0] != '\0' && (millis() - toastShownAt) < TOAST_DURATION_MS;
 }
 
+// RX activity pulse (Phase 6 UI redesign): a brief, event-driven flash on
+// the header's third status dot and a matching flash line on RADIO,
+// replacing the old idle heartbeat blink — that only ever proved the UI
+// task's own loop was alive, not that anything was actually being heard.
+// Binary hold-then-revert, not the alpha-blended decay the design mockup
+// used: Arduino_GFX/RGB565 has no cheap alpha blending, so "recently
+// active" is a solid color held for RX_PULSE_MS and then reverted, rather
+// than a fading glow.
+uint32_t rxPulseUntil = 0;
+constexpr uint32_t RX_PULSE_MS = 220;
+
+bool rxPulseActive() {
+    return millis() < rxPulseUntil;
+}
+
 // Without a keyboard the pages rotate on their own — a device stuck on one
 // page during a multi-hour field test is worse than one that cycles.
 constexpr uint32_t AUTO_ADVANCE_MS = 8000;
+// Idle redraw cadence (battery/heartbeat-equivalent staleness guard).
 constexpr uint32_t REDRAW_MS = 1000;
+// Redraw cadence while the toast slide/countdown or the RX pulse is
+// actively animating — a bounded burst, not a continuous animation loop:
+// it only runs for TOAST_DURATION_MS after a toast fires, or RX_PULSE_MS
+// after a detection, then falls back to REDRAW_MS.
+constexpr uint32_t FAST_REDRAW_MS = 60;
 
 // 240x135 at rotation 1. Text size 1 is 6x8px; size 2 is 12x16px.
 constexpr int16_t HEADER_H = 12;
@@ -107,7 +128,6 @@ const char *pageName(UiPage p) {
         case UiPage::CHANNEL: return "CHANNEL";
         case UiPage::GPS: return "GPS";
         case UiPage::SYSTEM: return "SYSTEM";
-        case UiPage::WIFI: return "WIFI";
         default: return "?";
     }
 }
@@ -148,15 +168,24 @@ void drawBattery() {
     if (fill > 0) tft->fillRect(x + 1, y + 1, fill, h - 2, colour);
 }
 
-// Blinking dot in the header. Carried over from the Phase 1 splash for the
-// same reason it existed there: on a quiet channel every number on screen
-// can sit unchanged for minutes, so a healthy idle device and a wedged one
-// look identical without it. This ticks only from the UI task's own loop,
-// so it freezes exactly when something is actually wrong.
-void drawHeartbeat() {
-    static bool on = false;
-    on = !on;
-    tft->fillCircle(tft->width() - 60, 6, 2, on ? COL_DIM : COL_BG);
+// GPS-fix header dot. Reads with a zero-tick (non-blocking) mutex try and
+// keeps the last known color when the mutex is busy, rather than blocking
+// — drawHeader() runs at FAST_REDRAW_MS during an active toast/pulse, and
+// a blocking wait at that cadence would add needless mutex pressure for a
+// dot that only needs to be roughly current, not per-frame exact.
+uint16_t gpsStatusColour() {
+    static uint16_t cached = COL_DIM;
+    GpsFix fix;
+    if (gpsGetFix(fix, 0)) {
+        cached = fix.has_position ? COL_GOOD : (fix.sats_in_view > 0 ? COL_WARN : COL_BAD);
+    }
+    return cached;
+}
+
+// Heap-health header dot — same threshold drawSystemPage() already colors
+// "k heap" by, just always visible instead of only on its own page.
+uint16_t heapStatusColour() {
+    return ESP.getFreeHeap() > 100000 ? COL_GOOD : COL_WARN;
 }
 
 void drawHeader() {
@@ -174,38 +203,57 @@ void drawHeader() {
             tft->print(" > ");
             tft->print(menu.currentRoot().label);
         }
-        // Profile name deliberately omitted here (unlike the carousel
-        // branch below): BRAND.md's longer labels ("Spectrum Trace" vs.
-        // the old "general") made the combined header text run close to
-        // the battery indicator's left edge, and the active profile is
-        // already visible on the root menu's own "Profile" row.
     } else {
+        // Page name only — profile and page position moved to the footer
+        // status line (drawFooterStatus() below) so this text never
+        // crowds the status-dot cluster or the battery reading on either
+        // side of it (bench feedback, PROGRESS.md 2026-08-25 Decisions
+        // log).
         tft->print(pageName(page));
-        // Page position, so it's obvious more pages exist.
-        tft->setTextColor(COL_DIM, COL_BG);
-        tft->print(" ");
-        tft->print((uint8_t)page + 1);
-        tft->print('/');
-        tft->print((uint8_t)UiPage::COUNT);
-
-        // Active mission profile, using BRAND.md's on-device label
-        // (ui_labels.h) rather than the raw internal/logged identifier —
-        // whatever's on screen, an operator needs this to interpret it.
-        tft->print(' ');
-        tft->print(uiProfileLabel(radioActiveProfile()));
     }
 
     drawBattery();
-    drawHeartbeat();
+
+    // Status dot cluster (Phase 6): GPS fix state, heap health, and RX
+    // activity, always visible from any page instead of only their own
+    // dedicated one. 5px clear of the battery reading (bench feedback) —
+    // replaces the old idle heartbeat blink entirely.
+    tft->fillCircle(157, 6, 2, gpsStatusColour());
+    tft->fillCircle(166, 6, 2, heapStatusColour());
+    tft->fillCircle(175, 6, 2, rxPulseActive() ? COL_GOOD : COL_DIM);
+
     tft->drawFastHLine(0, HEADER_H, tft->width(), COL_DIM);
+}
+
+// Persistent status line in the footer band (Phase 6) — profile
+// left-anchored, page position right-anchored. Carousel only: the menu
+// already shows the active profile on its own "Mesh Trace" root row, and
+// the header breadcrumb already says which group is open. Drawn before
+// drawToast() so a toast simply paints over it for its duration and this
+// reappears once the toast clears.
+void drawFooterStatus() {
+    if (menu.isOpen()) return;
+    const int16_t y = tft->height() - 10;
+    tft->setTextSize(1);
+    tft->setTextColor(COL_DIM, COL_BG);
+
+    char profileBuf[32];
+    uiActiveProfileLabel(radioActiveProfile(), profileBuf, sizeof(profileBuf));
+    tft->setCursor(2, y);
+    tft->print(profileBuf);
+
+    char posBuf[8];
+    snprintf(posBuf, sizeof(posBuf), "%u/%u", (unsigned)page + 1, (unsigned)UiPage::COUNT);
+    tft->setCursor(tft->width() - (int16_t)strlen(posBuf) * 6 - 2, y);
+    tft->print(posBuf);
 }
 
 // A small "label above value" block, used for the secondary/context column
 // every redesigned page below carries alongside its primary left-column
 // numbers — Phase 6's answer to the old single-column layout's unused right
 // half (PROGRESS.md 2026-08-25 Decisions log). One shared helper instead of
-// each page inventing its own right-column formatting, since three-plus
-// pages now do this.
+// each page inventing its own right-column formatting, since every page
+// now does this.
 void statBlock(int16_t x, int16_t y, const char *label, const char *value, uint16_t valueColour = COL_FG) {
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
@@ -230,6 +278,12 @@ void drawRadioPage() {
     tft->setCursor(2, HEADER_H + 26);
     tft->print("log ");
     tft->print(loggerRowsWritten());
+    // RX activity pulse — solid flash under "log" while a detection was
+    // heard in the last RX_PULSE_MS; reverts on its own because drawPage()
+    // clears this whole region before every redraw.
+    if (rxPulseActive()) {
+        tft->fillRect(2, HEADER_H + 23, 58, 2, COL_GOOD);
+    }
 
     // Drops are the number that decides whether the architecture is holding
     // up under real traffic, so they get colour rather than being buried.
@@ -238,17 +292,19 @@ void drawRadioPage() {
     tft->print("drop ");
     tft->print(drops);
 
-    // Right column — health/context detail, using the width the old
-    // single-column layout left blank (PROGRESS.md 2026-08-25).
-    constexpr int16_t RIGHT_X = 132;
+    // Right column — x=170, the same start GPS's sats/qual column uses, so
+    // the right column lands in the same physical 70px-wide zone on every
+    // page instead of drifting per page (bench feedback, PROGRESS.md
+    // 2026-08-25 Decisions log).
+    constexpr int16_t RIGHT_X = 170;
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)radioCrcErrorCount());
-    statBlock(RIGHT_X, HEADER_H + 4, "crc", buf);
+    statBlock(RIGHT_X, HEADER_H + 6, "crc", buf);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)radioBusMissCount());
-    statBlock(RIGHT_X, HEADER_H + 26, "miss", buf);
-    statBlock(RIGHT_X, HEADER_H + 48, "sd", loggerSdReady() ? "ok" : "DOWN",
+    statBlock(RIGHT_X, HEADER_H + 28, "miss", buf);
+    statBlock(RIGHT_X, HEADER_H + 50, "sd", loggerSdReady() ? "ok" : "DOWN",
               loggerSdReady() ? COL_FG : COL_BAD);
     snprintf(buf, sizeof(buf), "r%u", (unsigned)loggerRunIndex());
-    statBlock(RIGHT_X, HEADER_H + 70, "run", buf);
+    statBlock(RIGHT_X, HEADER_H + 72, "run", buf);
 
     // Bottom band, full width — flush stats matter for judging whether
     // BATCH_BUF_SIZE needs retuning (DESIGN.md §8.2), not for a quick
@@ -264,12 +320,48 @@ void drawRadioPage() {
     tft->print("ms");
 }
 
+// Track + marker, not a fill bar — frequency is a *position* within the
+// module's tuned range, not a proportion of something used up (unlike
+// drawHeapBar() below). 868-923MHz is the SX1262 front end's actual tuned
+// range (DESIGN.md §1), not the full 902-928MHz US ISM band — the point is
+// showing real margin to that edge, not just an arbitrary axis.
+void drawFreqBar(int16_t x, int16_t y, int16_t w, float freqMhz) {
+    constexpr float LO = 868.0f, HI = 923.0f;
+    tft->drawFastHLine(x, y, w, COL_DIM);
+    float frac = (freqMhz - LO) / (HI - LO);
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
+    const int16_t mx = x + (int16_t)((w - 3) * frac);
+    tft->fillRect(mx, y - 3, 3, 7, COL_GOOD);
+    tft->setTextSize(1);
+    tft->setTextColor(COL_DIM, COL_BG);
+    tft->setCursor(x, y + 6);
+    tft->print((int)LO);
+    char hiBuf[8];
+    snprintf(hiBuf, sizeof(hiBuf), "%d", (int)HI);
+    tft->setCursor(x + w - (int16_t)strlen(hiBuf) * 6, y + 6);
+    tft->print(hiBuf);
+}
+
+// Rough estimate, deliberately not the full LoRa airtime spec (skips
+// explicit header/CRC/low-data-rate-optimization bits) — enough to compare
+// configs at a glance ("SF11 costs ~4x SF7 here"), not to cite as an exact
+// figure. ~36 symbols approximates a typical Meshtastic/MeshCore packet's
+// preamble + header + payload.
+uint32_t estimateTimeOnAirMs(uint8_t sf, float bwKhz) {
+    const float symbolMs = (float)(1u << sf) / (bwKhz * 1000.0f) * 1000.0f;
+    return (uint32_t)(symbolMs * 36.0f + 0.5f);
+}
+
 // Read-only RF detail behind RADIO's counters — added Phase 5 alongside the
 // menu's live profile switch, so an operator has an on-device way to
 // confirm a switch actually retuned the radio (radioActiveChannel() already
 // reflects it correctly post-switch, Phase 4) rather than trusting the
-// header text alone. Previously this was visible only over Serial or the
-// web UI's /api/config.
+// header text alone. Spread down the full page height instead of clustered
+// under the header (Phase 6): the previous layout packed freq/SF-BW/bar/
+// CR-sync into the top ~70px and left the bottom third empty, which read as
+// top-heavy and cluttered on top of that (PROGRESS.md 2026-08-25 Decisions
+// log).
 void drawChannelPage() {
     const ChannelParams ch = radioActiveChannel();
 
@@ -279,25 +371,56 @@ void drawChannelPage() {
     tft->print(ch.freq_mhz, 3);
     tft->print(" MHz");
 
-    tft->setCursor(2, HEADER_H + 28);
+    tft->setCursor(2, HEADER_H + 32);
     tft->print("SF");
     tft->print(ch.sf);
     tft->print(" BW");
     tft->print(ch.bw_khz, 1);
 
+    drawFreqBar(2, HEADER_H + 62, 108, ch.freq_mhz);
+
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
-    tft->setCursor(2, HEADER_H + 52);
+    tft->setCursor(2, HEADER_H + 94);
     tft->print("CR4/");
     tft->print(ch.cr_denom);
     tft->print("  sync 0x");
     tft->print(ch.sync_word, HEX);
 
-    // Right column — Phase 6: the radio-mode label (BRAND.md's "Watch" for
-    // HOME_LISTEN), the only one of the three mode labels with anything to
-    // name until Phase 7 (Probe) / Phase 8 (Sweep) add the other two radio
-    // states this same slot will grow into.
-    statBlock(150, HEADER_H + 6, "mode", uiModeLabelWatch());
+    // Right column — x=170, same start RADIO/GPS use. The radio-mode label
+    // (BRAND.md's "Watch" for HOME_LISTEN) is the only one of the three
+    // mode labels with anything to name until Phase 7 (Probe) / Phase 8
+    // (Sweep) add the other two radio states this same slot will grow
+    // into.
+    statBlock(170, HEADER_H + 6, "mode", uiModeLabelWatch());
+    char airtimeBuf[16];
+    snprintf(airtimeBuf, sizeof(airtimeBuf), "~%lums", (unsigned long)estimateTimeOnAirMs(ch.sf, ch.bw_khz));
+    statBlock(170, HEADER_H + 34, "airtime", airtimeBuf);
+}
+
+// 4 small bars instead of a dim "GP:12 GL:6 GA:2 BD:2" text line — same
+// per-constellation counts (fix.talkers), scannable at a glance rather than
+// read digit by digit. Runs in both fix states, same as the text line it
+// replaces (GSV sentences report in-view sats before a fix exists too).
+// Capped at 4 talkers: the right column is 70px wide (x=170..240) and 4
+// bars at a 16px pitch fit it with room to spare.
+void drawConstellationBars(int16_t x, int16_t y, int16_t h, const GpsFix &fix) {
+    if (fix.talker_count == 0) return;
+    uint16_t maxCount = 1;
+    for (uint8_t i = 0; i < fix.talker_count && i < 4; i++) {
+        if (fix.talkers[i].in_view > maxCount) maxCount = fix.talkers[i].in_view;
+    }
+    constexpr int16_t BAR_W = 12, PITCH = 16;
+    for (uint8_t i = 0; i < fix.talker_count && i < 4; i++) {
+        const int16_t bx = x + i * PITCH;
+        int16_t barH = (int16_t)((uint32_t)h * fix.talkers[i].in_view / maxCount);
+        if (barH < 1) barH = 1;
+        tft->fillRect(bx, y + h - barH, BAR_W, barH, COL_GOOD);
+        tft->setTextSize(1);
+        tft->setTextColor(COL_DIM, COL_BG);
+        tft->setCursor(bx, y + h + 3);
+        tft->print(fix.talkers[i].id);
+    }
 }
 
 void drawGpsPage() {
@@ -344,17 +467,16 @@ void drawGpsPage() {
         tft->print(fix.sats_in_view > 0 ? "acquiring, keep still" : "no sky - go outside");
     }
 
+    // Right column, under sats/qual (or under NO FIX in the no-fix branch,
+    // which otherwise left that whole side empty) — moved here from the
+    // old dim text line in the left column's open width, and other pages
+    // now share this same 170..240 zone (bench feedback, PROGRESS.md
+    // 2026-08-25 Decisions log).
+    drawConstellationBars(170, HEADER_H + 58, 14, fix);
+
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
-    tft->setCursor(2, HEADER_H + 68);
-    for (uint8_t i = 0; i < fix.talker_count && i < 5; i++) {
-        tft->print(fix.talkers[i].id);
-        tft->print(':');
-        tft->print(fix.talkers[i].in_view);
-        tft->print(' ');
-    }
-
-    tft->setCursor(2, HEADER_H + 80);
+    tft->setCursor(2, HEADER_H + 72);
     if (have && fix.has_time) {
         char ts[24];
         detectionFormatTimestamp(ts, sizeof(ts), true, fix.year, fix.month, fix.day, fix.hour,
@@ -368,6 +490,30 @@ void drawGpsPage() {
     }
 }
 
+// Outline + proportional fill, same visual language as drawBattery() above
+// — turns "312k heap" into something scannable at a glance instead of a
+// number to read and compare against 512 in your head. ~512KB is the
+// ESP32-S3FN8's total SRAM with no PSRAM (DESIGN.md §1) — an upper bound
+// for context, not a claim about free-heap-at-boot.
+void drawHeapBar(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t heapK, uint16_t colour) {
+    tft->drawRect(x, y, w, h, colour);
+    float frac = (float)heapK / 512.0f;
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
+    const int16_t fill = (int16_t)((w - 2) * frac);
+    if (fill > 0) tft->fillRect(x + 1, y + 1, fill, h - 2, colour);
+}
+
+// Merged with the old WIFI carousel page (Phase 6 UI redesign, 2026-08-25):
+// AP on/off plus client count didn't need a whole carousel slot once SYSTEM
+// had room for a 2x2 grid. SSID moved into the toast message WIFI_TOGGLE
+// fires (fireMenuAction() below) instead of living on this page, which now
+// shows only ON/OFF + client count. Reworked once already the same day
+// after the merge first shipped: the stat column sat far right of the hero
+// numbers with a wide empty gap, and dead space remained below everything.
+// Now a 2x2 grid pulled in closer to the hero column, and a heap bar fills
+// what used to be blank space under "k heap" with an actual gauge instead
+// of just relocating the same lines of text.
 void drawSystemPage() {
     char buf[16];
 
@@ -378,27 +524,40 @@ void drawSystemPage() {
     tft->print(" min");
 
     const uint32_t heap = ESP.getFreeHeap();
-    tft->setTextColor(heap > 100000 ? COL_GOOD : COL_WARN, COL_BG);
+    const uint16_t heapColour = heap > 100000 ? COL_GOOD : COL_WARN;
+    tft->setTextColor(heapColour, COL_BG);
     tft->setCursor(2, HEADER_H + 28);
     tft->print(heap / 1024);
     tft->print("k heap");
+    drawHeapBar(2, HEADER_H + 48, 108, 8, heap / 1024, heapColour);
 
-    // Right column — Phase 6: the low-water heap, battery voltage, and bus
-    // contention count moved here from the old cramped bottom-of-page
-    // stack of size-1 lines, using the width that stack never touched.
+    // Col A: x=136, clearing the heap bar's right edge (x=110) by 26px.
+    // Col B: x=205 — nudged to hold its own gap from col A rather than
+    // both columns crowding together or col B running off the panel
+    // (bench feedback, PROGRESS.md 2026-08-25 Decisions log — "205+30"
+    // for the longest value, "3.98V", is about as far right as that still
+    // fits with any margin).
     snprintf(buf, sizeof(buf), "%luk", (unsigned long)(ESP.getMinFreeHeap() / 1024));
-    statBlock(140, HEADER_H + 6, "min heap", buf);
+    statBlock(136, HEADER_H + 6, "min heap", buf);
 
     const uint32_t mv = batteryMilliVolts();
     if (mv == 0) {
-        statBlock(140, HEADER_H + 28, "batt", "unknown");
+        statBlock(205, HEADER_H + 6, "batt", "unknown");
     } else {
         snprintf(buf, sizeof(buf), "%.2fV", mv / 1000.0);
-        statBlock(140, HEADER_H + 28, "batt", buf);
+        statBlock(205, HEADER_H + 6, "batt", buf);
     }
 
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)spiBusContentionCount());
-    statBlock(140, HEADER_H + 50, "bus", buf);
+    statBlock(136, HEADER_H + 36, "bus", buf);
+
+    const bool wifiOn = wifiIsEnabled();
+    if (wifiOn) {
+        snprintf(buf, sizeof(buf), "ON %u", (unsigned)wifiClientCount());
+    } else {
+        snprintf(buf, sizeof(buf), "OFF");
+    }
+    statBlock(205, HEADER_H + 36, "wifi", buf, wifiOn ? COL_GOOD : COL_DIM);
 
     // Bottom band, full width — lower-priority context: keyboard presence,
     // health-row count (confirms the session log is actually being written
@@ -413,38 +572,6 @@ void drawSystemPage() {
 
     tft->setCursor(2, HEADER_H + 78);
     tft->print(FIRMWARE_VERSION);
-}
-
-void drawWifiPage() {
-    const bool on = wifiIsEnabled();
-
-    tft->setTextSize(2);
-    tft->setTextColor(on ? COL_GOOD : COL_DIM, COL_BG);
-    tft->setCursor(2, HEADER_H + 6);
-    tft->print(on ? "AP ON" : "AP OFF");
-
-    tft->setTextSize(1);
-    tft->setTextColor(COL_FG, COL_BG);
-    char ssid[32];
-    wifiApSsid(ssid, sizeof(ssid));
-    if (on) {
-        tft->setCursor(2, HEADER_H + 30);
-        tft->print(ssid);
-
-        // Right column — Phase 6: IP and client count moved out of the old
-        // single left column into their own block, next to the SSID rather
-        // than stacked under it.
-        statBlock(150, HEADER_H + 6, "ip", WIFI_AP_IP);
-        char buf[8];
-        snprintf(buf, sizeof(buf), "%u", (unsigned)wifiClientCount());
-        statBlock(150, HEADER_H + 28, "clients", buf);
-    } else {
-        tft->setTextColor(COL_DIM, COL_BG);
-        tft->setCursor(2, HEADER_H + 30);
-        tft->print("would be:");
-        tft->setCursor(2, HEADER_H + 42);
-        tft->print(ssid);
-    }
 }
 
 // One row of a menu list (root or group), selected or not. Selection is
@@ -468,8 +595,17 @@ void drawMenuRow(int16_t y, const char *rowLabel, const char *value, bool select
     }
 }
 
+// What a group row's value column shows. Generic over both groups (Mesh
+// Trace's sub-profiles and System's toggles) — MenuState/RootEntry are
+// data-driven on purpose (ui_menu.h), and this stays a single switch on
+// MenuAction rather than one function per group, the same way
+// drawMenuGroup() below stays one function for both.
 const char *menuEntryValue(MenuAction action) {
     switch (action) {
+        case MenuAction::SELECT_MESHTASTIC:
+            return radioActiveProfile() == MissionProfile::MESHTASTIC ? "ACTIVE" : "";
+        case MenuAction::SELECT_MESHCORE:
+            return radioActiveProfile() == MissionProfile::MESHCORE ? "ACTIVE" : "";
         case MenuAction::WIFI_TOGGLE: return wifiIsEnabled() ? "ON" : "OFF";
         case MenuAction::DEBUG_TOGGLE: return loggerDebugIsEnabled() ? "ON" : "OFF";
         default: return "";
@@ -479,11 +615,14 @@ const char *menuEntryValue(MenuAction action) {
 void drawMenuRoot() {
     for (uint8_t i = 0; i < ROOT_COUNT; i++) {
         const RootEntry &r = ROOT_ITEMS[i];
-        const char *value = "";
-        if (r.kind == RootKind::DIRECT && r.directAction == MenuAction::PROFILE_SWITCH) {
-            value = uiProfileLabel(radioActiveProfile());
-        } else if (r.kind == RootKind::GROUP) {
-            value = ">"; // affordance: this row opens a sub-list
+        char value[24];
+        if (r.groupItems == MESH_TRACE_GROUP_ITEMS) {
+            // Root row still surfaces the live sub-profile (unlike
+            // System's bare ">") so the active protocol reads without
+            // drilling into the group.
+            snprintf(value, sizeof(value), "%s >", uiSubProfileLabel(radioActiveProfile()));
+        } else {
+            snprintf(value, sizeof(value), ">");
         }
         drawMenuRow(HEADER_H + 10 + i * 24, r.label, value, menu.rootIndex() == i);
     }
@@ -507,18 +646,29 @@ void drawMenuGroup() {
     tft->print(",/. move   Enter act   ` back");
 }
 
-// Toast overlay — drawn last, on top of whatever page/menu is showing, and
-// only while active(). Placed just above the persistent footer hint rather
-// than centred, so it never covers a page's primary values.
+// Toast overlay (Phase 6) — flush-bottom band that slides up from
+// off-panel on show and carries a shrinking countdown bar along its own
+// bottom edge. Both are just per-frame rectangle geometry (no alpha
+// blending needed, unlike the design mockup's decaying RX-pulse glow),
+// driven by the bounded fast-redraw burst in uiTask() below while
+// toastActive(), not a continuous animation loop. Drawn last, on top of
+// whatever page/menu is showing.
 void drawToast() {
     if (!toastActive()) return;
-    const int16_t h = 16;
-    const int16_t y = tft->height() - HEADER_H - h - 2;
-    tft->fillRect(0, y, tft->width(), h, COL_FG);
+    const uint32_t elapsed = millis() - toastShownAt;
+    const float slideT = elapsed >= TOAST_SLIDE_MS ? 1.0f : (float)elapsed / (float)TOAST_SLIDE_MS;
+    const int16_t y = tft->height() - (int16_t)(TOAST_H * slideT);
+
+    tft->fillRect(0, y, tft->width(), TOAST_H, COL_FG);
     tft->setTextSize(1);
     tft->setTextColor(COL_BG, COL_FG);
     tft->setCursor(4, y + 4);
     tft->print(toastMsg);
+
+    float remain = 1.0f - (float)elapsed / (float)TOAST_DURATION_MS;
+    if (remain < 0.0f) remain = 0.0f;
+    const int16_t barW = (int16_t)(tft->width() * remain);
+    if (barW > 0) tft->fillRect(0, y + TOAST_H - 2, barW, 2, COL_DIM);
 }
 
 void drawPage() {
@@ -534,24 +684,15 @@ void drawPage() {
             case UiPage::CHANNEL: drawChannelPage(); break;
             case UiPage::GPS: drawGpsPage(); break;
             case UiPage::SYSTEM: drawSystemPage(); break;
-            case UiPage::WIFI: drawWifiPage(); break;
             default: break;
         }
-
-        // Persistent, page-independent hint line. "1-5 jump" matches the
-        // digit-key shortcuts, still well under the ~40-char/line budget at
-        // text size 1 on a 240px-wide panel. "` menu" (not "Enter menu")
-        // since the 2026-08-24 bench pass moved menu-open onto ESC/backtick
-        // — see the carousel branch in uiTask() below.
-        tft->setTextSize(1);
-        tft->setTextColor(COL_DIM, COL_BG);
-        tft->setCursor(2, tft->height() - 9);
-        tft->print(",/. page  1-5 jump  ` menu");
     }
 
-    // Drawn last regardless of branch, so a toast (e.g. a toggle just fired
-    // from inside the menu) is visible immediately rather than only after
-    // backing out to the carousel.
+    // Footer status (carousel only) and toast are both drawn last,
+    // regardless of branch, so a toast fired from inside the menu is
+    // visible immediately, and the footer status reappears the instant a
+    // toast clears rather than waiting on the next periodic redraw.
+    drawFooterStatus();
     drawToast();
 }
 
@@ -579,23 +720,38 @@ void jumpToPage(UiPage p) {
 // key-handling switch (see uiTask() below, where MenuState.handle()'s
 // return value is routed here instead).
 void fireMenuAction(MenuAction action) {
-    char msg[40];
+    char msg[48];
     switch (action) {
-        case MenuAction::PROFILE_SWITCH: {
+        case MenuAction::SELECT_MESHTASTIC:
+        case MenuAction::SELECT_MESHCORE: {
             // Same one-loop-iteration-of-lag caveat Phase 4/5 already
-            // documented: this queues the switch, it doesn't apply it — the
-            // header/menu still show the outgoing profile until
+            // documented: this queues the switch, it doesn't apply it —
+            // the header/menu still show the outgoing profile until
             // radio_task's own loop picks the request up, typically the
-            // next redraw tick.
-            const MissionProfile next = nextHomeListenProfile(radioActiveProfile());
-            radioRequestProfileSwitch(next);
-            snprintf(msg, sizeof(msg), "Profile: %s", uiProfileLabel(next));
+            // next redraw tick. Direct target switch now, not a cycle —
+            // picking Meshtastic vs. MeshCore is a distinct selection
+            // inside Mesh Trace's group, not "whichever one isn't active"
+            // (BRAND.md's 2026-08-25 revision).
+            const MissionProfile target = (action == MenuAction::SELECT_MESHTASTIC)
+                                               ? MissionProfile::MESHTASTIC
+                                               : MissionProfile::MESHCORE;
+            radioRequestProfileSwitch(target);
+            char profileBuf[32];
+            uiActiveProfileLabel(target, profileBuf, sizeof(profileBuf));
+            snprintf(msg, sizeof(msg), "%s", profileBuf);
             showToast(msg);
             break;
         }
         case MenuAction::WIFI_TOGGLE:
             wifiToggle();
-            showToast(wifiIsEnabled() ? "WiFi ON" : "WiFi OFF");
+            if (wifiIsEnabled()) {
+                char ssid[32];
+                wifiApSsid(ssid, sizeof(ssid));
+                snprintf(msg, sizeof(msg), "WiFi ON: %s", ssid);
+            } else {
+                snprintf(msg, sizeof(msg), "WiFi OFF");
+            }
+            showToast(msg);
             break;
         case MenuAction::DEBUG_TOGGLE:
             loggerDebugToggle();
@@ -629,10 +785,21 @@ void uiTask(void *) {
 
     uint32_t lastRedraw = millis();
     lastPageChange = lastRedraw;
+    uint32_t lastRxSeen = radioPacketCount();
+    bool wasAnimating = false;
 
     for (;;) {
         const KeyAction action = pollKeyAction();
         bool redraw = false;
+
+        // Detect new RX activity every loop, independent of whether a key
+        // was pressed — this is what actually drives the header pulse dot
+        // and RADIO's flash bar.
+        const uint32_t rxNow = radioPacketCount();
+        if (rxNow != lastRxSeen) {
+            lastRxSeen = rxNow;
+            rxPulseUntil = millis() + RX_PULSE_MS;
+        }
 
         if (!menu.isOpen()) {
             // Carousel: page navigation is this file's own concern, not
@@ -658,10 +825,10 @@ void uiTask(void *) {
             } else if (action == KeyAction::JUMP_4) {
                 jumpToPage(UiPage::SYSTEM);
                 redraw = true;
-            } else if (action == KeyAction::JUMP_5) {
-                jumpToPage(UiPage::WIFI);
-                redraw = true;
             }
+            // JUMP_5 has no target now — WIFI folded into SYSTEM (Phase 6
+            // UI redesign), so it's ignored the same way JUMP_1..5 are
+            // already ignored inside the menu.
             // SELECT (Enter) is a no-op here — bench feedback 2026-08-24
             // found opening the menu with Enter felt wrong, since Enter's
             // role inside the menu is committing the highlighted change;
@@ -675,6 +842,9 @@ void uiTask(void *) {
             redraw = true;
         }
 
+        const bool animating = (toastMsg[0] != '\0' && toastActive()) || rxPulseActive();
+        const uint32_t redrawInterval = animating ? FAST_REDRAW_MS : REDRAW_MS;
+
         if (redraw) {
             drawHeader();
             drawPage();
@@ -684,18 +854,23 @@ void uiTask(void *) {
             drawHeader();
             drawPage();
             lastRedraw = millis();
-        } else if (millis() - lastRedraw >= REDRAW_MS) {
-            drawHeader(); // battery + page indicator
+        } else if (millis() - lastRedraw >= redrawInterval) {
+            drawHeader(); // battery + status dots (+ page name/footer via drawPage)
             drawPage();
             lastRedraw = millis();
-        } else if (toastMsg[0] != '\0' && !toastActive()) {
-            // Toast just expired since the last redraw — force one more
-            // pass so its overlay actually clears rather than lingering
-            // until the next periodic REDRAW_MS tick (up to ~1s stale).
-            toastMsg[0] = '\0';
+        } else if (wasAnimating && !animating) {
+            // The toast or RX pulse just expired since the last redraw —
+            // force one more pass so its overlay actually clears rather
+            // than lingering until the next periodic REDRAW_MS tick (up to
+            // ~1s stale).
             drawHeader();
             drawPage();
             lastRedraw = millis();
+        }
+        wasAnimating = animating;
+
+        if (toastMsg[0] != '\0' && !toastActive()) {
+            toastMsg[0] = '\0';
         }
 
         // Poll rather than use the INT pin on GPIO11. At 30ms a keypress

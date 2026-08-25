@@ -96,18 +96,41 @@ The compact mark can be **LTRX**, or a symbol derived from a route line, map pin
 
 UI labels can extend the brand while staying readable on-device.
 
-Suggested profile and mode naming:
+**Revised 2026-08-25**, during the Phase 6 on-device UI redesign: Meshtastic and
+MeshCore are close enough in kind — both mesh networks, picked from the same
+menu group, switched between at the same control — that they read better as
+one branded profile family with two sub-profiles than as two competing
+top-level names. **Mesh Trace** is now that family's name; **Meshtastic** and
+**MeshCore** are its plain (unbranded) sub-profile names, selected directly
+from a "Mesh Trace" menu group rather than cycled one-at-a-time. **Core
+Trace is retired** — nothing should introduce it as a label going forward.
+Open Trace and Spectrum Trace are unaffected: Reticulum and General
+Exploration are each a single profile with no sub-choice, so they keep
+their own top-level name.
 
 | Design concept | UI label |
 |---|---|
-| Meshtastic profile | Mesh Trace |
-| MeshCore profile | Core Trace |
+| Mesh Trace profile family (Meshtastic + MeshCore) | Mesh Trace |
+| — Meshtastic sub-profile | Meshtastic |
+| — MeshCore sub-profile | MeshCore |
 | Reticulum profile | Open Trace |
 | General exploration profile | Spectrum Trace |
 | HOME_LISTEN | Watch |
 | DISCOVERY_SWEEP | Probe |
 | ENERGY_SWEEP | Sweep |
 | Saved session or run | Trace |
+
+Deliberately **not** called a "mode" in documentation or code, even though
+it's a natural word for it in conversation — HOME_LISTEN/DISCOVERY_SWEEP/
+ENERGY_SWEEP already own "mode" (Watch/Probe/Sweep) for the radio's own
+operating state, and Mesh Trace is a different axis (which network family
+is being traced, not what the radio is currently doing to trace it).
+Overloading the word would make the two impossible to talk about
+separately. Where a UI string needs to show both at once (a persistent
+status line, say), compose them explicitly rather than inventing a third
+word for the pair — e.g. "Mesh Trace: Meshtastic," a plain colon rather
+than a typographic separator, since the on-device bitmap font is ASCII
+only.
 
 These labels align well with the project name and keep the interface compact for a small embedded display.
 

@@ -30,9 +30,16 @@
 // NONE is "this row exists but selecting it does nothing on its own" — used
 // for a GROUP root row, whose SELECT opens the sub-list rather than firing
 // an action directly.
+//
+// SELECT_MESHTASTIC/SELECT_MESHCORE replace the single PROFILE_SWITCH this
+// enum used to carry (2026-08-25, BRAND.md's "Revised 2026-08-25" note):
+// "Mesh Trace" is a GROUP root row now, not a two-way cycle-on-Enter, so
+// picking a sub-profile is two distinct direct selections inside it rather
+// than one action that always means "whichever one isn't active."
 enum class MenuAction : uint8_t {
     NONE = 0,
-    PROFILE_SWITCH,
+    SELECT_MESHTASTIC,
+    SELECT_MESHCORE,
     WIFI_TOGGLE,
     DEBUG_TOGGLE,
 };

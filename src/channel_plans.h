@@ -122,18 +122,6 @@ inline ChannelParams channelParamsForProfile(MissionProfile profile) {
     }
 }
 
-// Phase 4: the operator-selected, mutually-exclusive profile switch DESIGN.md
-// §5 describes. Only two profiles currently have a HOME_LISTEN table to
-// switch between, so this is a toggle rather than a general "next" —
-// anything other than MESHCORE (including a future RETICULUM/
-// GENERAL_EXPLORATION, which don't have a table per channelParamsForProfile
-// above) lands back on MESHTASTIC rather than advancing somewhere with
-// nothing to listen on.
-inline MissionProfile nextHomeListenProfile(MissionProfile current) {
-    return current == MissionProfile::MESHTASTIC ? MissionProfile::MESHCORE
-                                                  : MissionProfile::MESHTASTIC;
-}
-
 // Per-profile SD/web overrides (config.h owns loading this from
 // /loratrace/config.txt; wifi_task.cpp owns writing it). Two independent
 // slots, not one shared ChannelParams — the whole point is that a

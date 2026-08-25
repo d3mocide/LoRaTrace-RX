@@ -256,10 +256,14 @@ on their own row.
   direct-to-panel partial-window writes, no framebuffer (this doc's
   existing ~65KB framebuffer caution still applies), just organized better.
 - **Adopt BRAND.md's on-device labels** (`Watch`/`Probe`/`Sweep` for
-  HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP; `Mesh Trace`/`Core Trace`/
-  `Open Trace`/`Spectrum Trace` for the four profiles) as the strings the
-  UI actually displays. Kept as a separate UI-label layer, not a rename of
-  the internal identifiers: `detection.h`'s `missionProfileName()` keeps
+  HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP; `Mesh Trace`/`Open Trace`/
+  `Spectrum Trace` for the four profiles, with Meshtastic/MeshCore as
+  plain sub-profile names selected inside "Mesh Trace" rather than two
+  competing top-level names — BRAND.md's Interface Naming table, revised
+  2026-08-25 mid-implementation once the menu itself became a "Mesh Trace"
+  group over "Meshtastic"/"MeshCore") as the strings the UI actually
+  displays. Kept as a separate UI-label layer, not a rename of the
+  internal identifiers: `detection.h`'s `missionProfileName()` keeps
   emitting `meshtastic`/`meshcore` into `detections.csv` exactly as every
   already-logged run expects — DESIGN.md §8's own "don't concatenate runs
   across a format change without checking the header" rule applies here

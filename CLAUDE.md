@@ -253,8 +253,9 @@ redesign now sits at Phase 6: a grouped menu (root categories opening
 sub-lists, replacing the flat list), a toast/notice layer for transient
 feedback, reorganized status pages (the current five are single-column
 text with real unused width on the 240px panel), and adoption of
-BRAND.md's on-device labels (`Watch`/`Probe`/`Sweep`, `Mesh Trace`/`Core
-Trace`/etc.) as the UI's display strings — kept separate from the
+BRAND.md's on-device labels (`Watch`/`Probe`/`Sweep`, `Mesh Trace`/`Open
+Trace`/etc. — the profile-naming table itself was revised again the same
+day, see below) as the UI's display strings — kept separate from the
 `meshtastic`/`meshcore` identifiers `detection.h` writes to
 `detections.csv`, which stay unchanged for log-format stability.
 M5PORKCHOP (github.com/0ct0sec/M5PORKCHOP, cloned read-only for reference)
@@ -264,34 +265,64 @@ guardrails already rule out. See ROADMAP.md's Phase 6 entry and
 PROGRESS.md's Decisions log for the full session.
 
 **Phase 6 (UI architecture redesign) built, not yet hardware-verified**
-(2026-08-25, v0.6.0): `ui_task.cpp` rebuilt on top of two new pure/
-host-testable headers, `ui_menu.h` (`MenuState` — the root/group grouped
-menu described above) and `ui_labels.h` (BRAND.md's profile/mode display
-strings). "Profile" is a DIRECT root row (fires the switch immediately,
-unchanged behavior from Phase 4/5); "System" is a GROUP row holding WiFi
-and Debug, the two toggles Phase 3/Phase-5-bench-day added — the same two
-levels deep this redesign's whole point was to establish before Phase 7
-(`DISCOVERY_SWEEP`) needs a third row. A toast overlay (`ui_task.cpp`'s
-`showToast()`) confirms whatever just fired, drawn on top of the carousel
-*and* the menu itself, not gated behind any measured heap number: this
-project draws direct-to-panel with no `M5Canvas`-style framebuffer
-(DESIGN.md §1), so the toast is a 40-byte static buffer, not a dynamic
-allocation — there was no RAM lever here to gate behind the way WiFi's AP
-needed one. RADIO/CHANNEL/GPS/SYSTEM/WIFI all gained a second, right-hand
-column (a shared `statBlock()` helper) using width the old single-column
-layout left blank; GPS's new column also closes a real gap the old layout
-had — satellites *used* was never shown once a fix landed, only
-satellites-in-view before one. Host-native tests added
-(`test/test_ui_menu/`, `test/test_ui_labels/`) cover `MenuState`'s
-navigation/wrap/fire behavior and every BRAND.md label lookup — **87/87
-`pio test -e native` passing**, and `pio run -e cardputer-adv` **SUCCESS**
-(static RAM 50296/327680B, flash 956797/3342336B per the build report),
-both actually run this session rather than assumed. **Not yet bench-tested
-against the real ST7789V2 panel** — the redesigned column layout's exact
-pixel positions are sourced from arithmetic against the 240x135 panel, and
-a compiling build says nothing about whether they clip or overlap on real
-glass. Same bar every other visual change in this project has shipped at
-before its own bench pass (see PROGRESS.md's Phase 6 checklist).
+(2026-08-25, first pass v0.6.0): `ui_task.cpp` rebuilt on top of two new
+pure/host-testable headers, `ui_menu.h` (`MenuState` — the root/group
+grouped menu described above) and `ui_labels.h` (BRAND.md's profile/mode
+display strings). A toast overlay confirms whatever just fired; RADIO/
+CHANNEL/GPS/SYSTEM/WIFI all gained a second, right-hand column using width
+the old single-column layout left blank. Verified with `pio test -e
+native` and `pio run -e cardputer-adv`, both actually run rather than
+assumed, but **not yet bench-tested against the real ST7789V2 panel** —
+the layout's exact pixel positions were sourced from arithmetic against
+the 240x135 panel, and a compiling build says nothing about whether they
+clip or overlap on real glass.
+
+**Phase 6 fully re-implemented the same day (v0.6.1)** after the operator
+reviewed a pixel-accurate HTML/Canvas mockup of the actual `ui_task.cpp`
+draw calls (~9 rounds of concrete visual feedback against screenshots) and
+green-lit it — a substantially larger change than v0.6.0's first pass, not
+a fix: every page was redrawn, not just the menu. Mid-review the user
+identified a modeling problem — "Mesh Trace is a mode, the profile
+selector is a sub of mesh trace" — confirmed as "Mesh Trace becomes a
+[family]... we select what profile we are sniffing," which is now
+BRAND.md's Interface Naming table (own "Revised 2026-08-25" note there):
+Meshtastic and MeshCore collapse into one family name ("Mesh Trace"),
+"Core Trace" is retired, Open Trace/Spectrum Trace are unaffected. Real
+changes: `BRAND.md` (table + revision note), `ui_labels.h` (flat
+`uiProfileLabel()` -> `uiTraceModeLabel()`/`uiSubProfileLabel()`/
+`uiActiveProfileLabel()`), `ui_menu.h`'s `MenuAction` enum
+(`PROFILE_SWITCH` -> `SELECT_MESHTASTIC`/`SELECT_MESHCORE` — both root
+rows are GROUP now, "Mesh Trace" opens onto its two sub-profiles instead
+of cycling one at a time), `channel_plans.h`'s `nextHomeListenProfile()`
+deleted as dead code, and a full `ui_task.cpp`/`.h` port: header status
+dots (GPS fix, heap health, RX activity — replacing the old idle
+heartbeat blink outright), profile/page-position moved into a new footer
+status line, a redesigned toast (flush-bottom slide-in band with a
+countdown bar, driven by a bounded ~60ms fast-redraw burst for its own
+~1.4s lifetime rather than a continuous loop), CHANNEL's frequency-position
+bar (868–923MHz, the SX1262's real tuned range, DESIGN.md §1) plus a rough
+time-on-air estimate, GPS's constellation counts as 4 bars instead of a
+text line, and WIFI folded into SYSTEM's now-2x2 grid with a heap-fraction
+bar (`UiPage::COUNT` is 4, not 5). Two things had no real-hardware
+equivalent and were adapted rather than copied literally: the mockup's
+alpha-blended RX-pulse decay became a binary hold-then-revert (RGB565/
+Arduino_GFX has no cheap alpha blending), while the toast's slide/
+countdown-bar animation needed no alpha at all — just per-frame rectangle
+geometry.
+
+Host-native tests: `test_ui_menu` grew from 11 to 13 (Mesh Trace group
+coverage), `test_ui_labels` now 7 (family/sub-profile split),
+`test_channel_plans` lost the deleted function's test — **92/92 `pio test
+-e native` passing**, and `pio run -e cardputer-adv` **SUCCESS** (static
+RAM 50304/327680B, flash 957753/3342336B per the build report), both
+actually run rather than assumed. **Still not bench-tested against the
+real ST7789V2 panel** — same bar every other visual change in this project
+has shipped at before its own bench pass, and now a bigger check than the
+v0.6.0 pass covered since every page changed (see PROGRESS.md's Phase 6
+checklist). The design mockup itself was preserved as a living reference
+per the operator's request, to build on for Phase 7/8's menu additions
+without a fresh mockup built from scratch each time:
+https://claude.ai/code/artifact/84eb5187-9f26-4fc1-8b6b-39f9969a86ea
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
