@@ -544,6 +544,27 @@ display/input subsystem, and a compiling build has never been proof glass
 renders correctly here. See PROGRESS.md's Decisions log and Phase 6
 checklist for the full session.
 
+**2026-08-25 (later still) — boot mark: BRAND.md's unbuilt logo concept
+built.** The plain-text "LoRaTrace RX" / version splash lines are now a
+procedural boot-mark animation — an L-shaped path resolving into three
+signal arcs (BRAND.md's own long-unbuilt concept), sequential arc reveal
+with an amber "lock" flash on each (chosen over a simultaneous "radar
+ping" take via a mocked-up preview, artifact link in PROGRESS.md), then
+the wordmark and version line. The diagnostic boot log underneath is
+unchanged in content, just repositioned to align under the mark's first
+arc per direct feedback on the mockup. Drawn with `Arduino_GFX`'s
+`fillArc()`/`drawArc()` (first use of either anywhere in this firmware —
+angle convention verified against the vendored source, not assumed: 0° is
+12 o'clock, clockwise), not a bitmap. `pio run -e cardputer-adv`
+**SUCCESS** (+6.0KB flash, +4B RAM — the flash number is real cost
+verified by measurement, not the smaller estimate first assumed), `pio
+test -e native` **90/90** unaffected. **Not yet bench-tested on real
+hardware** — direct-to-panel drawing on the one part of this project that
+has never gotten a layout fully right without a real bench pass. See
+PROGRESS.md's Decisions log for the mockup-review process and the real
+engineering deltas (geometry rescaled, angle convention, flash cost)
+found only by actually building it.
+
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.

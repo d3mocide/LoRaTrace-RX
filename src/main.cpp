@@ -69,10 +69,24 @@ Arduino_GFX *tft = new Arduino_ST7789(
 );
 bool displayReady = false;
 int16_t splashY = 0;
-constexpr uint16_t SPLASH_BG = 0x0000;  // RGB565 black
-constexpr uint16_t SPLASH_FG = 0xFFFF;  // RGB565 white
-constexpr uint16_t SPLASH_ERR = 0xF800; // RGB565 red
-constexpr uint8_t SPLASH_LINE_H = 10;   // px, text size 1
+// splashX starts at the old flush-left margin so a FATAL firing before
+// playBootMark() runs (or if display init itself failed) still reads
+// exactly as it always has — playBootMark() moves it in once the mark has
+// actually drawn, not before.
+int16_t splashX = 4;
+constexpr uint16_t SPLASH_BG = 0x0000;    // RGB565 black
+constexpr uint16_t SPLASH_FG = 0xFFFF;    // RGB565 white
+constexpr uint16_t SPLASH_ERR = 0xF800;   // RGB565 red
+constexpr uint8_t SPLASH_LINE_H = 10;     // px, text size 1
+// Boot-mark accent colours (2026-08-25, operator-approved concept: see the
+// "Signal Acquired" mockup). Deliberately distinct from every accent
+// already in use on-device — SPLASH_GREEN isn't ui_pages.cpp's COL_GOOD,
+// and SPLASH_AMBER isn't its COL_WARN — this mark is a one-shot boot
+// moment, not a status colour, and shouldn't borrow meaning from either.
+// Muted sage green / warm amber-gold, quantized to RGB565 from #4aa273 /
+// #deb221 respectively.
+constexpr uint16_t SPLASH_GREEN = 0x4D0E;
+constexpr uint16_t SPLASH_AMBER = 0xDD84;
 
 // Meshtastic LongFast (US) unless overridden by /loratrace/config.txt on
 // SD — see config.h/config.cpp and sd-template/loratrace/config.txt.
@@ -96,9 +110,104 @@ QueueHandle_t detectionQueue = nullptr;
 void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
     if (!displayReady) return;
     tft->setTextColor(color, SPLASH_BG);
-    tft->setCursor(4, splashY);
+    tft->setCursor(splashX, splashY);
     tft->println(msg);
     splashY += SPLASH_LINE_H;
+}
+
+// Boot mark (2026-08-25) — replaces the old plain-text "LoRaTrace RX" /
+// version lines with BRAND.md's unbuilt logo concept: an L-shaped path
+// resolving into three signal arcs. Procedural (drawLine/fillArc calls, a
+// handful of coordinate constants), not a bitmap — measured cost is
+// ~6KB flash (970441B vs. 964437B before this function existed,
+// `pio run -e cardputer-adv`), not the "a few hundred bytes" a plain
+// coordinate table would suggest: this is the first call anywhere in the
+// firmware to Arduino_GFX's fillArc()/drawArc(), so the ~6KB is mostly
+// that machinery (its float sin/cos/fmodf scanline math) linking in for
+// the first time, not a per-call cost. Still trivial against a 3.34MB
+// partition already at 29% used. RAM cost is ~4B (a few new globals) —
+// fits the same direct-to-panel, draw-once-in-setup() model the rest of
+// this splash already uses. No
+// alpha blending (RGB565 has none, same constraint ui_task's toast/RX-pulse
+// already worked around) — motion here is hard colour swaps and staged
+// reveals, not fades.
+//
+// Geometry is deliberately compact (mark + wordmark + version line fit in
+// the top ~44px) so the diagnostic log below still has the same ~90px of
+// vertical room it always had — the concept mockup used a much larger
+// mark that would have pushed the longest real boot sequence (WiFi's SSID
+// line included) off the bottom of the panel. Sourced from the approved
+// preview at https://claude.ai/code/artifact/e6e635f3-f5af-4d2a-8eab-549de61a8e20,
+// rescaled to this real budget rather than copied at its preview
+// proportions.
+//
+// Angle convention: Arduino_GFX's fillArc()/drawArc() measure degrees from
+// 12 o'clock (0°), increasing clockwise (confirmed against the vendored
+// Arduino_GFX.cpp — writeFillArcHelper's scanline math, adapted from
+// TFT_eSPI's well-known smooth-arc fill). The mockup's canvas arcs used
+// the browser canvas convention instead (0° = 3 o'clock, clockwise) — the
+// 90° constant below is exactly that conversion, not a tuned/guessed
+// offset, so the on-device arcs open the same direction (toward 3 o'clock,
+// swept between roughly 1 and 5 o'clock) as the approved preview.
+constexpr int16_t MARK_ANCHOR_X = 26;
+constexpr int16_t MARK_ANCHOR_Y = 24;
+constexpr int16_t MARK_PATH_X0 = 10, MARK_PATH_Y0 = 38; // path start (bottom)
+constexpr int16_t MARK_PATH_X1 = 10, MARK_PATH_Y1 = 28; // path elbow
+// path then runs elbow -> anchor, completing the "L".
+constexpr int16_t MARK_ARC_RADII[3] = {6, 10, 14};
+constexpr int16_t MARK_ARC_THICKNESS = 2;
+constexpr float MARK_ARC_START_DEG = 45.3f;  // canvas -44.7° + 90
+constexpr float MARK_ARC_END_DEG = 134.1f;   // canvas  44.1° + 90
+// Where the diagnostic log picks up: aligned under the first (innermost)
+// arc's rightmost edge, per direct operator feedback on the mockup ("fall
+// in line with the first signal arc") rather than the old flush-left x=4.
+constexpr int16_t MARK_LOG_X = MARK_ANCHOR_X + MARK_ARC_RADII[0];
+constexpr int16_t MARK_LOG_Y = 46;
+
+void playBootMark() {
+    if (!displayReady) return;
+
+    // L-path, drawn in two steps rather than one so it reads as traced
+    // rather than stamped — cheap motion with no per-pixel interpolation.
+    tft->drawLine(MARK_PATH_X0, MARK_PATH_Y0, MARK_PATH_X1, MARK_PATH_Y1, SPLASH_GREEN);
+    delay(180);
+    tft->drawLine(MARK_PATH_X1, MARK_PATH_Y1, MARK_ANCHOR_X, MARK_ANCHOR_Y, SPLASH_GREEN);
+    tft->fillCircle(MARK_ANCHOR_X, MARK_ANCHOR_Y, 1, SPLASH_GREEN);
+    delay(220);
+
+    // Three arcs, sequential "acquire" (Take B of the mockup, the
+    // operator's pick over the simultaneous "radar ping" take): each
+    // lands amber, holds briefly, then locks over to green — a hard
+    // colour swap, not a fade, since RGB565 has no alpha to fade through.
+    for (uint8_t i = 0; i < 3; i++) {
+        const int16_t r = MARK_ARC_RADII[i];
+        tft->fillArc(MARK_ANCHOR_X, MARK_ANCHOR_Y, r, r - MARK_ARC_THICKNESS,
+                     MARK_ARC_START_DEG, MARK_ARC_END_DEG, SPLASH_AMBER);
+        delay(140);
+        tft->fillArc(MARK_ANCHOR_X, MARK_ANCHOR_Y, r, r - MARK_ARC_THICKNESS,
+                     MARK_ARC_START_DEG, MARK_ARC_END_DEG, SPLASH_GREEN);
+        delay(i == 2 ? 200 : 120);
+    }
+
+    // Wordmark + version, beside the mark rather than above it — plain
+    // reveals (no fade, same reason as the arcs above), matching how every
+    // other line in this splash has always just appeared.
+    tft->setTextSize(2);
+    tft->setTextColor(SPLASH_FG, SPLASH_BG);
+    tft->setCursor(MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6, 14);
+    tft->print(F("LoRaTrace RX"));
+    delay(150);
+
+    tft->setTextSize(1);
+    tft->setTextColor(SPLASH_GREEN, SPLASH_BG);
+    tft->setCursor(MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6, 32);
+    tft->print(String("v") + FIRMWARE_VERSION);
+    delay(250);
+
+    // Hand off to splashLine()'s log sequence, aligned under the first arc
+    // instead of the old x=4.
+    splashX = MARK_LOG_X;
+    splashY = MARK_LOG_Y;
 }
 
 bool initDisplay() {
@@ -157,12 +266,7 @@ void setup() {
     }
 
     displayReady = initDisplay();
-    tft->setTextSize(2);
-    splashLine(F("LoRaTrace RX"));
-    splashY += SPLASH_LINE_H;
-    tft->setTextSize(1);
-    splashLine(String("v") + FIRMWARE_VERSION);
-    splashY += SPLASH_LINE_H / 2;
+    playBootMark();
 
     // P0 high: RF antenna switch AND GPS power. Fatal because both halves
     // of this device's job depend on it.

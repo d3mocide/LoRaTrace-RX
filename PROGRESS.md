@@ -3588,3 +3588,103 @@ above) — remaining items are follow-through, in the order it's worth doing.
   - **Version: unchanged, v0.6.4.** No behavior change and no new
     build-order scope — a structural cleanup pass, not a phase item or a
     functional patch.
+
+- **2026-08-25 (later still) — Boot mark: BRAND.md's unbuilt logo concept
+  finally built, replacing the plain-text boot splash.** The operator
+  asked to make the boot splash "more dynamic and fun," pointing out it
+  reads "like an old static BIOS." BRAND.md already had an unbuilt concept
+  for exactly this — "an L-shaped path that transitions into three signal
+  arcs" — but its own tone guardrails (calm, instrument-like, not a
+  "hacker toy," no neon/consumerized aesthetics) sit in real tension with
+  "fun," so that was surfaced directly via `AskUserQuestion` before
+  building anything: tone ("polished, still restrained" — chosen),
+  content (BRAND.md's own arc concept — chosen), motion ("fuller
+  sequence" — chosen), and whether to mock it up visually first before
+  touching firmware, given this project has no display simulator (yes —
+  chosen, same discipline as Phase 6's own mockup workflow).
+  - **Mockup, "Signal Acquired"** (https://claude.ai/code/artifact/e6e635f3-f5af-4d2a-8eab-549de61a8e20):
+    a canvas simulation at real 240x135 device resolution, RGB565-
+    quantized colour, two takes on the arc reveal (Take A: all three arcs
+    together, "radar ping"; Take B: arcs resolve one at a time with an
+    amber "lock" flash each, "sequential acquire"). Operator picked
+    **Take B**, with one refinement: the diagnostic log text (previously
+    flush-left at the panel's edge) should align under the mark's first
+    arc instead — implemented as `LOG_X = ANCHOR.x + ARC_RADII[0]`, both
+    in the mockup and, after, in real firmware.
+  - **Real implementation, `main.cpp`:** a new `playBootMark()` replaces
+    the two old `splashLine()` calls that used to print "LoRaTrace RX" /
+    "vX.Y.Z" as plain text. Procedural — `drawLine()`/`fillArc()`/
+    `fillCircle()` calls against a handful of coordinate constants
+    (`MARK_ANCHOR_*`, `MARK_PATH_*`, `MARK_ARC_RADII`), not a bitmap —
+    still direct-to-panel, still one-shot inside `initDisplay()`/`setup()`
+    before any task starts, same model the splash has always used; no
+    canvas, no interaction with Phase 6's flicker fix (that fix exists for
+    a *redraw loop*, and this is a short sequence that runs once). Two new
+    colours, `SPLASH_GREEN`/`SPLASH_AMBER` (0x4D0E/0xDD84), deliberately
+    distinct from `ui_pages.cpp`'s `COL_GOOD`/`COL_WARN` — a one-shot boot
+    accent shouldn't borrow meaning from an on-device status colour. No
+    alpha (RGB565 has none, same constraint the toast/RX-pulse work
+    already documented) — the amber-to-green "lock" is a hard colour
+    swap, not a fade, and the wordmark/version lines just appear, same as
+    every other line in this splash always has.
+  - **Real engineering deltas from the mockup, found only by actually
+    building it, not assumed:**
+    - **Geometry rescaled down.** The mockup's first-pass proportions (a
+      mark spanning ~88px of the panel's 135px height) were sized without
+      checking them against the real diagnostic log's full line count —
+      up to 7 lines in the success path (IO expander, config, GPS task,
+      logger task, freq/SF, BW/CR/sync, and a conditional WiFi SSID
+      line). At that size the mark would have pushed the longest real
+      sequence off the bottom of the panel. Shrunk the mark to fit in the
+      top ~44px (`MARK_ANCHOR_Y=24`, `MARK_ARC_RADII={6,10,14}`, vs. the
+      mockup's original `{10,17,24}` around `y=60`), leaving the log its
+      original ~90px of room — comfortably fits even the 7-line case.
+      Mockup corrected to match, not left showing stale proportions.
+    - **Angle convention, verified against the vendored source, not
+      assumed.** Arduino_GFX's `fillArc()`/`drawArc()` measure degrees
+      from 12 o'clock, clockwise (confirmed by reading
+      `writeFillArcHelper()` in the vendored `Arduino_GFX.cpp` — the same
+      well-known TFT_eSPI-derived scanline ring-fill algorithm, not
+      guessed from the function signature alone). The mockup's canvas
+      arcs used the browser canvas convention (0°=3 o'clock, clockwise)
+      instead. Converting is a fixed +90° offset between the two
+      conventions (not a tuned/guessed value) — `MARK_ARC_START_DEG`/
+      `MARK_ARC_END_DEG` (45.3°/134.1°) are exactly the mockup's
+      `ARC_START`/`ARC_SWEEP` radians converted through that offset, so
+      the arcs open the same direction on real glass as in the approved
+      preview.
+    - **Flash cost measurably higher than first guessed.** The code
+      comment originally claimed "a few hundred bytes" (reasoning that
+      procedural drawing is cheap); the actual measured delta is **+6.0KB**
+      (970441B vs. 964437B, `pio run -e cardputer-adv`) — because this is
+      the first call anywhere in the firmware to `fillArc()`/`drawArc()`,
+      so most of that 6KB is the arc-fill scanline math (and its float
+      sin/cos/fmodf) linking in for the first time, not a per-call cost.
+      Comment corrected to the measured number rather than left wrong —
+      still trivial against a 3.34MB partition at 29% used. RAM: +4B.
+    - **FATAL visibility preserved deliberately, not by accident.** A new
+      `splashX` global (mirrors the existing `splashY` pattern) defaults
+      to the old flush-left `4` and is only moved to the arc-aligned
+      position by `playBootMark()` once the mark has actually drawn — so
+      a FATAL firing before the mark plays (or if `initDisplay()` itself
+      failed) still reads exactly as it always has, not at a
+      not-yet-established new margin.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS** (RAM
+    50332/327680B, +4B; flash 970441/3342336B, +6004B), `pio test -e
+    native` **90/90** unaffected (main.cpp isn't part of the host-native
+    suite), a `-Wall -Wextra` pass found zero new warnings. **Not yet
+    bench-tested on real hardware** — this is direct-to-panel drawing on
+    the one part of this project's history that has *never* gotten a
+    layout right on the first try without a real bench pass (the original
+    2026-08-22 IPS-offset bug, and Phase 6's own flicker/tearing only
+    found once real glass was in front of it). The angle-convention read
+    and the rescaled-geometry fit are both reasoned carefully against
+    source and real line counts, not guessed — but per this project's own
+    standing rule, that is still "reviewed by inspection," not proof the
+    arcs land where intended or that the log fits cleanly on real glass.
+    Next bench session: confirm the arcs open toward 3 o'clock as
+    intended (not mirrored/rotated), confirm all 7 log lines are legible
+    and none clip the bottom edge, and time the actual ~1.7s added to
+    boot.
+  - **Version: unchanged, v0.6.4.** A boot-splash visual change, not new
+    build-order scope.
