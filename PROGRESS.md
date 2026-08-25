@@ -3868,3 +3868,161 @@ above) — remaining items are follow-through, in the order it's worth doing.
     report earlier this round that couldn't be reproduced in the mockup.
   - **Version: unchanged, v0.6.4** (cosmetic boot-sequence polish, same
     reasoning as rounds 1-3 — no new phase scope).
+- **2026-08-25 (even later still) — v0.6.5: fixed a warm-reboot flash of
+  the previous session's page before the boot mark.** Operator report,
+  photo-confirmed: rebooting the device (photo shows `GNSS`/`LoRa`
+  Cardputer-Adv/StampS3A hardware, not a firmware label — separate from
+  the actual bug) briefly showed whatever `ui_task` had last drawn before
+  the boot mark's black background and arcs took over, described as
+  "temporarily shows the radio cards info then does the boot loader."
+  - **Root cause: ordering, not corruption or a stale framebuffer bug in
+    the new v0.6.3 canvas.** The ST7789 panel's GRAM survives a warm
+    reset — the ESP32-S3 resets, but the panel's own supply rail doesn't
+    get power-cycled by an EN/software reset — so whatever frame `ui_task`
+    last rendered is still physically sitting on the glass the instant
+    `setup()` starts. `main.cpp`'s `initDisplay()` was calling
+    `backlightInit()` (drives the LEDC-PWM backlight straight to 100%,
+    `backlight.cpp`) *before* `tft->begin()`'s panel wake sequence and the
+    boot-time `tft->fillScreen(SPLASH_BG)` had actually overwritten that
+    frame with black. The ST7789 datasheet's own sleep-out sequence needs
+    a real settle delay after `begin()`'s reset pulse, so there was a
+    genuine multi-frame window where the backlight was already on and the
+    old page was still the only thing in GRAM.
+  - **The fix:** reordered `initDisplay()` — `tft->begin()` and
+    `tft->fillScreen(SPLASH_BG)` now run first, `backlightInit()` last, so
+    the backlight only ever illuminates a screen this boot has already
+    written to black. Three lines moved, no new state, no new control
+    flow. The one behavior change in the failure path: if `tft->begin()`
+    itself fails, `backlightInit()` is no longer called at all (previously
+    it always ran first regardless) — harmless, since `displayReady`
+    stays false either way and `splashLine()`/`playBootMark()` already
+    no-op on that path, so nothing was ever visible there to lose.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS**, RAM and
+    flash **byte-identical** to v0.6.4 (50332/327680B, 969529/3342336B) —
+    expected, since this is a pure call-order swap of two existing
+    functions, not new code. `pio test -e native` **90/90** unaffected
+    (`main.cpp`'s boot sequence isn't part of the host-native build, so
+    this class of bug is inherently untestable off real hardware). **Not
+    yet re-confirmed against a genuine warm reboot on the bench** — the
+    report was one photo from the field, not a bench session with the
+    fix applied; next session should specifically power-cycle and
+    EN-reset the device a few times watching for whether the prior page
+    is now fully invisible, not just shortened, since the exact
+    reset-to-backlight-on timing on this specific board hasn't been
+    measured.
+  - **Version: v0.6.4 -> v0.6.5.** PATCH-level — a correctness fix to the
+    existing boot sequence, no new build-order scope.
+- **2026-08-25 (even later still) — v0.6.6: the boot mark's arcs were
+  rotated 90° off — fixed and verified by simulation, not just re-read.**
+  Same reboot photo used for the v0.6.5 investigation also showed the
+  problem round 4/5 explicitly flagged as unverified: the icon's arcs
+  drooped down off the pole tip like a wilted flag, instead of fanning
+  right like the approved mockup.
+  - **Root cause: the round 4/5 angle-convention comment was wrong, not
+    just unverified.** It claimed `fillArc()` measures degrees from 12
+    o'clock (0°), clockwise, and added a +90° constant to convert from
+    the mockup canvas's 0°=3-o'clock-clockwise convention — stated as
+    "confirmed against the vendored Arduino_GFX.cpp." That confirmation
+    was a re-read of the source's scanline math, not an actual trace of
+    what it computes. This session ported `writeFillArcHelper()` line for
+    line to Python and rasterized `fillArc(cx, cy, r, r-2, θ, θ+1, ...)`
+    for probe angles around the full circle to empirically map angle to
+    on-screen direction. Result: `fillArc()` already uses 0° = 3 o'clock,
+    clockwise — the *same* convention as canvas, not the 12-o'clock one
+    the comment claimed. The +90° was therefore a real bug: it rotated
+    the whole mark 90° clockwise, turning the intended right-facing
+    signal fan into a downward droop. (Sanity check: with the old
+    `45.3°`/`134.1°` values, `writeFillArcHelper`'s own quadrant-trim
+    logic — `if (end<180 && start<180) y = 0` — collapses the scan range
+    to `y >= cy` only, i.e. strictly the *bottom* half of the circle
+    relative to the anchor. That alone should have been a tell in round
+    4/5 that the arc could not be symmetric about the horizontal-right
+    axis as intended.)
+  - **The fix:** `MARK_ARC_START_DEG`/`MARK_ARC_END_DEG` (`main.cpp`) now
+    hold the mockup's canvas angles directly — `-44.7f`/`44.1f` — with no
+    conversion applied, since none is needed. Rasterized both the old and
+    new values with the same ported scanline logic before shipping:
+    the old angles produce a shape entirely below the anchor (dy range
+    +5 to +21, matching the photo's droop); the new angles produce a
+    shape entirely to the right of the anchor, symmetric top-to-bottom
+    (dx range +5 to +21, dy range -15 to +15) — a nested right-facing
+    bracket, matching the approved mockup. Rendered as a small preview
+    bitmap from the same simulation and visually confirmed it reads as
+    a right-facing signal/WiFi fan before committing to the change.
+  - **Also specifically re-checked the "black box" artifact** this
+    session's round 4/5 entry logged as reported-but-unreproducible (in
+    a mockup screenshot, not on real hardware). Cropped and 4x-zoomed the
+    same reboot photo's dark regions; a brightness+contrast-boosted pass
+    first appeared to show a faint box, but a side-by-side *raw*
+    (unenhanced) crop of the identical region showed nothing — the "box"
+    was JPEG compression block structure made visible by the enhancement
+    itself, not real panel content. **Still unreproduced on real
+    hardware, now including this on-device photo, not just the mockup.**
+    (The short diagonal mark near the photo's bottom-left corner is
+    expected content, not an artifact: it's the diagonal-foot path's
+    first segment, `MARK_PATH_X0/Y0` at `(6,130)` — round 4/5's own
+    addition — rendering in isolation because the panel's bottom-left
+    corner is far from the pole's main vertical run.)
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS**, RAM/flash
+    **byte-identical** to v0.6.5 (50332/327680B, 969529/3342336B) —
+    expected, a two-constant value change touches no code path shape.
+    `pio test -e native` **90/90** unaffected (`main.cpp` isn't part of
+    the host-native build). **Not yet re-confirmed on real hardware** —
+    same standing caveat as every boot-mark round to date; the next bench
+    pass should specifically confirm the arcs now read as a right-facing
+    fan on the actual ST7789V2, not just in this session's simulation.
+  - **Version: v0.6.5 -> v0.6.6.** PATCH-level — a correctness fix to
+    already-shipped boot-mark geometry, no new build-order scope.
+- **2026-08-25 (even later still) — v0.6.7: the signal-trace flourish was
+  erasing the pole/diagonal-foot on every animation frame.** Operator
+  screenshot of the corrected-arcs build showed a solid black gap
+  partway down the pole, with only the diagonal foot's tail surviving
+  below it — reported as also visible in last session's HTML mockup.
+  Unlike the "black box" report chased down in the v0.6.6 entry above,
+  this one was a clean render (not a compressed phone photo), so there
+  was no enhancement artifact to rule out — it needed tracing through the
+  actual draw calls instead.
+  - **Root cause:** `drawSignalTraceFrame()` (`main.cpp`) clears a
+    horizontal band before drawing each of the trace's 7 animation
+    frames — `fillRect(0, TRACE_Y - TRACE_AMP - 2, TFT_PANEL_WIDTH,
+    TRACE_AMP * 2 + 4, SPLASH_BG)`. That's the **full panel width**
+    (x=0-240), not the trace's own drawing region (`TRACE_X0` to
+    `TRACE_X1`, i.e. x=39-236). The diagonal-foot path segment
+    (`MARK_PATH_X0/Y0` at (6,130) to `MARK_PATH_X1/Y1` at (14,108)) and
+    the pole's own tail (the vertical run down to y=108) are drawn once,
+    earlier in `playBootMark()`, and physically fall inside this exact
+    y-band (`TRACE_Y=112 ± TRACE_AMP=9`, plus 2px padding — y≈101 to
+    123) at x=6-14, well left of `TRACE_X0=39`. Every one of the 7 frames
+    re-clearing x=0-240 wiped a bit more of that already-drawn artwork,
+    and since nothing in `drawSignalTraceFrame()` ever redraws x<39,
+    the final frame left that region flat black — a solid gap between
+    the visible upper pole and the surviving tail of the foot (the part
+    of the foot below y=123, outside the band). The round 4/5 comment
+    on that line ("leaving the mark/wordmark above untouched") was true
+    as far as it went — the arcs and wordmark are well above `TRACE_Y`
+    — but never accounted for the L-path's own bottom segments dipping
+    into the same y-range.
+  - **The fix:** clip the band-clear to `[TRACE_X0, TRACE_X1)` — the
+    exact x-range the trace pattern itself ever draws in —
+    `fillRect(TRACE_X0, TRACE_Y - TRACE_AMP - 2, TRACE_X1 - TRACE_X0,
+    TRACE_AMP * 2 + 4, SPLASH_BG)`. Nothing the trace owns lives outside
+    that x-range, and nothing needs re-clearing there since the pole/foot
+    are drawn exactly once, before the animation loop even starts — no
+    reason to keep touching x<39 on every frame.
+  - **Verification:** simulated the full sequence (path segments, all 3
+    arcs at the corrected angles, all 7 trace frames) with the same
+    ported-to-Python draw logic used for the v0.6.6 arc fix, faithfully
+    replicating `drawLine`/`fillRect`/the arc rasterizer's real behavior
+    rather than just reasoning about it — confirmed the pole and
+    diagonal foot now render fully intact and continuous end to end, with
+    the trace band correctly confined to its own region. `pio run -e
+    cardputer-adv` **SUCCESS**, RAM/flash **byte-identical** to v0.6.6
+    (50332/327680B, 969529/3342336B) — same single `fillRect()` call,
+    narrower bounds, no new code. `pio test -e native` **90/90**
+    unaffected (`main.cpp` isn't part of the host-native build). **Not
+    yet re-confirmed on real hardware** — same standing caveat as every
+    boot-mark round; next bench pass should confirm the full mark (path,
+    arcs, and trace together) renders clean start to finish on the actual
+    panel, not just in simulation.
+  - **Version: v0.6.6 -> v0.6.7.** PATCH-level — a correctness fix to
+    already-shipped boot-mark geometry, no new build-order scope.

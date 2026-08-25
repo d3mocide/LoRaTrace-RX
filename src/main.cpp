@@ -151,15 +151,20 @@ void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
 // rescaled to this real budget rather than copied at its preview
 // proportions.
 //
-// Angle convention: Arduino_GFX's fillArc()/drawArc() measure degrees from
-// 12 o'clock (0°), increasing clockwise (confirmed against the vendored
-// Arduino_GFX.cpp — writeFillArcHelper's scanline math, adapted from
-// TFT_eSPI's well-known smooth-arc fill). The mockup's canvas arcs used
-// the browser canvas convention instead (0° = 3 o'clock, clockwise) — the
-// 90° constant below is exactly that conversion, not a tuned/guessed
-// offset, so the on-device arcs open the same direction (toward 3 o'clock,
-// swept between roughly 1 and 5 o'clock) as the approved preview. The
-// swept angle itself is unchanged since round 3 — only the radii grew.
+// Angle convention (corrected 2026-08-25, v0.6.6 — see PROGRESS.md):
+// round 4/5's comment claimed fillArc() measures from 12 o'clock (0°)
+// clockwise and added a +90° offset to convert from the mockup's canvas
+// convention (0° = 3 o'clock, clockwise) — that claim was wrong. Actually
+// tracing writeFillArcHelper()'s scanline math (not just reading its doc
+// comment) by rasterizing it directly shows fillArc() already uses 0° = 3
+// o'clock, clockwise — the *same* convention as canvas. The +90° was
+// therefore a real bug, not a conversion: it rotated the mark 90°
+// clockwise, so the icon rendered as a downward "droop" off the pole tip
+// instead of the intended right-facing signal fan (photo-confirmed on
+// real hardware, operator report). Fix is to drop the offset and use the
+// mockup's canvas angles directly — no conversion needed between the two.
+// The swept angle's width is unchanged since round 3 — only the radii
+// grew, and now the rotation is fixed.
 constexpr int16_t MARK_ANCHOR_X = 30;
 constexpr int16_t MARK_ANCHOR_Y = 28;
 // Diagonal-foot path (round 5, the shipped pick over a straight run
@@ -172,8 +177,8 @@ constexpr int16_t MARK_PATH_X2 = 14, MARK_PATH_Y2 = 32;  // elbow, just below th
 // path then runs elbow -> anchor, completing the shape.
 constexpr int16_t MARK_ARC_RADII[3] = {9, 15, 21};
 constexpr int16_t MARK_ARC_THICKNESS = 2;
-constexpr float MARK_ARC_START_DEG = 45.3f;  // canvas -44.7° + 90
-constexpr float MARK_ARC_END_DEG = 134.1f;   // canvas  44.1° + 90
+constexpr float MARK_ARC_START_DEG = -44.7f; // canvas angle, unconverted — see note above
+constexpr float MARK_ARC_END_DEG = 44.1f;    // canvas angle, unconverted — see note above
 // Wordmark/version sit beside the mark, right of its outermost arc.
 constexpr int16_t MARK_WORD_X = MARK_ANCHOR_X + MARK_ARC_RADII[2] + 8; // = 59
 constexpr int16_t MARK_WORD_Y = 20;
@@ -209,7 +214,15 @@ constexpr uint16_t SPLASH_GREEN_DIM = 0x2AC8;
 void drawSignalTraceFrame(uint8_t frame) {
     // Band clear, not a full-panel redraw — avoids trailing garbage from
     // the previous frame while leaving the mark/wordmark above untouched.
-    tft->fillRect(0, TRACE_Y - TRACE_AMP - 2, TFT_PANEL_WIDTH, TRACE_AMP * 2 + 4, SPLASH_BG);
+    // Clipped to [TRACE_X0, TRACE_X1), the exact x-range the trace itself
+    // draws in — NOT the full panel width (bug found 2026-08-25, v0.6.7):
+    // the diagonal-foot path segment and the pole's own tail (drawn once,
+    // earlier in playBootMark(), at x < TRACE_X0) physically sit inside
+    // this same y-band, so a full-width clear here wiped a little more of
+    // them on every one of the 7 animation frames, and nothing ever
+    // redrew them — left a solid black gap where the lower pole/foot used
+    // to be, with only the foot's tail (below the band) surviving.
+    tft->fillRect(TRACE_X0, TRACE_Y - TRACE_AMP - 2, TRACE_X1 - TRACE_X0, TRACE_AMP * 2 + 4, SPLASH_BG);
 
     int16_t prevX = TRACE_X0;
     int16_t prevY = TRACE_Y + TRACE_PATTERN[frame % TRACE_PATTERN_LEN];
@@ -287,10 +300,21 @@ void playBootMark() {
 
 bool initDisplay() {
     tftSPI.begin(PIN_TFT_SCLK, -1 /* MISO unused */, PIN_TFT_MOSI, PIN_TFT_CS);
-    backlightInit(); // LEDC PWM, starts at 100% — see backlight.h
     if (!tft->begin()) return false;
     tft->fillScreen(SPLASH_BG);
     tft->setTextSize(1);
+    // Backlight comes up AFTER the panel is already cleared to black, not
+    // before — the ST7789's GRAM survives a warm reset (only the MCU
+    // resets; the panel's own supply rail doesn't), so whatever ui_task
+    // last drew is still sitting in it. backlightInit() drives the
+    // backlight straight to 100% (see backlight.h); doing that before
+    // tft->begin()'s panel wake sequence + fillScreen() finish lit up that
+    // stale frame for the ~120ms+ it takes the panel to come back up,
+    // which is exactly the "flashes the old page, then the boot mark"
+    // symptom reported after a reboot. Ordering the clear first means the
+    // backlight only ever illuminates a screen this boot has already
+    // written.
+    backlightInit();
     return true;
 }
 
