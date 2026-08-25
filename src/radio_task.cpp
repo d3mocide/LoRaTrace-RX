@@ -31,6 +31,14 @@ struct PendingSwitch {
 };
 QueueHandle_t profileSwitchQueue = nullptr;
 
+// Same one-slot-mailbox pattern as profileSwitchQueue, for Trace pause/
+// standby (radioRequestTracePause() below). tracePaused mirrors what the
+// radio task's own loop has actually done (radio.sleep()/startReceive()),
+// not just what was requested — same "reflects reality, not the ask"
+// convention activeProfile already follows for profile switches.
+QueueHandle_t pauseQueue = nullptr;
+volatile bool tracePaused = false;
+
 int lastError = RADIOLIB_ERR_NONE;
 
 volatile uint32_t packetCount = 0;
@@ -56,24 +64,31 @@ void IRAM_ATTR onDio1Action() {
 
 void radioTask(void *) {
     uint8_t buf[256];
+    bool paused = false;
 
     for (;;) {
         // Block until DIO1 says a packet landed. The timeout is a liveness
         // safety net, not an expected path: if an interrupt is ever missed,
         // this re-checks and re-arms rather than deafening the receiver
-        // permanently.
+        // permanently. Skipped entirely while paused — re-arming RX here
+        // would silently undo radio.sleep() every 5 seconds, and a sleeping
+        // SX1262 can't miss a DIO1 it's incapable of firing in the first
+        // place.
         if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
-            SpiBusLock lock(BUS_WAIT);
-            if (lock.held()) radio.startReceive();
+            if (!paused) {
+                SpiBusLock lock(BUS_WAIT);
+                if (lock.held()) radio.startReceive();
+            }
             continue;
         }
 
-        // The same notification wakes this task for two different reasons:
-        // a real DIO1 packet IRQ, or a profile-switch request queued by
-        // radioRequestProfileSwitch (ui_task, off the keyboard). Check the
-        // switch mailbox first — non-blocking, so a genuine packet arriving
-        // at the same instant is never held up behind it. Nothing queued
-        // means this really was a packet, and falls through unchanged below.
+        // The same notification wakes this task for three different
+        // reasons: a real DIO1 packet IRQ, a profile-switch request
+        // (radioRequestProfileSwitch), or a Trace pause/resume request
+        // (radioRequestTracePause). Check both mailboxes first —
+        // non-blocking, so a genuine packet arriving at the same instant is
+        // never held up behind either. Nothing queued in either means this
+        // really was a packet, and falls through unchanged below.
         PendingSwitch swreq;
         if (profileSwitchQueue != nullptr && xQueueReceive(profileSwitchQueue, &swreq, 0) == pdTRUE) {
             SpiBusLock lock(BUS_WAIT);
@@ -90,8 +105,39 @@ void radioTask(void *) {
                     activeChannel = swreq.channel;
                     activeProfile = swreq.profile;
                 }
+                // A profile switch always means "go back to listening" —
+                // even if a pause was in effect, picking a different
+                // protocol is an active operator choice that should be
+                // heard, not silently swallowed by a stale pause. Matches
+                // resolving the ambiguity in favor of what the operator
+                // asked for last.
+                paused = false;
+                tracePaused = false;
                 radio.startReceive();
             }
+            continue;
+        }
+
+        bool pauseReq;
+        if (pauseQueue != nullptr && xQueueReceive(pauseQueue, &pauseReq, 0) == pdTRUE) {
+            SpiBusLock lock(BUS_WAIT);
+            if (lock.held()) {
+                if (pauseReq) {
+                    radio.sleep(true); // warm sleep — retains config, cheap to resume
+                } else {
+                    radio.startReceive(); // wakes a warm-sleeping SX126x automatically
+                }
+                paused = pauseReq;
+                tracePaused = pauseReq;
+            }
+            continue;
+        }
+
+        if (paused) {
+            // Nothing else to do while asleep — DIO1 can't fire, and the
+            // liveness branch above already skips re-arming. Avoid falling
+            // through to a getPacketLength()/readData() pass against a
+            // sleeping chip.
             continue;
         }
 
@@ -189,6 +235,9 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
     profileSwitchQueue = xQueueCreate(1, sizeof(PendingSwitch));
     if (profileSwitchQueue == nullptr) return false;
 
+    pauseQueue = xQueueCreate(1, sizeof(bool));
+    if (pauseQueue == nullptr) return false;
+
     {
         SpiBusLock lock(portMAX_DELAY);
         if (!lock.held()) return false;
@@ -256,4 +305,15 @@ bool radioRequestProfileSwitch(MissionProfile profile) {
     // noticed.
     xTaskNotifyGive(radioTaskHandle);
     return true;
+}
+
+bool radioRequestTracePause(bool paused) {
+    if (pauseQueue == nullptr || radioTaskHandle == nullptr) return false;
+    xQueueOverwrite(pauseQueue, &paused);
+    xTaskNotifyGive(radioTaskHandle); // same immediate-wake reason as above
+    return true;
+}
+
+bool radioIsTracePaused() {
+    return tracePaused;
 }

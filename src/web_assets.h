@@ -281,6 +281,7 @@ function refreshStatus() {
   fetch('/api/status').then(r => r.json()).then(function (s) {
     var dropCls = (s.queue_drop + s.row_drop + s.bus_miss) === 0 ? 'good' : 'bad';
     document.getElementById('radioStats').innerHTML =
+      statCard('Trace', s.trace_paused ? 'STANDBY' : 'ACTIVE', s.trace_paused ? 'warn' : 'good') +
       statCard('Packets', s.rx) +
       statCard('CRC errors', s.crc_err) +
       statCard('Queue drops', s.queue_drop, dropCls) +

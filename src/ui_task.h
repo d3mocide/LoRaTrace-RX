@@ -49,6 +49,8 @@
 
 #include <Arduino_GFX_Library.h>
 
+#include "display_settings.h"
+
 // Pages the operator can cycle through in carousel mode. Order is
 // deliberate: RADIO first because it's the reason the device exists,
 // CHANNEL right after it since it's RADIO's own RF detail (the actual
@@ -66,10 +68,13 @@ enum class UiPage : uint8_t {
 };
 
 // Starts the task on Core 0. `gfx` must already be initialised (main.cpp
-// brings it up for the boot splash). Returns false if the task could not be
-// created; the caller should carry on regardless — a headless wardriver
-// still logs, which is the actual job.
-bool uiTaskStart(Arduino_GFX *gfx);
+// brings it up for the boot splash). `settings` is main.cpp's boot-time SD
+// load (display_settings.h) — seeds the Brightness slider/idle-timeout
+// state instead of a hardcoded default, same pattern radioTaskStart()
+// already receives its boot-time ProfileOverrides through. Returns false
+// if the task could not be created; the caller should carry on regardless
+// — a headless wardriver still logs, which is the actual job.
+bool uiTaskStart(Arduino_GFX *gfx, const DisplaySettings &settings);
 
 // True if the TCA8418 keyboard controller came up. When false the UI falls
 // back to auto-advancing pages on a timer, so the device stays useful

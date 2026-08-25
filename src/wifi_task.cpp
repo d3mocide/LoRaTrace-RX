@@ -89,7 +89,8 @@ void handleStatus() {
         "\"sd_ready\":%s,\"session_rows\":%lu,\"run\":%u,"
         "\"nmea\":%lu,\"nmea_bad_crc\":%lu,"
         "\"has_fix\":%s,\"lat\":%.6f,\"lon\":%.6f,\"sats\":%u,\"sats_in_view\":%u,"
-        "\"heap_free\":%lu,\"heap_min\":%lu,\"batt_mv\":%lu,\"wifi_clients\":%u"
+        "\"heap_free\":%lu,\"heap_min\":%lu,\"batt_mv\":%lu,\"wifi_clients\":%u,"
+        "\"trace_paused\":%s"
         "}",
         (unsigned long)radioPacketCount(), (unsigned long)radioCrcErrorCount(),
         (unsigned long)radioQueueDropCount(), (unsigned long)radioBusMissCount(),
@@ -100,7 +101,8 @@ void handleStatus() {
         (unsigned long)gpsSentenceCount(), (unsigned long)gpsChecksumErrorCount(),
         positioned ? "true" : "false", positioned ? fix.lat : 0.0, positioned ? fix.lon : 0.0,
         (unsigned)fix.satellites, (unsigned)fix.sats_in_view, (unsigned long)ESP.getFreeHeap(),
-        (unsigned long)ESP.getMinFreeHeap(), (unsigned long)batteryMilliVolts(), (unsigned)wifiClientCount());
+        (unsigned long)ESP.getMinFreeHeap(), (unsigned long)batteryMilliVolts(), (unsigned)wifiClientCount(),
+        radioIsTracePaused() ? "true" : "false");
 
     if (n < 0 || (size_t)n >= sizeof(json)) {
         server.send(500, "text/plain", "status too large");
@@ -116,8 +118,19 @@ void handleStatus() {
 // and not sharing mutable file-scope state across translation units is
 // worth a dozen duplicated lines given how much logger_task.cpp is
 // load-bearing for the Phase 2 exit criterion.
+// Fixed stack buffer + snprintf, not String — String's `+=` in a loop
+// reallocates and copies on every growth (and String(idx) is a fresh
+// temporary each iteration too), real heap churn/fragmentation risk over
+// an AP session with the dashboard polling this repeatedly, worse the more
+// runs accumulate. Same char-buffer discipline every other handler in this
+// file already uses. ~340 runs fit before the defensive cap below kicks in
+// (~6 bytes/entry) — a truncated run list on the dashboard beats a buffer
+// overrun, and detections.csv itself is still reachable directly off the
+// SD card regardless of what this endpoint lists.
 void handleRuns() {
-    String json = "[";
+    char json[2048];
+    size_t pos = 0;
+    json[pos++] = '[';
     bool first = true;
 
     SpiBusLock lock(BUS_WAIT);
@@ -128,14 +141,17 @@ void handleRuns() {
                 const uint16_t idx = runIndexFromName(entry.name());
                 entry.close();
                 if (idx == 0) continue;
-                if (!first) json += ',';
-                json += String(idx);
+                // Leave room for the trailing "]\0" even after this entry.
+                if (pos + 8 >= sizeof(json)) break;
+                if (!first) json[pos++] = ',';
+                pos += (size_t)snprintf(json + pos, sizeof(json) - pos, "%u", (unsigned)idx);
                 first = false;
             }
             dir.close();
         }
     }
-    json += ']';
+    json[pos++] = ']';
+    json[pos] = '\0';
     server.send(200, "application/json", json);
 }
 
@@ -168,7 +184,12 @@ void streamCsvFile(const char *path, const char *downloadName) {
         f.close();
     }
 
-    server.sendHeader("Content-Disposition", String("attachment; filename=\"") + downloadName + "\"");
+    // char buffer + snprintf, not three chained String allocations
+    // (String("...") + downloadName + "\"") — same heap-churn reasoning as
+    // handleRuns() above, just a single request rather than a loop here.
+    char disposition[64];
+    snprintf(disposition, sizeof(disposition), "attachment; filename=\"%s\"", downloadName);
+    server.sendHeader("Content-Disposition", disposition);
     server.setContentLength(fileSize);
     server.send(200, "text/csv", "");
 

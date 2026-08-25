@@ -56,6 +56,21 @@ MissionProfile radioActiveProfile();
 // exclusive," not a bug. Returns false if the radio task hasn't started yet.
 bool radioRequestProfileSwitch(MissionProfile profile);
 
+// Trace pause/standby (System menu, ui_task.cpp): puts the SX1262 into its
+// warm sleep mode (radio.sleep(true) — retains config, no re-begin() needed
+// to resume) instead of continuous RX, so no Detections are produced while
+// paused. Same one-slot-mailbox, never-blocks contract as
+// radioRequestProfileSwitch() above. GPS is deliberately untouched by this —
+// see io_expander.h: GPS power shares the antenna-switch IO-expander line,
+// so there's no independent GPS power to save here, and keeping it running
+// means position is already fresh the instant Trace resumes. Returns false
+// if the radio task hasn't started yet.
+bool radioRequestTracePause(bool paused);
+
+// Whether the radio is currently paused. Same small-POD, no-lock convention
+// as radioActiveProfile() etc.
+bool radioIsTracePaused();
+
 // --- Diagnostics -------------------------------------------------------
 // Exposed because Phase 2's exit criterion is "no dropped packets
 // attributable to SD latency" — that claim is only checkable if drops are

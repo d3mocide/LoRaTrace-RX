@@ -114,6 +114,22 @@ back on). **Trace now means exactly one thing: a saved session or run** —
 "start a Trace," "your saved Traces" — the meaning it always had underneath
 the branding, now the only one left standing.
 
+**Exception carved out later the same day:** the Phase 6 UI bench pass
+added a pause/standby toggle for the radio-listening + logging pipeline,
+and it also uses the word "Trace" — a root-level menu row reading "Trace:
+Active"/"Trace: Standby". That's a second meaning for the word, which is
+exactly what the walk-back above was written to stop happening. It was
+kept anyway, deliberately, rather than renamed to "Listen"/"RX"/etc.,
+because the two meanings don't actually collide in practice: **the saved-
+session noun is always a countable thing** ("a Trace," "your saved
+Traces," a row in the run browser) **while the live-toggle usage is always
+paired with a state word** (Active/Standby) and never stands alone as a
+noun. A reader never has to disambiguate "which Trace" the way they would
+have had to disambiguate "which Mesh Trace" under the branding this doc
+already rejected once. Still worth being honest that this is a narrower
+exception to "exactly one thing," not a case where the rule turned out not
+to apply.
+
 | Design concept | UI label |
 |---|---|
 | Profile selector (on-device menu group) | Profile |
@@ -125,6 +141,7 @@ the branding, now the only one left standing.
 | DISCOVERY_SWEEP | Probe |
 | ENERGY_SWEEP | Sweep |
 | Saved session or run | Trace |
+| Radio-listening pause/standby (on-device toggle) | Trace: Active / Trace: Standby |
 
 "Profile" and "mode" stay two different axes, same reasoning as before this
 revision: HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP own "mode" (Watch/Probe/

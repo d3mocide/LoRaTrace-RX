@@ -137,7 +137,7 @@ constexpr int8_t PIN_TFT_SCLK = 36;
 constexpr int8_t PIN_TFT_CS   = 37;
 constexpr int8_t PIN_TFT_DC   = 34;
 constexpr int8_t PIN_TFT_RST  = 33;
-constexpr int8_t PIN_TFT_BL   = 38; // backlight, driven digital HIGH (no dimming yet)
+constexpr int8_t PIN_TFT_BL   = 38; // backlight — LEDC PWM (backlight.h/.cpp), not a plain digitalWrite any more
 
 constexpr int16_t TFT_PANEL_WIDTH  = 135;
 constexpr int16_t TFT_PANEL_HEIGHT = 240;

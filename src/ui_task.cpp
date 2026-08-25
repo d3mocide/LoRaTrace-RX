@@ -8,9 +8,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "backlight.h"
 #include "battery.h"
 #include "board_pins.h"
 #include "detection.h"
+#include "display_settings.h"
 #include "gps_task.h"
 #include "keyboard.h"
 #include "logger_task.h"
@@ -23,7 +25,11 @@
 
 namespace {
 
+// tft is the draw target every function below writes to. As of the Phase 6
+// bench pass (2026-08-25) it points at an off-screen Arduino_Canvas_Indexed
+// buffer, not the physical panel directly — see uiTaskStart() for why.
 Arduino_GFX *tft = nullptr;
+Arduino_Canvas_Indexed *canvas = nullptr;
 
 // TCA8418 keyboard controller. Cardputer ADV replaced the base Cardputer's
 // GPIO matrix with this I2C part — same SDA/SCL as the IO expander, a
@@ -40,42 +46,76 @@ bool keyboardReady = false;
 UiPage page = UiPage::RADIO;
 uint32_t lastPageChange = 0;
 
-// Phase 6 root table, revised twice 2026-08-25 (BRAND.md's "Revised again"
-// note has the full rationale): both root rows are GROUP. "Profile" opens
-// onto the real, technical profile names — Meshtastic, MeshCore today;
-// Reticulum/Spectrum join once they have a real HOME_LISTEN table (Phase
-// 8) — instead of cycling one at a time on Enter the way Phase 4/5 did.
-// Deliberately not branded as "Mesh Trace" or similar: these are LoRa
-// presets on one sniffer, not sibling products, and BRAND.md already had
-// "Profile" as its preferred word for exactly this axis before an earlier
-// same-day revision briefly tried a per-profile brand name instead.
-// "System" still holds the WiFi/Debug toggles Phase 3/Phase-5-bench-day
-// added. Two root rows is not a hardcoded ceiling — DISCOVERY_SWEEP (Phase
-// 7) / ENERGY_SWEEP (Phase 8) each get their own row or group here without
-// touching MenuState itself, which is the whole point of this redesign
-// (ROADMAP.md Phase 6, PROGRESS.md 2026-08-25 Decisions log).
-constexpr MenuEntry PROFILE_GROUP_ITEMS[] = {
-    {"Meshtastic", MenuAction::SELECT_MESHTASTIC},
-    {"MeshCore", MenuAction::SELECT_MESHCORE},
+// Phase 6 root table, revised four times 2026-08-25 (BRAND.md's "Revised
+// again" note has the Profile/System history). "Profile" opens onto the
+// real, technical profile names — Meshtastic, MeshCore today; Reticulum/
+// Spectrum join once they have a real HOME_LISTEN table (Phase 8) — instead
+// of cycling one at a time on Enter the way Phase 4/5 did. Deliberately not
+// branded as "Mesh Trace" or similar: these are LoRa presets on one
+// sniffer, not sibling products, and BRAND.md already had "Profile" as its
+// preferred word for exactly this axis before an earlier same-day revision
+// briefly tried a per-profile brand name instead. "Trace" is the one
+// ACTION root row — a live pause/standby toggle for the radio-listening +
+// logging pipeline, promoted out of System the same session it shipped on
+// operator feedback that it's central enough to fire without drilling into
+// a group first; see its own comment below for why it isn't called
+// "MeshTrace". Three root rows is not a hardcoded ceiling — DISCOVERY_SWEEP
+// (Phase 7) / ENERGY_SWEEP (Phase 8) each get their own row or group here
+// without touching MenuState itself, which is the whole point of this
+// redesign (ROADMAP.md Phase 6, PROGRESS.md 2026-08-25 Decisions log).
+constexpr MenuItem PROFILE_GROUP_ITEMS[] = {
+    {"Meshtastic", ItemKind::ACTION, MenuAction::SELECT_MESHTASTIC, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"MeshCore", ItemKind::ACTION, MenuAction::SELECT_MESHCORE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
-constexpr MenuEntry SYSTEM_GROUP_ITEMS[] = {
-    {"WiFi", MenuAction::WIFI_TOGGLE},
-    {"Debug", MenuAction::DEBUG_TOGGLE},
+// Display (2026-08-25, third revision): Brightness/idle-dim moved out of
+// System's own flat list into their own nested group on operator request
+// ("system > display > display relevant settings") — the first thing in
+// this project to actually need ui_menu.h's generalized nesting (System's
+// own WiFi/Debug/Trace grouping was flat, one level, from the start; this
+// is a GROUP inside a GROUP). Brightness stays a SLIDER row, just reached
+// one level deeper than when it briefly lived at root.
+constexpr MenuItem DISPLAY_GROUP_ITEMS[] = {
+    {"Brightness", ItemKind::SLIDER, MenuAction::NONE, MenuAction::BRIGHTNESS_UP, MenuAction::BRIGHTNESS_DOWN, nullptr, 0},
+    // Idle-dim timeout: cycles Off/30s/60s/2min/5min on each Enter press,
+    // same "fires and stays in the list" shape WiFi/Debug already have,
+    // just cycling a value instead of flipping a bool — an operator asked
+    // for real choices here instead of a hardcoded 60s.
+    {"Idle dim", ItemKind::ACTION, MenuAction::IDLE_TIMEOUT_CYCLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
-constexpr RootEntry ROOT_ITEMS[] = {
-    {"Profile", RootKind::GROUP, MenuAction::NONE, PROFILE_GROUP_ITEMS, 2},
-    {"System", RootKind::GROUP, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 2},
+constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
+    {"WiFi", ItemKind::ACTION, MenuAction::WIFI_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
 };
-constexpr uint8_t ROOT_COUNT = 2;
+// Trace pause/standby (2026-08-25) is a root-level ACTION row, not a System
+// item — promoted the same day it shipped, on operator feedback that it's
+// central enough to toggle without drilling into System first. Deliberately
+// named "Trace" alone, not "MeshTrace": that exact compound word was walked
+// back earlier this same session (BRAND.md's Interface Naming table) for
+// overloading "Trace" across the product name, a per-profile brand, and a
+// saved-session noun — reviving it here for a fourth meaning (live radio
+// state) would repeat the same mistake. Puts the SX1262 in its warm sleep
+// mode instead of continuous RX — a real battery lever, unlike GPS
+// (io_expander.h: GPS power shares the antenna-switch line, so there's no
+// independent GPS power to save, and this deliberately leaves GPS running
+// so position is already fresh the instant Trace resumes).
+constexpr MenuItem ROOT_ITEMS[] = {
+    {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 2},
+    {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 3},
+};
+constexpr uint8_t ROOT_COUNT = 3;
 MenuState menu(ROOT_ITEMS, ROOT_COUNT);
 
 // Toast layer (Phase 6): a brief overlay message for feedback that isn't
 // tied to whichever menu row happens to be highlighted — e.g. confirming a
-// toggle fired right before BACK leaves the menu. No canvas/framebuffer
-// involved (this project draws direct-to-panel — DESIGN.md §1's
-// no-framebuffer rule stays intact): the only cost is this static buffer,
-// not a dynamic allocation, so there's no heap number to gate behind the
-// way WiFi's AP needed one.
+// toggle fired right before BACK leaves the menu. Only this static buffer,
+// not a dynamic allocation — no heap number to gate behind the way WiFi's
+// AP needed one. (The earlier "no canvas/framebuffer, direct-to-panel"
+// note that used to sit here no longer holds: the bench pass that put the
+// panel in front of this code for the first time found real flicker/tear
+// direct-to-panel drawing can't avoid, and uiTaskStart() now draws through
+// an off-screen Arduino_Canvas_Indexed instead — see its comment there.)
 char toastMsg[48] = {0};
 uint32_t toastShownAt = 0;
 constexpr uint32_t TOAST_DURATION_MS = 1400;
@@ -105,6 +145,60 @@ constexpr uint32_t RX_PULSE_MS = 220;
 
 bool rxPulseActive() {
     return millis() < rxPulseUntil;
+}
+
+// Brightness + idle-dim (2026-08-25, second revision — slider + persisted
+// settings). activeBrightnessPercent is the operator's chosen level (5-100,
+// BRIGHTNESS_STEP at a time) — what idle-dim restores to on the next
+// keypress, not necessarily what the backlight is driven at right now
+// (which may be a lower idle floor while displayDimmed — see
+// idleDimTargetPercent() below). Seeded from SD (uiTaskStart()'s
+// `settings` param) instead of a hardcoded default, so the device
+// remembers what an operator picked across power cycles, same as channel
+// overrides already do.
+uint8_t activeBrightnessPercent = 100;
+constexpr uint8_t BRIGHTNESS_MIN = 5;
+constexpr uint8_t BRIGHTNESS_MAX = 100;
+constexpr uint8_t BRIGHTNESS_STEP = 5;
+bool displayDimmed = false;
+
+// Idle-dim timeout, cycled from System's "Idle dim" group item
+// (IDLE_TIMEOUT_CYCLE) instead of a plain on/off — index 0 is "Off"
+// (disables idle-dim entirely, matching what the old AUTODIM_TOGGLE=false
+// used to mean), the rest are real durations. Index 2 (60s) is the
+// default, matching this feature's original hardcoded value. Also seeded
+// from SD.
+struct IdleTimeoutOption {
+    const char *label;
+    uint32_t ms; // unused when index 0 ("Off")
+};
+constexpr IdleTimeoutOption IDLE_TIMEOUT_OPTIONS[] = {
+    {"Off", 0},
+    {"30s", 30000},
+    {"60s", 60000},
+    {"2min", 120000},
+    {"5min", 300000},
+};
+constexpr uint8_t IDLE_TIMEOUT_OPTION_COUNT = 5;
+uint8_t idleTimeoutIndex = 2;
+
+// lastKeyActivity tracks any recognized KeyAction, the same basis
+// AUTO_ADVANCE_MS's carousel-timer already uses for "idle" — on a
+// keyboardless unit (!keyboardReady) this never advances past boot, so the
+// display dims at the configured timeout and stays dimmed for the rest of
+// an unattended run. That's the right outcome for exactly the multi-hour-
+// unattended-drive scenario this project is built around, not a corner
+// case to special-case away.
+uint32_t lastKeyActivity = 0;
+
+// The level idle-dim actually drives when it engages: the lower of a fixed
+// floor and the operator's own active level. Needed once brightness became
+// a slider that can go below the old fixed IDLE_DIM_PERCENT (15) — without
+// this, setting an active level of e.g. 10% and then going idle would make
+// the screen get BRIGHTER (jump to 15%) instead of dimmer.
+constexpr uint8_t IDLE_DIM_FLOOR = 15;
+uint8_t idleDimTargetPercent() {
+    return activeBrightnessPercent < IDLE_DIM_FLOOR ? activeBrightnessPercent : IDLE_DIM_FLOOR;
 }
 
 // Without a keyboard the pages rotate on their own — a device stuck on one
@@ -187,10 +281,28 @@ uint16_t gpsStatusColour() {
     return cached;
 }
 
-// Heap-health header dot — same threshold drawSystemPage() already colors
-// "k heap" by, just always visible instead of only on its own page.
+// Shared 3-tier colour for every heap-usage display (header dot, SYSTEM's
+// "k heap" text, and its bar below) — green under 80% of the ~512KB
+// no-PSRAM SRAM budget (DESIGN.md §1) used, yellow 80-90%, red above 90%.
+// Takes free heap in KB so SYSTEM's page (which already computes that for
+// its own text) doesn't redo the division. Replaces the old flat
+// "<100000 bytes free" single threshold — close to the same cutover point
+// (~102KB free is 80% used of 512KB) but with the escalating red tier this
+// bar's redesign asked for, rather than staying stuck on yellow all the way
+// to empty.
+constexpr uint32_t HEAP_BUDGET_KB = 512;
+uint16_t heapUsageColour(uint32_t freeHeapK) {
+    const uint32_t usedK = (freeHeapK < HEAP_BUDGET_KB) ? (HEAP_BUDGET_KB - freeHeapK) : 0;
+    const float usedFrac = (float)usedK / (float)HEAP_BUDGET_KB;
+    if (usedFrac >= 0.90f) return COL_BAD;
+    if (usedFrac >= 0.80f) return COL_WARN;
+    return COL_GOOD;
+}
+
+// Heap-health header dot — same thresholds drawSystemPage() colors "k heap"
+// and its bar by, just always visible instead of only on its own page.
 uint16_t heapStatusColour() {
-    return ESP.getFreeHeap() > 100000 ? COL_GOOD : COL_WARN;
+    return heapUsageColour(ESP.getFreeHeap() / 1024);
 }
 
 void drawHeader() {
@@ -201,12 +313,21 @@ void drawHeader() {
 
     if (menu.isOpen()) {
         tft->print("MENU");
-        if (menu.level() == MenuLevel::GROUP) {
-            // Breadcrumb, e.g. "MENU > System" — tells an operator which
-            // group they're inside without needing to back out to check.
-            tft->setTextColor(COL_DIM, COL_BG);
+        // Breadcrumb, e.g. "MENU > System > Display" — tells an operator
+        // how deep they are without needing to back out to check. Full
+        // ancestor chain now that nesting is real (2026-08-25) — not just
+        // one group name, since a GROUP can itself open another GROUP.
+        // "MENU > System > Display > Brightness" (worst case today, deepest
+        // path) is 36 chars at size-1 text (6px/char = 216px), clear of
+        // the 240px edge.
+        tft->setTextColor(COL_DIM, COL_BG);
+        for (uint8_t i = 0; i < menu.breadcrumbCount(); i++) {
             tft->print(" > ");
-            tft->print(menu.currentRoot().label);
+            tft->print(menu.breadcrumbLabel(i));
+        }
+        if (menu.inSlider()) {
+            tft->print(" > ");
+            tft->print(menu.currentItem().label);
         }
     } else {
         // Page name only — profile and page position moved to the footer
@@ -294,6 +415,20 @@ void drawRadioPage() {
     tft->setCursor(2, HEADER_H + 46);
     tft->print("drop ");
     tft->print(drops);
+
+    // STANDBY banner (Trace pause/standby, System menu): rx/log/drop above
+    // stay as real frozen totals rather than being replaced — the thing
+    // that must not be ambiguous is "is the radio actually listening right
+    // now," not the counters themselves, which are still meaningful while
+    // paused. Sits in the gap between the hero column and the bottom flush
+    // band, which RADIO's layout otherwise leaves empty (unlike GPS/SYSTEM,
+    // which use it for their own secondary content).
+    if (radioIsTracePaused()) {
+        tft->setTextSize(2);
+        tft->setTextColor(COL_WARN, COL_BG);
+        tft->setCursor(2, HEADER_H + 66);
+        tft->print("STANDBY");
+    }
 
     // Right column — x=170, the same start GPS's sats/qual column uses, so
     // the right column lands in the same physical 70px-wide zone on every
@@ -498,9 +633,17 @@ void drawGpsPage() {
 // number to read and compare against 512 in your head. ~512KB is the
 // ESP32-S3FN8's total SRAM with no PSRAM (DESIGN.md §1) — an upper bound
 // for context, not a claim about free-heap-at-boot.
-void drawHeapBar(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t heapK, uint16_t colour) {
+//
+// Fills with USAGE, not remaining free space (flipped 2026-08-25, bench
+// feedback): a bar that grows as the budget gets consumed reads the same
+// direction as the colour tiers above it (both escalate toward "full is
+// bad"), where the old free-space fill emptied toward the danger zone —
+// visually backwards next to a bar whose colour was getting more alarming
+// as it got shorter.
+void drawHeapBar(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t freeHeapK, uint16_t colour) {
     tft->drawRect(x, y, w, h, colour);
-    float frac = (float)heapK / 512.0f;
+    const uint32_t usedK = (freeHeapK < HEAP_BUDGET_KB) ? (HEAP_BUDGET_KB - freeHeapK) : HEAP_BUDGET_KB;
+    float frac = (float)usedK / (float)HEAP_BUDGET_KB;
     if (frac < 0.0f) frac = 0.0f;
     if (frac > 1.0f) frac = 1.0f;
     const int16_t fill = (int16_t)((w - 2) * frac);
@@ -527,7 +670,7 @@ void drawSystemPage() {
     tft->print(" min");
 
     const uint32_t heap = ESP.getFreeHeap();
-    const uint16_t heapColour = heap > 100000 ? COL_GOOD : COL_WARN;
+    const uint16_t heapColour = heapUsageColour(heap / 1024);
     tft->setTextColor(heapColour, COL_BG);
     tft->setCursor(2, HEADER_H + 28);
     tft->print(heap / 1024);
@@ -598,11 +741,11 @@ void drawMenuRow(int16_t y, const char *rowLabel, const char *value, bool select
     }
 }
 
-// What a group row's value column shows. Generic over both groups
-// (Profile's choices and System's toggles) — MenuState/RootEntry are
-// data-driven on purpose (ui_menu.h), and this stays a single switch on
-// MenuAction rather than one function per group, the same way
-// drawMenuGroup() below stays one function for both.
+// What an ACTION row's value column shows. Generic over every list in the
+// menu (Profile's choices, System's toggles, Display's Idle-dim cycle) —
+// MenuState/MenuItem are data-driven on purpose (ui_menu.h), and this stays
+// a single switch on MenuAction rather than one function per list, the
+// same way drawMenuList() below stays one function for every depth.
 const char *menuEntryValue(MenuAction action) {
     switch (action) {
         case MenuAction::SELECT_MESHTASTIC:
@@ -611,23 +754,57 @@ const char *menuEntryValue(MenuAction action) {
             return radioActiveProfile() == MissionProfile::MESHCORE ? "ACTIVE" : "";
         case MenuAction::WIFI_TOGGLE: return wifiIsEnabled() ? "ON" : "OFF";
         case MenuAction::DEBUG_TOGGLE: return loggerDebugIsEnabled() ? "ON" : "OFF";
+        case MenuAction::IDLE_TIMEOUT_CYCLE: return IDLE_TIMEOUT_OPTIONS[idleTimeoutIndex].label;
+        // TRACE_TOGGLE has no case here: it's a root-level ACTION row whose
+        // live state is rendered directly below rather than through this
+        // ACTION-only lookup. BRIGHTNESS_UP/DOWN aren't ACTION rows at all
+        // (SLIDER kind) so never reach this function.
         default: return "";
     }
 }
 
-void drawMenuRoot() {
-    for (uint8_t i = 0; i < ROOT_COUNT; i++) {
-        const RootEntry &r = ROOT_ITEMS[i];
-        char value[24];
-        if (r.groupItems == PROFILE_GROUP_ITEMS) {
-            // Root row still surfaces the live profile (unlike System's
-            // bare ">") so the active protocol reads without drilling
-            // into the group.
-            snprintf(value, sizeof(value), "%s >", uiProfileLabel(radioActiveProfile()));
+// One list of rows, at whatever depth menu.currentList() currently is —
+// the root list, System's list, or Display's nested list all draw through
+// this same function now that nesting is real (2026-08-25); no more
+// separate drawMenuRoot()/drawMenuGroup() special-cased by depth.
+void drawMenuList() {
+    const MenuItem *list = menu.currentList();
+    const uint8_t count = menu.currentCount();
+    for (uint8_t i = 0; i < count; i++) {
+        const MenuItem &item = list[i];
+        char label[24];
+        if (item.action == MenuAction::TRACE_TOGGLE) {
+            // "Trace: Active"/"Trace: Standby" — colon format, consistent
+            // with Profile/Brightness's own live-value rows below. State
+            // words match RADIO page's STANDBY banner and
+            // drawBattery()-style ALL-CAPS convention elsewhere in this
+            // file.
+            snprintf(label, sizeof(label), "Trace: %s", radioIsTracePaused() ? "STANDBY" : "ACTIVE");
+            drawMenuRow(HEADER_H + 10 + i * 24, label, nullptr, menu.currentIndex() == i);
+        } else if (item.kind == ItemKind::SLIDER) {
+            // Brightness is the only SLIDER row in the app today, so this
+            // reaches straight for activeBrightnessPercent rather than
+            // being fully generic over "whichever slider" — worth
+            // revisiting if a second slider ever gets added. "Brightness:
+            // 100%" = 17 chars = 204px at size-2 text, clear of the 240px
+            // edge that bit the old Profile row before "> " was dropped.
+            snprintf(label, sizeof(label), "Brightness: %u%%", (unsigned)activeBrightnessPercent);
+            drawMenuRow(HEADER_H + 10 + i * 24, label, nullptr, menu.currentIndex() == i);
+        } else if (item.items == PROFILE_GROUP_ITEMS) {
+            // "Profile: Meshtastic" — the row still surfaces the live
+            // profile so the active protocol reads without drilling into
+            // the group. This format tops out at "Profile: Meshtastic"
+            // (19 chars = 228px), clear of the panel's 240px edge.
+            snprintf(label, sizeof(label), "Profile: %s", uiProfileLabel(radioActiveProfile()));
+            drawMenuRow(HEADER_H + 10 + i * 24, label, nullptr, menu.currentIndex() == i);
+        } else if (item.kind == ItemKind::GROUP) {
+            // Plain label, no value — matches System's/Display's existing
+            // bare-list-row look ("a bare list is already legibly a menu",
+            // bench feedback 2026-08-25).
+            drawMenuRow(HEADER_H + 10 + i * 24, item.label, nullptr, menu.currentIndex() == i);
         } else {
-            snprintf(value, sizeof(value), ">");
+            drawMenuRow(HEADER_H + 10 + i * 24, item.label, menuEntryValue(item.action), menu.currentIndex() == i);
         }
-        drawMenuRow(HEADER_H + 10 + i * 24, r.label, value, menu.rootIndex() == i);
     }
 
     tft->setTextSize(1);
@@ -636,17 +813,28 @@ void drawMenuRoot() {
     tft->print(",/. move   Enter select   ` back");
 }
 
-void drawMenuGroup() {
-    const RootEntry &r = menu.currentRoot();
-    for (uint8_t i = 0; i < r.groupCount; i++) {
-        const MenuEntry &e = r.groupItems[i];
-        drawMenuRow(HEADER_H + 10 + i * 24, e.label, menuEntryValue(e.action), menu.groupIndex() == i);
-    }
+// Brightness slider screen (2026-08-25) — the one SLIDER view today. Large
+// live readout plus a filled-bar track, same outline+fill visual language
+// drawHeapBar()/drawFreqBar() already use elsewhere in this file rather
+// than inventing a third bar style.
+void drawMenuSlider() {
+    tft->setTextSize(2);
+    tft->setTextColor(COL_FG, COL_BG);
+    tft->setCursor(2, HEADER_H + 10);
+    char pctBuf[8];
+    snprintf(pctBuf, sizeof(pctBuf), "%u%%", (unsigned)activeBrightnessPercent);
+    tft->print(pctBuf);
+
+    constexpr int16_t BAR_X = 2, BAR_Y = HEADER_H + 40, BAR_W = 200, BAR_H = 14;
+    tft->drawRect(BAR_X, BAR_Y, BAR_W, BAR_H, COL_GOOD);
+    const float frac = (float)(activeBrightnessPercent - BRIGHTNESS_MIN) / (float)(BRIGHTNESS_MAX - BRIGHTNESS_MIN);
+    const int16_t fill = (int16_t)((BAR_W - 2) * frac);
+    if (fill > 0) tft->fillRect(BAR_X + 1, BAR_Y + 1, fill, BAR_H - 2, COL_GOOD);
 
     tft->setTextSize(1);
     tft->setTextColor(COL_DIM, COL_BG);
     tft->setCursor(2, tft->height() - 9);
-    tft->print(",/. move   Enter act   ` back");
+    tft->print(",/. adjust +/-5%   ` back");
 }
 
 // Toast overlay (Phase 6) — flush-bottom band that slides up from
@@ -677,10 +865,10 @@ void drawToast() {
 void drawPage() {
     tft->fillRect(0, HEADER_H + 1, tft->width(), tft->height() - HEADER_H - 1, COL_BG);
 
-    if (menu.level() == MenuLevel::ROOT) {
-        drawMenuRoot();
-    } else if (menu.level() == MenuLevel::GROUP) {
-        drawMenuGroup();
+    if (menu.isOpen() && menu.inSlider()) {
+        drawMenuSlider();
+    } else if (menu.isOpen()) {
+        drawMenuList();
     } else {
         switch (page) {
             case UiPage::RADIO: drawRadioPage(); break;
@@ -699,22 +887,27 @@ void drawPage() {
     drawToast();
 }
 
+// No fillScreen() here: drawPage() already unconditionally wipes the whole
+// content region and redraws every element on every call (it has to, since
+// pages don't track their own prior state), and the caller always follows
+// a page change with a fullRedraw() in the same loop iteration (uiTask()
+// below). An explicit clear here was a second full-panel blank stacked
+// right before drawPage()'s own — pure redundant SPI traffic, and the
+// direct cause of the visible black flash on every page change (bench
+// feedback, 2026-08-25 hardware pass).
 void nextPage() {
     page = (UiPage)(((uint8_t)page + 1) % (uint8_t)UiPage::COUNT);
     lastPageChange = millis();
-    tft->fillScreen(COL_BG);
 }
 
 void prevPage() {
     page = (UiPage)(((uint8_t)page + (uint8_t)UiPage::COUNT - 1) % (uint8_t)UiPage::COUNT);
     lastPageChange = millis();
-    tft->fillScreen(COL_BG);
 }
 
 void jumpToPage(UiPage p) {
     page = p;
     lastPageChange = millis();
-    tft->fillScreen(COL_BG);
 }
 
 // Performs the actual toggle/switch behind a fired MenuAction and confirms
@@ -742,9 +935,22 @@ void fireMenuAction(MenuAction action) {
             showToast(msg);
             break;
         }
-        case MenuAction::WIFI_TOGGLE:
+        case MenuAction::WIFI_TOGGLE: {
+            // wifiToggle() only flips a *requested* flag — wifiTask (Core
+            // 0) hasn't actually called softAP()/softAPdisconnect() yet by
+            // the time this function returns, so wifiIsEnabled() read
+            // right after wifiToggle() still reports the OLD state (same
+            // one-loop-iteration-of-lag radioRequestProfileSwitch() already
+            // has). Reading the pre-toggle state and negating it — instead
+            // of re-querying post-toggle — is what SELECT_MESHTASTIC/
+            // SELECT_MESHCORE above already do correctly by reporting the
+            // requested target rather than the not-yet-applied live state;
+            // this case just hadn't followed that pattern. Bug: toasted
+            // "WiFi OFF" on the request that turned it on, and vice versa
+            // (caught on hardware, 2026-08-25).
+            const bool turningOn = !wifiIsEnabled();
             wifiToggle();
-            if (wifiIsEnabled()) {
+            if (turningOn) {
                 char ssid[32];
                 wifiApSsid(ssid, sizeof(ssid));
                 snprintf(msg, sizeof(msg), "WiFi ON: %s", ssid);
@@ -753,10 +959,61 @@ void fireMenuAction(MenuAction action) {
             }
             showToast(msg);
             break;
+        }
         case MenuAction::DEBUG_TOGGLE:
             loggerDebugToggle();
             showToast(loggerDebugIsEnabled() ? "Debug ON" : "Debug OFF");
             break;
+        case MenuAction::TRACE_TOGGLE: {
+            // Same pre-toggle-state-then-negate pattern as WIFI_TOGGLE above
+            // (and the same reason): radioRequestTracePause() only queues
+            // the request, radioIsTracePaused() doesn't reflect it until
+            // the radio task's own loop picks it up — re-querying right
+            // after the request would show the state being left, not
+            // entered, same bug already fixed once this session for WiFi.
+            const bool pausing = !radioIsTracePaused();
+            radioRequestTracePause(pausing);
+            showToast(pausing ? "Trace: STANDBY" : "Trace: ACTIVE");
+            break;
+        }
+        case MenuAction::BRIGHTNESS_UP:
+        case MenuAction::BRIGHTNESS_DOWN: {
+            // Live-applied every step, like scrubbing any real slider —
+            // but deliberately NOT saved to SD here. Saving on every step
+            // would hammer the card if someone holds the key down; the
+            // save happens once, on BACK out of the slider (see uiTask()
+            // below), the same debounce point a "confirm" button would
+            // give a form.
+            int16_t next = (int16_t)activeBrightnessPercent +
+                            (action == MenuAction::BRIGHTNESS_UP ? BRIGHTNESS_STEP : -BRIGHTNESS_STEP);
+            if (next < BRIGHTNESS_MIN) next = BRIGHTNESS_MIN;
+            if (next > BRIGHTNESS_MAX) next = BRIGHTNESS_MAX;
+            activeBrightnessPercent = (uint8_t)next;
+            // Adjusting the slider always shows the live result
+            // immediately, undimming if the display happened to be idle-
+            // dimmed — the operator just acted on the keyboard, so it
+            // can't still be "idle" the instant after this fires.
+            displayDimmed = false;
+            backlightSetPercent(activeBrightnessPercent);
+            break; // no toast — the slider screen's own live "NN%" readout is the feedback
+        }
+        case MenuAction::IDLE_TIMEOUT_CYCLE: {
+            // Plain local state this file owns directly (not an async
+            // cross-task flag like WiFi's apActive), so there's no
+            // pre/post-toggle staleness risk reading it right after
+            // advancing it.
+            idleTimeoutIndex = (uint8_t)((idleTimeoutIndex + 1) % IDLE_TIMEOUT_OPTION_COUNT);
+            snprintf(msg, sizeof(msg), "Idle dim: %s", IDLE_TIMEOUT_OPTIONS[idleTimeoutIndex].label);
+            showToast(msg);
+            // One write per press — a discrete, deliberate tap, not a
+            // continuous scrub, so this doesn't need the slider's
+            // save-on-exit debounce.
+            DisplaySettings settings;
+            settings.brightness_pct = activeBrightnessPercent;
+            settings.idle_timeout_index = idleTimeoutIndex;
+            writeDisplaySettingsToSD(settings);
+            break;
+        }
         case MenuAction::NONE:
         default:
             break;
@@ -778,19 +1035,57 @@ KeyAction pollKeyAction() {
     return result;
 }
 
-void uiTask(void *) {
-    tft->fillScreen(COL_BG);
+// NOTE: no startWrite()/endWrite() batching here on purpose, despite
+// looking like the obvious next step. Arduino_GFX's fillRect()/print()
+// etc. already each wrap themselves in their own startWrite()/endWrite()
+// pair, and Arduino_HWSPI's is a straight SPIClass::beginTransaction()/
+// endTransaction() call with a plain, non-recursive lock — a second,
+// outer startWrite() around a sequence of calls that each take it again
+// internally deadlocks on the first nested call (verified against the
+// vendored GFX/SPI sources, not run on hardware — caught before it became
+// a hang on first boot). That's moot now anyway: tft->flush() below is the
+// real single-transaction boundary (Arduino_TFT::drawIndexedBitmap — one
+// startWrite()/writeIndexedPixels()/endWrite() sequence over the whole
+// composed frame), and it isn't nested inside anything.
+void fullRedraw() {
     drawHeader();
     drawPage();
+    tft->flush();
+}
+
+void uiTask(void *) {
+    fullRedraw();
 
     uint32_t lastRedraw = millis();
     lastPageChange = lastRedraw;
+    lastKeyActivity = lastRedraw;
     uint32_t lastRxSeen = radioPacketCount();
     bool wasAnimating = false;
 
     for (;;) {
         const KeyAction action = pollKeyAction();
         bool redraw = false;
+
+        // Brightness idle-dim: any recognized key both resets the idle
+        // clock and immediately undims if the display was dimmed — an
+        // operator who just pressed something can't still be "idle" the
+        // instant after. Checked before the carousel/menu dispatch below
+        // so a keypress that also does something else (page change, menu
+        // action) still counts as activity. idleTimeoutIndex == 0 ("Off")
+        // disables idle-dim entirely, same meaning the old AUTODIM_TOGGLE
+        // == false had.
+        const uint32_t idleTimeoutMs = IDLE_TIMEOUT_OPTIONS[idleTimeoutIndex].ms;
+        if (action != KeyAction::NONE) {
+            lastKeyActivity = millis();
+            if (displayDimmed) {
+                displayDimmed = false;
+                backlightSetPercent(activeBrightnessPercent);
+            }
+        } else if (idleTimeoutIndex != 0 && !displayDimmed &&
+                   millis() - lastKeyActivity >= idleTimeoutMs) {
+            displayDimmed = true;
+            backlightSetPercent(idleDimTargetPercent());
+        }
 
         // Detect new RX activity every loop, independent of whether a key
         // was pressed — this is what actually drives the header pulse dot
@@ -835,36 +1130,53 @@ void uiTask(void *) {
             // ESC (BACK) opens the menu instead, so the same key that
             // closes it also opens it.
         } else if (action != KeyAction::NONE) {
-            // Menu open (root or group level) — MenuState owns navigation
-            // and level transitions; this file only reacts to what fired.
+            // Menu open (root/group/slider level) — MenuState owns
+            // navigation and level transitions; this file only reacts to
+            // what fired. Captured before handle() runs: leaving the
+            // Brightness slider (BACK, SLIDER -> ROOT) is the debounce
+            // point for persisting it — see BRIGHTNESS_UP/DOWN's own
+            // comment in fireMenuAction() for why saves don't happen on
+            // every step instead.
+            const bool leavingSlider = menu.inSlider() && action == KeyAction::BACK;
             const MenuAction fired = menu.handle(action);
             if (fired != MenuAction::NONE) fireMenuAction(fired);
+            if (leavingSlider) {
+                DisplaySettings settings;
+                settings.brightness_pct = activeBrightnessPercent;
+                settings.idle_timeout_index = idleTimeoutIndex;
+                writeDisplaySettingsToSD(settings);
+            }
             redraw = true;
         }
 
         const bool animating = (toastMsg[0] != '\0' && toastActive()) || rxPulseActive();
         const uint32_t redrawInterval = animating ? FAST_REDRAW_MS : REDRAW_MS;
 
+        // Every tick below always goes through fullRedraw(), including the
+        // FAST_REDRAW_MS animation burst — unlike direct-to-panel drawing,
+        // redrawing "too much" into the off-screen canvas costs nothing the
+        // viewer can see, since tft->flush() is the only point anything
+        // reaches the glass, as one atomic blit. A leaner toast-only path
+        // that skipped drawPage() briefly existed here before the canvas;
+        // it existed purely to avoid a *visible* partial redraw, which
+        // isn't a concern any more, so it was more code for no remaining
+        // benefit.
         if (redraw) {
-            drawHeader();
-            drawPage();
+            fullRedraw();
             lastRedraw = millis();
         } else if (!menu.isOpen() && !keyboardReady && millis() - lastPageChange >= AUTO_ADVANCE_MS) {
             nextPage();
-            drawHeader();
-            drawPage();
+            fullRedraw();
             lastRedraw = millis();
         } else if (millis() - lastRedraw >= redrawInterval) {
-            drawHeader(); // battery + status dots (+ page name/footer via drawPage)
-            drawPage();
+            fullRedraw();
             lastRedraw = millis();
         } else if (wasAnimating && !animating) {
             // The toast or RX pulse just expired since the last redraw —
-            // force one more pass so its overlay actually clears rather
-            // than lingering until the next periodic REDRAW_MS tick (up to
-            // ~1s stale).
-            drawHeader();
-            drawPage();
+            // force one more full pass so its overlay actually clears
+            // rather than lingering until the next periodic REDRAW_MS tick
+            // (up to ~1s stale).
+            fullRedraw();
             lastRedraw = millis();
         }
         wasAnimating = animating;
@@ -882,9 +1194,58 @@ void uiTask(void *) {
 
 } // namespace
 
-bool uiTaskStart(Arduino_GFX *gfx) {
+bool uiTaskStart(Arduino_GFX *gfx, const DisplaySettings &settings) {
     if (gfx == nullptr) return false;
-    tft = gfx;
+
+    // Seed from main.cpp's boot-time SD load (display_settings.h) instead
+    // of this file's hardcoded defaults — clamped defensively even though
+    // display_settings.cpp already validates on load, since these values
+    // go straight into backlightSetPercent() below. A brand-new/empty SD
+    // card leaves `settings` at its own struct defaults (100%, 60s), which
+    // is the same effective behavior this feature originally shipped with.
+    activeBrightnessPercent = settings.brightness_pct;
+    if (activeBrightnessPercent < BRIGHTNESS_MIN) activeBrightnessPercent = BRIGHTNESS_MIN;
+    if (activeBrightnessPercent > BRIGHTNESS_MAX) activeBrightnessPercent = BRIGHTNESS_MAX;
+    idleTimeoutIndex = settings.idle_timeout_index;
+    if (idleTimeoutIndex >= IDLE_TIMEOUT_OPTION_COUNT) idleTimeoutIndex = 2;
+    // main.cpp's backlightInit() (called before this, for the boot splash)
+    // always starts at 100% — apply the real loaded level now so it's
+    // visible from ui_task's very first frame instead of staying at 100%
+    // until the operator happens to touch the Brightness slider.
+    backlightSetPercent(activeBrightnessPercent);
+
+    // Phase 6 bench pass (2026-08-25) found direct-to-panel drawing causes
+    // real, visible flicker and tearing: every fillRect()/print() call is
+    // immediately visible on the glass, so any redraw shows a blank-then-
+    // redrawn flash to the eye even for values that didn't actually change,
+    // and the toast's fast-redraw burst tore for the same reason. Fixed
+    // the way M5PORKCHOP-style M5GFX/LovyanGFX sprite UIs get their
+    // smoothness: everything above draws into this off-screen canvas
+    // instead of the panel, and nothing reaches the glass until
+    // tft->flush() blits the whole composed frame in one shot
+    // (Arduino_TFT::drawIndexedBitmap — a single startWrite()/
+    // writeIndexedPixels()/endWrite() sequence, confirmed against the
+    // vendored GFX source). _Indexed rather than the full RGB565 canvas:
+    // this UI only ever uses 6 colours (COL_BG/FG/DIM/GOOD/WARN/BAD, all
+    // below), so 1 byte/pixel loses nothing and costs ~32KB
+    // (240*135) instead of RGB565's ~63KB (240*135*2) — half the resource
+    // commitment for a UI that never needed more than 6 distinct colours.
+    // No PSRAM on this board (DESIGN.md §1), so this is a real malloc()
+    // against the same heap budget as everything else, not a static
+    // allocation — a deliberate one-time ~32KB tradeoff, decided with the
+    // operator rather than assumed, given this reverses what was
+    // previously a deliberate "no canvas/framebuffer" choice. Falls back
+    // to drawing straight on the panel (the original behavior, flicker and
+    // all) if the allocation fails, rather than taking the whole UI down
+    // over ~32KB of missing heap headroom.
+    canvas = new Arduino_Canvas_Indexed(gfx->width(), gfx->height(), gfx, 0, 0, 0);
+    if (canvas->begin(GFX_SKIP_OUTPUT_BEGIN)) {
+        tft = canvas;
+    } else {
+        delete canvas;
+        canvas = nullptr;
+        tft = gfx;
+    }
 
     // Wire is already up from ioExpanderInit(); begin() again is harmless
     // and keeps this call self-contained if the boot order ever changes.

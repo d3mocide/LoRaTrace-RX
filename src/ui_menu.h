@@ -1,96 +1,132 @@
 #pragma once
-// LoRaTrace RX — grouped menu state machine (Phase 6: UI architecture
-// redesign, ROADMAP.md).
+// LoRaTrace RX — menu state machine (Phase 6: UI architecture redesign,
+// ROADMAP.md; generalized to real nesting 2026-08-25).
 //
 // Pure logic, no Arduino/display dependency — same "decode/state machine
 // separate from drawing and hardware" split as keyboard.h/gps_parse.h, so
 // this is host-testable (pio test -e native, test/test_ui_menu/) instead of
 // only bench-testable.
 //
-// Replaces Phase 5's flat, fixed-size menu (ui_task.cpp's old
-// `MENU_ITEM_COUNT`/`menuSelection`), which shipped scoped to exactly two
-// items and had already grown a third (verbose debug) the same bench day
-// with no framework change — see PROGRESS.md's 2026-08-25 Decisions log.
-// Root items are either a DIRECT action (fires immediately, mirrors
-// M5PORKCHOP's `RootType::DIRECT`, github.com/0ct0sec/M5PORKCHOP
-// src/ui/menu.h — reviewed for this structural idea only, not its content)
-// or a GROUP that opens a short sub-list — two levels, never more, so
-// navigation never needs a stack deeper than "root" and "inside one group."
+// Originally shipped as an explicit two-level design ("root, then one group
+// inside it, never more") — replacing Phase 5's flat, fixed-size menu,
+// which shipped scoped to exactly two items and had already grown a third
+// (verbose debug) the same bench day with no framework change to absorb it
+// (PROGRESS.md's 2026-08-25 Decisions log). That two-level cap held for the
+// rest of Phase 6 until the operator asked to move Brightness/idle-dim
+// under a "System > Display > ..." grouping — a real third level, not
+// something a special case for one screen was worth building around given
+// it's now the *second* time a nesting need has come up (System's own
+// WiFi/Debug/Trace grouping was the first). Generalized to arbitrary-depth
+// (bounded by MAX_DEPTH) recursive navigation instead: every row, at any
+// depth, is the same MenuItem shape — ACTION rows fire immediately, GROUP
+// rows open their own nested item list, SLIDER rows step a live value with
+// NEXT/PREV once entered. A GROUP can contain more GROUPs, more SLIDERs, or
+// a mix, all through the same recursive shape.
 //
 // Input model unchanged from Phase 5 (keyboard.h): PREV/NEXT move a
-// selection, SELECT activates it, BACK peels back exactly one level (group
-// -> root -> closed). JUMP_1..5 and NONE are always no-ops here — carousel
-// page jumps stay ui_task.cpp's concern, same as Phase 5.
+// selection (or step a slider), SELECT activates the highlighted row, BACK
+// peels back exactly one level. JUMP_1..5 and NONE are always no-ops here —
+// carousel page jumps stay ui_task.cpp's concern, same as Phase 5.
 
 #include <stdint.h>
 
 #include "keyboard.h"
 
-// What a menu row (root DIRECT item or group item) does when activated.
-// NONE is "this row exists but selecting it does nothing on its own" — used
-// for a GROUP root row, whose SELECT opens the sub-list rather than firing
-// an action directly.
+// What a menu row does when activated.
 //
 // SELECT_MESHTASTIC/SELECT_MESHCORE replace the single PROFILE_SWITCH this
 // enum used to carry (2026-08-25, BRAND.md's Interface Naming section):
-// "Profile" is a GROUP root row now, not a two-way cycle-on-Enter, so
-// picking a profile is two distinct direct selections inside it rather
-// than one action that always means "whichever one isn't active."
+// "Profile" is a GROUP row, not a two-way cycle-on-Enter, so picking a
+// profile is two distinct direct selections inside it rather than one
+// action that always means "whichever one isn't active."
 enum class MenuAction : uint8_t {
     NONE = 0,
     SELECT_MESHTASTIC,
     SELECT_MESHCORE,
     WIFI_TOGGLE,
     DEBUG_TOGGLE,
+    TRACE_TOGGLE,
+    // Fixed 25/50/75/100 presets replaced by a real slider — UP/DOWN step a
+    // live value by 5% instead of jumping between 4 fixed points.
+    BRIGHTNESS_UP,
+    BRIGHTNESS_DOWN,
+    // A plain on/off toggle replaced by a cycling value (Off/30s/60s/2min/
+    // 5min) — same "fires and stays in the list" shape WIFI_TOGGLE/
+    // DEBUG_TOGGLE already have, just cycling instead of flipping a bool.
+    IDLE_TIMEOUT_CYCLE,
 };
 
-enum class RootKind : uint8_t { DIRECT, GROUP };
+enum class ItemKind : uint8_t { ACTION, GROUP, SLIDER };
 
-// One item inside a group's sub-list.
-struct MenuEntry {
+// One menu row, at any depth — root-level or nested inside any GROUP.
+// ACTION rows carry `action` and ignore the rest; GROUP rows carry a nested
+// list (`items`/`itemCount`) and ignore `action`/`sliderIncrease`/
+// `sliderDecrease`; SLIDER rows carry `sliderIncrease`/`sliderDecrease`
+// (fired on NEXT/PREV once entered) and ignore the others. A slider's
+// actual value, bounds, and step size are deliberately NOT here — that's
+// runtime state the caller (ui_task.cpp) owns, same as a GROUP's current
+// selection isn't part of this table either.
+struct MenuItem {
     const char *label;
+    ItemKind kind;
     MenuAction action;
+    MenuAction sliderIncrease;
+    MenuAction sliderDecrease;
+    const MenuItem *items;
+    uint8_t itemCount;
 };
-
-// One root-level row. DIRECT rows carry `directAction` and ignore
-// `groupItems`/`groupCount`; GROUP rows carry a sub-list and ignore
-// `directAction`.
-struct RootEntry {
-    const char *label;
-    RootKind kind;
-    MenuAction directAction;
-    const MenuEntry *groupItems;
-    uint8_t groupCount;
-};
-
-enum class MenuLevel : uint8_t { CLOSED, ROOT, GROUP };
 
 class MenuState {
 public:
+    // Max navigable depth (root list = depth 1). 4 is generous headroom
+    // over the 3 actually used today (root -> System -> Display) — cheap
+    // to raise later (it's just a small fixed-size array), not a hardcoded
+    // ceiling worth routing around.
+    static constexpr uint8_t MAX_DEPTH = 4;
+
     // `roots`/`rootCount` must outlive this object — same convention as
     // channel_plans.h's constexpr tables, expected to be a static/constexpr
-    // array owned by the caller (ui_task.cpp), not copied in.
-    MenuState(const RootEntry *roots, uint8_t rootCount) : roots_(roots), rootCount_(rootCount) {}
+    // array owned by the caller (ui_task.cpp), not copied in. Every nested
+    // GROUP's `items` array has the same lifetime expectation.
+    MenuState(const MenuItem *roots, uint8_t rootCount) : roots_(roots), rootCount_(rootCount) {}
 
-    MenuLevel level() const { return level_; }
-    bool isOpen() const { return level_ != MenuLevel::CLOSED; }
-    uint8_t rootIndex() const { return rootIdx_; }
-    uint8_t groupIndex() const { return groupIdx_; }
+    bool isOpen() const { return depth_ > 0; }
+    // 1 = the root list itself is what's on screen; 2 = one level in; etc.
+    uint8_t depth() const { return depth_; }
+    // True once SELECT has entered a SLIDER row — currentItem() is what's
+    // being adjusted; currentList()/currentCount()/currentIndex() still
+    // describe the list *behind* it (unchanged while inSlider(), so BACK
+    // can return to exactly where it was).
+    bool inSlider() const { return inSlider_; }
 
-    // Valid whenever rootCount_ > 0, i.e. whenever the caller should be
-    // calling this at all — a zero-length root table is a caller bug, not a
-    // state this class tries to paper over.
-    const RootEntry &currentRoot() const { return roots_[rootIdx_]; }
+    const MenuItem *currentList() const {
+        return depth_ <= 1 ? roots_ : nodeAt(depth_ - 2).items;
+    }
+    uint8_t currentCount() const {
+        return depth_ <= 1 ? rootCount_ : nodeAt(depth_ - 2).itemCount;
+    }
+    uint8_t currentIndex() const { return index_[depth_ - 1]; }
+    const MenuItem &currentItem() const { return currentList()[currentIndex()]; }
+
+    // Ancestor labels for a breadcrumb, oldest first — e.g. depth()==3
+    // (Display's list open, nested in System) yields count 2:
+    // {"System", "Display"}. Empty at depth() <= 1 (nothing to breadcrumb
+    // yet — the root list itself needs none).
+    uint8_t breadcrumbCount() const { return depth_ > 1 ? (uint8_t)(depth_ - 1) : 0; }
+    const char *breadcrumbLabel(uint8_t i) const { return nodeAt(i).label; }
 
     void open() {
-        level_ = MenuLevel::ROOT;
-        rootIdx_ = 0;
-        groupIdx_ = 0;
+        depth_ = 1;
+        for (uint8_t i = 0; i < MAX_DEPTH; i++) index_[i] = 0;
+        inSlider_ = false;
     }
 
-    void close() { level_ = MenuLevel::CLOSED; }
+    void close() {
+        depth_ = 0;
+        inSlider_ = false;
+    }
 
-    // Feeds one key action into whichever level is currently active.
+    // Feeds one key action into whichever level/mode is currently active.
     // Returns the MenuAction that just fired (NONE if the key only moved a
     // selection, opened/closed a level, or was ignored). ui_task.cpp is
     // expected to call this only while isOpen() — carousel-mode keys
@@ -98,32 +134,59 @@ public:
     // stay its own concern, same split Phase 5 already had between
     // UiMode::CAROUSEL and UiMode::MENU.
     MenuAction handle(KeyAction key) {
-        if (level_ == MenuLevel::ROOT) return handleRoot(key);
-        if (level_ == MenuLevel::GROUP) return handleGroup(key);
-        return MenuAction::NONE;
+        if (depth_ == 0) return MenuAction::NONE;
+        if (inSlider_) return handleSlider(key);
+        return handleList(key);
     }
 
 private:
-    MenuAction handleRoot(KeyAction key) {
-        if (rootCount_ == 0) return MenuAction::NONE;
+    // level 0 = the item chosen from the root list (roots_[index_[0]]);
+    // level 1 = the item chosen from THAT item's own list, etc. Used to
+    // resolve currentList()/currentCount() at depth_ > 1, and for
+    // breadcrumbLabel().
+    const MenuItem &nodeAt(uint8_t level) const {
+        const MenuItem *list = roots_;
+        const MenuItem *node = &list[index_[0]];
+        for (uint8_t d = 1; d <= level; d++) {
+            list = node->items;
+            node = &list[index_[d]];
+        }
+        return *node;
+    }
+
+    MenuAction handleList(KeyAction key) {
+        const MenuItem *list = currentList();
+        const uint8_t count = currentCount();
+        // An empty GROUP is a caller bug — fail safe back one level rather
+        // than indexing nothing.
+        if (count == 0) {
+            if (depth_ > 1) depth_--; else close();
+            return MenuAction::NONE;
+        }
+        uint8_t &idx = index_[depth_ - 1];
         switch (key) {
             case KeyAction::PREV:
-                rootIdx_ = (uint8_t)((rootIdx_ + rootCount_ - 1) % rootCount_);
+                idx = (uint8_t)((idx + count - 1) % count);
                 break;
             case KeyAction::NEXT:
-                rootIdx_ = (uint8_t)((rootIdx_ + 1) % rootCount_);
+                idx = (uint8_t)((idx + 1) % count);
                 break;
             case KeyAction::BACK:
-                close();
+                if (depth_ > 1) depth_--; else close();
                 break;
             case KeyAction::SELECT: {
-                const RootEntry &r = roots_[rootIdx_];
-                if (r.kind == RootKind::DIRECT) {
-                    return r.directAction;
+                const MenuItem &item = list[idx];
+                if (item.kind == ItemKind::ACTION) {
+                    return item.action;
                 }
-                if (r.groupCount > 0) {
-                    level_ = MenuLevel::GROUP;
-                    groupIdx_ = 0;
+                if (item.kind == ItemKind::SLIDER) {
+                    inSlider_ = true;
+                    break;
+                }
+                // GROUP — open its nested list, one level deeper.
+                if (item.itemCount > 0 && depth_ < MAX_DEPTH) {
+                    depth_++;
+                    index_[depth_ - 1] = 0;
                 }
                 break;
             }
@@ -133,35 +196,30 @@ private:
         return MenuAction::NONE;
     }
 
-    MenuAction handleGroup(KeyAction key) {
-        const RootEntry &r = roots_[rootIdx_];
-        // A GROUP row with an empty sub-list is a caller bug (see class
-        // comment) — fail safe back to root rather than indexing nothing.
-        if (r.groupCount == 0) {
-            level_ = MenuLevel::ROOT;
-            return MenuAction::NONE;
-        }
+    // No item list to navigate — just a live value the caller owns.
+    // NEXT/PREV fire the item's increase/decrease action every press
+    // (ui_task.cpp applies the step and clamps); BACK leaves the slider and
+    // returns to the list it was opened from (same depth, cursor
+    // unchanged) — same "one step back" contract handleList()'s BACK has.
+    MenuAction handleSlider(KeyAction key) {
+        const MenuItem &item = currentItem();
         switch (key) {
-            case KeyAction::PREV:
-                groupIdx_ = (uint8_t)((groupIdx_ + r.groupCount - 1) % r.groupCount);
-                break;
             case KeyAction::NEXT:
-                groupIdx_ = (uint8_t)((groupIdx_ + 1) % r.groupCount);
-                break;
+                return item.sliderIncrease;
+            case KeyAction::PREV:
+                return item.sliderDecrease;
             case KeyAction::BACK:
-                level_ = MenuLevel::ROOT; // one level back, not fully closed
+                inSlider_ = false;
                 break;
-            case KeyAction::SELECT:
-                return r.groupItems[groupIdx_].action;
             default:
                 break;
         }
         return MenuAction::NONE;
     }
 
-    const RootEntry *roots_;
+    const MenuItem *roots_;
     uint8_t rootCount_;
-    MenuLevel level_ = MenuLevel::CLOSED;
-    uint8_t rootIdx_ = 0;
-    uint8_t groupIdx_ = 0;
+    uint8_t depth_ = 0; // 0 = closed
+    uint8_t index_[MAX_DEPTH] = {0};
+    bool inSlider_ = false;
 };

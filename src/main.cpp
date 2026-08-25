@@ -33,11 +33,13 @@
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 
+#include "backlight.h"
 #include "battery.h"
 #include "board_pins.h"
 #include "channel_plans.h"
 #include "config.h"
 #include "detection.h"
+#include "display_settings.h"
 #include "gps_task.h"
 #include "io_expander.h"
 #include "logger_task.h"
@@ -81,6 +83,7 @@ constexpr uint8_t SPLASH_LINE_H = 10;   // px, text size 1
 // override too, not just Meshtastic's.
 ProfileOverrides channelOverrides;
 ChannelParams activeChannel = CHANNEL_MESHTASTIC_LONGFAST_US;
+DisplaySettings displaySettings;
 
 // Detection queue, Core 1 -> Core 0. 32 entries x 36B = ~1.2KB: deep enough
 // to ride out an SD flush (including the back-to-back original/rebroadcast
@@ -100,8 +103,7 @@ void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
 
 bool initDisplay() {
     tftSPI.begin(PIN_TFT_SCLK, -1 /* MISO unused */, PIN_TFT_MOSI, PIN_TFT_CS);
-    pinMode(PIN_TFT_BL, OUTPUT);
-    digitalWrite(PIN_TFT_BL, HIGH);
+    backlightInit(); // LEDC PWM, starts at 100% — see backlight.h
     if (!tft->begin()) return false;
     tft->fillScreen(SPLASH_BG);
     tft->setTextSize(1);
@@ -183,6 +185,9 @@ void setup() {
     // needed for this read.
     loadProfileOverridesFromSD(channelOverrides, PIN_SD_CS, sharedSpi());
     activeChannel = resolvedChannelForProfile(channelOverrides, MissionProfile::MESHTASTIC);
+    // Card is already mounted by the call above (or there's no card, in
+    // which case this fails safe the same way) — no separate SD.begin().
+    loadDisplaySettingsFromSD(displaySettings);
     // Specifically whether *this boot's profile* (Meshtastic) has an
     // override, not whether the file had any override at all — a
     // MeshCore-only override would otherwise make this splash line claim
@@ -296,7 +301,7 @@ void setup() {
     // never touch `tft` again — two writers on one panel is a race with no
     // upside.
     batteryInit();
-    if (!uiTaskStart(tft)) {
+    if (!uiTaskStart(tft, displaySettings)) {
         // Non-fatal on purpose: a headless wardriver still logs, which is
         // the actual job. Serial keeps reporting either way.
         SerialLock lock(pdMS_TO_TICKS(200));

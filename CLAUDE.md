@@ -348,6 +348,158 @@ mockup was corrected and republished again at the same link above, its
 before/after section's genuinely historical parts (Phase 5's frozen
 record) left untouched as always.
 
+**v0.6.2 -> v0.6.3: Phase 6's first real hardware bench pass** (2026-08-25
+evening). The redesign compiled and matched its mockup, but direct-to-panel
+drawing has failure modes a build report can't catch. Full-screen blink/
+flicker on every redraw and tearing during the toast animation, both real:
+root cause was `drawPage()` unconditionally wiping the entire content region
+on *every* redraw (idle 1Hz tick and the 60ms animation burst included), plus
+a fully redundant `fillScreen()` in `nextPage()`/`prevPage()`/`jumpToPage()`
+on top of that. First-pass fixes (drop the redundant clear, give the toast a
+lightweight header-only fast path) reduced but didn't eliminate it — every
+draw call is visible on the glass the instant it happens with no buffering.
+Real fix: an off-screen `Arduino_Canvas_Indexed` (`ui_task.cpp`'s `tft` now
+points at it, not the panel) — every draw call targets this buffer, nothing
+reaches the panel until one `tft->flush()` blits the whole frame in a single
+SPI burst (`Arduino_TFT::drawIndexedBitmap`, confirmed against the vendored
+GFX source). `_Indexed` since this UI only ever uses 6 colours: ~32KB instead
+of RGB565's ~63KB, a real one-time `malloc()` given no PSRAM (DESIGN.md §1),
+not a static allocation. This reverses the "no canvas/framebuffer,
+direct-to-panel" choice v0.6.1 documented — a deliberate, considered reversal
+once real hardware found a problem that choice had no answer for, not a
+casual one. (A near-miss: an early draft wrapped draws in an outer
+`tft->startWrite()`/`endWrite()` pair for batching; reading the vendored
+`Arduino_HWSPI`/`SPIClass` source first showed this deadlocks on the first
+nested `fillRect()` call, since `SPIClass::beginTransaction()` takes a plain
+non-recursive lock. Never reached hardware.)
+
+Same bench pass, smaller fixes: the menu's root-row values were overflowing
+the panel width by exactly the wrap boundary (`"Profile Meshtastic >"` =
+240px at size-2 text) — fixed by dropping the decorative `"> "` from every
+root row rather than shrinking text, landing on `"Profile: Meshtastic"`
+(228px). The WiFi menu toggle's toast was reporting the *opposite* of what
+had just happened (toasted "WiFi OFF" on the request that turned it on) —
+`fireMenuAction()` was reading `wifiIsEnabled()` *after* `wifiToggle()`,
+which only queues a request `wifiTask` (Core 0) hasn't applied yet; fixed by
+reading the pre-toggle state and negating it, the pattern the profile-switch
+toast already used correctly.
+
+**Trace pause/standby** (new, same session): a real battery lever for the
+radio-listening + logging pipeline, added after investigating whether GPS or
+the radio task should be gateable for heap/battery reasons. GPS turned out
+not to be independently power-gateable at all — `io_expander.h`'s P0 line
+does both antenna-switch enable and GPS power, so a GPS-off toggle would
+deafen the radio too — and neither GPS's nor the radio task's stack (3072B/
+4096B) is a meaningful heap lever next to WiFi's AP (~55-56KB) or this same
+session's new canvas (~32KB). What's real: `radio_task.cpp` can now put the
+SX1262 into `radio.sleep(true)` (warm sleep, retains config) instead of
+continuous RX, via a second one-slot mailbox mirroring the existing
+profile-switch pattern; resuming is a plain `radio.startReceive()` with no
+re-`begin()`. GPS is deliberately left running throughout — no power benefit
+to pausing it, and position stays fresh for the instant Trace resumes. Shows
+as a root-level menu row (`"Trace: Active"`/`"Trace: Standby"`, promoted out
+of the System group the same session on operator feedback that it's central
+enough to fire directly) and a `STANDBY` banner on RADIO's page. Named
+"Trace" after an explicit naming check — "MeshTrace" was rejected outright
+(revives the branding this doc's own v0.6.2 entry walked back), and plain
+"Trace" was flagged too since BRAND.md pins that word to exactly one meaning
+(a saved session/run); kept anyway as a documented, narrow exception — the
+saved-session noun is always countable, the live-toggle usage always pairs
+with a state word, so the two don't collide in practice (BRAND.md's
+Interface Naming section now says so explicitly). Confirmed on real
+hardware: pausing/resuming, and switching profiles *while* paused correctly
+wakes and retunes the radio.
+
+Two more from the same pass: the SYSTEM page's heap bar filled with *free*
+space and emptied toward the danger zone — backwards next to a colour that
+was getting more alarming as the bar got shorter. Now fills with *used*
+heap against the ~512KB no-PSRAM budget, colour and direction escalating
+together, with a real red tier at 90% used (was a flat 2-tier threshold
+before) — one shared `heapUsageColour()` now drives the bar, the "k heap"
+text, and the header's heap dot. And the web dashboard had the same
+ambiguity RADIO's new STANDBY banner just fixed on-device: `/api/status`
+had no field saying whether the radio was actually listening. Added
+`trace_paused` to the JSON and a status card on the dashboard.
+
+While already in `wifi_task.cpp`: `handleRuns()`'s JSON was built with
+`String` concatenation in a loop (`json += String(idx)` per run directory)
+— real reallocation/copy churn on every dashboard poll, worse as field
+sessions accumulate. Replaced with a fixed stack buffer + `snprintf`,
+matching every other handler in this file; `streamCsvFile()`'s
+`Content-Disposition` header (three chained `String` allocations for one
+request) got the same treatment.
+
+`pio test -e native` **88/88** (same total as before this session — Trace's
+test coverage moved from a System group item to a root DIRECT row, it
+didn't add a net-new test), `pio run -e cardputer-adv` **SUCCESS** (RAM
+50312/327680B, flash 961325/3342336B). Bench-verified at multiple points
+through the session on the attached Cardputer, not just at the end. See
+PROGRESS.md's Decisions log for the full session, including the exact
+mailbox/wake-sequence details for the radio sleep path.
+
+**v0.6.3 -> v0.6.4: real backlight brightness control, shipped the same
+evening.** The v0.6.3 Brightness menu (4 fixed presets, plain digitalWrite
+backlight) worked fine as an on/off toggle but had no real dimming behind
+it. Building it out into an actual PWM-driven control surfaced a genuine
+hardware bug, not just missing polish: a naive LEDC setup (20kHz, then
+1kHz, linear 0-100% duty mapping) blacked the display out at various
+brightness levels instead of dimming it, non-monotonically enough (50%/75%
+fixed by dropping to 1kHz; 25% then broke at 1kHz right after) that it
+didn't fit a simple "wrong frequency" story. Root cause found by reading
+M5Stack's own board-support code for this exact pin: `M5GFX.cpp`'s
+`board_M5CardputerADV` autodetect branch drives GPIO 38 (`PIN_TFT_BL`) at
+**256Hz** through LovyanGFX's `Light_PWM::setBrightness()` — a **non-linear
+curve with a built-in minimum-duty floor** (`offset=16`), not a naive
+linear map. `backlight.cpp` now replicates that exact formula and those
+exact constants rather than guessing again. All 4 original presets
+confirmed working afterward; the low end (5-20%) is new range this session
+opened up and needs its own bench sweep before being fully trusted, same
+"verify, don't assume" discipline as everything else physical here.
+
+Two operator-requested upgrades landed the same evening, once the PWM was
+trustworthy:
+- **Brightness became a real slider** (5-100% in 5% steps, PREV/NEXT to
+  scrub, live-applied every step) instead of 4 fixed points, and **idle-dim
+  timeout became configurable** (Off/30s/60s/2min/5min, cycled from a menu
+  row) instead of a hardcoded 60s. Both now **persist to SD**
+  (`/loratrace/display.txt`, `display_settings.h`/`.cpp` — a new, narrowly
+  scoped module mirroring `config.h`'s load/write pattern on purpose rather
+  than growing that file past the "channel overrides only" scope it
+  documents for itself) — the device remembers what was chosen across power
+  cycles now, the same way channel overrides already did. This is
+  `ui_task`'s first-ever SD access; it arbitrates `spi_bus.h`'s mutex the
+  same bounded (2s) way `writeProfileConfigToSD()` already does for the web
+  UI's own settings save. The idle-dim floor is now `min(15%, whatever the
+  operator's active level is)` rather than a fixed 15% — needed once
+  brightness could go below that, so idle-dimming can't make the screen
+  brighter than a deliberately low active level.
+- **The menu gained real nesting**: "System > Display > Brightness/Idle
+  dim" replaces Brightness living at root and Idle-dim living flat in
+  System, on direct operator request. This needed more than a table
+  reshuffle — `ui_menu.h`'s `MenuState` was an explicitly two-level design
+  ("root, then one group inside it, never more," stated since the Phase 6
+  redesign), and a GROUP nested inside a GROUP is a genuine third level.
+  Rather than special-case just this one screen, `MenuState` was
+  generalized into a small recursive/stack-based model (`MenuItem` rows —
+  ACTION/GROUP/SLIDER — bounded to `MAX_DEPTH = 4`, only 3 actually used
+  today) — the second time tonight a nesting need came up (System's own
+  flat WiFi/Debug/Trace grouping was the first), which is what made
+  generalizing rather than special-casing again the right call. Every
+  list-drawing function in `ui_task.cpp` collapsed from three (root/group/
+  slider-specific) to one generic `drawMenuList()` plus `drawMenuSlider()`
+  as a side effect — less code, not more, once the data model stopped
+  hardcoding depth. The header breadcrumb now shows the full path (e.g.
+  "MENU > System > Display > Brightness").
+
+`pio test -e native` **90/90**, `pio run -e cardputer-adv` **SUCCESS** (RAM
+50328/327680B, flash 964425/3342336B). Confirmed on the attached Cardputer
+through an extended live debugging session (a background serial monitor
+watching `[backlight]` diagnostic lines while brightness levels were
+selected in real time) before the M5GFX root cause was found, then
+reconfirmed after — not just built and assumed. See PROGRESS.md's
+Decisions log for the full session, including the exact duty-curve math and
+the specific 20kHz/1kHz dead ends ruled out along the way.
+
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.
