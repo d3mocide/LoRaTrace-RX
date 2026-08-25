@@ -43,6 +43,7 @@
 #include "gps_task.h"
 #include "io_expander.h"
 #include "logger_task.h"
+#include "profile_state.h"
 #include "radio_task.h"
 #include "serial_lock.h"
 #include "spi_bus.h"
@@ -391,7 +392,11 @@ void setup() {
     // needed for this read.
     bool sdMounted = false;
     loadProfileOverridesFromSD(channelOverrides, PIN_SD_CS, sharedSpi(), &sdMounted);
-    activeChannel = resolvedChannelForProfile(channelOverrides, MissionProfile::MESHTASTIC);
+    // Last profile an operator actually selected via the menu, not always
+    // Meshtastic — see profile_state.h for why this used to be hardcoded.
+    MissionProfile bootProfile = MissionProfile::MESHTASTIC;
+    loadLastProfileFromSD(bootProfile);
+    activeChannel = resolvedChannelForProfile(channelOverrides, bootProfile);
     // Card is already mounted by the call above (or there's no card, in
     // which case this fails safe the same way) — no separate SD.begin().
     loadDisplaySettingsFromSD(displaySettings);
@@ -435,13 +440,15 @@ void setup() {
     // its only failure mode is already fatal() — reaching the next line
     // already proves it succeeded.
 
-    // Boots on Meshtastic; MeshCore is reachable at runtime via ui_task's
-    // menu (DESIGN.md §5, radio_task.h). `channelOverrides` is passed along
-    // too, not just this boot profile's already-resolved `activeChannel` —
-    // radio_task.cpp holds onto it so a later switch to MeshCore resolves
-    // *its* override (if any) the same way this boot resolved Meshtastic's,
-    // rather than always falling back to channel_plans.h's hardcoded table.
-    if (!radioTaskStart(activeChannel, MissionProfile::MESHTASTIC, channelOverrides, detectionQueue)) {
+    // Boots on the last profile selected via the menu (defaults to
+    // Meshtastic on a first boot / no SD); the other profile is still
+    // reachable at runtime via ui_task's menu (DESIGN.md §5, radio_task.h).
+    // `channelOverrides` is passed along too, not just this boot profile's
+    // already-resolved `activeChannel` — radio_task.cpp holds onto it so a
+    // later switch resolves *its* override (if any) the same way this boot
+    // resolved `bootProfile`'s, rather than always falling back to
+    // channel_plans.h's hardcoded table.
+    if (!radioTaskStart(activeChannel, bootProfile, channelOverrides, detectionQueue)) {
         {
             SerialLock lock(pdMS_TO_TICKS(200));
             if (lock.held()) {

@@ -84,6 +84,9 @@ sd-template/loratrace/
 [x] DESIGN.md
 [x] ROADMAP.md
 [x] PROGRESS.md
+[x] CHANGELOG.md
+[x] SECURITY.md
+[x] AGENTS.md
 ```
 
 ## House rules
@@ -720,7 +723,10 @@ Three hard-won rules from Phases 1–2, worth not relearning:
   checking those first.
 
 Build order is DESIGN.md §9. See PROGRESS.md for the live build checklist
-and ROADMAP.md for phase-by-phase scope.
+and ROADMAP.md for phase-by-phase scope. The session-by-session decisions
+log itself (what every "see PROGRESS.md's Decisions log" reference above
+points to) moved to CHANGELOG.md on 2026-08-25 — PROGRESS.md now only
+holds current status, the checklist, open questions, and next steps.
 
 ## Related context
 

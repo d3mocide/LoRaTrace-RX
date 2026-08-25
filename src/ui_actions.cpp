@@ -15,6 +15,7 @@
 #include "backlight.h"
 #include "display_settings.h"
 #include "logger_task.h"
+#include "profile_state.h"
 #include "radio_task.h"
 #include "ui_labels.h"
 #include "wifi_task.h"
@@ -40,6 +41,9 @@ void fireMenuAction(MenuAction action) {
                                                ? MissionProfile::MESHTASTIC
                                                : MissionProfile::MESHCORE;
             radioRequestProfileSwitch(target);
+            // So the radio boots back into this profile next power-on
+            // instead of always defaulting to Meshtastic (profile_state.h).
+            writeLastProfileToSD(target);
             snprintf(msg, sizeof(msg), "Profile: %s", uiProfileLabel(target));
             showToast(msg);
             break;
