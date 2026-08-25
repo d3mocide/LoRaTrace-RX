@@ -108,13 +108,16 @@ constexpr int8_t PIN_SD_CS = 12;
 // --- radio/SD bus above (DESIGN.md §1: shared-bus display refreshes ---
 // --- jitter CAD timing; this is the isolation that rule is about).  ---
 // DESIGN.md §1's hardware table listed this as "internal" (unspecified)
-// before ui_task existed. Pulled forward here for the Phase 1 boot-status splash
-// (PROGRESS.md decisions log) — pins and IPS column/row offsets are NOT
-// independently bench-verified against this board; they're taken directly
-// from a project confirmed working on real Cardputer/Cardputer-ADV
+// before ui_task existed. Pulled forward here for the Phase 1 boot-status
+// splash (PROGRESS.md decisions log) — pins and IPS column/row offsets were
+// taken from a project confirmed working on real Cardputer/Cardputer-ADV
 // hardware (bmorcelli/Launcher, boards/m5stack-cardputer/platformio.ini,
 // which explicitly targets "M5Stack Cardputer & ADV" as one env), not
-// guessed or derived. TODO(verify) once this splash is bench-tested here.
+// guessed or derived. TODO(verify)-resolved: bench-tested on real hardware
+// 2026-08-23 (Phase 1's hardware-verification pass, CLAUDE.md Status) and
+// again through every Phase 6 UI session since — the panel renders
+// correctly at these offsets, no independent multimeter/continuity check
+// needed on top of that.
 constexpr int8_t PIN_TFT_MOSI = 35;
 constexpr int8_t PIN_TFT_SCLK = 36;
 // The display is write-only, so its SPI bus is begun with MISO = -1. The

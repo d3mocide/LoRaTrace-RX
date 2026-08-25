@@ -152,7 +152,7 @@ void setup() {
             Serial.print(FIRMWARE_VERSION);
             Serial.print(F(" ("));
             Serial.print(FIRMWARE_BUILD_REV); // git SHA — identifies THIS binary
-            Serial.println(F(") — phase 5 (tasks + GPS + SD logging + WiFi + MeshCore + on-device menu)"));
+            Serial.println(F(") — tasks + GPS + SD logging + WiFi + MeshCore + on-device menu"));
         }
     }
 
@@ -161,7 +161,7 @@ void setup() {
     splashLine(F("LoRaTrace RX"));
     splashY += SPLASH_LINE_H;
     tft->setTextSize(1);
-    splashLine(String("v") + FIRMWARE_VERSION + " -- phase 5");
+    splashLine(String("v") + FIRMWARE_VERSION);
     splashY += SPLASH_LINE_H / 2;
 
     // P0 high: RF antenna switch AND GPS power. Fatal because both halves

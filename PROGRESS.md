@@ -627,6 +627,23 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         25%) and still needs its own dedicated low-end bench sweep — flagged
         as a watch item, not assumed safe just because the formula's intent
         is to keep low values in regulation.
+  - [ ] **`ui_task.cpp` split into `ui_task.cpp`/`ui_pages.cpp`/
+        `ui_actions.cpp`/`ui_task_shared.h` (2026-08-25 cleanup pass) — not
+        yet bench-verified on real hardware.** A structural refactor, not a
+        behavior change: `pio run -e cardputer-adv` (RAM byte-identical to
+        the pre-split baseline, flash +180B) and `pio test -e native`
+        (90/90) both pass, and a one-off `-Wall -Wextra` pass found no new
+        warnings — see this session's own Decisions log entry for the full
+        verification, including a real linker bug (a `tft` naming
+        collision with `main.cpp`) the build caught and this session fixed.
+        No behavior was intentionally changed, but this project's own rule
+        is that a compiling build doesn't confirm real glass renders
+        correctly — the next hardware session should re-run carousel
+        paging, all three menu levels (root/group/slider, including the
+        Brightness slider and nested Display group), Trace pause/resume,
+        and idle-dim, the same checks Phase 6's v0.6.2-v0.6.4 bench passes
+        already established, before trusting this split at that same
+        confidence level.
 - [ ] **Phase 7** — `DISCOVERY_SWEEP`. **Not started; broken out below
       2026-08-25 doc pass** — this checklist previously had no sub-items at
       all, unlike every phase before it. Sub-items are pulled directly from
@@ -3468,3 +3485,106 @@ above) — remaining items are follow-through, in the order it's worth doing.
     v0.6.3 had it been caught sooner) plus operator-requested UI/persistence
     upgrades, all inside Phase 6's existing UI scope, not a new build-order
     phase.
+
+- **2026-08-25 (later still) — Docs/code cleanup pass and `ui_task.cpp`
+  split, requested by the operator after asking whether the codebase was
+  "becoming a monolith" ahead of Phase 7/8.** A survey (file sizes, stale
+  comments, dead code, doc-vs-code drift) found `ui_task.cpp` at 1265
+  lines — 2.75x the next-largest file — mixing six largely-independent
+  concerns: page drawing, menu/toast rendering, keyboard-to-action decode,
+  cross-task business logic, animation timing, and canvas lifecycle. Given
+  ROADMAP.md's own Phase 7 plan has `DISCOVERY_SWEEP` land as "additional
+  entries in Phase 6's grouped menu" — i.e. more code into this same file —
+  splitting now, before that lands, was judged cheaper than splitting a
+  larger file later.
+  - **Small fixes first:** CLAUDE.md's "Proposed layout" tree was missing
+    five real file pairs (`backlight.*`, `battery.*`, `display_settings.*`,
+    `run_log.h`, `session_log.h`) and five test dirs — added. `main.cpp`
+    hardcoded `"phase 5"` into the boot-serial banner and splash text while
+    the device was actually on Phase 6/v0.6.4 — the exact class of mismatch
+    this project's own version-provenance discipline exists to prevent;
+    fixed by dropping the redundant literal entirely (it was never derived
+    from `FIRMWARE_VERSION`) rather than just bumping it to "6," which would
+    only recreate the same drift next phase. `board_pins.h`'s display-pins
+    `TODO(verify)` was already resolved (Phase 1 hardware-verified
+    2026-08-23) but never removed — updated to say so.
+  - **A real bug caught mid-cleanup, not just theoretical:** the initial
+    survey flagged `ui_task.cpp`'s `#include "detection.h"` as dead (no
+    grep hits for `Detection`/`detectionFormatCsv`/`missionProfileName`).
+    It was removed, and a `pio run -e cardputer-adv` baseline still
+    succeeded — but only because `detection.h` was still reaching the file
+    transitively through `radio_task.h`. Re-checking before the split
+    surfaced the actual bug: `drawGpsPage()` calls
+    `detectionFormatTimestamp()` directly, which the original grep pattern
+    never matched. Restored the include immediately, before it could get
+    buried inside the split. Lesson logged here on purpose: a build passing
+    is not proof an include is unused when a transitive path exists —
+    ROADMAP.md's own "verify, don't assume" discipline applies to include
+    hygiene too, not just hardware claims.
+  - **PlatformIO was not installed in this session's environment** (every
+    prior session's own notes on this — "no pio in this environment" — held
+    true here too, initially). `pip install platformio` worked cleanly
+    against this session's network access, giving a real `pio run -e
+    cardputer-adv` / `pio test -e native` toolchain for the whole session
+    rather than the "reviewed by inspection, not compiled" fallback this
+    project has repeatedly had to fall back on. Worth remembering for a
+    future session that hits the same "no pio" wall: try installing it
+    before assuming inspection-only review is the ceiling.
+  - **The split:** `ui_task.cpp` (1265 lines) became four files —
+    `ui_task.cpp` (484 lines: task lifecycle, keyboard input decode, the
+    main loop, and every piece of shared operator-facing state, since this
+    file owns seeding it from SD at boot and persisting it back),
+    `ui_pages.cpp` (712 lines: every `drawHeader()`/`drawPage()`/status-page/
+    menu/toast drawing function), `ui_actions.cpp` (130 lines: just
+    `fireMenuAction()` — the radio/WiFi/logger/backlight/SD calls a fired
+    menu row makes), and a new private header `ui_task_shared.h` (93 lines)
+    declaring the `extern` state and the handful of functions
+    (`drawHeader()`, `drawPage()`, `fireMenuAction()`, `showToast()`,
+    `toastActive()`, `rxPulseActive()`) that genuinely cross the three
+    `.cpp` files — not part of `ui_task.h`'s own public two-function API,
+    which is unchanged. Mechanical move, not a rewrite: comments preserved
+    throughout, only two needed fixing because they said "below" referring
+    to a function that moved to a different file (`fireMenuAction()`'s and
+    `drawToast()`'s own references to `uiTask()`).
+  - **A real linker bug the split itself caused, caught immediately by the
+    build, not missed:** giving `ui_task.cpp`'s internal `tft` pointer
+    external linkage (needed so `ui_pages.cpp` could draw to it) collided
+    with `main.cpp`'s own pre-existing global `Arduino_GFX *tft` (the raw
+    boot-splash panel handle) — invisible before the split because
+    `ui_task.cpp`'s `tft` had internal (anonymous-namespace) linkage the
+    whole time. `ld` caught it immediately: "multiple definition of
+    `tft`." Fixed by renaming ui_task's own copy to `uiTft` throughout the
+    three split files (a plain `sed` rename, then a clean rebuild + full
+    test run to confirm nothing else broke). Left as a documented example
+    of exactly why "reviewed by inspection" is a weaker guarantee than a
+    real compile — this specific bug was invisible to manual code reading
+    ahead of time and only surfaced because a real toolchain was available
+    this session.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS** — RAM
+    50328/327680B, byte-for-byte identical to the pre-split baseline; flash
+    964437/3342336B, +180B over the pre-split baseline (964257B after the
+    small fixes), an expected, negligible cost of cross-translation-unit
+    calls that could previously inline within one file. `pio test -e
+    native` **90/90**, unchanged (`ui_task.cpp`/`ui_pages.cpp`/
+    `ui_actions.cpp` were never part of the host-native suite — they need
+    Arduino.h). A one-off pass with `-Wall -Wextra` (not a permanent
+    `platformio.ini` change) found zero new warnings from any of the four
+    split-related files or `main.cpp`; the two warnings that pass surfaced
+    are both pre-existing, in files this session never touched
+    (`detection.h`, `gps_task.cpp`).
+  - **What this is not:** a hardware bench pass. Every check above is a
+    real compile/link/test run, not "reviewed by inspection" — genuinely
+    stronger evidence than most of this project's non-hardware-verified
+    changes get — but `ui_task.cpp`/`ui_pages.cpp` are still the display/
+    input subsystem, and this project's own standing rule is that a
+    compiling build says nothing about whether real glass renders
+    correctly. Nothing here changed behavior on purpose, and the RAM number
+    matching the pre-split baseline exactly is a good sign, but the next
+    hardware session should still re-run the same panel/menu/input checks
+    Phase 6's own bench passes already established (carousel paging, all
+    three menu levels including the Brightness slider, Trace pause/resume,
+    idle-dim) before trusting this at the same confidence level as
+    v0.6.2-v0.6.4's own hardware-confirmed work.
+  - **Version: unchanged, v0.6.4.** No behavior change and no new
+    build-order scope — a structural cleanup pass, not a phase item or a
+    functional patch.
