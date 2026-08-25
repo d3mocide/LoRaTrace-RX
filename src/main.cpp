@@ -105,6 +105,9 @@ DisplaySettings displaySettings;
 // no-PSRAM budget in DESIGN.md §1. Depth is a real tuning knob — watch
 // radioQueueDropCount() in the status line before changing it.
 constexpr UBaseType_t DETECTION_QUEUE_DEPTH = 32;
+// How long the completed boot checklist stays on screen before uiTaskStart()
+// takes over the panel with the main status pages.
+constexpr uint32_t BOOT_CHECKLIST_HOLD_MS = 1000;
 QueueHandle_t detectionQueue = nullptr;
 
 void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
@@ -453,6 +456,10 @@ void setup() {
     // radio_task.cpp), so this line — unlike the GPS/logger lines removed
     // above — is a genuine hardware check, not just "a task started."
     splashLine(F("Radio: OK"));
+    // Hold the completed checklist on screen briefly before uiTaskStart()
+    // repaints the panel with the main status pages — otherwise "Radio: OK"
+    // is visible for only a frame or two.
+    delay(BOOT_CHECKLIST_HOLD_MS);
 
     {
         SerialLock lock(pdMS_TO_TICKS(200));
