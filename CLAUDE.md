@@ -565,6 +565,27 @@ PROGRESS.md's Decisions log for the mockup-review process and the real
 engineering deltas (geometry rescaled, angle convention, flash cost)
 found only by actually building it.
 
+**2026-08-25 (even later still) — boot mark, round 2: trimmed to a real
+3-line hardware checklist.** The operator asked what actually dictates a
+successful boot; checking the code rather than assuming found that
+`gpsTaskStart()` never talks to the GPS module at all (it only spawns a
+task) — the old "GPS task: started" line would look identical for a
+working GPS and a dead one. Operator chose (via `AskUserQuestion`) to drop
+GPS from the checklist entirely rather than fake a check or pay ~1.5-2s to
+make it real. Radio and IO expander were already genuine hardware checks
+(`radio.begin()`'s SPI transaction, the antenna-switch I2C write); SD
+needed a real fix — `loadProfileOverridesFromSD()`'s one bool couldn't
+tell "no SD card" from "SD fine, nothing configured," now split via a new
+optional out-parameter. Freq/BW detail, config-source, and WiFi-SSID lines
+all moved off the splash (still in serial, still on-device once the UI
+starts). 3 lines instead of 7 freed enough height for the wordmark to move
+off "squeezed beside the arcs at size 2" onto its own full-width band at
+size 3. `pio run -e cardputer-adv` **SUCCESS** — flash actually
+**decreased** 1.25KB (fewer String-concatenating splashLine() calls),
+`pio test -e native` **90/90** unaffected. **Still not bench-tested on
+real hardware.** See PROGRESS.md's Decisions log for the full
+investigation, including which lines were and weren't real checks.
+
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.

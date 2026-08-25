@@ -3688,3 +3688,69 @@ above) — remaining items are follow-through, in the order it's worth doing.
     boot.
   - **Version: unchanged, v0.6.4.** A boot-splash visual change, not new
     build-order scope.
+
+- **2026-08-25 (even later still) — Boot mark, round 2: the diagnostic log
+  trimmed to a real 3-line hardware checklist, freeing room for a bigger
+  wordmark.** The operator asked directly: "do we need all 7 lines... what
+  dictates a successful boot?", naming SD/IO-board/GPS/LoRa as the things
+  that actually matter. Investigated each of the 7 original lines against
+  the real code (`gpsTaskStart()`/`radioTaskStart()` in `gps_task.cpp`/
+  `radio_task.cpp`) rather than assuming the splash text already meant
+  what it said, and surfaced a real finding before touching anything:
+  - **`gpsTaskStart()` doesn't check the GPS hardware at all** — it only
+    creates a mutex and spawns a FreeRTOS task; it never talks to the GPS
+    module. The old "GPS task: started" line would read identically for a
+    working GPS and a dead/unpowered one. Relabeling it "GPS: OK" would
+    have been a check that doesn't check anything — the opposite of what
+    this trim was trying to do. Surfaced directly via `AskUserQuestion`
+    (a real check with ~1.5-2s added latency to wait for a first NMEA
+    sentence, vs. keeping it honestly informational, vs. dropping it) —
+    **operator chose to drop GPS from the checklist entirely**, since fix
+    status is already a glance away on the GPS page moments after boot.
+  - **Radio and IO expander were already real checks** — `radioTaskStart()`
+    calls `radio.begin()`, a genuine SPI transaction with the SX1262, and
+    `ioExpanderInit()` does real I2C writes to the antenna-switch chip,
+    both already `fatal()`-gated on failure. Just needed an explicit
+    success-path splash line for radio (one never existed before this).
+  - **SD had a real, separate gap**, not just a relabeling opportunity:
+    `loadProfileOverridesFromSD()`'s one bool return means "was an
+    override applied" — a missing SD card and a mounted card with no
+    config file both report the same "Config: default" on the old splash,
+    genuinely indistinguishable without reading serial. Fixed with a new
+    optional `bool *sdMounted` out-parameter (single call site, low risk)
+    exposing `SD.begin()`'s own result separately from the
+    applied-override count.
+  - **Second `AskUserQuestion`, confirmed dropping the rest**: freq/SF/
+    BW/CR/sync detail, the config-source line, and the WiFi SSID line all
+    move off the splash — still in serial always, and on CHANNEL/SYSTEM
+    once the UI starts (the WiFi SSID specifically is what the
+    WiFi-toggle toast already shows the moment it's actually needed).
+    Also dropped on the same reasoning as GPS, without a separate ask
+    since it followed directly from the operator's own stated principle:
+    "Logger task: started," which — like the old GPS line — only confirms
+    RTOS resource allocation, not a hardware check, and whose only
+    failure mode is already `fatal()`-gated (reaching the next line
+    already proves it succeeded).
+  - **Layout redesigned, not just shortened.** 3 lines instead of 7 frees
+    real height (checklist now starts at y=88 instead of y=46) — spent on
+    the wordmark rather than left blank: moved from squeezed beside the
+    arcs at size 2 to its own full-width band below the mark at size 3
+    ("LoRaTrace RX," 216px, fits at x=4 with 20px to spare — would have
+    overflowed the 240px panel from its old beside-the-mark position at
+    that size, which is why it moved rather than just grew in place).
+    Mockup updated to the new proportions and republished at the same
+    link before implementing, same discipline as round 1.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS** — RAM
+    50332/327680B (unchanged from round 1), flash **969193/3342336B**, a
+    **1.25KB decrease** from round 1's 970441B: fewer `String`-
+    concatenating `splashLine()` calls (the freq/BW/SSID lines each built
+    a temporary `String`) outweighed the new `bool` out-param and SD
+    check. `pio test -e native` **90/90** unaffected, `-Wall -Wextra`
+    found zero new warnings. **Still not bench-tested on real hardware**
+    — same standing caveat as round 1's entry; this round changes the
+    exact same direct-to-panel layout that's never gotten it fully right
+    without a bench pass. Next session should additionally confirm the
+    size-3 wordmark doesn't clip at the right edge and that "SD: MISSING"
+    actually shows red on a card-pulled boot, not just "SD: OK" on the
+    happy path every session so far has tested.
+  - **Version: unchanged, v0.6.4.**

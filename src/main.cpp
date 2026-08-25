@@ -161,8 +161,11 @@ constexpr float MARK_ARC_END_DEG = 134.1f;   // canvas  44.1° + 90
 // Where the diagnostic log picks up: aligned under the first (innermost)
 // arc's rightmost edge, per direct operator feedback on the mockup ("fall
 // in line with the first signal arc") rather than the old flush-left x=4.
+// Y sits below the wordmark/version block now that the log itself is only
+// 3 lines (round 2, see below) — freed height that used to belong to a
+// 7-line log now belongs to a bigger wordmark instead.
 constexpr int16_t MARK_LOG_X = MARK_ANCHOR_X + MARK_ARC_RADII[0];
-constexpr int16_t MARK_LOG_Y = 46;
+constexpr int16_t MARK_LOG_Y = 88;
 
 void playBootMark() {
     if (!displayReady) return;
@@ -189,18 +192,24 @@ void playBootMark() {
         delay(i == 2 ? 200 : 120);
     }
 
-    // Wordmark + version, beside the mark rather than above it — plain
-    // reveals (no fade, same reason as the arcs above), matching how every
-    // other line in this splash has always just appeared.
-    tft->setTextSize(2);
+    // Wordmark + version, in their own full-width band below the mark
+    // (round 2 — was squeezed beside the arcs at size 2; trimming the
+    // diagnostic log to 3 real hardware-check lines instead of 7 freed
+    // enough height to give the wordmark its own row at size 3 instead).
+    // "LoRaTrace RX" at size 3 is 12 chars * 18px = 216px — fits at x=4
+    // with 20px to spare, but would overflow the 240px panel from
+    // MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6 (the old beside-the-mark
+    // position), which is why this moved rather than just growing in
+    // place. Plain reveals (no fade), same reason as the arcs above.
+    tft->setTextSize(3);
     tft->setTextColor(SPLASH_FG, SPLASH_BG);
-    tft->setCursor(MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6, 14);
+    tft->setCursor(4, 44);
     tft->print(F("LoRaTrace RX"));
     delay(150);
 
     tft->setTextSize(1);
     tft->setTextColor(SPLASH_GREEN, SPLASH_BG);
-    tft->setCursor(MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6, 32);
+    tft->setCursor(4, 72);
     tft->print(String("v") + FIRMWARE_VERSION);
     delay(250);
 
@@ -287,17 +296,21 @@ void setup() {
     // One-shot channel override, before the radio starts. Sequential with
     // everything else here — no tasks are running yet, so no arbitration is
     // needed for this read.
-    loadProfileOverridesFromSD(channelOverrides, PIN_SD_CS, sharedSpi());
+    bool sdMounted = false;
+    loadProfileOverridesFromSD(channelOverrides, PIN_SD_CS, sharedSpi(), &sdMounted);
     activeChannel = resolvedChannelForProfile(channelOverrides, MissionProfile::MESHTASTIC);
     // Card is already mounted by the call above (or there's no card, in
     // which case this fails safe the same way) — no separate SD.begin().
     loadDisplaySettingsFromSD(displaySettings);
-    // Specifically whether *this boot's profile* (Meshtastic) has an
-    // override, not whether the file had any override at all — a
-    // MeshCore-only override would otherwise make this splash line claim
-    // "SD override" while the channel actually in use is still the
-    // hardcoded Meshtastic default.
-    splashLine(channelOverrides.meshtastic_set ? F("Config: SD override") : F("Config: default"));
+    // Real hardware check (SD.begin()'s own result), not "was a config
+    // applied" — a mounted card with no override file is a fine, expected
+    // state, not something the boot checklist should flag red. Whether an
+    // override actually applied is still in serial (config.cpp's own
+    // "[config] ..." lines) and on the CHANNEL page once the UI starts;
+    // it stopped being splash-worthy once the splash became a pass/fail
+    // hardware checklist rather than a settings dump (round 2 — see
+    // PROGRESS.md).
+    splashLine(sdMounted ? F("SD: OK") : F("SD: MISSING"), sdMounted ? SPLASH_FG : SPLASH_ERR);
 
     detectionQueue = xQueueCreate(DETECTION_QUEUE_DEPTH, sizeof(Detection));
     if (detectionQueue == nullptr) {
@@ -306,20 +319,28 @@ void setup() {
 
     // Consumers before producer: the logger must be draining before the
     // radio starts filling, or the first burst is dropped for no reason.
+    // No splash line either way (round 2): gpsTaskStart() only spawns a
+    // FreeRTOS task and creates a mutex, it never actually talks to the
+    // GPS module — a "GPS: OK" line here would be a check that doesn't
+    // check anything, the opposite of what the trimmed splash is trying
+    // to be honest about. Real fix status is a glance away on the GPS
+    // page moments after boot. Failure still gets a serial WARN, since
+    // that's a genuinely rare/actionable condition (OOM), just not one
+    // that belongs on a hardware-presence checklist.
     if (!gpsTaskStart()) {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) {
             Serial.println(F("WARN: GPS task failed to start — detections will log without position."));
         }
-        splashLine(F("GPS task: FAILED"), SPLASH_ERR);
-    } else {
-        splashLine(F("GPS task: started"));
     }
 
     if (!loggerTaskStart(detectionQueue)) {
         fatal(F("FATAL: logger task failed to start."), F("FATAL: logger task"));
     }
-    splashLine(F("Logger task: started"));
+    // No splash line on success either (round 2, same reasoning as GPS
+    // above): this is RTOS resource allocation, not a hardware check, and
+    // its only failure mode is already fatal() — reaching the next line
+    // already proves it succeeded.
 
     // Boots on Meshtastic; MeshCore is reachable at runtime via ui_task's
     // menu (DESIGN.md §5, radio_task.h). `channelOverrides` is passed along
@@ -338,6 +359,10 @@ void setup() {
         splashLine("FATAL: radio " + String(radioLastError()), SPLASH_ERR);
         while (true) delay(1000);
     }
+    // radio.begin() above is a real SPI transaction with the SX1262 (see
+    // radio_task.cpp), so this line — unlike the GPS/logger lines removed
+    // above — is a genuine hardware check, not just "a task started."
+    splashLine(F("Radio: OK"));
 
     {
         SerialLock lock(pdMS_TO_TICKS(200));
@@ -354,9 +379,11 @@ void setup() {
             Serial.println(activeChannel.sync_word, HEX);
         }
     }
-    splashLine(String(activeChannel.freq_mhz, 3) + "MHz SF" + activeChannel.sf);
-    splashLine("BW" + String(activeChannel.bw_khz, 1) + " CR4/" + activeChannel.cr_denom +
-               " sync 0x" + String(activeChannel.sync_word, HEX));
+    // No splash line for the channel detail any more (round 2) — it's
+    // still every boot in serial above, and on-device on the CHANNEL page
+    // moments after boot; showing it on the splash too was often just the
+    // hardcoded default (nothing configured yet) and read as more
+    // meaningful than it was.
 
     {
         SerialLock lock(pdMS_TO_TICKS(200));
@@ -397,7 +424,10 @@ void setup() {
                 Serial.println(F("'."));
             }
         }
-        splashLine("WiFi: menu -> " + String(ssid));
+        // No splash line (round 2) — the same SSID text is what the
+        // WiFi-toggle toast already shows the moment an operator actually
+        // turns the AP on (ui_actions.cpp), which is the point they need
+        // it, not before.
     }
 
     // UI last: it takes ownership of the display, so everything above gets

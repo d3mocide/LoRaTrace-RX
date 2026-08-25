@@ -51,8 +51,13 @@ constexpr const char *CHANNEL_CONFIG_PATH = "/loratrace/config.txt";
 // Returns true if at least one field was applied to either profile, false
 // if `overrides` is unchanged (no card, no file, or nothing valid in it) —
 // either way, `overrides` is left in a valid state safe to pass to
-// resolvedChannelForProfile().
-bool loadProfileOverridesFromSD(ProfileOverrides &overrides, int8_t csPin, SPIClass &spi);
+// resolvedChannelForProfile(). That return value alone can't tell a caller
+// "no SD card" from "SD card fine, nothing configured on it" — both leave
+// `overrides` unchanged and both return false. `sdMounted`, if non-null,
+// is set to SD.begin()'s own result so a caller that needs the two apart
+// (main.cpp's boot splash) doesn't have to guess from the applied-count.
+bool loadProfileOverridesFromSD(ProfileOverrides &overrides, int8_t csPin, SPIClass &spi,
+                                 bool *sdMounted = nullptr);
 
 // The same bounds `loadProfileOverridesFromSD` applies field-by-field,
 // exposed so a caller (wifi_task's settings endpoint) can validate before
