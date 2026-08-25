@@ -118,26 +118,36 @@ void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
 // Boot mark (2026-08-25) — replaces the old plain-text "LoRaTrace RX" /
 // version lines with BRAND.md's unbuilt logo concept: an L-shaped path
 // resolving into three signal arcs. Procedural (drawLine/fillArc calls, a
-// handful of coordinate constants), not a bitmap — measured cost is
-// ~6KB flash (970441B vs. 964437B before this function existed,
-// `pio run -e cardputer-adv`), not the "a few hundred bytes" a plain
-// coordinate table would suggest: this is the first call anywhere in the
-// firmware to Arduino_GFX's fillArc()/drawArc(), so the ~6KB is mostly
-// that machinery (its float sin/cos/fmodf scanline math) linking in for
-// the first time, not a per-call cost. Still trivial against a 3.34MB
-// partition already at 29% used. RAM cost is ~4B (a few new globals) —
-// fits the same direct-to-panel, draw-once-in-setup() model the rest of
-// this splash already uses. No
-// alpha blending (RGB565 has none, same constraint ui_task's toast/RX-pulse
-// already worked around) — motion here is hard colour swaps and staged
-// reveals, not fades.
+// handful of coordinate constants), not a bitmap — first call anywhere in
+// the firmware to Arduino_GFX's fillArc()/drawArc(). No alpha blending
+// (RGB565 has none, same constraint ui_task's toast/RX-pulse already
+// worked around) — motion here is hard colour swaps and staged reveals,
+// not fades.
 //
-// Geometry is deliberately compact (mark + wordmark + version line fit in
-// the top ~44px) so the diagnostic log below still has the same ~90px of
-// vertical room it always had — the concept mockup used a much larger
-// mark that would have pushed the longest real boot sequence (WiFi's SSID
-// line included) off the bottom of the panel. Sourced from the approved
-// preview at https://claude.ai/code/artifact/e6e635f3-f5af-4d2a-8eab-549de61a8e20,
+// Round 4/5 (same day, this pass): grew the mark ~1.5x (radii 6/10/14 ->
+// 9/15/21) once the log shrank to 3 real hardware-check lines (round 2)
+// and left real negative space unused (operator screenshot). Round 4
+// briefly split "LoRaTrace"/"RX" onto separate lines to hit wordmark
+// size 3 (the full string is 216px at size 3, and no icon size leaves
+// that much room free beside it on a 240px panel) — reversed the same
+// day (round 5) on direct feedback that the two words need to stay
+// together on one line; settled at size 2 (144px), with "RX" kept in the
+// mark's own green rather than white. Real firmware needs no manual
+// width math for this two-colour line, unlike the mockup's canvas
+// preview (which had a real ctx.measureText() gap bug along the way,
+// see PROGRESS.md): Arduino_GFX's print() just continues from wherever
+// the cursor ended up after the previous call. The L-path also grew into
+// a longer "diagonal foot" shape (3 segments instead of 1), reaching
+// down near the panel's bottom edge instead of stopping at a short
+// accent stroke — the operator's own two phrasings ("start at the very
+// bottom," "cut diagonally to the left right before the bottom") were
+// built as two real options in the mockup and compared before picking
+// this one. Also new this round: a signal-trace flourish across the
+// panel's lower third, previously empty — see drawSignalTraceFrame()
+// below.
+//
+// Sourced from the approved preview at
+// https://claude.ai/code/artifact/e6e635f3-f5af-4d2a-8eab-549de61a8e20,
 // rescaled to this real budget rather than copied at its preview
 // proportions.
 //
@@ -148,34 +158,82 @@ void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
 // the browser canvas convention instead (0° = 3 o'clock, clockwise) — the
 // 90° constant below is exactly that conversion, not a tuned/guessed
 // offset, so the on-device arcs open the same direction (toward 3 o'clock,
-// swept between roughly 1 and 5 o'clock) as the approved preview.
-constexpr int16_t MARK_ANCHOR_X = 26;
-constexpr int16_t MARK_ANCHOR_Y = 24;
-constexpr int16_t MARK_PATH_X0 = 10, MARK_PATH_Y0 = 38; // path start (bottom)
-constexpr int16_t MARK_PATH_X1 = 10, MARK_PATH_Y1 = 28; // path elbow
-// path then runs elbow -> anchor, completing the "L".
-constexpr int16_t MARK_ARC_RADII[3] = {6, 10, 14};
+// swept between roughly 1 and 5 o'clock) as the approved preview. The
+// swept angle itself is unchanged since round 3 — only the radii grew.
+constexpr int16_t MARK_ANCHOR_X = 30;
+constexpr int16_t MARK_ANCHOR_Y = 28;
+// Diagonal-foot path (round 5, the shipped pick over a straight run
+// compared alongside it in the mockup): a short kick left just before
+// the bottom edge, like a foot anchoring the line, straight up to an
+// elbow just below the mark, then into the anchor.
+constexpr int16_t MARK_PATH_X0 = 6, MARK_PATH_Y0 = 130;  // path start, near the bottom edge
+constexpr int16_t MARK_PATH_X1 = 14, MARK_PATH_Y1 = 108; // foot kick
+constexpr int16_t MARK_PATH_X2 = 14, MARK_PATH_Y2 = 32;  // elbow, just below the mark
+// path then runs elbow -> anchor, completing the shape.
+constexpr int16_t MARK_ARC_RADII[3] = {9, 15, 21};
 constexpr int16_t MARK_ARC_THICKNESS = 2;
 constexpr float MARK_ARC_START_DEG = 45.3f;  // canvas -44.7° + 90
 constexpr float MARK_ARC_END_DEG = 134.1f;   // canvas  44.1° + 90
+// Wordmark/version sit beside the mark, right of its outermost arc.
+constexpr int16_t MARK_WORD_X = MARK_ANCHOR_X + MARK_ARC_RADII[2] + 8; // = 59
+constexpr int16_t MARK_WORD_Y = 20;
+constexpr int16_t MARK_VERSION_Y = 38;
 // Where the diagnostic log picks up: aligned under the first (innermost)
 // arc's rightmost edge, per direct operator feedback on the mockup ("fall
 // in line with the first signal arc") rather than the old flush-left x=4.
-// Y sits right after the arcs/wordmark/version block — with the log down
-// to 3 real hardware-check lines (round 2), there was never a genuine
-// space shortage here, unlike the 7-line original this layout was first
-// tuned against.
-constexpr int16_t MARK_LOG_X = MARK_ANCHOR_X + MARK_ARC_RADII[0];
-constexpr int16_t MARK_LOG_Y = 46;
+constexpr int16_t MARK_LOG_X = MARK_ANCHOR_X + MARK_ARC_RADII[0]; // = 39
+constexpr int16_t MARK_LOG_Y = 66;
+
+// Signal-trace flourish (round 4/5): a fixed jagged sample pattern rotated
+// through a handful of discrete frames — same "a few discrete steps, not
+// a continuous loop" approach the arcs above use — filling the panel's
+// lower third. Not real randomness on purpose: a fixed pattern reads as a
+// consistent "signal" frame to frame rather than noise. Ambient, not a
+// progress bar: this plays entirely within playBootMark(), before the
+// real hardware-check lines below even print, so it does not and should
+// not claim to track their progress — it's a "still listening" flourish.
+constexpr int16_t TRACE_PATTERN[12] = {0, -3, 2, -6, 5, -2, 4, -5, 1, -4, 3, -1};
+constexpr uint8_t TRACE_PATTERN_LEN = 12;
+constexpr int16_t TRACE_Y = 112;
+constexpr int16_t TRACE_AMP = 9;
+constexpr int16_t TRACE_X0 = MARK_LOG_X; // = 39, anchored under the log column
+constexpr int16_t TRACE_X1 = 236;
+constexpr uint8_t TRACE_FRAMES = 7;
+constexpr uint16_t TRACE_FRAME_MS = 110;
+// Dim baseline under the trace, quantized from #2d5940 — the same muted
+// green family as SPLASH_GREEN but visually receded, giving the trace a
+// reference line to read against (same "show the axis" instinct as
+// ui_pages.cpp's drawFreqBar() track on the real CHANNEL page).
+constexpr uint16_t SPLASH_GREEN_DIM = 0x2AC8;
+
+void drawSignalTraceFrame(uint8_t frame) {
+    // Band clear, not a full-panel redraw — avoids trailing garbage from
+    // the previous frame while leaving the mark/wordmark above untouched.
+    tft->fillRect(0, TRACE_Y - TRACE_AMP - 2, TFT_PANEL_WIDTH, TRACE_AMP * 2 + 4, SPLASH_BG);
+
+    int16_t prevX = TRACE_X0;
+    int16_t prevY = TRACE_Y + TRACE_PATTERN[frame % TRACE_PATTERN_LEN];
+    for (uint8_t i = 1; i <= TRACE_PATTERN_LEN; i++) {
+        const int16_t x = TRACE_X0 + (int32_t)(TRACE_X1 - TRACE_X0) * i / TRACE_PATTERN_LEN;
+        const int16_t y = TRACE_Y + TRACE_PATTERN[(i + frame) % TRACE_PATTERN_LEN];
+        tft->drawLine(prevX, prevY, x, y, SPLASH_GREEN);
+        prevX = x;
+        prevY = y;
+    }
+    tft->drawLine(TRACE_X0, TRACE_Y + TRACE_AMP + 6, TRACE_X1, TRACE_Y + TRACE_AMP + 6, SPLASH_GREEN_DIM);
+}
 
 void playBootMark() {
     if (!displayReady) return;
 
-    // L-path, drawn in two steps rather than one so it reads as traced
-    // rather than stamped — cheap motion with no per-pixel interpolation.
+    // Diagonal-foot L-path, drawn as three connected segments rather than
+    // one so it reads as traced rather than stamped — cheap motion with
+    // no per-pixel interpolation.
     tft->drawLine(MARK_PATH_X0, MARK_PATH_Y0, MARK_PATH_X1, MARK_PATH_Y1, SPLASH_GREEN);
-    delay(180);
-    tft->drawLine(MARK_PATH_X1, MARK_PATH_Y1, MARK_ANCHOR_X, MARK_ANCHOR_Y, SPLASH_GREEN);
+    delay(90);
+    tft->drawLine(MARK_PATH_X1, MARK_PATH_Y1, MARK_PATH_X2, MARK_PATH_Y2, SPLASH_GREEN);
+    delay(90);
+    tft->drawLine(MARK_PATH_X2, MARK_PATH_Y2, MARK_ANCHOR_X, MARK_ANCHOR_Y, SPLASH_GREEN);
     tft->fillCircle(MARK_ANCHOR_X, MARK_ANCHOR_Y, 1, SPLASH_GREEN);
     delay(220);
 
@@ -193,24 +251,33 @@ void playBootMark() {
         delay(i == 2 ? 200 : 120);
     }
 
-    // Wordmark + version, beside the mark (round 3: reverses round 2's
-    // full-width-below-the-mark-at-size-3 layout). Round 2's move was to
-    // free room for a 3-line checklist that, by then, had already been
-    // freed by trimming the log itself — there was no real space problem
-    // left to solve, and direct operator feedback was that this original
-    // placement read cleaner. Plain reveals (no fade), same reason as the
-    // arcs above.
+    // Wordmark, one line, kept together per round 5's direct feedback
+    // (round 4 briefly split "LoRaTrace"/"RX" across two lines to hit
+    // size 3 — reversed the same day). Two consecutive print() calls need
+    // no manual width math the way the mockup's canvas preview did (see
+    // the function-level comment above) — "RX" just continues from
+    // wherever "LoRaTrace " actually left the cursor.
     tft->setTextSize(2);
+    tft->setCursor(MARK_WORD_X, MARK_WORD_Y);
     tft->setTextColor(SPLASH_FG, SPLASH_BG);
-    tft->setCursor(MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6, 14);
-    tft->print(F("LoRaTrace RX"));
+    tft->print(F("LoRaTrace "));
+    tft->setTextColor(SPLASH_GREEN, SPLASH_BG);
+    tft->print(F("RX"));
     delay(150);
 
     tft->setTextSize(1);
     tft->setTextColor(SPLASH_GREEN, SPLASH_BG);
-    tft->setCursor(MARK_ANCHOR_X + MARK_ARC_RADII[2] + 6, 32);
+    tft->setCursor(MARK_WORD_X, MARK_VERSION_Y);
     tft->print(String("v") + FIRMWARE_VERSION);
     delay(250);
+
+    // Signal-trace flourish: a handful of discrete frames, then holds on
+    // its last frame — see the constants/comment above for why this
+    // plays here rather than trailing the real checklist lines below.
+    for (uint8_t frame = 0; frame < TRACE_FRAMES; frame++) {
+        drawSignalTraceFrame(frame);
+        delay(TRACE_FRAME_MS);
+    }
 
     // Hand off to splashLine()'s log sequence, aligned under the first arc
     // instead of the old x=4.

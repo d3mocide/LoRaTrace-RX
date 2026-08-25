@@ -3776,3 +3776,95 @@ above) — remaining items are follow-through, in the order it's worth doing.
     not bench-tested on real hardware — same standing caveat as rounds 1
     and 2.
   - **Version: unchanged, v0.6.4.**
+
+- **2026-08-25 (even later still) — Boot mark, rounds 4/5: bigger icon,
+  diagonal-foot path, and a signal-trace flourish, all reviewed in the
+  mockup before touching `main.cpp`.** With the log at its round-2/3 size
+  (3 lines) the panel had real unused space below the mark — flagged
+  directly from an operator screenshot ("what can we do with all this
+  space? can we add some more dynamic loading with the signal trace?").
+  Round 4 grew the mark ~1.5x (`MARK_ARC_RADII` 6/10/14 -> 9/15/21,
+  `MARK_ANCHOR_X/Y` 26/24 -> 30/28) and briefly split the wordmark across
+  two lines ("LoRaTrace" at size 3, "RX" on its own line at size 2) to
+  let the primary word hit size 3 — the full "LoRaTrace RX" string is
+  216px at size 3, and no icon size leaves that much room free beside it
+  on a 240px panel, so a single line at size 3 was never going to fit.
+  Direct feedback the same session ("thats a lot of space between it and
+  RX so I don't see how the two wouldn't fit on that line") walked the
+  split back (round 5): reverted to one line at size 2 (144px), keeping
+  round 4's one real improvement — "RX" drawn in `SPLASH_GREEN` rather
+  than white, tying its colour to the mark. That feedback also caught a
+  genuine mockup-only bug: the canvas preview had assumed a naive
+  6px/char advance to position "RX" right after "LoRaTrace ", which is
+  exactly correct for real firmware's Arduino_GFX bitmap font but wrong
+  for the mockup's JetBrains Mono webfont — left a visible gap in the
+  screenshot that made "there's room for size 3" look true when the real
+  slack (~37px at size 2, against ~72px size 3 would need) said
+  otherwise. Fixed in the mockup with real `ctx.measureText()`, confirmed
+  by re-rendering headless before and after (`playwright-core` +
+  `page.waitForTimeout()`, needed because raw `chrome --headless
+  --screenshot --virtual-time-budget` doesn't reliably let a
+  `requestAnimationFrame`-driven animation settle). A second reported
+  artifact — a black box near the bottom right of one screenshot — could
+  not be reproduced in any clean headless render; reported honestly as
+  unreproduced rather than claimed fixed, with a stale-cache hard-refresh
+  suggested as the likely explanation. Real firmware needs none of the
+  mockup's width workaround: `tft->print()` continues from wherever the
+  cursor actually ended up after the previous call, so "LoRaTrace "/"RX"
+  is just two consecutive `print()` calls with two `setTextColor()`s
+  between them.
+  - **The path grew into a real "diagonal foot" shape.** The operator
+    described the longer path two ways in one message ("start at the
+    very bottom," "cut diagonally to the left right before the bottom")
+    that read as two different shapes rather than two phrasings of one —
+    built both as a real toggle in the mockup (`PATH_STRAIGHT` vs.
+    `PATH_FOOT`) instead of guessing, then got an explicit pick in a
+    follow-up ("the diagonal foot is the move"). Shipped as a 3-segment
+    path — `(6,130)` near the bottom edge, a kick to `(14,108)`, straight
+    up to the elbow at `(14,32)`, then into the anchor — replacing round
+    1-3's flat 2-point path that stopped at a short accent stroke well
+    above the panel's bottom edge.
+  - **New: a signal-trace flourish fills the panel's lower third.** A
+    fixed 12-point jagged sample pattern (`TRACE_PATTERN`, not real
+    randomness — a fixed pattern reads as consistent "signal" frame to
+    frame rather than noise) rotated through 7 discrete frames
+    (`drawSignalTraceFrame()`, `TRACE_FRAME_MS = 110`), each frame a
+    `fillRect()` band-clear plus 12 `drawLine()` segments, ending with a
+    dim baseline (`SPLASH_GREEN_DIM = 0x2AC8`, quantized from `#2d5940`,
+    same muted-green family as `SPLASH_GREEN` but visually receded) so
+    the trace has a reference line to read against. Same "a few discrete
+    steps, not a continuous loop" approach the arcs already use, for the
+    same reason: no per-frame interpolation cost, no alpha to fade
+    through. **Deliberately ambient, not a progress bar** — it plays
+    entirely inside `playBootMark()`, before the real hardware-check
+    lines (`SD: OK`, `IO expander: OK`, `Radio: OK`) even print later in
+    `setup()`, so it does not and should not claim to track their
+    progress; it's a "still listening" flourish, not literal loading
+    feedback. This was an open question after the mockup pass — the
+    mockup's own notes already leaned this way, and nothing since gave a
+    reason to move it later in `setup()` instead, so it shipped
+    self-contained as designed.
+  - **Verification:** `pio run -e cardputer-adv` **SUCCESS** — RAM
+    **50332/327680B, byte-for-byte unchanged** from round 3, flash
+    **969529/3342336B, a 336B increase** from round 3's 969193B — a much
+    smaller delta than rounds 1-3's multi-KB moves despite visibly more
+    geometry and a new function, because `fillArc()`/`drawLine()`/
+    `fillRect()` were already linked in from earlier rounds; this pass
+    added coordinates and a small loop, not new library machinery.
+    `pio test -e native` **90/90** unaffected (`main.cpp` isn't part of
+    the native env). A direct `-Wall -Wextra` compile of `main.cpp`
+    alone (matching `platformio.ini`'s real flags) found zero warnings.
+    Mockup already reflected this design before implementation (the
+    "living reference" convention from round 1 onward) and needed no
+    further changes to match what shipped. **Still not bench-tested on
+    real hardware** — same standing caveat as every round of this boot
+    mark: a compiling build has never been proof this exact
+    direct-to-panel layout is correct on real glass, and this round adds
+    the most geometry of any round so far (longer path, bigger arcs, a
+    new animated region). Next session should specifically confirm the
+    diagonal foot's `(6,130)` start doesn't clip the panel's bottom edge
+    and that the trace band's `fillRect()` clears cleanly against the
+    real ST7789V2 without any residual artifact, given the "black box"
+    report earlier this round that couldn't be reproduced in the mockup.
+  - **Version: unchanged, v0.6.4** (cosmetic boot-sequence polish, same
+    reasoning as rounds 1-3 — no new phase scope).

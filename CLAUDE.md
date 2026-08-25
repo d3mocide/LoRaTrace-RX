@@ -596,6 +596,36 @@ that round 1's original beside-the-arcs placement, size 2, "was perfect"
 `pio run`/`pio test` unaffected (a pure coordinate/size-constant change,
 no new code). Still not bench-tested on real hardware.
 
+**2026-08-25 (even later still) — boot mark, rounds 4/5: bigger icon,
+diagonal-foot path, signal-trace flourish.** The panel had real unused
+space below the 3-line checklist (operator screenshot); round 4 grew the
+mark ~1.5x (radii 9/15/21, anchor 30/28) and briefly split "LoRaTrace"/
+"RX" onto two lines to hit wordmark size 3 (the full string is 216px at
+size 3, no icon size leaves that much room beside it on a 240px panel) —
+reversed the same day (round 5) on direct feedback the two words need to
+stay together; settled at one line, size 2, with "RX" kept in
+`SPLASH_GREEN`. That feedback round also caught a real mockup-only bug
+(a naive 6px/char width assumption left a visible gap before "RX" in the
+canvas preview, fixed with real `ctx.measureText()`, verified via a
+headless re-render) — irrelevant to real firmware, where `tft->print()`
+just continues from the actual cursor position. The L-path grew into a
+3-segment "diagonal foot" reaching near the panel's bottom edge, chosen
+over a straight run built alongside it in the mockup after the operator
+explicitly confirmed the pick. New: a signal-trace flourish across the
+panel's lower third — 7 discrete frames of a fixed jagged pattern, same
+"steps not a continuous loop" approach as the arcs, deliberately ambient
+(plays inside `playBootMark()`, before the real SD/IO/Radio checklist
+lines print, so it never claims to track their progress). `pio run -e
+cardputer-adv` **SUCCESS** — RAM byte-identical to round 3 (50332B),
+flash **+336B** (969529B) — a small delta despite more geometry, since
+`fillArc()`/`drawLine()`/`fillRect()` were already linked in. `pio test
+-e native` **90/90** unaffected, a direct `-Wall -Wextra` compile of
+`main.cpp` found zero warnings. **Still not bench-tested on real
+hardware** — this round adds the most geometry of any boot-mark round so
+far (longest path, biggest arcs, a new animated region), so it's the
+one most worth a careful bench pass next session. See PROGRESS.md's
+Decisions log for the full mockup-review process and exact numbers.
+
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
   path.** A "dead" GPS or a silent radio is often just this.
