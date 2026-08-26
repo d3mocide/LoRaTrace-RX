@@ -50,7 +50,7 @@ src/
   [x] board_pins.h               # pin map + IO-expander register constants (not in original proposal, see PROGRESS.md decisions log)
   [x] version.h                  # FIRMWARE_VERSION, single source for boot banner + release tags
   [x] config.h / .cpp            # boot-time SD channel-config override + runtime write-back for wifi_task's settings page (not in original proposal, see PROGRESS.md decisions log)
-  [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 7+)
+  [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 8+)
   --- added during phase 2, not in the original proposal ---
   [x] detection.h                # the ~36B queue record + Meshtastic header parse + §8 CSV
   [x] nmea.h                     # NMEA primitives (field split, checksum, coord conversion)
@@ -65,6 +65,8 @@ src/
   --- added during phase 6, not in the original proposal ---
   [x] backlight.h / .cpp         # ST7789V2 backlight PWM (LEDC), M5GFX's non-linear duty curve for this exact pin
   [x] display_settings.h / .cpp  # brightness + idle-dim timeout, persisted to /loratrace/display.txt, separate from config.h's channel-override scope
+  --- added during phase 7, not in the original proposal ---
+  [x] memory_stats.h / .cpp      # internal heap fragmentation + all-task stack telemetry
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native
   [x] test_detection/            # queue-record + CSV, fixtures are REAL captured packets
@@ -83,6 +85,7 @@ sd-template/loratrace/
 [x] platformio.ini
 [x] DESIGN.md
 [x] ROADMAP.md
+[x] HARDWARE_TESTING.md
 [x] PROGRESS.md
 [x] CHANGELOG.md
 [x] SECURITY.md
@@ -149,8 +152,11 @@ command center (Phase 3), the MeshCore profile and live profile switch
 redesign — grouped menu, toast layer, canvas-based rendering to fix
 real-hardware flicker/tearing, animated boot-mark splash, real PWM
 backlight control, and persistence for display settings and last-active
-profile (Phase 6). Phase 7 (`DISCOVERY_SWEEP`) and Phase 8
-(`ENERGY_SWEEP`) are not started.
+profile (Phase 6). Phase 7 (device optimization) is in progress: memory
+instrumentation and the hardware protocol are ready for the first baseline,
+but the phase is not complete or versioned as v0.7.x until the real-device
+matrix passes. Phase 8 (`DISCOVERY_SWEEP`) and Phase 9 (`ENERGY_SWEEP`) are
+not started.
 
 **Don't read PROGRESS.md or CHANGELOG.md end-to-end by default** — they're
 reference/history, not required context for every task. For what's true
@@ -181,4 +187,3 @@ holds current status, the checklist, open questions, and next steps.
 [[meshmapper-pipeline]] already holds real-world MeshCore frequency
 observations for this area — check it before trusting a scraped "US
 default" number for the channel tables.
-

@@ -134,10 +134,10 @@ constexpr const char *LOG_CSV_HEADER =
     "classification,channel_or_node_id,packet_id,hop_limit,hop_start,"
     "relay_node,freq_mhz,sf,bw_khz,rssi_dbm,snr_db,raw_len,decoded";
 
-// Phase 2 placeholder for DESIGN.md §6 fingerprinting (phase 7+): with
+// Phase 2 placeholder for DESIGN.md §6 fingerprinting (Phase 8+): with
 // HOME_LISTEN locked to one profile's channel at a time, "what we were
 // listening for" is the only honest classification available. Real
-// post-hoc classification (needs phases 7/8's sweep data) replaces this
+// post-hoc classification (needs Phases 8/9's sweep data) replaces this
 // via fingerprint.h.
 inline const char *detectionClassification(const Detection &det) {
     return missionProfileName(det.profile);

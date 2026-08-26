@@ -6,6 +6,7 @@
 #include <sys/time.h>
 
 #include "board_pins.h"
+#include "memory_stats.h"
 #include "nmea.h"
 #include "serial_lock.h"
 
@@ -103,6 +104,7 @@ void handleSentence(const char *s) {
 }
 
 void gpsTask(void *) {
+    memoryStatsRegisterCurrentTask(MemoryTask::GPS);
     // Default ring buffer is 256 bytes. At ~17 sentences/sec x ~75 bytes
     // (5-constellation output, measured 2026-08-23) that's under 200ms of
     // slack before an unread buffer starts dropping bytes. Bumped to 1024

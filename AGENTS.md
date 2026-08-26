@@ -17,6 +17,8 @@ Also relevant, referenced from CLAUDE.md:
 - [PROGRESS.md](PROGRESS.md) — current status, checklist, open questions.
 - [CHANGELOG.md](CHANGELOG.md) — full session-by-session decisions log.
 - [SECURITY.md](SECURITY.md) — known attack surface and how to report issues.
+- [HARDWARE_TESTING.md](HARDWARE_TESTING.md) — repeatable bench matrix and
+  Phase 7 memory acceptance rules.
 
 **Don't read PROGRESS.md or CHANGELOG.md end-to-end by default.** They're
 reference/history, not required context for every task — CLAUDE.md's own

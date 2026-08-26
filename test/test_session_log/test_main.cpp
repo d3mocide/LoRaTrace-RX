@@ -56,6 +56,13 @@ static SessionStats healthySample() {
     s.run = 7;
     s.gps_max_loop_gap_ms = 18;
     s.gps_oversize_drops = 0;
+    s.heap_largest = 200000;
+    s.heap_free_blocks = 19;
+    s.heap_allocated_blocks = 155;
+    s.radio_stack_free = 3000;
+    s.gps_stack_free = 2200;
+    s.ui_stack_free = 2100;
+    s.wifi_stack_free = 5000;
     return s;
 }
 
@@ -78,7 +85,7 @@ void test_row_with_fix_carries_position_and_counters() {
         "912,17,0,0,"
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7,"
-        "18,0",
+        "18,0,200000,19,155,3000,2200,2100,5000",
         row);
 }
 
@@ -174,7 +181,7 @@ void test_logger_stack_headroom_precedes_run() {
     TEST_ASSERT_NOT_NULL(strstr(row, ",96,7"));
 }
 
-void test_gps_diagnostics_are_the_last_columns() {
+void test_gps_diagnostics_keep_their_append_only_positions() {
     // Added 2026-08-23, appended after `run` per this schema's own
     // append-only-at-the-end convention (rx_uptime_ms/logger_stack_free set
     // the precedent) so existing parsers keep working. Distinct nonzero
@@ -185,8 +192,17 @@ void test_gps_diagnostics_are_the_last_columns() {
     s.gps_oversize_drops = 5;
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
-    TEST_ASSERT_TRUE(n >= 5);
-    TEST_ASSERT_EQUAL_STRING("143,5", row + n - 5);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_NOT_NULL(strstr(row, ",7,143,5,200000,"));
+}
+
+void test_phase7_memory_diagnostics_are_the_last_columns() {
+    SessionStats s = healthySample();
+    char row[320];
+    size_t n = sessionFormatCsv(s, row, sizeof(row), "");
+    const char *suffix = "200000,19,155,3000,2200,2100,5000";
+    TEST_ASSERT_TRUE(n >= strlen(suffix));
+    TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
 
 void test_truncation_is_reported() {
@@ -220,7 +236,8 @@ int main(int, char **) {
     RUN_TEST(test_sd_down_is_recorded_as_a_word_not_a_number);
     RUN_TEST(test_heap_trough_is_reported_separately_from_the_sample);
     RUN_TEST(test_logger_stack_headroom_precedes_run);
-    RUN_TEST(test_gps_diagnostics_are_the_last_columns);
+    RUN_TEST(test_gps_diagnostics_keep_their_append_only_positions);
+    RUN_TEST(test_phase7_memory_diagnostics_are_the_last_columns);
     RUN_TEST(test_truncation_is_reported);
     RUN_TEST(test_null_timestamp_is_tolerated);
     return UNITY_END();

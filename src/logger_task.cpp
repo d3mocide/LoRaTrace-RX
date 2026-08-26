@@ -8,6 +8,7 @@
 #include "board_pins.h"
 #include "detection.h"
 #include "gps_task.h"
+#include "memory_stats.h"
 #include "radio_task.h"
 #include "run_log.h"
 #include "serial_lock.h"
@@ -254,11 +255,18 @@ void writeSessionRow(const char *reason) {
     s.sd_ready = sdReady;
     s.bus_contention = spiBusContentionCount();
 
-    s.heap_free = ESP.getFreeHeap();
-    s.heap_min = ESP.getMinFreeHeap();
+    const MemorySnapshot memory = memoryStatsSnapshot();
+    s.heap_free = memory.heap_free;
+    s.heap_min = memory.heap_min;
+    s.heap_largest = memory.heap_largest;
+    s.heap_free_blocks = memory.heap_free_blocks;
+    s.heap_allocated_blocks = memory.heap_allocated_blocks;
     s.batt_mv = batteryMilliVolts();
-    // nullptr = this task. Returns the high-water mark in words.
-    s.logger_stack_free = (uint32_t)uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t);
+    s.radio_stack_free = memoryTaskStackFree(memory, MemoryTask::RADIO);
+    s.gps_stack_free = memoryTaskStackFree(memory, MemoryTask::GPS);
+    s.logger_stack_free = memoryTaskStackFree(memory, MemoryTask::LOGGER);
+    s.ui_stack_free = memoryTaskStackFree(memory, MemoryTask::UI);
+    s.wifi_stack_free = memoryTaskStackFree(memory, MemoryTask::WIFI);
 
     char timestamp[24];
     detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
@@ -328,6 +336,7 @@ void appendDetection(const Detection &det) {
 }
 
 void loggerTask(void *) {
+    memoryStatsRegisterCurrentTask(MemoryTask::LOGGER);
     {
         SpiBusLock lock(portMAX_DELAY);
         if (lock.held()) sdReady = openLogsLocked();

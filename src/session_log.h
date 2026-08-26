@@ -101,6 +101,18 @@ struct SessionStats {
     // is a silent, total loss of a multi-hour run. Sizing it by argument is
     // a guess; this makes the run itself answer the question.
     uint32_t logger_stack_free = 0;
+
+    // Phase 7 device-optimization diagnostics. Total free heap alone cannot
+    // distinguish healthy one-time allocations from fragmentation; the
+    // largest block and block counts can. Stack values are lifetime minima
+    // in bytes; 0 means the task had not registered when this row was taken.
+    uint32_t heap_largest = 0;
+    uint32_t heap_free_blocks = 0;
+    uint32_t heap_allocated_blocks = 0;
+    uint32_t radio_stack_free = 0;
+    uint32_t gps_stack_free = 0;
+    uint32_t ui_stack_free = 0;
+    uint32_t wifi_stack_free = 0;
 };
 
 // Column order for each run's session.csv. One string so the header row and
@@ -110,7 +122,9 @@ constexpr const char *SESSION_CSV_HEADER =
     "rx,crc_err,queue_drop,bus_miss,"
     "rows,row_drop,flushes,max_flush_ms,max_session_ms,sd,bus_contention,"
     "nmea,nmea_bad_crc,heap_free,heap_min,batt_mv,logger_stack_free,run,"
-    "gps_max_loop_gap_ms,gps_oversize_drops";
+    "gps_max_loop_gap_ms,gps_oversize_drops,"
+    "heap_largest,heap_free_blocks,heap_allocated_blocks,"
+    "radio_stack_free,gps_stack_free,ui_stack_free,wifi_stack_free";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
 // detectionFormatTimestamp() the detection rows use, and is empty before
@@ -140,7 +154,8 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%s,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%u,"
-                     "%lu,%lu",
+                     "%lu,%lu,"
+                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -168,7 +183,14 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.logger_stack_free,
                      (unsigned)s.run,
                      (unsigned long)s.gps_max_loop_gap_ms,
-                     (unsigned long)s.gps_oversize_drops);
+                     (unsigned long)s.gps_oversize_drops,
+                     (unsigned long)s.heap_largest,
+                     (unsigned long)s.heap_free_blocks,
+                     (unsigned long)s.heap_allocated_blocks,
+                     (unsigned long)s.radio_stack_free,
+                     (unsigned long)s.gps_stack_free,
+                     (unsigned long)s.ui_stack_free,
+                     (unsigned long)s.wifi_stack_free);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

@@ -21,6 +21,7 @@
 #include "board_pins.h"
 #include "display_settings.h"
 #include "keyboard.h"
+#include "memory_stats.h"
 #include "radio_task.h"
 
 // --- Shared state (extern-declared in ui_task_shared.h) ---
@@ -67,7 +68,7 @@ uint8_t idleTimeoutIndex = 2;
 
 // Root menu table. "Profile" opens onto the real, technical profile names
 // (Meshtastic/MeshCore; Reticulum/Spectrum join once they have a
-// HOME_LISTEN table, Phase 8) instead of cycling one at a time on Enter.
+// real Phase-9 sweep profile) instead of cycling one at a time on Enter.
 // Deliberately not branded per-profile (BRAND.md) — these are LoRa presets
 // on one sniffer, not sibling products. Plain file scope (external
 // linkage) because ui_pages.cpp's drawMenuList() identity-compares
@@ -203,6 +204,7 @@ void fullRedraw() {
 }
 
 void uiTask(void *) {
+    memoryStatsRegisterCurrentTask(MemoryTask::UI);
     fullRedraw();
 
     uint32_t lastRedraw = millis();
@@ -374,6 +376,7 @@ bool uiTaskStart(Arduino_GFX *gfx, const DisplaySettings &settings) {
     // malloc() against the shared heap budget, decided with the operator.
     // Falls back to drawing straight on the panel (flicker and all) if the
     // allocation fails, rather than taking the whole UI down.
+    memoryStatsLog("canvas-before");
     canvas = new Arduino_Canvas_Indexed(gfx->width(), gfx->height(), gfx, 0, 0, 0);
     if (canvas->begin(GFX_SKIP_OUTPUT_BEGIN)) {
         uiTft = canvas;
@@ -382,6 +385,7 @@ bool uiTaskStart(Arduino_GFX *gfx, const DisplaySettings &settings) {
         canvas = nullptr;
         uiTft = gfx;
     }
+    memoryStatsLog(canvas != nullptr ? "canvas-after" : "canvas-fallback");
 
     // Wire is already up from ioExpanderInit(); begin() again is harmless
     // and keeps this call self-contained if the boot order ever changes.

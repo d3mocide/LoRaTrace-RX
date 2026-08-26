@@ -81,7 +81,7 @@ assumptions), not a pitch.
 - **Meshtastic's 104-slot hash space:** Phase 1–2 only lock to the
   LongFast US default (slot 20). That's most of the real-world traffic,
   but a mesh running a non-default channel name lands on a different slot
-  and is invisible to `HOME_LISTEN`. `DISCOVERY_SWEEP` (phase 7) is what
+  and is invisible to `HOME_LISTEN`. `DISCOVERY_SWEEP` (Phase 8) is what
   closes that gap — until then, be precise in docs/UI that "Meshtastic
   profile" means "default channel," not "all Meshtastic traffic."
 
@@ -281,7 +281,42 @@ confirm during implementation, not before.
 CHANGELOG.md for the full session history (canvas/framebuffer rework,
 bugs found/fixed, and the still-open WiFi AP heap/counter re-measurement).
 
-### Phase 7 — `DISCOVERY_SWEEP`
+### Phase 7 — Device optimization
+**Goal:** turn the current memory assumptions into measured budgets before
+new scan states add load to the no-PSRAM device.
+
+**Deliverable:** internal-heap fragmentation metrics, stack high-water marks
+for all five tasks, lifecycle checkpoints around the display canvas/WiFi/CSV
+downloads, a repeatable real-device matrix (`HARDWARE_TESTING.md`), and
+measured optimizations that preserve radio/GPS/SD/UI behavior.
+
+**Epic priority order:**
+
+1. **P0 — Observability and baseline.** Append largest-free-block, heap block
+   counts, and every task's stack watermark to `session.csv`; bracket known
+   large/transient allocations in serial; run the full WiFi+canvas workload.
+2. **P1 — Task stacks.** Right-size only stacks whose worst-case watermark
+   proves excess headroom. Preserve at least 25% and 1KB after the change.
+3. **P2 — WiFi lifecycle and requests.** Measure repeated AP cycles and CSV
+   downloads; reclaim the off-state task/server cost or remove request-time
+   churn only where the measurements identify a persistent cost.
+4. **P3 — Canvas allocation.** Keep the verified indexed canvas unless it is
+   the limiting allocation. Any tiled/partial alternative must repeat the
+   full real-glass regression pass; moving it to static RAM is not a saving.
+5. **P4 — Final budget.** Record normal, WiFi-on, largest-block, and per-task
+   stack budgets for Phases 8/9, then complete a combined-load soak.
+
+**Exit criteria:** every `HARDWARE_TESTING.md` stage passes on one identified
+build; no continuing decline in current free heap or largest block after
+warm-up; `queue_drop`/`row_drop`/`bus_miss` stay 0 under combined load; task
+stack margins satisfy the acceptance rule; final budgets and results are
+recorded in `PROGRESS.md`.
+
+**Scope guardrail:** Phase 7 does not add Discovery/Energy behavior and does
+not optimize from compile-time RAM percentages alone. One lever changes per
+measurement cycle so gains and regressions remain attributable.
+
+### Phase 8 — `DISCOVERY_SWEEP`
 **Deliverable:** bounded-duration CAD-cycle sweep of a curated candidate
 list per active profile — non-default Meshtastic slots, legacy MeshCore.
 **Blocking unknowns:** curated candidate lists should be weighted by
@@ -291,7 +326,7 @@ needs bench testing against Semtech AN1200.48 before trusting false-
 positive/miss rates. New sweep results are additional entries in Phase 6's
 grouped menu, not a reason to reopen UI architecture a second time.
 
-### Phase 8 — `ENERGY_SWEEP`
+### Phase 9 — `ENERGY_SWEEP`
 **Deliverable:** Reticulum and General Exploration profiles — FSK/OOK RSSI
 sweep across 868–923MHz with periodic LoRa CAD checks at common SF/BW
 combos.
@@ -375,7 +410,7 @@ set allows, and measure the real number instead of assuming one.
 - `RadioLib` compiles in support for many radio families by default;
   disabling the ones we don't use (`RADIOLIB_EXCLUDE_*` build flags, only
   SX126x needed here) is a cheap, real size reduction worth doing before
-  Phase 8 (`ENERGY_SWEEP`, the other RAM/flash-hungry feature after WiFi),
+  Phase 9 (`ENERGY_SWEEP`, the other RAM/flash-hungry feature after WiFi),
   not just a nice-to-have.
 - CI now measures the actual `firmware.bin` size on every build (see
   below) — track it there instead of trusting an estimate.
@@ -420,8 +455,9 @@ reports can use.
 | v0.4.x | Phase 4 (MeshCore) |
 | v0.5.x | Phase 5 (on-device menu UI) |
 | v0.6.x | Phase 6 (UI architecture redesign) |
-| v0.7.x | Phase 7 (discovery sweep) |
-| v0.8.x | Phase 8 (energy sweep: Reticulum + General Exploration) |
+| v0.7.x | Phase 7 (device optimization) |
+| v0.8.x | Phase 8 (discovery sweep) |
+| v0.9.x | Phase 9 (energy sweep: Reticulum + General Exploration) |
 | v1.0.x | all four profiles built, on-device UI covers all of them |
 
 **Renumbered 2026-08-24** (same restructuring precedent as WiFi's Phase-3
@@ -442,6 +478,13 @@ UI architecture redesign now sits at Phase 6, pushing `DISCOVERY_SWEEP` to
 is unchanged by this move — it's still a placeholder for the same total
 phase count, not a re-litigated decision — revisit if it stops fitting once
 Phase 6/7/8 are actually in hand.
+
+**Renumbered again 2026-08-26:** the measured ~32KB Phase-6 display canvas
+now overlaps WiFi's ~55–56KB runtime cost, while only the logger task had a
+stack watermark and the post-canvas combined-load gate was still open.
+Device optimization therefore became Phase 7, before either new scan state.
+`DISCOVERY_SWEEP` moved to Phase 8 and `ENERGY_SWEEP` to Phase 9; their scope
+did not change. `v1.0` still means all four profiles and their UI are stable.
 
 ## Non-goals
 

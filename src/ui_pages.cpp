@@ -282,7 +282,7 @@ void drawChannelPage() {
 
     // Right column — the radio-mode label (BRAND.md's "Watch" for
     // HOME_LISTEN) is the only one of the three mode labels with anything
-    // to name until Phase 7/8 add the other two radio states.
+    // to name until Phases 8/9 add the other two radio states.
     statBlock(170, HEADER_H + 6, "mode", uiModeLabelWatch());
     char airtimeBuf[16];
     snprintf(airtimeBuf, sizeof(airtimeBuf), "~%lums", (unsigned long)estimateTimeOnAirMs(ch.sf, ch.bw_khz));

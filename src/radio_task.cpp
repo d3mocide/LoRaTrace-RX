@@ -5,6 +5,7 @@
 #include <freertos/task.h>
 
 #include "board_pins.h"
+#include "memory_stats.h"
 #include "spi_bus.h"
 
 namespace {
@@ -61,6 +62,7 @@ void IRAM_ATTR onDio1Action() {
 }
 
 void radioTask(void *) {
+    memoryStatsRegisterCurrentTask(MemoryTask::RADIO);
     uint8_t buf[256];
     bool paused = false;
 
@@ -176,7 +178,7 @@ void radioTask(void *) {
                 // Header fields are protocol-specific: HOME_LISTEN knows
                 // which protocol it's locked to, so parse accordingly
                 // rather than guessing from the bytes (that's §6
-                // fingerprinting, phase 7+). Meshtastic's 16-byte layout is
+                // fingerprinting, Phase 8+). Meshtastic's 16-byte layout is
                 // verified (detection.h); MeshCore's is not (encryption/PSK
                 // model still open, CLAUDE.md house rule against assuming
                 // it mirrors Meshtastic's) — a MeshCore detection logs

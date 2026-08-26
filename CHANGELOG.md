@@ -3143,3 +3143,44 @@ PATCH = fix with no new phase scope).
   attack surface. Docs-only change; no firmware version bump (`src/
   version.h`'s convention tracks build-order phase/fixes, not doc
   reorganization).
+
+- **2026-08-26 — Phase 7 inserted for device optimization; first memory
+  instrumentation build completed.** The operator chose to make measured
+  device headroom its own epic before adding either planned scan mode. The
+  old Phase 7 `DISCOVERY_SWEEP` is now Phase 8 and old Phase 8
+  `ENERGY_SWEEP` is now Phase 9; neither feature's RF scope changed.
+  ROADMAP.md carries the priority order and exit criteria, while new
+  `HARDWARE_TESTING.md` owns the repeatable boot/receive/WiFi/browser/
+  combined-load/soak matrix so `PROGRESS.md` can remain the result record.
+  - Added `memory_stats.h/.cpp`: internal 8-bit heap free/minimum/largest
+    block and free/allocated block counts, plus stack high-water marks for
+    radio, GPS, logger, UI, and WiFi tasks. Bounded `[mem]` serial snapshots
+    bracket the indexed canvas, AP start/stop, and CSV downloads; nothing
+    runs per packet.
+  - Appended the new heap and task-stack fields to `session.csv` rather
+    than inserting them, preserving every pre-Phase-7 column position.
+    A zero task-stack field explicitly means the task had not registered at
+    that sample; periodic rows after startup should contain all five.
+  - This is observability, not an optimization claim. No stack was reduced,
+    WiFi lifecycle changed, or canvas replaced before the hardware baseline.
+    `pio test -e native` **91/91 passed** and the single-threaded
+    Cardputer-Adv build **succeeded** at 50348/327680B static RAM and
+    972209/3342336B flash. The first parallel build was killed by host
+    memory pressure while compiling the display library; rerunning `-j 1`
+    completed, confirming it was not a firmware source failure.
+  - **Version remains v0.6.8.** Phase 7 maps to v0.7.x, but the repository's
+    version rule advances only when the phase's real-device matrix and
+    final soak pass, not when its instrumentation compiles.
+
+- **2026-08-26 — Fixed the first measured Phase-7 WiFi lifecycle leak.**
+  Real-device run0065 held a flat 233952B free heap for the 10-minute
+  WiFi-off MeshCore baseline, then exposed a 716B/13-allocation loss on the
+  second AP cycle. `startAp()` was registering the same five heap-backed
+  `WebServer` route handlers (plus the not-found callback) on every start;
+  `WebServer::stop()` closes the listener but retains those handlers for
+  the server object's lifetime.
+  `registerRoutes()` is now idempotent, preserving on-demand first-use
+  allocation without duplicating handlers on later starts. The cold-to-warm
+  one-time WiFi framework cost is tracked separately and is not labeled a
+  leak. Host tests/build verify the fix compiles; the ten-cycle hardware
+  recovery test remains the next bench gate rather than being claimed here.

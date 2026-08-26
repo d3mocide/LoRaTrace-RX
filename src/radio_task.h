@@ -6,7 +6,7 @@
 // push a Detection into the queue and stay locked. Phase 4 adds the other
 // half of §5's state machine text — "operator-selected... mutually
 // exclusive" — as a live retune via radioRequestProfileSwitch(), below.
-// DISCOVERY_SWEEP and ENERGY_SWEEP are phases 7/8 and are still deliberately
+// DISCOVERY_SWEEP and ENERGY_SWEEP are phases 8/9 and are still deliberately
 // absent — the state machine's shape is here, those two states are not.
 //
 // The one hard rule (DESIGN.md §2, CLAUDE.md): this task never touches SD

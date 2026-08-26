@@ -17,11 +17,15 @@ official Cap LoRa-1262 docs/pin diagram — this doc previously said
 impact).
 
 **Resource implication:** no PSRAM means ~512KB SRAM total, shared with the
-RTOS and whatever else is linked in. Realistic free heap is probably 250–380KB
-— confirm with `ESP.getFreeHeap()` once flashing real code, don't trust a
-number on paper. **microSD is the datastore. RAM is a relay buffer, not a log.**
-Keep the in-RAM detection queue small (ring buffer, ~40B/entry) and flush to
-SD promptly rather than accumulating.
+RTOS and whatever else is linked in. Real hardware established stable free
+heap under the Phase 2/3 workloads, but Phase 6 later added a ~32KB indexed
+display canvas on top of WiFi's measured ~55–56KB cost. Phase 7 therefore
+measures current free heap, lifetime minimum, largest allocatable block,
+fragmentation block counts, and every task's stack high-water mark before
+adding another radio mode; see `HARDWARE_TESTING.md`. **microSD is the
+datastore. RAM is a relay buffer, not a log.** Keep the in-RAM detection queue
+small (ring buffer, ~40B/entry) and flush to SD promptly rather than
+accumulating.
 
 **Pin map:**
 
@@ -209,8 +213,8 @@ Meshtastic's value is now verified from upstream firmware source and set in
       8, and that empirically does **not** block RX — live Meshtastic
       frames decode fine at 8, confirmed on hardware 2026-08-23. Left as-is
       deliberately: continuous RX syncs on whatever preamble arrives, so
-      this only bites the duty-cycled/CAD scanning in §4 (DISCOVERY_SWEEP,
-      ROADMAP.md phase 7 as of the 2026-08-25 renumbering — see ROADMAP.md
+      this only bites the duty-cycled/CAD scanning in §4 (`DISCOVERY_SWEEP`,
+      ROADMAP.md Phase 8 after the 2026-08-26 optimization-phase insertion — see ROADMAP.md
       Versioning; MeshCore's HOME_LISTEN profile landed as phase 4 instead,
       and doesn't touch CAD timing at all). Re-evaluate during that phase
       with a bench test, not before.
@@ -340,7 +344,7 @@ fast for near-zero value.
 
 ### 8.2 `session.csv` — the run's own vital signs
 
-`timestamp_utc, uptime_s, reason, lat, lon, sats, sats_in_view, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, max_session_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run, gps_max_loop_gap_ms, gps_oversize_drops`
+`timestamp_utc, uptime_s, reason, lat, lon, sats, sats_in_view, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, max_session_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run, gps_max_loop_gap_ms, gps_oversize_drops, heap_largest, heap_free_blocks, heap_allocated_blocks, radio_stack_free, gps_stack_free, ui_stack_free, wifi_stack_free`
 
 One row per minute, plus a `reason=boot` row when the card comes up.
 
@@ -375,6 +379,11 @@ Two fields carry more weight than the rest:
   task owns the card and now has a deeper call path than it did, and a
   stack overflow there loses the whole run silently — so the size is
   reported by the run rather than argued about beforehand.
+- **Phase 7 memory diagnostics are appended, not inserted.**
+  `heap_largest` and the two block counts distinguish a recovered transient
+  allocation from fragmentation, while the four additional `*_stack_free`
+  fields extend the logger's existing high-water measurement to every task.
+  See `HARDWARE_TESTING.md` for the workload and acceptance rules.
 - **`gps_max_loop_gap_ms` and `gps_oversize_drops`, added 2026-08-23**,
   exist to test one specific theory about `nmea_bad_crc` rather than just
   keep restating the symptom. The GPS task is deliberately Core 0's lowest
@@ -469,19 +478,23 @@ still self-describing via uptime.
 4. Add MeshCore profile (910.525/SF7/BW62.5/CR5) — same engine, new table
 5. On-device menu UI (`ui_task`) — replaces Phase 3/4's timed hold-gestures
    with real keyboard-driven navigation and a settings/mode-toggle menu.
-   Moved ahead of steps 6-8 at the user's request (ROADMAP.md Phase 5 for
+   Moved ahead of steps 6-9 at the user's request (ROADMAP.md Phase 5 for
    the full rationale, same precedent as step 3 moving ahead of MeshCore).
    See §10 for the keyboard-decode sourcing this depends on.
 6. UI architecture redesign — reworks step 5's flat menu into grouped
-   categories before steps 7/8 each add to it, plus a toast/notice layer
+   categories before steps 8/9 each add to it, plus a toast/notice layer
    and reorganized status pages. Moved ahead of `DISCOVERY_SWEEP` at the
    user's request (ROADMAP.md Phase 6 for the full rationale, same
    restructuring precedent as steps 3 and 5 moving ahead of their
    original slots)
-7. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
+7. Device optimization — instrument heap fragmentation and every task's
+   stack high-water mark, establish the WiFi+canvas combined-load baseline,
+   then optimize only measured costs. `HARDWARE_TESTING.md` is the repeatable
+   bench protocol and ROADMAP.md Phase 7 owns the exit criteria.
+8. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
    MeshMapper-observed frequencies where available — adds entries to step
    6's grouped menu, doesn't reopen UI architecture a second time
-8. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
+9. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
 
 ## 10. Keyboard input decode (Phase 5)
 

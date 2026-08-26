@@ -11,19 +11,22 @@ general LoRa/spectrum exploration.
 - **`ROADMAP.md`** — build-order phases, MVP-Beta scope, and an honest
   feasibility assessment against this hardware's real limits.
 - **`PROGRESS.md`** — current build status, open questions, decisions log.
+- **`HARDWARE_TESTING.md`** — repeatable device-validation matrix and
+  Phase 7 memory acceptance rules.
 - **`BRAND.md`** — naming, tone, and on-device UI copy conventions.
 - **`CLAUDE.md`** — project rules for AI-assisted development on this repo.
 
 ## Status
 
-**Current version: v0.6.4.** Phases 1-6 are built and hardware-verified —
+**Current version: v0.6.8.** Phases 1-6 are built and hardware-verified —
 Meshtastic War Drive (radio, antenna path, GPS, batched SD logging),
 MeshCore as a second selectable profile, an on-demand WiFi web dashboard,
 and a redesigned on-device menu UI (grouped menu, a live-updating status
 display, brightness control, and a Trace pause/standby battery lever). One
-item from Phase 6 is still open — see `PROGRESS.md`'s checklist for exactly
-what. Phase 7 (`DISCOVERY_SWEEP`, non-default-channel scanning) and Phase 8
-(`ENERGY_SWEEP`, Reticulum/Spectrum) haven't started yet.
+Phase 7 (device optimization) is underway to measure and improve heap/stack
+headroom before new radio modes land. Phase 8 (`DISCOVERY_SWEEP`,
+non-default-channel scanning) and Phase 9 (`ENERGY_SWEEP`,
+Reticulum/Spectrum) haven't started yet.
 
 - **Phase 1** — radio, antenna path, SD config override, display, and
   protocol-correct Meshtastic RX, all confirmed on real hardware with heap
@@ -41,6 +44,8 @@ what. Phase 7 (`DISCOVERY_SWEEP`, non-default-channel scanning) and Phase 8
 - **Phase 6** — a full UI rework: a grouped, nestable menu; live status
   dots and a toast layer; reorganized status pages; a battery-saving
   Trace pause/standby; and real PWM-driven backlight brightness control.
+- **Phase 7** — device optimization: heap-fragmentation and all-task stack
+  instrumentation, repeatable hardware baselines, then measured tuning.
 
 See `PROGRESS.md` for the live, phase-by-phase checklist and the
 hardware-verification history behind each item above.

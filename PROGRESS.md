@@ -8,11 +8,12 @@ source, `DESIGN.md` is the "why" source. Don't let them drift.
 
 **Note, 2026-08-25 doc pass:** this section is Phase 0/1 history, kept as
 written per this file's own convention of not rewriting past entries. For
-what's actually true today: **v0.6.4, Phase 6 (UI architecture redesign)
-built and bench-verified**, Phases 1-5 complete and hardware-verified. See
+what's actually true today: **v0.6.8, Phases 0-6 complete and Phase 7
+(device optimization) started**, with the instrumentation build still
+awaiting its hardware baseline. See
 CLAUDE.md's Status section for the running narrative, or the Build-order
-checklist immediately below for the live phase-by-phase state. Phase 7
-(`DISCOVERY_SWEEP`) and Phase 8 (`ENERGY_SWEEP`) are not started.
+checklist immediately below for the live phase-by-phase state. Phase 8
+(`DISCOVERY_SWEEP`) and Phase 9 (`ENERGY_SWEEP`) are not started.
 
 Phase 0 (project scaffold) complete. Phase 1 (RadioLib bring-up, now
 including optional SD-based channel config) **boots successfully on real
@@ -578,17 +579,11 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         of those actions (menu depth, slider entry) rather than
         `keyboard.h`'s raw-byte decode, so a fresh per-key pass wasn't
         treated as a separate gate here.
-  - [ ] **Re-confirm WiFi heap/counter numbers** (ROADMAP.md Phase 3's
-        go/no-go) still hold with the redesigned `ui_task.cpp` running —
-        **confirmed still open, 2026-08-25 doc pass (operator: "not yet
-        re-tested").** This is more than a formality now: v0.6.3 added a
-        real one-time ~32KB canvas `malloc()` on top of the WiFi AP's own
-        ~55-56KB, and neither the AP-up heap delta nor
-        `crc_err`/`queue_drop`/`bus_miss`/`row_drop` staying at 0 has been
-        re-measured with both live at once since the canvas landed. Next
-        bench session: toggle WiFi on with the AP under real traffic (mirror
-        the 2026-08-24 800+-detection test) and record `ESP.getFreeHeap()`
-        before/after plus the four counters.
+  - [x] **WiFi+canvas heap/counter remeasurement moved to Phase 7.** The
+        measurement itself remains open; the 2026-08-26 phase insertion
+        promotes it from a Phase-6 loose end into the optimization epic's
+        P0 hardware gate, with fragmentation and all-task stack metrics
+        added instead of repeating the older free-heap-only check.
   - [x] ~~Confirm the bounded fast-redraw bursts (toast slide/countdown, RX
         pulse) don't visibly compete with SD flush timing or GPS mutex
         contention~~ — **resolved/superseded, 2026-08-25 doc pass (confirmed
@@ -644,10 +639,48 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         and idle-dim, the same checks Phase 6's v0.6.2-v0.6.4 bench passes
         already established, before trusting this split at that same
         confidence level.
-- [ ] **Phase 7** — `DISCOVERY_SWEEP`. **Not started; broken out below
+- [ ] **Phase 7 — Device optimization. Started 2026-08-26 on v0.6.8.**
+      Phase scope is complete only after measured changes pass the dedicated
+      `HARDWARE_TESTING.md` matrix; `src/version.h` stays v0.6.8 until then.
+  - [x] Epic scope, priority order, exit criteria, and hardware matrix
+        captured in ROADMAP.md Phase 7 and `HARDWARE_TESTING.md`
+  - [x] P0 instrumentation implemented and locally verified: internal heap
+        largest-block/block-count metrics, all five task stack watermarks,
+        lifecycle `[mem]` checkpoints, and append-only `session.csv` fields.
+        `pio test -e native`: 91/91; `pio run -e cardputer-adv`: SUCCESS,
+        50348B static RAM / 972209B flash. Hardware evidence remains open in
+        the matrix items below; a build is not a runtime measurement.
+  - [ ] Baseline A/B: cold boot, idle, real receive/logging, UI regression
+        - Run0065's partial A/B and browser evidence, stack minima, heap
+          stages, provisional budget targets, and exact follow-up build hash
+          are preserved in `hardware-results/2026-08-26-run0065.md`.
+          The full UI interaction pass and 800-detection combined load remain
+          open, so none of the provisional stack targets is approved yet.
+  - [ ] Baseline C: 10 WiFi on/off cycles with recovery trend recorded
+        - **2026-08-26 partial hardware result, run0065:** stopped after
+          cycle 2 exposed a repeatable lifecycle leak. Cold WiFi-off heap
+          was 233952B; the first cycle settled at the expected one-time
+          framework-warm baseline of 215508B, but cycle 2 settled at
+          214792B (716B lower) while allocated blocks rose from 308 to
+          321. Root cause: `startAp()` called `registerRoutes()` every time,
+          while this Arduino `WebServer::stop()` retains its handler list.
+          Route registration is now idempotent; the required 10-cycle
+          hardware retest is intentionally still open.
+  - [ ] Baseline D: browser polling, run listing, repeated CSV downloads,
+        and settings saves with allocation checkpoints
+  - [ ] Baseline E: WiFi+GPS+SD+UI plus real RF traffic for at least 800
+        detections or 30 minutes; all data-path counters remain clean
+  - [ ] P1 task-stack right-sizing, one measured stack at a time
+  - [ ] P2 WiFi lifecycle/request optimization if the baseline identifies a
+        persistent off-state or request-time cost
+  - [ ] P3 canvas alternative only if it is proven to be the limiting
+        allocation; otherwise explicitly close as no-change
+  - [ ] Final two-hour soak, Phase 8/9 memory budgets recorded, hardware
+        evidence linked here, and version advanced to v0.7.x
+- [ ] **Phase 8** — `DISCOVERY_SWEEP`. **Not started; broken out below
       2026-08-25 doc pass** — this checklist previously had no sub-items at
       all, unlike every phase before it. Sub-items are pulled directly from
-      DESIGN.md §4/§5/§9 and ROADMAP.md's Phase 7 section, not new scope —
+      DESIGN.md §4/§5/§9 and ROADMAP.md's Phase 8 section, not new scope —
       flagging that as a distinction worth keeping, since this doc's own
       Decisions log entries have shown more than once that "no sub-items"
       quietly reads as "not really planned yet" until a phase is already
@@ -656,7 +689,7 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         Meshtastic channel-hash slots, legacy-config MeshCore — weighted by
         [[meshmapper-pipeline]]'s real-world observed frequencies for this
         area where available, not scraped defaults alone (DESIGN.md §3, §9
-        step 7; CLAUDE.md's "Related context" note)
+        step 8; CLAUDE.md's "Related context" note)
   - [ ] CAD `symNum` tuning bench-tested against Semtech AN1200.48 before
         trusting any false-positive/miss rate this phase reports (DESIGN.md
         §7 open item, carried since Phase 0)
@@ -668,7 +701,7 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         same as everywhere else)
   - [ ] Sweep results/trigger surfaced as new entries under Phase 6's
         existing grouped menu — explicitly *not* a reason to reopen UI
-        architecture a second time (DESIGN.md §9 step 7, ROADMAP.md Phase 7)
+        architecture a second time (DESIGN.md §9 step 8, ROADMAP.md Phase 8)
   - [ ] `detections.csv`/`session.csv` check: a `DISCOVERY_SWEEP` hit logs
         cleanly alongside `HOME_LISTEN` detections without a format change
         that breaks concatenating against already-logged runs (DESIGN.md
@@ -676,9 +709,10 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [ ] Bench-verify against a real non-default-channel Meshtastic
         transmitter and/or a legacy-config MeshCore node once one is
         available to test against
-- [ ] **Phase 8** — `ENERGY_SWEEP`. **Not started; broken out below
-      2026-08-25 doc pass**, same reasoning as Phase 7 above. Sub-items
-      pulled from DESIGN.md §4/§5/§8/§9 and ROADMAP.md's Phase 8 section.
+- [ ] **Phase 9** — `ENERGY_SWEEP`. **Not started; broken out below
+      2026-08-25 doc pass**, same reasoning as the now-Phase-8 sweep above.
+      Sub-items pulled from DESIGN.md §4/§5/§8/§9 and ROADMAP.md's Phase 9
+      section.
   - [ ] `ENERGY_SWEEP` implemented as its own top-level radio-task state,
         mutually exclusive with `HOME_LISTEN`/`DISCOVERY_SWEEP` (DESIGN.md
         §5) — FSK/OOK RSSI sweep across the full 868–923MHz range
@@ -695,14 +729,14 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [ ] 923–928MHz front-end rolloff characterized via an empirical RSSI
         noise-floor sweep, so the UI/docs can be honest about reduced
         sensitivity in that sub-band instead of silently under-reporting
-        (ROADMAP.md Phase 8, DESIGN.md §7 open item)
+        (ROADMAP.md Phase 9, DESIGN.md §7 open item)
   - [ ] Reticulum and Spectrum (General Exploration) become real selectable
         entries in Phase 6's Profile menu group once this phase gives them
         an actual channel table — today they fall through to Meshtastic's
         resolved channel in `channelParamsForProfile()`/
         `resolvedChannelForProfile()`, and the v0.6.2 Decisions log entry
         already notes they'll "slot in as two more flat entries... once
-        Phase 8 gives them a real channel table, no new nesting decision
+        Phase 9 gives them a real channel table, no new nesting decision
         needed"
 
 ## Open questions (from DESIGN.md §7 — verify before / during build)

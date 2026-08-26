@@ -13,6 +13,7 @@
 #include "config.h"
 #include "gps_task.h"
 #include "logger_task.h"
+#include "memory_stats.h"
 #include "radio_task.h"
 #include "run_log.h"
 #include "serial_lock.h"
@@ -143,6 +144,7 @@ void handleRuns() {
 // anything that isn't a single bounded SD operation, since holding it for
 // a whole large-file transfer would stall the radio task.
 void streamCsvFile(const char *path, const char *downloadName) {
+    memoryStatsLog("csv-download-before");
     size_t fileSize = 0;
     {
         SpiBusLock lock(BUS_WAIT);
@@ -191,6 +193,7 @@ void streamCsvFile(const char *path, const char *downloadName) {
         server.client().write(buf, (size_t)readLen);
         offset += (size_t)readLen;
     }
+    memoryStatsLog("csv-download-after");
 }
 
 // Matches "/api/runs/<n>/detections.csv" or ".../session.csv". Hand-parsed
@@ -288,15 +291,25 @@ void handleConfigPost() {
 }
 
 void registerRoutes() {
+    // WebServer::stop() closes the listener but deliberately keeps its
+    // RequestHandler list.  Registering again on every AP start therefore
+    // leaks one duplicate handler allocation per route on every WiFi cycle.
+    // The server object lives for the firmware lifetime, so one-time route
+    // registration is both sufficient and the only bounded lifecycle.
+    static bool routesRegistered = false;
+    if (routesRegistered) return;
+
     server.on("/", HTTP_GET, handleRoot);
     server.on("/api/status", HTTP_GET, handleStatus);
     server.on("/api/runs", HTTP_GET, handleRuns);
     server.on("/api/config", HTTP_GET, handleConfigGet);
     server.on("/api/config", HTTP_POST, handleConfigPost);
     server.onNotFound(handleNotFound);
+    routesRegistered = true;
 }
 
 void startAp() {
+    memoryStatsLog("wifi-start-before");
     const char *ssid = ssidCached();
 
     WiFi.mode(WIFI_AP);
@@ -314,9 +327,11 @@ void startAp() {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) Serial.println(line);
     }
+    memoryStatsLog("wifi-start-after");
 }
 
 void stopAp() {
+    memoryStatsLog("wifi-stop-before");
     server.stop();
     // Full teardown, not just "stop accepting connections" — the whole
     // point of on-demand is that the RAM/CPU/RF-noise cost actually goes
@@ -324,8 +339,11 @@ void stopAp() {
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_OFF);
     apActive = false;
-    SerialLock lock(pdMS_TO_TICKS(200));
-    if (lock.held()) Serial.println(F("[wifi] AP stopped."));
+    {
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) Serial.println(F("[wifi] AP stopped."));
+    }
+    memoryStatsLog("wifi-stop-after");
 }
 
 // Logs a connect/disconnect the moment the station count changes, instead
@@ -349,6 +367,7 @@ void logClientCountChanges() {
 }
 
 void wifiTask(void *) {
+    memoryStatsRegisterCurrentTask(MemoryTask::WIFI);
     for (;;) {
         if (apRequested && !apActive) {
             startAp();
