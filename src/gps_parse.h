@@ -38,12 +38,11 @@ struct GpsFix {
     uint8_t fix_quality = 0; // GGA field 6: 0 = no fix, 1 = GPS, 2 = DGPS...
     uint8_t satellites = 0;  // GGA field 7: satellites USED in the solution
 
-    // Satellites IN VIEW, from GSV. This is the leading indicator and the
-    // one that matters before a fix exists: `satellites` (used) stays 0
-    // until a fix lands, so it tells you nothing about whether a cold start
-    // is progressing. Zero in view across every constellation means
-    // sky/antenna; some in view without a fix just means "wait longer".
-    // Learned the hard way on 2026-08-23 — see PROGRESS.md.
+    // Satellites IN VIEW, from GSV — the leading indicator that matters
+    // before a fix exists: `satellites` (used) stays 0 until a fix lands,
+    // so it can't say whether a cold start is progressing. Zero in view
+    // across every constellation means sky/antenna; some in view without a
+    // fix just means "wait longer" (learned 2026-08-23, see CHANGELOG.md).
     GpsTalkerSats talkers[GPS_MAX_TALKERS] = {};
     uint8_t talker_count = 0;
     uint8_t sats_in_view = 0; // sum across constellations

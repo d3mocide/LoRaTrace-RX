@@ -21,12 +21,10 @@ bool channelCrInRange(uint8_t cr) { return cr >= 5 && cr <= 8; }
 namespace {
 
 // Applies one "key=value" line to whichever of `overrides`'s two profile
-// slots the key's prefix names, setting that slot's `_set` flag when at
-// least one field lands. Returns true if a recognized, in-range key was
-// applied. Rejects recognized-but-out-of-range values with a warning
-// instead of silently accepting them — a bad frequency or SF here means the
-// radio tunes to the wrong place and hears nothing, which is exactly the
-// failure mode this whole project exists to avoid.
+// slots the key's prefix names, setting that slot's `_set` flag when a
+// field lands. Rejects recognized-but-out-of-range values with a warning
+// rather than silently accepting them — a bad frequency or SF means the
+// radio tunes to the wrong place and hears nothing.
 bool applyConfigLine(const String &rawLine, ProfileOverrides &overrides) {
     String line = rawLine;
     line.trim();
@@ -118,10 +116,8 @@ bool applyConfigLine(const String &rawLine, ProfileOverrides &overrides) {
         return true;
     }
     // Accepts hex ("0x2B") or decimal ("43") — strtol base 0 picks by
-    // prefix. Overridable from SD specifically so a sync word can be A/B
-    // tested on the bench without a reflash (e.g. current Meshtastic 0x2B
-    // vs. pre-1.2 / RadioLib-default 0x12), which is what the 2026-08-23
-    // missed-packet investigation needed and didn't have.
+    // prefix. Overridable from SD so a sync word can be A/B tested on the
+    // bench without a reflash.
     if (field == "sync_word") {
         char *end = nullptr;
         long v = strtol(val.c_str(), &end, 0);
@@ -145,9 +141,8 @@ bool applyConfigLine(const String &rawLine, ProfileOverrides &overrides) {
 }
 
 // Writes one profile's five key=value lines under `prefix`, resolved to
-// either its loaded override or its hardcoded default — the file always
-// ends up with a complete, valid block for both profiles, never a partial
-// one, whether or not an override was actually set for it.
+// its loaded override or its hardcoded default — the file always ends up
+// with a complete, valid block for both profiles.
 void writeProfileBlock(File &f, const char *prefix, MissionProfile profile,
                        const ProfileOverrides &overrides) {
     const ChannelParams p = resolvedChannelForProfile(overrides, profile);
@@ -170,11 +165,9 @@ void writeProfileBlock(File &f, const char *prefix, MissionProfile profile,
 
 // Writes `overrides` out to CHANNEL_CONFIG_PATH — both profiles' blocks,
 // each resolved to its override if set, else its hardcoded default — as an
-// active (uncommented) config, so the file is a valid, loadable config in
-// its own right from the moment it's created, not just a commented-out
-// template the operator has to uncomment first. Assumes CHANNEL_CONFIG_DIR
-// already exists. Returns false (logging why) if the SD card won't accept
-// the write, e.g. read-only.
+// active (uncommented) config, valid and loadable from the moment it's
+// created. Assumes CHANNEL_CONFIG_DIR already exists. Returns false
+// (logging why) if the SD card won't accept the write.
 bool writeFullConfig(const ProfileOverrides &overrides) {
     File f = SD.open(CHANNEL_CONFIG_PATH, FILE_WRITE);
     if (!f) {
@@ -208,13 +201,11 @@ bool writeFullConfig(const ProfileOverrides &overrides) {
 
 } // namespace
 
-// This function, applyConfigLine(), and writeFullConfig() are all only
-// ever called from here, and this is only ever called once from main.cpp's
-// setup() before any task exists (main.cpp: "no tasks are running yet, so
-// no arbitration is needed for this read") — so none of their Serial
-// prints take serial_lock.h's lock. writeProfileConfigToSD() below is the
-// *runtime* entry point (wifi_task's settings save, called with every
-// other task live) and does take it, for real reasons — see there.
+// This function, applyConfigLine(), and writeFullConfig() are only ever
+// called once from main.cpp's setup(), before any task exists, so none of
+// their Serial prints take serial_lock.h's lock. writeProfileConfigToSD()
+// below is the *runtime* entry point (wifi_task's settings save, called
+// with every other task live) and does take it.
 bool loadProfileOverridesFromSD(ProfileOverrides &overrides, int8_t csPin, SPIClass &spi,
                                  bool *sdMounted) {
     const bool mounted = SD.begin(csPin, spi);
@@ -225,9 +216,9 @@ bool loadProfileOverridesFromSD(ProfileOverrides &overrides, int8_t csPin, SPICl
     }
 
     // First card ever seen by this firmware: create /loratrace/config.txt
-    // with both profiles' current (here: hardcoded, since `overrides` is
-    // still fresh) defaults so operators have a file to edit in place,
-    // instead of needing to hand-copy sd-template/loratrace/ themselves.
+    // with both profiles' current (hardcoded, since `overrides` is still
+    // fresh) defaults, so operators have a file to edit in place instead of
+    // hand-copying sd-template/loratrace/.
     if (!SD.exists(CHANNEL_CONFIG_DIR)) {
         SD.mkdir(CHANNEL_CONFIG_DIR);
     }
@@ -275,12 +266,10 @@ bool writeProfileConfigToSD(MissionProfile profile, const ChannelParams &params,
         return false;
     }
 
-    // Runtime call, unlike loadProfileOverridesFromSD's boot-time one — the
-    // radio/GPS/logger tasks are all live and sharing this same physical
-    // SPI bus, so this must arbitrate for it. A bounded wait, not
-    // portMAX_DELAY: an operator-triggered settings save is not worth
-    // stalling indefinitely for, and the caller (wifi_task) can just report
-    // "try again" over HTTP.
+    // Runtime call, unlike loadProfileOverridesFromSD's boot-time one —
+    // the radio/GPS/logger tasks are all live and sharing this SPI bus, so
+    // this must arbitrate for it. Bounded wait, not portMAX_DELAY: an
+    // operator-triggered save isn't worth stalling indefinitely for.
     SpiBusLock lock(pdMS_TO_TICKS(2000));
     if (!lock.held()) {
         SerialLock slock(pdMS_TO_TICKS(200));
@@ -288,10 +277,9 @@ bool writeProfileConfigToSD(MissionProfile profile, const ChannelParams &params,
         return false;
     }
 
-    // Start from `current` (the state already loaded at boot) and overlay
-    // just the one profile being saved — the other profile's block is
-    // rewritten unchanged, so saving Meshtastic's preset can never clobber
-    // a previously-saved MeshCore one, or vice versa.
+    // Start from `current` and overlay just the one profile being saved —
+    // the other profile's block is rewritten unchanged, so saving one
+    // preset can never clobber the other.
     ProfileOverrides updated = current;
     if (profile == MissionProfile::MESHCORE) {
         updated.meshcore = params;
@@ -301,32 +289,19 @@ bool writeProfileConfigToSD(MissionProfile profile, const ChannelParams &params,
         updated.meshtastic_set = true;
     }
 
-    // Delete-then-recreate rather than truncate-in-place: a new config that
-    // happens to be shorter than the one it replaces must not leave trailing
-    // bytes of the old file behind (e.g. a stray old key=value line past the
-    // new content's end, silently corrupting the file). writeFullConfig()
-    // already writes an arbitrary ProfileOverrides in the exact key=value
-    // format loadProfileOverridesFromSD() parses — reused as-is here rather
-    // than duplicating that format a second time.
+    // Delete-then-recreate rather than truncate-in-place: a shorter new
+    // config must not leave trailing bytes of the old file behind.
+    // writeFullConfig() already writes the exact key=value format
+    // loadProfileOverridesFromSD() parses — reused as-is.
     SD.remove(CHANNEL_CONFIG_PATH);
     const bool ok = writeFullConfig(updated);
 
-    // A save triggered from the web UI (wifi_task) has no other visible
-    // confirmation on the device — the browser shows its own success/error
-    // message, but the operator standing at the device with a serial
-    // console open (exactly the debugging situation this is for) saw
-    // nothing at all before this. Mirrors loadProfileOverridesFromSD's own
-    // success/failure prints for the same reason.
-    //
-    // Built into one buffer, printed under the Serial lock — this exact
-    // line is the one that first proved the buffer alone wasn't enough: a
-    // 2026-08-23 hardware run caught it with most of its content silently
-    // missing ("8 BW5 sync — reboot to apply." instead of the full line),
-    // and a 2026-08-24 run (before this lock existed) caught it torn again
-    // ("BW62.5 CR4/5 sync 0x12 — reboot to apply." — everything before
-    // "BW62.5" gone) even with the single-buffer fix already in place. See
-    // serial_lock.h for the actual fix.
-    char line[160]; // worst case ("meshtastic", 3-digit fields) measures ~111B — real margin, not a near-fit
+    // A save from the web UI has no other on-device confirmation — the
+    // browser shows its own message, but an operator with a serial console
+    // open sees nothing without this. One buffer, printed under the Serial
+    // lock (an earlier unlocked version of this exact line came out torn
+    // on hardware — see serial_lock.h).
+    char line[160]; // worst case ("meshtastic", 3-digit fields) measures ~111B
     if (ok) {
         snprintf(line, sizeof(line),
                  "[config] Wrote %s (%s): %.3fMHz SF%u BW%.1f CR4/%u sync 0x%X — reboot to apply.",

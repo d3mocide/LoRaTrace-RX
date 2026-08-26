@@ -1,14 +1,11 @@
 // LoRaTrace RX — ui_task lifecycle, input, and main loop.
 //
-// Split out of a single ~1265-line ui_task.cpp (2026-08-25 cleanup pass,
-// PROGRESS.md/CLAUDE.md) into three files by concern: this file (task
-// lifecycle, keyboard input decode, the main loop, and every piece of
-// operator-facing state — carousel page, menu, toast, RX pulse,
-// brightness/idle-dim — since it owns seeding that state at boot and
-// persisting it back to SD), drawing (ui_pages.cpp), and menu-action
-// business logic (ui_actions.cpp). See ui_task.h for the subsystem's
-// overall design and ui_task_shared.h for the internal contract between
-// these three files. No behavior change intended, only file boundaries.
+// Split out of a single ~1265-line ui_task.cpp (2026-08-25 cleanup pass)
+// into three files by concern: this file (task lifecycle, keyboard input,
+// main loop, and all operator-facing state — page, menu, toast, RX pulse,
+// brightness/idle-dim), drawing (ui_pages.cpp), and menu-action business
+// logic (ui_actions.cpp). See ui_task.h for the subsystem design and
+// ui_task_shared.h for the contract between these three files.
 
 #include "ui_task.h"
 #include "ui_task_shared.h"
@@ -27,52 +24,38 @@
 #include "radio_task.h"
 
 // --- Shared state (extern-declared in ui_task_shared.h) ---
-// Defined here; this file is the single definition point for every symbol
-// declared extern there. Deliberately at plain file scope (not inside the
-// anonymous namespace below) so it gets the external linkage ui_pages.cpp/
-// ui_actions.cpp need to see it.
+// Defined here, at plain file scope (not the anonymous namespace below) so
+// it gets the external linkage ui_pages.cpp/ui_actions.cpp need.
 
-// uiTft is the draw target every drawing function writes to (ui_pages.cpp,
-// plus this file's own fullRedraw()). As of the Phase 6 bench pass
-// (2026-08-25) it points at an off-screen Arduino_Canvas_Indexed buffer,
-// not the physical panel directly — see uiTaskStart() below for why.
+// Draw target for every drawing function (ui_pages.cpp, this file's own
+// fullRedraw()). Since Phase 6 points at an off-screen Arduino_Canvas_Indexed
+// buffer, not the panel directly — see uiTaskStart() below for why.
 Arduino_GFX *uiTft = nullptr;
 
-// CRITICAL: the TCA8418 boots in SLEEP and reports nothing until explicitly
-// configured, even when I2C is perfectly healthy. Exactly the failure shape
-// as the GPS power rail (a working bus proving nothing about a working
-// device). begin() + matrix() is the wake sequence, taken from
+// CRITICAL: the TCA8418 boots in SLEEP and reports nothing until
+// explicitly configured, even with a healthy I2C bus — same failure shape
+// as the GPS power rail. begin()+matrix() is the wake sequence, taken from
 // bmorcelli/Launcher's confirmed-working Cardputer-ADV interface.
 bool keyboardReady = false;
 
 UiPage page = UiPage::RADIO;
 
-// Toast layer (Phase 6): a brief overlay message for feedback that isn't
-// tied to whichever menu row happens to be highlighted — e.g. confirming a
-// toggle fired right before BACK leaves the menu. Only this static buffer,
-// not a dynamic allocation — no heap number to gate behind the way WiFi's
-// AP needed one.
+// Toast layer: a brief overlay message for feedback not tied to whichever
+// menu row is highlighted (e.g. confirming a toggle right before BACK
+// leaves the menu). Static buffer, no heap allocation.
 char toastMsg[48] = {0};
 uint32_t toastShownAt = 0;
 
-// Brightness + idle-dim (2026-08-25, second revision — slider + persisted
-// settings). activeBrightnessPercent is the operator's chosen level (5-100,
-// BRIGHTNESS_STEP at a time) — what idle-dim restores to on the next
-// keypress, not necessarily what the backlight is driven at right now
-// (which may be a lower idle floor while displayDimmed — see
-// idleDimTargetPercent() below). Seeded from SD (uiTaskStart()'s
-// `settings` param) instead of a hardcoded default, so the device
-// remembers what an operator picked across power cycles, same as channel
-// overrides already do.
+// activeBrightnessPercent is the operator's chosen level (5-100) — what
+// idle-dim restores to on the next keypress, not necessarily what the
+// backlight is driven at right now (see idleDimTargetPercent() below).
+// Seeded from SD (uiTaskStart()'s `settings` param), so it survives a
+// power cycle the same way channel overrides already do.
 uint8_t activeBrightnessPercent = 100;
 bool displayDimmed = false;
 
-// Idle-dim timeout, cycled from System's "Idle dim" group item
-// (IDLE_TIMEOUT_CYCLE) instead of a plain on/off — index 0 is "Off"
-// (disables idle-dim entirely, matching what the old AUTODIM_TOGGLE=false
-// used to mean), the rest are real durations. Index 2 (60s) is the
-// default, matching this feature's original hardcoded value. Also seeded
-// from SD.
+// Idle-dim timeout, cycled from System > Display's "Idle dim" row.
+// Index 0 = Off (disables idle-dim); index 2 (60s) is the default.
 const IdleTimeoutOption IDLE_TIMEOUT_OPTIONS[] = {
     {"Off", 0},
     {"30s", 30000},
@@ -82,17 +65,13 @@ const IdleTimeoutOption IDLE_TIMEOUT_OPTIONS[] = {
 };
 uint8_t idleTimeoutIndex = 2;
 
-// Phase 6 root table, revised four times 2026-08-25 (BRAND.md's "Revised
-// again" note has the Profile/System history). "Profile" opens onto the
-// real, technical profile names — Meshtastic, MeshCore today; Reticulum/
-// Spectrum join once they have a real HOME_LISTEN table (Phase 8) — instead
-// of cycling one at a time on Enter the way Phase 4/5 did. Deliberately not
-// branded as "Mesh Trace" or similar: these are LoRa presets on one
-// sniffer, not sibling products, and BRAND.md already had "Profile" as its
-// preferred word for exactly this axis before an earlier same-day revision
-// briefly tried a per-profile brand name instead. Defined at plain file
-// scope (external linkage, not the anonymous namespace below) because
-// ui_pages.cpp's drawMenuList() identity-compares against it directly.
+// Root menu table. "Profile" opens onto the real, technical profile names
+// (Meshtastic/MeshCore; Reticulum/Spectrum join once they have a
+// HOME_LISTEN table, Phase 8) instead of cycling one at a time on Enter.
+// Deliberately not branded per-profile (BRAND.md) — these are LoRa presets
+// on one sniffer, not sibling products. Plain file scope (external
+// linkage) because ui_pages.cpp's drawMenuList() identity-compares
+// against it directly.
 const MenuItem PROFILE_GROUP_ITEMS[] = {
     {"Meshtastic", ItemKind::ACTION, MenuAction::SELECT_MESHTASTIC, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"MeshCore", ItemKind::ACTION, MenuAction::SELECT_MESHCORE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
@@ -107,24 +86,18 @@ Arduino_Canvas_Indexed *canvas = nullptr;
 
 // TCA8418 keyboard controller. Cardputer ADV replaced the base Cardputer's
 // GPIO matrix with this I2C part — same SDA/SCL as the IO expander, a
-// different address, which is ordinary shared-bus operation.
+// different address, ordinary shared-bus operation.
 Adafruit_TCA8418 keys;
 
 uint32_t lastPageChange = 0;
 
-// Display (2026-08-25, third revision): Brightness/idle-dim moved out of
-// System's own flat list into their own nested group on operator request
-// ("system > display > display relevant settings") — the first thing in
-// this project to actually need ui_menu.h's generalized nesting (System's
-// own WiFi/Debug/Trace grouping was flat, one level, from the start; this
-// is a GROUP inside a GROUP). Brightness stays a SLIDER row, just reached
-// one level deeper than when it briefly lived at root.
+// Brightness/idle-dim live in their own nested group under System > Display
+// (the first ui_menu.h nesting deeper than one level) rather than System's
+// own flat list, on operator request. Brightness stays a SLIDER row.
 constexpr MenuItem DISPLAY_GROUP_ITEMS[] = {
     {"Brightness", ItemKind::SLIDER, MenuAction::NONE, MenuAction::BRIGHTNESS_UP, MenuAction::BRIGHTNESS_DOWN, nullptr, 0},
-    // Idle-dim timeout: cycles Off/30s/60s/2min/5min on each Enter press,
-    // same "fires and stays in the list" shape WiFi/Debug already have,
-    // just cycling a value instead of flipping a bool — an operator asked
-    // for real choices here instead of a hardcoded 60s.
+    // Cycles Off/30s/60s/2min/5min on each Enter press, same "fires and
+    // stays in the list" shape as WiFi/Debug, just cycling a value.
     {"Idle dim", ItemKind::ACTION, MenuAction::IDLE_TIMEOUT_CYCLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
 constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
@@ -132,18 +105,14 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
     {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
 };
-// Trace pause/standby (2026-08-25) is a root-level ACTION row, not a System
-// item — promoted the same day it shipped, on operator feedback that it's
-// central enough to toggle without drilling into System first. Deliberately
-// named "Trace" alone, not "MeshTrace": that exact compound word was walked
-// back earlier this same session (BRAND.md's Interface Naming table) for
-// overloading "Trace" across the product name, a per-profile brand, and a
-// saved-session noun — reviving it here for a fourth meaning (live radio
-// state) would repeat the same mistake. Puts the SX1262 in its warm sleep
-// mode instead of continuous RX — a real battery lever, unlike GPS
-// (io_expander.h: GPS power shares the antenna-switch line, so there's no
-// independent GPS power to save, and this deliberately leaves GPS running
-// so position is already fresh the instant Trace resumes).
+// Trace pause/standby is a root-level ACTION row, not under System —
+// promoted the same day it shipped since it's central enough to toggle
+// without drilling in first. Named "Trace" alone, not "MeshTrace" (that
+// compound word was walked back in BRAND.md for overloading "Trace" across
+// too many meanings already). Puts the SX1262 in warm sleep instead of
+// continuous RX — a real battery lever; GPS keeps running (its power
+// shares the antenna-switch line, so there's no independent GPS power to
+// save) so position is already fresh the instant Trace resumes.
 constexpr MenuItem ROOT_ITEMS[] = {
     {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 2},
@@ -151,57 +120,45 @@ constexpr MenuItem ROOT_ITEMS[] = {
 };
 constexpr uint8_t ROOT_COUNT = 3;
 
-// RX activity pulse (Phase 6 UI redesign): a brief, event-driven flash on
-// the header's third status dot and a matching flash line on RADIO,
-// replacing the old idle heartbeat blink — that only ever proved the UI
-// task's own loop was alive, not that anything was actually being heard.
-// Binary hold-then-revert, not the alpha-blended decay the design mockup
-// used: Arduino_GFX/RGB565 has no cheap alpha blending, so "recently
-// active" is a solid color held for RX_PULSE_MS and then reverted, rather
-// than a fading glow. File-local: only this file ever sets the deadline
-// (on a newly-observed detection, in uiTask() below); ui_pages.cpp only
-// ever asks rxPulseActive() whether it's still active.
+// RX activity pulse: a brief, event-driven flash on the header's third
+// status dot and a matching flash bar on RADIO, replacing an old idle
+// heartbeat blink that only proved the UI task was alive, not that
+// anything was being heard. Binary hold-then-revert, not an alpha-blended
+// decay — RGB565 has no cheap alpha blending. File-local: only this file
+// sets the deadline (on a new detection, in uiTask() below); ui_pages.cpp
+// only reads rxPulseActive().
 uint32_t rxPulseUntil = 0;
 constexpr uint32_t RX_PULSE_MS = 220;
 
-// The level idle-dim actually drives when it engages: the lower of a fixed
-// floor and the operator's own active level. Needed once brightness became
-// a slider that can go below the old fixed IDLE_DIM_PERCENT (15) — without
-// this, setting an active level of e.g. 10% and then going idle would make
-// the screen get BRIGHTER (jump to 15%) instead of dimmer.
+// The level idle-dim actually drives: the lower of a fixed floor and the
+// operator's own active level. Needed since brightness became a slider
+// that can go below the old fixed floor (15%) — without this, an active
+// level below 15% would make the screen get BRIGHTER when going idle.
 constexpr uint8_t IDLE_DIM_FLOOR = 15;
 uint8_t idleDimTargetPercent() {
     return activeBrightnessPercent < IDLE_DIM_FLOOR ? activeBrightnessPercent : IDLE_DIM_FLOOR;
 }
 
-// lastKeyActivity tracks any recognized KeyAction, the same basis
-// AUTO_ADVANCE_MS's carousel-timer already uses for "idle" — on a
-// keyboardless unit (!keyboardReady) this never advances past boot, so the
-// display dims at the configured timeout and stays dimmed for the rest of
-// an unattended run. That's the right outcome for exactly the multi-hour-
-// unattended-drive scenario this project is built around, not a corner
-// case to special-case away.
+// Tracks any recognized KeyAction, same basis AUTO_ADVANCE_MS's carousel
+// timer uses for "idle". On a keyboardless unit this never advances past
+// boot, so the display dims at the configured timeout and stays dimmed —
+// the right outcome for an unattended multi-hour drive, not a corner case.
 uint32_t lastKeyActivity = 0;
 
-// Without a keyboard the pages rotate on their own — a device stuck on one
-// page during a multi-hour field test is worse than one that cycles.
+// Without a keyboard the pages rotate on their own — stuck on one page
+// during a multi-hour field test is worse than cycling.
 constexpr uint32_t AUTO_ADVANCE_MS = 8000;
-// Idle redraw cadence (battery/heartbeat-equivalent staleness guard).
+// Idle redraw cadence (staleness guard).
 constexpr uint32_t REDRAW_MS = 1000;
-// Redraw cadence while the toast slide/countdown or the RX pulse is
-// actively animating — a bounded burst, not a continuous animation loop:
-// it only runs for TOAST_DURATION_MS after a toast fires, or RX_PULSE_MS
-// after a detection, then falls back to REDRAW_MS.
+// Redraw cadence while the toast or RX pulse is animating — a bounded
+// burst (TOAST_DURATION_MS or RX_PULSE_MS), not a continuous loop.
 constexpr uint32_t FAST_REDRAW_MS = 60;
 
-// No fillScreen() here: drawPage() (ui_pages.cpp) already unconditionally
-// wipes the whole content region and redraws every element on every call
-// (it has to, since pages don't track their own prior state), and the
-// caller always follows a page change with a fullRedraw() in the same loop
-// iteration (uiTask() below). An explicit clear here was a second
-// full-panel blank stacked right before drawPage()'s own — pure redundant
-// SPI traffic, and the direct cause of the visible black flash on every
-// page change (bench feedback, 2026-08-25 hardware pass).
+// No fillScreen() here: drawPage() (ui_pages.cpp) already wipes and
+// redraws the whole content region every call, and the caller always
+// follows a page change with fullRedraw() in the same loop iteration. An
+// explicit clear here was a redundant second full-panel blank — the direct
+// cause of a visible black flash on every page change (2026-08-25 bench).
 void nextPage() {
     page = (UiPage)(((uint8_t)page + 1) % (uint8_t)UiPage::COUNT);
     lastPageChange = millis();
@@ -218,10 +175,9 @@ void jumpToPage(UiPage p) {
 }
 
 // Drains the TCA8418 event FIFO and returns the most recently recognized
-// KeyAction this poll (keyboard.h), or NONE. Several actions queued between
-// polls collapse to the last one — an accepted imprecision at a 30ms poll
-// interval for sparse, deliberate keypresses, the same tolerance the old
-// gesture code documented for simultaneous keys.
+// KeyAction this poll (keyboard.h), or NONE. Several actions queued
+// between polls collapse to the last one — acceptable at a 30ms poll
+// interval for sparse, deliberate keypresses.
 KeyAction pollKeyAction() {
     if (!keyboardReady) return KeyAction::NONE;
     KeyAction result = KeyAction::NONE;
@@ -232,18 +188,14 @@ KeyAction pollKeyAction() {
     return result;
 }
 
-// NOTE: no startWrite()/endWrite() batching here on purpose, despite
-// looking like the obvious next step. Arduino_GFX's fillRect()/print()
-// etc. already each wrap themselves in their own startWrite()/endWrite()
-// pair, and Arduino_HWSPI's is a straight SPIClass::beginTransaction()/
-// endTransaction() call with a plain, non-recursive lock — a second,
-// outer startWrite() around a sequence of calls that each take it again
-// internally deadlocks on the first nested call (verified against the
-// vendored GFX/SPI sources, not run on hardware — caught before it became
-// a hang on first boot). That's moot now anyway: uiTft->flush() below is the
-// real single-transaction boundary (Arduino_TFT::drawIndexedBitmap — one
-// startWrite()/writeIndexedPixels()/endWrite() sequence over the whole
-// composed frame), and it isn't nested inside anything.
+// NOTE: no startWrite()/endWrite() batching here despite looking like the
+// obvious next step — Arduino_GFX's fillRect()/print() etc. already each
+// wrap themselves in their own startWrite()/endWrite(), and a second outer
+// startWrite() around a sequence of such calls deadlocks on the first
+// nested call (verified against the vendored GFX/SPI sources, caught
+// before it became a hang on first boot). Moot anyway: uiTft->flush()
+// below is the real single-transaction boundary over the whole composed
+// frame, and it isn't nested inside anything.
 void fullRedraw() {
     drawHeader();
     drawPage();
@@ -263,14 +215,10 @@ void uiTask(void *) {
         const KeyAction action = pollKeyAction();
         bool redraw = false;
 
-        // Brightness idle-dim: any recognized key both resets the idle
-        // clock and immediately undims if the display was dimmed — an
-        // operator who just pressed something can't still be "idle" the
-        // instant after. Checked before the carousel/menu dispatch below
-        // so a keypress that also does something else (page change, menu
-        // action) still counts as activity. idleTimeoutIndex == 0 ("Off")
-        // disables idle-dim entirely, same meaning the old AUTODIM_TOGGLE
-        // == false had.
+        // Idle-dim: any key resets the idle clock and undims immediately
+        // if the display was dimmed. Checked before carousel/menu dispatch
+        // so a keypress that also does something else still counts as
+        // activity. idleTimeoutIndex == 0 ("Off") disables idle-dim.
         const uint32_t idleTimeoutMs = IDLE_TIMEOUT_OPTIONS[idleTimeoutIndex].ms;
         if (action != KeyAction::NONE) {
             lastKeyActivity = millis();
@@ -284,9 +232,8 @@ void uiTask(void *) {
             backlightSetPercent(idleDimTargetPercent());
         }
 
-        // Detect new RX activity every loop, independent of whether a key
-        // was pressed — this is what actually drives the header pulse dot
-        // and RADIO's flash bar.
+        // Detect new RX activity every loop, independent of any keypress —
+        // this drives the header pulse dot and RADIO's flash bar.
         const uint32_t rxNow = radioPacketCount();
         if (rxNow != lastRxSeen) {
             lastRxSeen = rxNow;
@@ -318,22 +265,16 @@ void uiTask(void *) {
                 jumpToPage(UiPage::SYSTEM);
                 redraw = true;
             }
-            // JUMP_5 has no target now — WIFI folded into SYSTEM (Phase 6
-            // UI redesign), so it's ignored the same way JUMP_1..5 are
-            // already ignored inside the menu.
-            // SELECT (Enter) is a no-op here — bench feedback 2026-08-24
-            // found opening the menu with Enter felt wrong, since Enter's
-            // role inside the menu is committing the highlighted change;
-            // ESC (BACK) opens the menu instead, so the same key that
-            // closes it also opens it.
+            // JUMP_5 has no target now — WIFI folded into SYSTEM, ignored
+            // the same way JUMP_1..5 are already ignored inside the menu.
+            // SELECT (Enter) is a no-op here — ESC (BACK) opens the menu
+            // instead, so the same key that closes it also opens it.
         } else if (action != KeyAction::NONE) {
-            // Menu open (root/group/slider level) — MenuState owns
-            // navigation and level transitions; this file only reacts to
-            // what fired. Captured before handle() runs: leaving the
-            // Brightness slider (BACK, SLIDER -> ROOT) is the debounce
-            // point for persisting it — see BRIGHTNESS_UP/DOWN's own
-            // comment in ui_actions.cpp's fireMenuAction() for why saves
-            // don't happen on every step instead.
+            // Menu open (root/group/slider) — MenuState owns navigation;
+            // this file only reacts to what fired. Captured before handle()
+            // runs: leaving the Brightness slider (BACK, SLIDER -> ROOT) is
+            // the debounce point for persisting it (see BRIGHTNESS_UP/DOWN
+            // in ui_actions.cpp for why saves don't happen every step).
             const bool leavingSlider = menu.inSlider() && action == KeyAction::BACK;
             const MenuAction fired = menu.handle(action);
             if (fired != MenuAction::NONE) fireMenuAction(fired);
@@ -349,15 +290,10 @@ void uiTask(void *) {
         const bool animating = (toastMsg[0] != '\0' && toastActive()) || rxPulseActive();
         const uint32_t redrawInterval = animating ? FAST_REDRAW_MS : REDRAW_MS;
 
-        // Every tick below always goes through fullRedraw(), including the
-        // FAST_REDRAW_MS animation burst — unlike direct-to-panel drawing,
-        // redrawing "too much" into the off-screen canvas costs nothing the
+        // Every tick goes through fullRedraw(), including the fast-redraw
+        // burst — redrawing into the off-screen canvas costs nothing the
         // viewer can see, since uiTft->flush() is the only point anything
-        // reaches the glass, as one atomic blit. A leaner toast-only path
-        // that skipped drawPage() briefly existed here before the canvas;
-        // it existed purely to avoid a *visible* partial redraw, which
-        // isn't a concern any more, so it was more code for no remaining
-        // benefit.
+        // reaches the glass, as one atomic blit.
         if (redraw) {
             fullRedraw();
             lastRedraw = millis();
@@ -369,10 +305,9 @@ void uiTask(void *) {
             fullRedraw();
             lastRedraw = millis();
         } else if (wasAnimating && !animating) {
-            // The toast or RX pulse just expired since the last redraw —
-            // force one more full pass so its overlay actually clears
-            // rather than lingering until the next periodic REDRAW_MS tick
-            // (up to ~1s stale).
+            // Toast/RX pulse just expired — force one more redraw so the
+            // overlay clears immediately rather than lingering until the
+            // next periodic tick (up to ~1s stale).
             fullRedraw();
             lastRedraw = millis();
         }
@@ -382,21 +317,18 @@ void uiTask(void *) {
             toastMsg[0] = '\0';
         }
 
-        // Poll rather than use the INT pin on GPIO11. At 30ms a keypress
-        // feels immediate, and polling keeps this task free of an ISR that
-        // would need its own I2C access — I2C is not interrupt-safe.
+        // Poll rather than use the INT pin on GPIO11 — I2C isn't
+        // interrupt-safe, and 30ms polling feels immediate anyway.
         vTaskDelay(pdMS_TO_TICKS(30));
     }
 }
 
 } // namespace
 
-// menu's constructor needs ROOT_ITEMS/ROOT_COUNT (both file-local, defined
-// just above) — fine to reference here even though this definition itself
-// needs external linkage (ui_pages.cpp/ui_actions.cpp both use `menu`
-// directly): linkage is a per-declaration property, not a scoping
-// restriction, so an externally-linked global can still be initialized
-// from an internally-linked one earlier in the same translation unit.
+// menu's constructor needs ROOT_ITEMS/ROOT_COUNT, fine to reference here
+// even though this definition needs external linkage (ui_pages.cpp/
+// ui_actions.cpp both use `menu` directly) — linkage is a per-declaration
+// property, not a scoping restriction.
 MenuState menu(ROOT_ITEMS, ROOT_COUNT);
 
 void showToast(const char *msg) {
@@ -416,47 +348,32 @@ bool rxPulseActive() {
 bool uiTaskStart(Arduino_GFX *gfx, const DisplaySettings &settings) {
     if (gfx == nullptr) return false;
 
-    // Seed from main.cpp's boot-time SD load (display_settings.h) instead
-    // of this file's hardcoded defaults — clamped defensively even though
-    // display_settings.cpp already validates on load, since these values
-    // go straight into backlightSetPercent() below. A brand-new/empty SD
-    // card leaves `settings` at its own struct defaults (100%, 60s), which
-    // is the same effective behavior this feature originally shipped with.
+    // Seed from main.cpp's boot-time SD load (display_settings.h), not
+    // this file's hardcoded defaults — clamped defensively since these
+    // values go straight into backlightSetPercent() below. A brand-new/
+    // empty SD card leaves `settings` at struct defaults (100%, 60s).
     activeBrightnessPercent = settings.brightness_pct;
     if (activeBrightnessPercent < BRIGHTNESS_MIN) activeBrightnessPercent = BRIGHTNESS_MIN;
     if (activeBrightnessPercent > BRIGHTNESS_MAX) activeBrightnessPercent = BRIGHTNESS_MAX;
     idleTimeoutIndex = settings.idle_timeout_index;
     if (idleTimeoutIndex >= IDLE_TIMEOUT_OPTION_COUNT) idleTimeoutIndex = 2;
-    // main.cpp's backlightInit() (called before this, for the boot splash)
-    // always starts at 100% — apply the real loaded level now so it's
-    // visible from ui_task's very first frame instead of staying at 100%
-    // until the operator happens to touch the Brightness slider.
+    // main.cpp's backlightInit() (boot splash) always starts at 100% —
+    // apply the real loaded level now so it's visible from this task's
+    // first frame instead of staying at 100% until the operator touches
+    // the Brightness slider.
     backlightSetPercent(activeBrightnessPercent);
 
-    // Phase 6 bench pass (2026-08-25) found direct-to-panel drawing causes
-    // real, visible flicker and tearing: every fillRect()/print() call is
-    // immediately visible on the glass, so any redraw shows a blank-then-
-    // redrawn flash to the eye even for values that didn't actually change,
-    // and the toast's fast-redraw burst tore for the same reason. Fixed
-    // the way M5PORKCHOP-style M5GFX/LovyanGFX sprite UIs get their
-    // smoothness: everything above draws into this off-screen canvas
-    // instead of the panel, and nothing reaches the glass until
-    // uiTft->flush() blits the whole composed frame in one shot
-    // (Arduino_TFT::drawIndexedBitmap — a single startWrite()/
-    // writeIndexedPixels()/endWrite() sequence, confirmed against the
-    // vendored GFX source). _Indexed rather than the full RGB565 canvas:
-    // this UI only ever uses 6 colours (COL_BG/FG/DIM/GOOD/WARN/BAD, all
-    // in ui_pages.cpp), so 1 byte/pixel loses nothing and costs ~32KB
-    // (240*135) instead of RGB565's ~63KB (240*135*2) — half the resource
-    // commitment for a UI that never needed more than 6 distinct colours.
-    // No PSRAM on this board (DESIGN.md §1), so this is a real malloc()
-    // against the same heap budget as everything else, not a static
-    // allocation — a deliberate one-time ~32KB tradeoff, decided with the
-    // operator rather than assumed, given this reverses what was
-    // previously a deliberate "no canvas/framebuffer" choice. Falls back
-    // to drawing straight on the panel (the original behavior, flicker and
-    // all) if the allocation fails, rather than taking the whole UI down
-    // over ~32KB of missing heap headroom.
+    // Direct-to-panel drawing causes real, visible flicker/tearing (Phase 6
+    // bench pass, 2026-08-25): every draw call is immediately visible on
+    // glass. Fixed the way M5GFX/LovyanGFX sprite UIs get their smoothness:
+    // everything draws into this off-screen canvas instead, and nothing
+    // reaches the glass until uiTft->flush() blits the whole composed
+    // frame in one shot. _Indexed rather than full RGB565: this UI only
+    // ever uses 6 colours (ui_pages.cpp), so 1 byte/pixel costs ~32KB
+    // instead of RGB565's ~63KB. No PSRAM on this board, so this is a real
+    // malloc() against the shared heap budget, decided with the operator.
+    // Falls back to drawing straight on the panel (flicker and all) if the
+    // allocation fails, rather than taking the whole UI down.
     canvas = new Arduino_Canvas_Indexed(gfx->width(), gfx->height(), gfx, 0, 0, 0);
     if (canvas->begin(GFX_SKIP_OUTPUT_BEGIN)) {
         uiTft = canvas;

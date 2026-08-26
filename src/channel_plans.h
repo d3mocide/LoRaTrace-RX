@@ -24,56 +24,31 @@ enum class MissionProfile : uint8_t {
 // an RX interrupt for packets whose sync word matches, so getting this
 // wrong means hearing nothing from the target protocol while still hearing
 // unrelated traffic that happens to match whatever was set. Passed to
-// RadioLib's begin()/setSyncWord() as a single byte; RadioLib handles the
-// SX126x two-byte register mapping internally (which is what DESIGN.md §7's
-// "0x2B vs. its two-byte register mapping" confusion was about — callers
-// pass the one-byte value, same as Meshtastic's own firmware does).
+// RadioLib's begin()/setSyncWord() as a single byte (RadioLib handles the
+// SX126x two-byte register mapping internally).
 //
-// RadioLib's own default is RADIOLIB_SX126X_SYNC_WORD_PRIVATE == 0x12
-// (verified in SX1262.h's begin() signature). Anything here that doesn't
-// have a source-verified value should stay on that default explicitly
-// rather than borrowing another protocol's number.
+// RadioLib's own default is RADIOLIB_SX126X_SYNC_WORD_PRIVATE == 0x12.
+// Anything here without a source-verified value should stay on that
+// default explicitly rather than borrowing another protocol's number.
 constexpr uint8_t SYNC_WORD_RADIOLIB_DEFAULT = 0x12;
 
-// Meshtastic — VERIFIED against upstream firmware source, satisfying
-// CLAUDE.md's house rule against hardcoding an unverified sync word:
-// meshtastic/firmware `src/mesh/RadioLibInterface.h`, `const uint8_t
-// syncWord = 0x2b;`. Its own comment resolves DESIGN.md §7's "sources
-// disagree" note outright:
-//   "For releases before 1.2 we used 0x12 (or for very old loads 0x14)
-//    Note: do not use 0x34 - that is reserved for lorawan
-//    We now use 0x2b ... We will be staying with this code for a long time."
-// So 0x12 wasn't wrong so much as *stale* (pre-1.2 Meshtastic) — and it
-// doubles as RadioLib's default, which is exactly how this firmware ended
-// up silently listening on it through the 2026-08-23 bench tests. 0x34 as
-// "LoRaWAN" also independently corroborates DESIGN.md §6's fingerprint table.
+// Meshtastic 0x2B / MeshCore 0x12 — both verified against upstream firmware
+// source (meshtastic/firmware `RadioLibInterface.h`, meshcore-dev/MeshCore
+// `CustomSX1262.h`); full citations and the investigation history are
+// DESIGN.md §3/§7's job, not this file's — don't re-derive it here.
+// MeshCore's value is numerically identical to SYNC_WORD_RADIOLIB_DEFAULT
+// but kept as its own named constant: they mean different things (one is
+// "MeshCore's verified value," the other is "we don't know yet"), and a
+// future MeshCore release could move off it.
 constexpr uint8_t SYNC_WORD_MESHTASTIC = 0x2B;
-
-// MeshCore — VERIFIED 2026-08-23 against upstream source:
-// meshcore-dev/MeshCore `src/helpers/radiolib/CustomSX1262.h`, which calls
-//   begin(LORA_FREQ, LORA_BW, LORA_SF, cr, RADIOLIB_SX126X_SYNC_WORD_PRIVATE, ...)
-// i.e. MeshCore genuinely runs on RadioLib's stock private sync word, 0x12.
-// Numerically identical to SYNC_WORD_RADIOLIB_DEFAULT, but kept as its own
-// named constant deliberately: they mean different things (one is "MeshCore's
-// verified value," the other is "we don't know yet"), and a future MeshCore
-// release could move off it. Do NOT collapse these two into one constant.
-//
-// Note this is the *opposite* situation from Meshtastic: here the sniffer
-// was accidentally already correct, so MeshCore RX was never broken by the
-// 0x12 default the way Meshtastic RX was.
 constexpr uint8_t SYNC_WORD_MESHCORE = 0x12;
 
-// Preamble length is deliberately NOT in this struct yet. Finding
-// (2026-08-23, both upstream sources): Meshtastic uses 16
-// (`RadioInterface.h`: "8 is default, but we use longer to increase the
-// amount of sleep time when receiving") and MeshCore also passes 16
-// (`CustomSX1262.h`). This firmware leaves RadioLib's default of 8 — and
-// that empirically does NOT block RX, confirmed by decoding live Meshtastic
-// frames on hardware at 8. Left alone on purpose rather than "fixed": a
-// continuous-RX receiver syncs on whatever preamble arrives, so this only
-// starts to matter for the duty-cycled/CAD scanning in DESIGN.md §4 (phase
-// 4+), where preamble length feeds detection timing directly. Revisit it
-// there, with a bench test, instead of perturbing a working RX config now.
+// Preamble length is deliberately NOT in this struct yet — RadioLib's
+// default of 8 empirically does not block RX (confirmed decoding live
+// Meshtastic frames on hardware), even though both protocols' own firmware
+// uses 16. Left alone rather than "fixed": a continuous-RX receiver syncs
+// on whatever preamble arrives, so this only starts to matter for the
+// duty-cycled/CAD scanning in DESIGN.md §4 (phase 4+) — revisit there.
 struct ChannelParams {
     float freq_mhz;
     uint8_t sf;

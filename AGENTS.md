@@ -17,3 +17,9 @@ Also relevant, referenced from CLAUDE.md:
 - [PROGRESS.md](PROGRESS.md) — current status, checklist, open questions.
 - [CHANGELOG.md](CHANGELOG.md) — full session-by-session decisions log.
 - [SECURITY.md](SECURITY.md) — known attack surface and how to report issues.
+
+**Don't read PROGRESS.md or CHANGELOG.md end-to-end by default.** They're
+reference/history, not required context for every task — CLAUDE.md's own
+Status section already gives the current-state summary. Search
+CHANGELOG.md for the specific date/version/topic you need instead of
+reading it front to back; it's a rolling log, not a briefing document.

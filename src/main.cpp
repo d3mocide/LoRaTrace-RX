@@ -1,10 +1,7 @@
-// LoRaTrace RX — Phase 2 (task/queue architecture, GPS, SD logging) plus
-// Phase 3's WiFi AP/web UI (ui_task's on-device pages arrived early — see
-// ui_task.h) and Phase 4's MeshCore profile: this file still only ever boots
-// radio_task on Meshtastic (below), and the live switch to/from MeshCore is
-// entirely ui_task's/radio_task's own affair from there (DESIGN.md §5). This
-// file is an orchestrator, not a driver: it brings up hardware in a fixed
-// order, then hands the work to five tasks and gets out of the way.
+// LoRaTrace RX — orchestrator, not a driver: brings up hardware in a fixed
+// order, then hands off to five tasks and gets out of the way. Boots
+// radio_task on Meshtastic; the live switch to/from MeshCore is entirely
+// ui_task's/radio_task's own affair from there (DESIGN.md §5).
 //
 //   Core 1: radio_task   — owns the SX1262, HOME_LISTEN, never blocks
 //   Core 0: gps_task     — NMEA -> last-fix behind a mutex
@@ -14,16 +11,13 @@
 //
 // Detections cross cores through a FreeRTOS queue as ~36-byte structs
 // (detection.h). SD and the SX1262 share one physical SPI bus, so every
-// task that touches SD arbitrates through spi_bus.h — the queue alone is
-// not enough, since two devices on one bus cannot transact at the same
-// instant no matter which core issues them.
+// task touching SD arbitrates through spi_bus.h — two devices on one bus
+// can't transact at the same instant no matter which core issues them.
 //
-// loop() keeps only what genuinely belongs on the main task: a periodic
-// Serial status line. Nothing here touches the display — ui_task owns it
-// exclusively once started (see the ordering note before uiTaskStart()
-// below).
+// loop() only keeps the periodic Serial status line — ui_task owns the
+// display exclusively once started.
 //
-// Boot order matters and is not arbitrary:
+// Boot order matters:
 //   1. NSS high      — before any I2C/SPI, or SD mounts unreliably
 //   2. IO expander   — antenna switch AND GPS power (io_expander.h)
 //   3. SPI bus       — mutex + peripheral, before anything touches it
@@ -51,9 +45,8 @@
 #include "version.h"
 #include "wifi_task.h"
 
-// Boot-status splash — PROGRESS.md decisions log: a narrow, deliberate
-// exception to CLAUDE.md's "no UI yet," not ui_task's own redraw loop. Own SPI
-// host (HSPI), fully disjoint pins from the radio/SD bus (board_pins.h), so
+// Boot-status splash — a deliberate one-off, not ui_task's redraw loop.
+// Own SPI host (HSPI), disjoint from the radio/SD bus (board_pins.h), so
 // it needs no spi_bus arbitration. If initDisplay() fails, splashLine()
 // silently no-ops and boot proceeds exactly as it would have.
 SPIClass tftSPI(HSPI);
@@ -119,56 +112,17 @@ void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
     splashY += SPLASH_LINE_H;
 }
 
-// Boot mark (2026-08-25) — replaces the old plain-text "LoRaTrace RX" /
-// version lines with BRAND.md's unbuilt logo concept: an L-shaped path
-// resolving into three signal arcs. Procedural (drawLine/fillArc calls, a
-// handful of coordinate constants), not a bitmap — first call anywhere in
-// the firmware to Arduino_GFX's fillArc()/drawArc(). No alpha blending
-// (RGB565 has none, same constraint ui_task's toast/RX-pulse already
-// worked around) — motion here is hard colour swaps and staged reveals,
-// not fades.
+// Boot mark (2026-08-25) — BRAND.md's unbuilt logo concept: an L-shaped
+// path resolving into three signal arcs. Procedural (drawLine/fillArc,
+// a handful of coordinate constants), not a bitmap. No alpha blending
+// (RGB565 has none) — motion is hard colour swaps and staged reveals.
+// Sourced from the approved preview (see CHANGELOG.md for the mockup
+// link and full round-by-round history), rescaled to this real budget.
 //
-// Round 4/5 (same day, this pass): grew the mark ~1.5x (radii 6/10/14 ->
-// 9/15/21) once the log shrank to 3 real hardware-check lines (round 2)
-// and left real negative space unused (operator screenshot). Round 4
-// briefly split "LoRaTrace"/"RX" onto separate lines to hit wordmark
-// size 3 (the full string is 216px at size 3, and no icon size leaves
-// that much room free beside it on a 240px panel) — reversed the same
-// day (round 5) on direct feedback that the two words need to stay
-// together on one line; settled at size 2 (144px), with "RX" kept in the
-// mark's own green rather than white. Real firmware needs no manual
-// width math for this two-colour line, unlike the mockup's canvas
-// preview (which had a real ctx.measureText() gap bug along the way,
-// see PROGRESS.md): Arduino_GFX's print() just continues from wherever
-// the cursor ended up after the previous call. The L-path also grew into
-// a longer "diagonal foot" shape (3 segments instead of 1), reaching
-// down near the panel's bottom edge instead of stopping at a short
-// accent stroke — the operator's own two phrasings ("start at the very
-// bottom," "cut diagonally to the left right before the bottom") were
-// built as two real options in the mockup and compared before picking
-// this one. Also new this round: a signal-trace flourish across the
-// panel's lower third, previously empty — see drawSignalTraceFrame()
-// below.
-//
-// Sourced from the approved preview at
-// https://claude.ai/code/artifact/e6e635f3-f5af-4d2a-8eab-549de61a8e20,
-// rescaled to this real budget rather than copied at its preview
-// proportions.
-//
-// Angle convention (corrected 2026-08-25, v0.6.6 — see PROGRESS.md):
-// round 4/5's comment claimed fillArc() measures from 12 o'clock (0°)
-// clockwise and added a +90° offset to convert from the mockup's canvas
-// convention (0° = 3 o'clock, clockwise) — that claim was wrong. Actually
-// tracing writeFillArcHelper()'s scanline math (not just reading its doc
-// comment) by rasterizing it directly shows fillArc() already uses 0° = 3
-// o'clock, clockwise — the *same* convention as canvas. The +90° was
-// therefore a real bug, not a conversion: it rotated the mark 90°
-// clockwise, so the icon rendered as a downward "droop" off the pole tip
-// instead of the intended right-facing signal fan (photo-confirmed on
-// real hardware, operator report). Fix is to drop the offset and use the
-// mockup's canvas angles directly — no conversion needed between the two.
-// The swept angle's width is unchanged since round 3 — only the radii
-// grew, and now the rotation is fixed.
+// **Angle convention:** fillArc() measures 0°=3 o'clock, clockwise — the
+// same convention as HTML canvas, so mockup angles need no conversion.
+// An earlier +90° "conversion" was a bug, not a fix (rotated the mark 90°,
+// see CHANGELOG.md v0.6.6) — removed.
 constexpr int16_t MARK_ANCHOR_X = 30;
 constexpr int16_t MARK_ANCHOR_Y = 28;
 // Diagonal-foot path (round 5, the shipped pick over a straight run
@@ -193,14 +147,11 @@ constexpr int16_t MARK_VERSION_Y = 38;
 constexpr int16_t MARK_LOG_X = MARK_ANCHOR_X + MARK_ARC_RADII[0]; // = 39
 constexpr int16_t MARK_LOG_Y = 66;
 
-// Signal-trace flourish (round 4/5): a fixed jagged sample pattern rotated
-// through a handful of discrete frames — same "a few discrete steps, not
-// a continuous loop" approach the arcs above use — filling the panel's
-// lower third. Not real randomness on purpose: a fixed pattern reads as a
-// consistent "signal" frame to frame rather than noise. Ambient, not a
-// progress bar: this plays entirely within playBootMark(), before the
-// real hardware-check lines below even print, so it does not and should
-// not claim to track their progress — it's a "still listening" flourish.
+// Signal-trace flourish: a fixed (not random) jagged pattern stepped
+// through a few discrete frames, filling the panel's lower third. A fixed
+// pattern reads as a consistent "signal" frame to frame rather than noise.
+// Ambient, not a progress bar — plays before the real checklist lines
+// below even print, so it never claims to track their progress.
 constexpr int16_t TRACE_PATTERN[12] = {0, -3, 2, -6, 5, -2, 4, -5, 1, -4, 3, -1};
 constexpr uint8_t TRACE_PATTERN_LEN = 12;
 constexpr int16_t TRACE_Y = 112;
@@ -307,17 +258,10 @@ bool initDisplay() {
     if (!tft->begin()) return false;
     tft->fillScreen(SPLASH_BG);
     tft->setTextSize(1);
-    // Backlight comes up AFTER the panel is already cleared to black, not
-    // before — the ST7789's GRAM survives a warm reset (only the MCU
-    // resets; the panel's own supply rail doesn't), so whatever ui_task
-    // last drew is still sitting in it. backlightInit() drives the
-    // backlight straight to 100% (see backlight.h); doing that before
-    // tft->begin()'s panel wake sequence + fillScreen() finish lit up that
-    // stale frame for the ~120ms+ it takes the panel to come back up,
-    // which is exactly the "flashes the old page, then the boot mark"
-    // symptom reported after a reboot. Ordering the clear first means the
-    // backlight only ever illuminates a screen this boot has already
-    // written.
+    // Backlight comes up AFTER the panel is cleared, not before — the
+    // ST7789's GRAM survives a warm reset, so a backlight-first order lit
+    // up ui_task's stale last-drawn frame for the ~120ms+ the panel takes
+    // to wake (the "flashes the old page, then the boot mark" symptom).
     backlightInit();
     return true;
 }
@@ -400,14 +344,9 @@ void setup() {
     // Card is already mounted by the call above (or there's no card, in
     // which case this fails safe the same way) — no separate SD.begin().
     loadDisplaySettingsFromSD(displaySettings);
-    // Real hardware check (SD.begin()'s own result), not "was a config
-    // applied" — a mounted card with no override file is a fine, expected
-    // state, not something the boot checklist should flag red. Whether an
-    // override actually applied is still in serial (config.cpp's own
-    // "[config] ..." lines) and on the CHANNEL page once the UI starts;
-    // it stopped being splash-worthy once the splash became a pass/fail
-    // hardware checklist rather than a settings dump (round 2 — see
-    // PROGRESS.md).
+    // A mounted card with no override file is a fine, expected state, not
+    // a checklist failure — this is SD.begin()'s own result, not "was a
+    // config applied" (that detail is still in serial/the CHANNEL page).
     splashLine(sdMounted ? F("SD: OK") : F("SD: MISSING"), sdMounted ? SPLASH_FG : SPLASH_ERR);
 
     detectionQueue = xQueueCreate(DETECTION_QUEUE_DEPTH, sizeof(Detection));
@@ -417,14 +356,9 @@ void setup() {
 
     // Consumers before producer: the logger must be draining before the
     // radio starts filling, or the first burst is dropped for no reason.
-    // No splash line either way (round 2): gpsTaskStart() only spawns a
-    // FreeRTOS task and creates a mutex, it never actually talks to the
-    // GPS module — a "GPS: OK" line here would be a check that doesn't
-    // check anything, the opposite of what the trimmed splash is trying
-    // to be honest about. Real fix status is a glance away on the GPS
-    // page moments after boot. Failure still gets a serial WARN, since
-    // that's a genuinely rare/actionable condition (OOM), just not one
-    // that belongs on a hardware-presence checklist.
+    // No splash line: gpsTaskStart() only spawns a task + mutex, it never
+    // talks to the GPS module, so "GPS: OK" here would check nothing —
+    // real fix status is a glance away on the GPS page moments after boot.
     if (!gpsTaskStart()) {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) {
@@ -435,19 +369,15 @@ void setup() {
     if (!loggerTaskStart(detectionQueue)) {
         fatal(F("FATAL: logger task failed to start."), F("FATAL: logger task"));
     }
-    // No splash line on success either (round 2, same reasoning as GPS
-    // above): this is RTOS resource allocation, not a hardware check, and
-    // its only failure mode is already fatal() — reaching the next line
-    // already proves it succeeded.
+    // No splash line on success: this is RTOS resource allocation, not a
+    // hardware check, and its only failure mode is already fatal() above.
 
     // Boots on the last profile selected via the menu (defaults to
-    // Meshtastic on a first boot / no SD); the other profile is still
-    // reachable at runtime via ui_task's menu (DESIGN.md §5, radio_task.h).
-    // `channelOverrides` is passed along too, not just this boot profile's
-    // already-resolved `activeChannel` — radio_task.cpp holds onto it so a
-    // later switch resolves *its* override (if any) the same way this boot
-    // resolved `bootProfile`'s, rather than always falling back to
-    // channel_plans.h's hardcoded table.
+    // Meshtastic on a first boot / no SD); the other profile is reachable
+    // at runtime via ui_task's menu (DESIGN.md §5, radio_task.h).
+    // `channelOverrides` is passed too, not just `activeChannel` —
+    // radio_task.cpp holds onto it so a later switch resolves *its*
+    // override the same way this boot resolved `bootProfile`'s.
     if (!radioTaskStart(activeChannel, bootProfile, channelOverrides, detectionQueue)) {
         {
             SerialLock lock(pdMS_TO_TICKS(200));
@@ -483,11 +413,10 @@ void setup() {
             Serial.println(activeChannel.sync_word, HEX);
         }
     }
-    // No splash line for the channel detail any more (round 2) — it's
-    // still every boot in serial above, and on-device on the CHANNEL page
-    // moments after boot; showing it on the splash too was often just the
-    // hardcoded default (nothing configured yet) and read as more
-    // meaningful than it was.
+    // No splash line for the channel detail — it's already in serial
+    // above and on the CHANNEL page moments after boot; showing it here
+    // too was often just the hardcoded default and read as more meaningful
+    // than it was.
 
     {
         SerialLock lock(pdMS_TO_TICKS(200));
@@ -506,12 +435,10 @@ void setup() {
         }
     }
 
-    // Off until toggled (ui_task's on-device menu, Phase 5) — starting the
-    // task itself is cheap, starting the AP is what actually costs RAM/CPU/
-    // RF noise, so that stays deferred until an operator asks for it.
-    // Started (and its splash line drawn) before uiTaskStart() below, same
-    // reason everything else in setup() draws its own splash line before
-    // that point: this is the last call allowed to touch `tft` directly.
+    // Off until toggled (ui_task's on-device menu) — starting the task is
+    // cheap, starting the AP is what costs RAM/CPU/RF noise, so that stays
+    // deferred until an operator asks for it. Started before uiTaskStart()
+    // below since this is the last call allowed to touch `tft` directly.
     if (!wifiTaskStart()) {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) {
@@ -528,10 +455,9 @@ void setup() {
                 Serial.println(F("'."));
             }
         }
-        // No splash line (round 2) — the same SSID text is what the
-        // WiFi-toggle toast already shows the moment an operator actually
-        // turns the AP on (ui_actions.cpp), which is the point they need
-        // it, not before.
+        // No splash line — the SSID is what the WiFi-toggle toast already
+        // shows the moment an operator turns the AP on (ui_actions.cpp),
+        // which is the point they need it, not before.
     }
 
     // UI last: it takes ownership of the display, so everything above gets
@@ -550,10 +476,9 @@ void setup() {
             Serial.println(F("WARN: TCA8418 keyboard not detected — UI pages will auto-advance."));
         }
     }
-    // The Launcher-return hint that used to print here is gone: it is static
-    // documentation, identical on every boot, and it belongs in the README's
-    // M5Launcher section (where it already is) rather than in a log an
-    // operator scans for what this particular run is doing.
+    // No Launcher-return hint here: that's static, identical-every-boot
+    // documentation and belongs in the README, not a log an operator scans
+    // for what this particular run is doing.
 }
 
 void loop() {
@@ -578,21 +503,11 @@ void loop() {
         snprintf(fixStr, sizeof(fixStr), "none");
     }
 
-    // One line carrying everything Phase 2's exit criteria need: packets in,
-    // rows on the card, drops (which must stay at zero), and the worst bus
-    // hold the logger has caused — the number that says whether batching is
-    // starving the radio.
-    //
-    // Built into one buffer, then printed under serialLockTake() below —
-    // this task's own loop() very likely runs on Core 1 (Arduino's
-    // default), the same core as radio_task, while wifi_task/logger_task/
-    // gps_task run on Core 0, and this is the project's primary diagnostic
-    // line. One buffer alone was the original (2026-08-23) fix, on the
-    // theory that a single Serial call is far more likely to be atomic
-    // than several; a 2026-08-24 session proved a single call can still be
-    // torn by another core's call landing mid-write, so the lock (added
-    // that session, see serial_lock.h) is what actually protects this now
-    // — the single buffer just keeps the critical section short.
+    // One line carrying Phase 2's exit-criteria numbers: packets in, rows
+    // written, drops (must stay 0), worst logger-caused bus hold. Built
+    // into one buffer, then printed under the Serial lock below — a single
+    // buffer alone isn't enough to stop tearing across cores (found
+    // 2026-08-24), the lock is what actually protects it (serial_lock.h).
     char line[384];
     int n = snprintf(line, sizeof(line),
                      "[status] rx=%lu crcerr=%lu qdrop=%lu busmiss=%lu | rows=%lu rowdrop=%lu "

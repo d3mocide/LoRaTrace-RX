@@ -2,16 +2,13 @@
 // LoRaTrace RX — the detection record that crosses cores, plus the pure
 // helpers that fill and format it.
 //
-// This struct is the sole payload of the Core 1 -> Core 0 FreeRTOS queue
-// (DESIGN.md §2). It is deliberately small and deliberately GPS-free:
-// DESIGN.md §1 budgets ~40B/entry and names SD (not RAM) as the datastore,
-// and §2 makes the *logger* responsible for stamping the GPS fix at dequeue
-// time. Keeping GPS out of here also keeps the radio task away from the GPS
-// mutex, which is the whole point of the split — the radio task must never
-// block on anything another task owns.
+// Sole payload of the Core 1 -> Core 0 FreeRTOS queue (DESIGN.md §2).
+// Deliberately small and GPS-free: DESIGN.md §1 budgets ~40B/entry and
+// names SD (not RAM) as the datastore; §2 makes the *logger* responsible
+// for stamping the GPS fix at dequeue time, keeping the radio task away
+// from the GPS mutex — it must never block on anything another task owns.
 //
-// Everything in this header is pure logic so it can be exercised by
-// `pio test -e native`.
+// Pure logic throughout, so it's exercised by `pio test -e native`.
 
 #include <stdint.h>
 #include <stdio.h>
@@ -22,15 +19,13 @@
 // Radio-side record of one received packet. Field order groups the 4-byte
 // members first so the struct packs tightly without padding holes.
 struct Detection {
-    uint32_t rx_millis;  // device uptime at RX; written to the log as
-                         // rx_uptime_ms. Lets post-processing spot a stale
-                         // GPS stamp caused by queue backlog, joins a row to
-                         // session.csv, and is the ONLY time reference a
-                         // detection heard before the first fix has
+    uint32_t rx_millis;  // device uptime at RX (logged as rx_uptime_ms) —
+                         // the only time reference for a detection heard
+                         // before the first GPS fix
     uint32_t node_id;    // protocol sender id (Meshtastic `from`); 0 = unknown
-    uint32_t packet_id;  // protocol packet id; 0 = unknown. With node_id this
-                         // is the dedupe key that separates an original
-                         // transmission from its mesh rebroadcasts
+    uint32_t packet_id;  // protocol packet id; 0 = unknown — with node_id,
+                         // the dedupe key separating an original TX from
+                         // its mesh rebroadcasts
     float freq_mhz;
     float rssi_dbm;
     float snr_db;
@@ -61,22 +56,21 @@ static_assert(sizeof(Detection) <= 40, "Detection exceeds the ~40B queue budget 
 //   uint32 to; uint32 from; uint32 id;   // little-endian on the wire
 //   uint8 flags; uint8 channel; uint8 next_hop; uint8 relay_node;
 //
-// and `flags` carries hop_limit in the bottom 3 bits and hop_start in bits
-// 5-7 (RadioLibInterface). Confirmed empirically on 2026-08-23 against live
-// traffic: broadcast frames decoded with to == 0xFFFFFFFF, a consistent
-// channel hash, hop_start 7, and original/rebroadcast pairs differing only
-// in hop_limit and relay_node. See PROGRESS.md for that capture.
+// `flags` carries hop_limit in the bottom 3 bits, hop_start in bits 5-7
+// (RadioLibInterface). Confirmed empirically 2026-08-23 against live
+// traffic (broadcast frames: to == 0xFFFFFFFF, consistent channel hash,
+// hop_start 7, original/rebroadcast pairs differing only in hop_limit and
+// relay_node) — see CHANGELOG.md.
 //
-// This is header metadata only — the payload after these 16 bytes is
-// encrypted and stays that way. Reading routing metadata off the air is the
-// entire point of a wardriving receiver; decryption is not attempted.
+// Header metadata only — the payload after these 16 bytes stays encrypted.
+// Reading routing metadata off the air is the point of a wardriving
+// receiver; decryption is not attempted.
 //
 // Meshtastic-specific: radio_task.cpp only calls this while HOME_LISTEN is
-// locked to MissionProfile::MESHTASTIC. MeshCore's own header layout isn't
-// reverse-engineered (DESIGN.md §7's encryption/PSK question is still open,
-// and CLAUDE.md's house rule is not to assume it mirrors Meshtastic's) —
-// a MeshCore Detection leaves node_id/packet_id/etc. zeroed rather than
-// parsing this layout against bytes it wasn't verified against.
+// locked to MissionProfile::MESHTASTIC. MeshCore's header layout isn't
+// reverse-engineered (CLAUDE.md house rule: don't assume its encryption
+// mirrors Meshtastic's) — a MeshCore Detection leaves node_id/packet_id/etc.
+// zeroed rather than parsing this layout against unverified bytes.
 constexpr size_t MESHTASTIC_HEADER_LEN = 16;
 constexpr uint32_t MESHTASTIC_BROADCAST_ADDR = 0xFFFFFFFFu;
 
@@ -125,34 +119,26 @@ inline const char *missionProfileName(uint8_t profile) {
     }
 }
 
-// DESIGN.md §8 column order. Kept as one string so the header row and the
-// row writer can never drift apart.
+// DESIGN.md §8 column order, one string so the header row and row writer
+// can't drift apart. Grouped left to right by what a reader asks first:
+// when/where, what kind of thing, who sent it and how it got here
+// (node id + its packet_id/hop_limit/hop_start/relay_node siblings, kept
+// adjacent), RF channel, signal quality, payload.
 //
-// Grouped by what a reader actually asks first, left to right: when/where
-// (time, position, run context) — what kind of thing this is (profile,
-// classification) — who sent it and how it got here (node id and its
-// packet_id/hop_limit/hop_start/relay_node siblings, kept adjacent rather
-// than split across the row) — the RF channel it was heard on — signal
-// quality — payload. Reordered 2026-08-23 (PROGRESS.md) after
-// `packet_id`/`hop_limit`/`hop_start`/`relay_node` landed append-only at the
-// end and immediately proved awkward to read next to the `channel_or_node_id`
-// they describe. **Breaking change**: earlier runs' `detections.csv` files
-// (anything before this reorder) use the old column order — don't
-// concatenate an old-format run with a new-format one without checking each
-// file's own header first, since position-based parsing would silently
-// misalign.
+// **Breaking change (2026-08-23):** earlier runs' `detections.csv` files
+// use the old column order — don't concatenate an old-format run with a
+// new-format one without checking each file's own header first, since
+// position-based parsing would silently misalign.
 constexpr const char *LOG_CSV_HEADER =
     "timestamp_utc,lat,lon,fix_quality,run,rx_uptime_ms,profile,"
     "classification,channel_or_node_id,packet_id,hop_limit,hop_start,"
     "relay_node,freq_mhz,sf,bw_khz,rssi_dbm,snr_db,raw_len,decoded";
 
 // Phase 2 placeholder for DESIGN.md §6 fingerprinting (phase 7+): with
-// HOME_LISTEN locked to one profile's channel at a time — even now that
-// Phase 4 lets an operator pick which one — "what we were listening for"
-// is the only honest classification available. Real post-hoc classification
-// — which needs the sweep data phases 7/8 produce — replaces this via
-// fingerprint.h. Named as a placeholder so a later reader doesn't mistake
-// it for a finished classifier.
+// HOME_LISTEN locked to one profile's channel at a time, "what we were
+// listening for" is the only honest classification available. Real
+// post-hoc classification (needs phases 7/8's sweep data) replaces this
+// via fingerprint.h.
 inline const char *detectionClassification(const Detection &det) {
     return missionProfileName(det.profile);
 }
@@ -178,10 +164,10 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
         idbuf[0] = '\0';
     }
 
-    // Empty (not "00000000") when no header was parsed, matching idbuf above
-    // — a blank packet_id means "unknown", not a real id that happens to be
-    // zero. hop_limit/hop_start stay numeric either way: 0 is a legitimate,
-    // common value (a packet at its last hop), not an absence marker.
+    // Empty (not "00000000") when no header was parsed — a blank
+    // packet_id means "unknown", not a real id that happens to be zero.
+    // hop_limit/hop_start stay numeric either way: 0 is a legitimate value
+    // (a packet at its last hop), not an absence marker.
     char pktidbuf[16], relaybuf[8];
     if (det.node_id != 0) {
         snprintf(pktidbuf, sizeof(pktidbuf), "%08lx", (unsigned long)det.packet_id);
@@ -207,30 +193,23 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
                      timestamp_utc ? timestamp_utc : "",
                      latbuf, lonbuf,
                      (unsigned)fix_quality,
-                     // Run index. Redundant with the directory the file
-                     // sits in, right up until someone concatenates several
-                     // runs for analysis — at which point every row's
-                     // rx_uptime_ms has restarted at zero and, without this,
-                     // the merged data is silently ambiguous about which
-                     // drive a packet came from.
+                     // Redundant with the run directory until several runs
+                     // get concatenated for analysis — then rx_uptime_ms
+                     // has restarted at zero per run, and without this the
+                     // merged data can't say which drive a packet came from.
                      (unsigned)run,
-                     // Device uptime at RX. Without it a detection heard
-                     // before the first GPS fix has an empty timestamp AND
-                     // empty coordinates — nothing at all to place it in
-                     // time, not even an ordering against the health log.
-                     // This is also what rx_millis was captured for in the
-                     // first place; it was crossing the queue and then
-                     // being dropped at format time.
+                     // Device uptime at RX — without it a detection heard
+                     // before the first GPS fix has nothing at all to place
+                     // it in time.
                      (unsigned long)det.rx_millis,
                      missionProfileName(det.profile),
                      detectionClassification(det),
                      idbuf,
-                     // Routing metadata — see LOG_CSV_HEADER comment for why
-                     // this exists: it's what lets a same-node_id pair heard
-                     // seconds apart be told apart as "direct + relay" (same
-                     // packet_id, different hop_limit/relay_node) versus a
-                     // logging bug re-emitting one packet twice (identical
-                     // in every field, including these).
+                     // Routing metadata (see LOG_CSV_HEADER comment) — lets
+                     // a same-node_id pair heard seconds apart be told apart
+                     // as "direct + relay" (same packet_id, different
+                     // hop_limit/relay_node) vs. a logging bug re-emitting
+                     // one packet twice.
                      pktidbuf,
                      (unsigned)det.hop_limit,
                      (unsigned)det.hop_start,

@@ -71,11 +71,10 @@ volatile uint32_t maxSessionMs = 0;
 // Highest runNNNN index already on the card, or 0 if there are none.
 // Assumes the caller holds the bus and SD is mounted.
 //
-// Scans rather than trusting a stored counter: the listing is the truth, it
-// can't drift, and there's no mutable state to corrupt on a power cut. If
-// the directory won't open at all, fall back to probing upward — bounded,
-// because an unbounded probe on a sick card would hang the logger before it
-// ever wrote a row.
+// Scans rather than trusting a stored counter: the listing is the truth
+// and there's no mutable state to corrupt on a power cut. Falls back to a
+// bounded upward probe if the directory won't open, so a sick card can't
+// hang the logger before it writes a row.
 uint16_t highestRunIndexLocked() {
     uint16_t highest = 0;
 
@@ -112,24 +111,20 @@ bool ensureCsvLocked(const char *path, const char *header) {
 // Mounts SD and ensures both CSVs exist with their header rows. Assumes the
 // caller holds the bus.
 bool openLogsLocked() {
-    // SD.end() first, always. The ESP32 Arduino core's SD.begin() returns
-    // true immediately when a card object already exists
-    // (`if(_card) return true;` in SD.cpp), so once a card has been mounted
-    // and then pulled, the retry path below would "succeed" forever while
-    // every single write kept failing — the exact mid-session reseat this
-    // firmware is supposed to survive, silently not surviving. Tearing the
-    // mount down first makes the remount real. It also makes this the sole
-    // authority on the mount regardless of what the boot-time config read
-    // (config.cpp) left behind.
+    // SD.end() first, always. Arduino-ESP32's SD.begin() returns true
+    // immediately if a card object already exists, so once a card has been
+    // mounted and then pulled, the retry path below would "succeed"
+    // forever while every write kept failing. Tearing the mount down first
+    // makes the remount real, and makes this the sole authority on the
+    // mount regardless of what the boot-time config read (config.cpp) left.
     SD.end();
     if (!SD.begin(PIN_SD_CS, sharedSpi())) return false;
     if (!SD.exists(LOG_DIR)) SD.mkdir(LOG_DIR);
 
-    // Resolve the run once per power-on, not once per mount. A card pulled
-    // and reseated mid-drive rejoins the run it left rather than splitting
-    // one drive across two folders — the gap shows up as `sd` going down
-    // and back in this run's own health rows, which is the honest record of
-    // what happened.
+    // Resolve the run once per power-on, not once per mount, so a card
+    // pulled and reseated mid-drive rejoins the run it left rather than
+    // splitting one drive across two folders — the gap shows up as `sd`
+    // going down and back in this run's own health rows.
     if (runIndex == 0) {
         runIndex = runNextIndex(highestRunIndexLocked());
 
@@ -159,17 +154,14 @@ bool openLogsLocked() {
 enum class WriteResult { OK, BUS_BUSY, FILE_ERROR };
 
 // Appends `len` bytes to `path` in exactly one open/write/close, acquiring
-// the bus itself and holding it for nothing more. The caller must NOT
-// already hold the bus.
+// the bus itself. The caller must NOT already hold the bus.
 //
-// `worstMs` is the caller's own high-water mark, tracked PER WRITER rather
-// than shared. First hardware run of this code made the reason obvious: the
-// status line read `flushes=0 maxflush=26ms`, because the boot health row
-// had taken 26ms and charged it to the detection-flush metric. Both numbers
-// answer real questions and they are different questions — "is the logger
-// starving the radio?" is the max across both, while "is my batch sizing
-// wrong?" is only ever about detection flushes. Merging them answered the
-// first and quietly destroyed the second.
+// `worstMs` is the caller's own high-water mark, tracked PER WRITER: an
+// early hardware run charged a boot health-row's 26ms to the detection-
+// flush metric (`flushes=0 maxflush=26ms`) when they shared one counter.
+// "Is the logger starving the radio?" is the max across both; "is my batch
+// sizing wrong?" is only about detection flushes — merging them answered
+// the first and broke the second.
 WriteResult appendToFile(const char *path, const char *data, size_t len,
                          volatile uint32_t &worstMs) {
     const uint32_t started = millis();
@@ -300,19 +292,14 @@ void appendDetection(const Detection &det) {
     }
 
     // Verbose debug mode (ui_task.cpp menu toggle): reuses the exact CSV
-    // row already built above rather than a second format call — same
-    // fields (profile/classification/RSSI/SNR/SF/BW/hop info), so this
-    // never drifts from what actually lands on SD. Printed unconditionally
-    // of `sdReady` below, on purpose: this exists specifically for bench
-    // sessions that want to see live RX detail without an SD card or the
-    // WiFi AP in the loop at all.
+    // row already built above, so it never drifts from what actually lands
+    // on SD. Printed regardless of `sdReady` — for bench sessions that
+    // want live RX detail without an SD card or the WiFi AP in the loop.
     //
-    // ONE Serial.write() call under the Serial lock — main.cpp's [status]
-    // line runs on Core 1 while this runs on Core 0. The single call alone
-    // isn't sufficient (bench-caught the same session this shipped: even a
-    // single call can be torn by another core's Serial call landing inside
-    // it — see serial_lock.h), so the lock is the actual guarantee; the
-    // single buffer just keeps the critical section short.
+    // ONE Serial.write() call under the Serial lock: main.cpp's [status]
+    // line runs on Core 1 while this runs on Core 0, and even a single
+    // call can be torn by another core's Serial call landing inside it
+    // (see serial_lock.h) — the lock is the actual guarantee.
     if (debugVerbose) {
         char debugLine[8 + sizeof(row) + 1]; // "[debug] " + row + '\n'
         memcpy(debugLine, "[debug] ", 8);
@@ -364,23 +351,21 @@ void loggerTask(void *) {
             lastFlush = now;
         }
 
-        // Periodically retry a failed mount so a card inserted (or reseated)
-        // mid-session starts working without a reboot. SD-mount reliability
-        // is a known watch item on this board — PROGRESS.md.
+        // Periodically retry a failed mount so a card inserted/reseated
+        // mid-session starts working without a reboot (known watch item,
+        // see CHANGELOG.md).
         if (!sdReady && now - lastFlush >= FLUSH_INTERVAL_MS) {
             SpiBusLock lock(BUS_WAIT);
             if (lock.held()) sdReady = openLogsLocked();
             lastFlush = now;
         }
 
-        // Health row last in the loop body, so it samples counters that
-        // already include this pass's work. The boot row goes out as soon as
-        // the card is first available rather than a minute in: if a run dies
-        // early, the one row that exists should still say when it started.
-        // That also covers a card inserted after boot — the row then marks
-        // the moment logging actually began, which is the useful timestamp.
-        // A later remount does not repeat it; `sd` flipping down and back in
-        // the periodic rows is what a mid-drive reseat looks like.
+        // Health row last, so it samples counters that include this pass's
+        // work. The boot row fires as soon as the card is available rather
+        // than a minute in, so an early-dying run still says when it
+        // started; a later remount doesn't repeat it — `sd` flipping down
+        // and back in the periodic rows is what a mid-drive reseat looks
+        // like.
         if (sdReady && !bootRowWritten) {
             writeSessionRow("boot");
             bootRowWritten = true;
@@ -396,14 +381,13 @@ void loggerTask(void *) {
 
 bool loggerTaskStart(QueueHandle_t queue) {
     detectionQueue = queue;
-    // Core 0, priority 2: above GPS (1) so log rows drain promptly, below
-    // the radio (3) which must always win.
+    // Core 0, priority 2: above GPS (1) so rows drain promptly, below the
+    // radio (3) which must always win.
     //
-    // 5120 rather than 4096: the health-row path (a GpsFix, a SessionStats
-    // and a 320-byte row buffer) is a deeper frame than the detection path,
-    // and it calls into SD/FatFS from the bottom of it. The margin is cheap
-    // on a part with ~330KB of heap free, and the run reports back through
-    // logger_stack_free in session.csv rather than leaving this a guess.
+    // 5120 rather than 4096: the health-row path (GpsFix + SessionStats +
+    // a 320-byte row buffer) is a deeper frame than the detection path and
+    // calls into SD/FatFS from the bottom of it. Cheap margin on ~330KB
+    // free heap; logger_stack_free in session.csv reports the real number.
     BaseType_t ok = xTaskCreatePinnedToCore(loggerTask, "logger", 5120, nullptr, 2, nullptr, 0);
     return ok == pdPASS;
 }
@@ -437,12 +421,9 @@ void loggerDebugToggle() {
     debugVerbose = !debugVerbose;
     if (debugVerbose) {
         // Column header once on enable, so the CSV-shaped lines that follow
-        // are actually readable rather than a wall of unlabeled commas. One
-        // buffer, one locked Serial call — see the per-detection print
-        // above for why the buffer alone isn't enough (bench-caught: this
-        // exact line came out torn — "[debug] verbose " with "mode ON"
-        // missing — on the same hardware pass that shipped debug mode,
-        // before this lock existed).
+        // are readable rather than a wall of unlabeled commas. One locked
+        // Serial call — an earlier unlocked version of this exact line
+        // came out torn on hardware (see serial_lock.h).
         char buf[256];
         int n = snprintf(buf, sizeof(buf), "[debug] verbose mode ON\n[debug] %s\n", LOG_CSV_HEADER);
         SerialLock lock(pdMS_TO_TICKS(200));

@@ -61,9 +61,9 @@ assumptions), not a pitch.
   build report can't catch. The actual fix was an off-screen
   `Arduino_Canvas_Indexed` framebuffer, just an indexed 1-byte/pixel one
   (~32KB, since this UI only ever uses 6 colours) rather than a full RGB565
-  one (~63KB) — see PROGRESS.md's v0.6.2 -> v0.6.3 Decisions log entry for
-  the full root-cause and the near-miss (an `SPIClass::beginTransaction()`
-  deadlock) ruled out along the way.
+  one (~63KB) — see CHANGELOG.md's v0.6.2 -> v0.6.3 entry for the full
+  root-cause and the near-miss (an `SPIClass::beginTransaction()` deadlock)
+  ruled out along the way.
 - **`ENERGY_SWEEP` (Reticulum / General Exploration):** a single SX1262
   cannot listen to the whole 868–923MHz band at once. The design's
   sweep-then-return-to-listen approach is the right shape for this
@@ -117,11 +117,8 @@ up on the serial monitor with plausible RSSI/SNR.
 **Blocking unknowns:** none functionally — but the IO-expander register
 map and SPI host assignment (see PROGRESS.md) are unverified against real
 hardware and are the first suspects if the radio stays silent.
-**Status:** **complete, hardware-verified 2026-08-23.** Both suspects above
-were real: expander P0 turned out to power the GPS as well as the antenna
-switch, and the sync word had to be sourced from upstream rather than
-guessed. Live Meshtastic frames decoded with well-formed headers, and heap
-stayed flat under sustained RX.
+**Status:** complete, hardware-verified. See PROGRESS.md's Build-order
+checklist for current state and CHANGELOG.md for the full session history.
 
 ### Phase 2 — `HOME_LISTEN` + task/queue architecture + GPS + SD (= MVP-Beta)
 **Goal:** the smallest genuinely useful field tool.
@@ -134,13 +131,8 @@ latency, no crash from heap exhaustion over a multi-hour run.
 **Blocking unknowns:** none left. microSD is confirmed on the shared SPI
 bus (arbitrated by `spi_bus.h`), and GPS reached a fix on hardware
 2026-08-23 — the last piece that had never been proven.
-**Status:** built; **the exit criterion is now the only thing outstanding.**
-Every component works on hardware individually. What has not happened is
-the multi-hour unattended run itself, which is the whole point of the
-criterion — an architecture that survives a bench session and one that
-survives three hours of real traffic on battery are different claims.
-`session.csv` (DESIGN.md §8.2) exists so that run can be judged from the
-card afterwards instead of requiring someone to watch a console.
+**Status:** see PROGRESS.md's Build-order checklist for current state and
+CHANGELOG.md for the full session history.
 
 ### Phase 3 — Web Command Center (WiFi AP + web UI)
 **Goal:** get data and control off the device without ejecting the SD card.
@@ -176,18 +168,8 @@ built, deliberately deferred from Phase 3 (PROGRESS.md) so it's designed
 and tested against a real second channel table instead of a stub.
 **Blocking unknowns:** none for basic detection; MeshCore's
 encryption/PSK model (§7) still blocks payload decode, not detection.
-**Status:** built, not yet hardware-verified. The MeshCore table itself
-predates this phase (channel_plans.h, sourced and cited during Phase 1's
-sync-word investigation); what this phase adds is the actual live switch —
-`radio_task.cpp` holds a depth-1 mailbox (`xQueueOverwrite` + a task notify)
-so a switch request from `ui_task` retunes the SX1262 between packets
-without the radio task ever blocking, and `ui_task`'s gesture state machine
-gained a third, ~3s-hold bucket alongside its existing tap/~1.2s-hold pair —
-still no keymap needed, same discipline as the Phase 3 WiFi toggle. See
-CLAUDE.md's Status section and PROGRESS.md for what's verified so far
-(host-native tests only) versus what a hardware session still needs to
-confirm (live MeshCore RX, and that a mid-run switch leaves the radio
-counters clean afterward).
+**Status:** see PROGRESS.md's Build-order checklist for current state and
+CHANGELOG.md for the full session history.
 
 ### Phase 5 — On-device menu UI
 **Deliverable:** a real menu on `ui_task`'s display, replacing the timed
@@ -295,21 +277,9 @@ on their own row.
 until built. Whether the ST7789V2's partial-window writes can carry the
 denser block layout above without needing a framebuffer — an assumption to
 confirm during implementation, not before.
-**Status:** built and bench-verified against real hardware, v0.6.4
-(2026-08-25). The toast layer's heap cost answer turned out to be a
-framebuffer after all — direct-to-panel drawing caused real flicker/tearing
-on first contact with the actual glass, fixed with an off-screen indexed
-canvas (~32KB, not the ~65KB a full RGB565 framebuffer would cost) rather
-than the partial-window approach this section originally assumed; see
-PROGRESS.md's Phase 6 checklist and its v0.6.2 -> v0.6.4 Decisions log
-entries for the full bench-verification history, including two genuine bugs
-the first hardware session found and fixed (menu-label overflow, an
-inverted WiFi-toggle toast) and two operator-requested additions that
-landed inside this same phase (Trace pause/standby; real PWM backlight
-brightness + a nested "System > Display" menu). **One item still
-open:** the WiFi AP heap/counter go/no-go (ROADMAP.md Phase 3) hasn't been
-re-measured since the canvas's own ~32KB allocation landed — see
-PROGRESS.md.
+**Status:** see PROGRESS.md's Build-order checklist for current state and
+CHANGELOG.md for the full session history (canvas/framebuffer rework,
+bugs found/fixed, and the still-open WiFi AP heap/counter re-measurement).
 
 ### Phase 7 — `DISCOVERY_SWEEP`
 **Deliverable:** bounded-duration CAD-cycle sweep of a curated candidate
@@ -375,8 +345,8 @@ installs. Any state we want to survive a user switching firmwares back
 and forth (settings, last-used profile, calibration data) has to live on
 SD, not in a custom NVS/data partition, since a custom partition isn't
 guaranteed to survive a later Launcher install. This is already
-DESIGN.md's "SD is the datastore" philosophy — see PROGRESS.md decisions
-log — it just now extends to config, not only detection logs.
+DESIGN.md's "SD is the datastore" philosophy — see CHANGELOG.md — it just
+now extends to config, not only detection logs.
 
 **Binary size:** no documented hard ceiling was found for how much flash
 Launcher leaves free per app on an 8MB device, especially once Launcher
@@ -465,7 +435,7 @@ at the time, not UI.
 Phase 5's own menu against what `DISCOVERY_SWEEP` would add to it surfaced
 that the menu had already grown past its documented two-item scope (a
 third, `Debug`, row landed the same day with no framework change) — see
-PROGRESS.md's Decisions log for the full session. Rather than let
+CHANGELOG.md for the full session. Rather than let
 `DISCOVERY_SWEEP` and `ENERGY_SWEEP` each bolt on their own ad hoc entry, a
 UI architecture redesign now sits at Phase 6, pushing `DISCOVERY_SWEEP` to
 7 and `ENERGY_SWEEP` to 8. `v1.0`'s meaning (all four profiles + UI stable)

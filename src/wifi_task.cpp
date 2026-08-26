@@ -23,52 +23,39 @@ namespace {
 
 // WPA2-PSK, not open: this device is out in the field capturing other
 // people's mesh traffic, and an open AP would let anyone nearby reconfigure
-// the radio or pull your logs. A fixed default rather than SD-configurable
-// for now — same "smallest thing that's actually useful" discipline the
-// rest of Phase 2 followed; making this editable via config.txt is a cheap,
-// natural follow-up, not done here to keep this change's scope to what was
-// asked for.
+// the radio or pull your logs. Fixed default rather than SD-configurable
+// for now (see SECURITY.md) — a cheap, natural follow-up, not in scope here.
 constexpr const char *WIFI_AP_PASSWORD = "loratrace123";
 
 WebServer server(80);
 volatile bool apRequested = false;
 bool apActive = false;
 
-// Computed once and cached, rather than recomputed into a fresh stack
-// buffer every time it's needed (as an earlier version of this file did) —
-// a real hardware run showed the AP-started log line print with the SSID
-// missing once, out of several successful boots that showed it correctly.
-// No definitive root cause was found by inspection (ESP.getEfuseMac() is a
-// deterministic hardware read, and nothing in startAp() should be able to
-// touch a local buffer between filling it and printing it), but a single
-// long-lived buffer, filled once, removes an entire category of doubt
-// regardless — one write, many reads, nothing left to race or corrupt on
-// a second AP start after a stop/start cycle.
+// Computed once and cached rather than recomputed on every use — a real
+// hardware run showed the AP-started log line print with the SSID missing
+// once. No definitive root cause found (ESP.getEfuseMac() is deterministic
+// and nothing should touch a local buffer between fill and print), but one
+// long-lived buffer, filled once, removes the whole category of doubt.
 char cachedSsid[32] = {0};
 
 const char *ssidCached() {
     if (cachedSsid[0] == '\0') {
-        // Chip-unique suffix (efuse MAC, always readable regardless of
-        // WiFi state) so multiple LoRaTrace units nearby don't collide on
-        // the same SSID — a real scenario for this project specifically,
-        // since a wardrive is exactly the kind of activity multiple people
-        // might do together.
+        // Chip-unique suffix (efuse MAC) so multiple LoRaTrace units nearby
+        // don't collide on the same SSID — a real scenario for a wardrive.
         const uint64_t mac = ESP.getEfuseMac();
         snprintf(cachedSsid, sizeof(cachedSsid), "LoRaTrace-%04X", (unsigned)(mac & 0xFFFFu));
     }
     return cachedSsid;
 }
 
-// How long a handler will wait for the shared SPI bus. Bounded, not
-// portMAX_DELAY, matching every other non-radio SD caller in this codebase
-// (logger_task.cpp's own BUS_WAIT) — an HTTP request is not worth stalling
-// indefinitely for, and the client just gets a 503 to retry.
+// How long a handler waits for the shared SPI bus. Bounded, matching every
+// other non-radio SD caller (logger_task.cpp's BUS_WAIT) — an HTTP request
+// isn't worth stalling indefinitely for; the client gets a 503 to retry.
 constexpr TickType_t BUS_WAIT = pdMS_TO_TICKS(2000);
 
-// Bytes per chunk when streaming a CSV off SD. Small enough that each lock
-// acquisition is brief (this is the one thing that must never make the
-// radio task wait), large enough not to spend all its time on per-chunk
-// open/seek/close overhead.
+// Bytes per chunk when streaming a CSV off SD. Small enough each lock hold
+// is brief (must never make the radio task wait), large enough to avoid
+// per-chunk open/seek/close overhead.
 constexpr size_t CSV_CHUNK_SIZE = 512;
 
 void handleRoot() {
@@ -112,21 +99,15 @@ void handleStatus() {
 }
 
 // Walks /loratrace for runNNNN directories, same shape as
-// logger_task.cpp's own highestRunIndexLocked() but collecting every valid
-// index rather than just the max. Kept as wifi_task's own copy rather than
-// exported from logger_task.h — this needs its own SpiBusLock regardless,
-// and not sharing mutable file-scope state across translation units is
-// worth a dozen duplicated lines given how much logger_task.cpp is
-// load-bearing for the Phase 2 exit criterion.
+// logger_task.cpp's highestRunIndexLocked() but collecting every valid
+// index. Kept as wifi_task's own copy rather than exported from
+// logger_task.h to avoid sharing mutable file-scope state across
+// translation units.
 // Fixed stack buffer + snprintf, not String — String's `+=` in a loop
-// reallocates and copies on every growth (and String(idx) is a fresh
-// temporary each iteration too), real heap churn/fragmentation risk over
-// an AP session with the dashboard polling this repeatedly, worse the more
-// runs accumulate. Same char-buffer discipline every other handler in this
-// file already uses. ~340 runs fit before the defensive cap below kicks in
-// (~6 bytes/entry) — a truncated run list on the dashboard beats a buffer
-// overrun, and detections.csv itself is still reachable directly off the
-// SD card regardless of what this endpoint lists.
+// reallocates/copies on every growth, real heap churn/fragmentation risk
+// over a long AP session. ~340 runs fit before the defensive cap kicks in;
+// a truncated run list beats a buffer overrun, and detections.csv is still
+// reachable directly off the SD card either way.
 void handleRuns() {
     char json[2048];
     size_t pos = 0;
@@ -156,14 +137,11 @@ void handleRuns() {
 }
 
 // Streams `path` (a detections.csv or session.csv inside a run directory)
-// as a chunked download. The one place correctness really matters: the SPI
-// bus lock is acquired fresh for each chunk and released before the slow
-// part (writing to the TCP socket), exactly mirroring
-// logger_task.cpp's appendToFile() discipline — never hold the bus, or the
-// SD file, across anything that isn't a single bounded SD operation. A
-// multi-hour run's CSV can be large; holding the lock for the whole
-// transfer would stall the radio task, which is the one thing this entire
-// feature must never do.
+// as a chunked download. The SPI bus lock is acquired fresh per chunk and
+// released before the slow part (writing to the TCP socket), mirroring
+// logger_task.cpp's appendToFile() discipline — never hold the bus across
+// anything that isn't a single bounded SD operation, since holding it for
+// a whole large-file transfer would stall the radio task.
 void streamCsvFile(const char *path, const char *downloadName) {
     size_t fileSize = 0;
     {
@@ -184,9 +162,8 @@ void streamCsvFile(const char *path, const char *downloadName) {
         f.close();
     }
 
-    // char buffer + snprintf, not three chained String allocations
-    // (String("...") + downloadName + "\"") — same heap-churn reasoning as
-    // handleRuns() above, just a single request rather than a loop here.
+    // char buffer + snprintf, not chained String allocations — same
+    // heap-churn reasoning as handleRuns() above.
     char disposition[64];
     snprintf(disposition, sizeof(disposition), "attachment; filename=\"%s\"", downloadName);
     server.sendHeader("Content-Disposition", disposition);
@@ -217,11 +194,10 @@ void streamCsvFile(const char *path, const char *downloadName) {
 }
 
 // Matches "/api/runs/<n>/detections.csv" or ".../session.csv". Hand-parsed
-// rather than relying on WebServer's path-pattern support — that's a
-// version-specific feature this codebase's pinned core (2.0.17, see
-// platformio.ini) shouldn't be assumed to have, and this is a small, fixed
-// shape anyway (same "hand-roll it, it's simple and known" call as
-// detection.h's own CSV formatting).
+// Matches "/api/runs/<n>/detections.csv" or ".../session.csv". Hand-parsed
+// rather than relying on WebServer's path-pattern support, since that's a
+// version-specific feature this codebase's pinned core (2.0.17) shouldn't
+// be assumed to have — and the shape here is small and fixed anyway.
 void handleNotFound() {
     const String uri = server.uri();
     if (uri.startsWith("/api/runs/")) {
@@ -256,12 +232,10 @@ bool parseProfileArg(const String &arg, MissionProfile &profile) {
 }
 
 // Both profiles' currently-resolved values (override if loaded, else
-// hardcoded default — same resolvedChannelForProfile() radio_task.cpp uses
-// for a live switch), plus which one HOME_LISTEN is actually locked to
-// right now. Reads radioActiveOverrides()/radioActiveProfile() rather than
-// re-parsing config.txt — those are what the radio is actually doing, and a
-// save through handleConfigPost() below only updates them on the next boot,
-// same "not live" boundary the channel override itself already has.
+// hardcoded default), plus which one HOME_LISTEN is actually locked to.
+// Reads radioActiveOverrides()/radioActiveProfile() rather than re-parsing
+// config.txt — a save through handleConfigPost() below only updates them
+// on the next boot, same "not live" boundary the channel override has.
 void handleConfigGet() {
     const ProfileOverrides ov = radioActiveOverrides();
     const ChannelParams mt = resolvedChannelForProfile(ov, MissionProfile::MESHTASTIC);
@@ -278,14 +252,11 @@ void handleConfigGet() {
 }
 
 // Saves ONE profile's preset — which one comes from the required `profile`
-// field ("meshtastic" or "meshcore"), not from whichever profile happens to
-// be active right now. That distinction is the actual fix this endpoint
-// exists for: the old single-preset version captured whatever was
-// currently active, so saving while on MeshCore silently wrote MeshCore's
-// values into what the firmware would apply as a *Meshtastic* override on
-// the next boot (see PROGRESS.md Decisions log) — profile label and radio
-// config would disagree with each other. Naming the target profile
-// explicitly makes that impossible.
+// field, not from whichever profile happens to be active right now. An
+// earlier version captured whatever was currently active, so saving while
+// on MeshCore silently wrote MeshCore's values into what the firmware
+// would apply as a *Meshtastic* override on the next boot — profile label
+// and radio config would disagree. Naming the target explicitly fixes it.
 void handleConfigPost() {
     if (!server.hasArg("profile")) {
         server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing profile\"}");
@@ -334,12 +305,9 @@ void startAp() {
     server.begin();
     apActive = true;
 
-    // One buffer, one print call, under the Serial lock — a hardware run
-    // showed this exact line print with the SSID silently missing once
-    // (single call, no lock: PROGRESS.md 2026-08-23), and a second run
-    // showed it torn again (single call WITH the buffer fix but before this
-    // lock existed: PROGRESS.md 2026-08-24) — see serial_lock.h for why the
-    // buffer alone wasn't the actual fix.
+    // One buffer, one print call, under the Serial lock — an earlier
+    // unlocked version of this exact line printed with the SSID missing,
+    // and torn again even after a buffer-only fix (see serial_lock.h).
     char line[64];
     snprintf(line, sizeof(line), "[wifi] AP started: %s @ %s", ssid, WIFI_AP_IP);
     {
@@ -360,15 +328,11 @@ void stopAp() {
     if (lock.held()) Serial.println(F("[wifi] AP stopped."));
 }
 
-// Logs a connect/disconnect the moment the station count changes, rather
-// than leaving it as something only visible by comparing two /api/status
-// polls (or the WIFI page) by eye. Polled here (edge-detected against the
-// last-seen count) rather than via WiFi.onEvent(): that callback runs
-// outside this task's context, and every other piece of state in this file
-// is deliberately kept to this one task's own loop — one less cross-context
-// question to answer for a feature this small. At a 2ms loop interval while
-// the AP is active, an actual connect/disconnect is caught well within
-// human-noticeable time.
+// Logs a connect/disconnect the moment the station count changes, instead
+// of only being visible by eyeballing two /api/status polls. Polled here
+// (edge-detected against the last-seen count) rather than via
+// WiFi.onEvent(), since that callback runs outside this task's context and
+// everything else here stays in this task's own loop.
 uint8_t lastClientCount = 0;
 
 void logClientCountChanges() {
@@ -397,11 +361,9 @@ void wifiTask(void *) {
             server.handleClient();
             vTaskDelay(pdMS_TO_TICKS(2));
         } else {
-            // Nothing to do while off — this task is the lowest priority in
-            // the system and should cost as close to zero as possible then.
-            // Reset so the next AP session starts from a clean baseline
-            // rather than comparing against whatever the count was when
-            // this one was toggled off.
+            // Nothing to do while off — lowest priority task, cost as
+            // close to zero as possible. Reset so the next AP session
+            // starts from a clean baseline.
             lastClientCount = 0;
             vTaskDelay(pdMS_TO_TICKS(200));
         }
