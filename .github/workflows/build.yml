@@ -30,6 +30,23 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
+      # jgromes/RadioLib and the other lib_deps come from PlatformIO's
+      # registry over HTTP; that registry occasionally throws a bare
+      # HTTPClientError on an otherwise-fine commit (seen 2026-08-26, run
+      # #78 — 77 prior runs had installed the same pins without issue).
+      # Retrying just this network step, separate from the compile steps
+      # below, means a registry blip doesn't fail the build and a real
+      # compile error still fails on the first attempt.
+      - name: Install project dependencies
+        run: |
+          for attempt in 1 2 3; do
+            pio pkg install -e cardputer-adv -e gps-probe -e native && exit 0
+            echo "::warning::pio pkg install failed (attempt $attempt/3)"
+            sleep $((attempt * 15))
+          done
+          echo "::error::pio pkg install failed after 3 attempts"
+          exit 1
+
       - name: Build firmware
         run: pio run -e cardputer-adv
 
