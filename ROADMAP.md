@@ -283,6 +283,10 @@ bugs found/fixed, and the still-open WiFi AP heap/counter re-measurement).
 
 ### Phase 7 — Device optimization
 
+**Status:** complete 2026-08-27 as v0.7.0. Hardware evidence, measured
+budgets, and the operator-approved same-build repetition waiver are recorded
+in PROGRESS.md.
+
 **Goal:** turn the current memory assumptions into measured budgets before
 new scan states add load to the no-PSRAM device.
 

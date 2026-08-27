@@ -18,13 +18,13 @@ general LoRa/spectrum exploration.
 
 ## Status
 
-**Current version: v0.6.8.** Phases 1-6 are built and hardware-verified —
+**Current version: v0.7.0.** Phases 1-7 are built and hardware-verified —
 Meshtastic War Drive (radio, antenna path, GPS, batched SD logging),
 MeshCore as a second selectable profile, an on-demand WiFi web dashboard,
 and a redesigned on-device menu UI (grouped menu, a live-updating status
-display, brightness control, and a Trace pause/standby battery lever). One
-Phase 7 (device optimization) is underway to measure and improve heap/stack
-headroom before new radio modes land. Phase 8 (`DISCOVERY_SWEEP`,
+display, brightness control, and a Trace pause/standby battery lever). Phase
+7's device optimization budgets, soak, and WiFi CSV-download fix are complete.
+Phase 8 (`DISCOVERY_SWEEP`,
 non-default-channel scanning) and Phase 9 (`ENERGY_SWEEP`,
 Reticulum/Spectrum) haven't started yet.
 

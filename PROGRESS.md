@@ -8,9 +8,8 @@ source, `DESIGN.md` is the "why" source. Don't let them drift.
 
 **Note, 2026-08-25 doc pass:** this section is Phase 0/1 history, kept as
 written per this file's own convention of not rewriting past entries. For
-what's actually true today: **v0.6.8, Phases 0-6 complete and Phase 7
-(device optimization) started**, with the instrumentation build still
-awaiting its hardware baseline. See
+what's actually true today: **v0.7.0, Phases 0-7 complete**, with the
+measured device budgets and soak recorded below. See
 CLAUDE.md's Status section for the running narrative, or the Build-order
 checklist immediately below for the live phase-by-phase state. Phase 8
 (`DISCOVERY_SWEEP`) and Phase 9 (`ENERGY_SWEEP`) are not started; Phase 10
@@ -641,23 +640,27 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         and idle-dim, the same checks Phase 6's v0.6.2-v0.6.4 bench passes
         already established, before trusting this split at that same
         confidence level.
-- [ ] **Phase 7 — Device optimization. Started 2026-08-26 on v0.6.8.**
-      Phase scope is complete only after measured changes pass the dedicated
-      `HARDWARE_TESTING.md` matrix; `src/version.h` stays v0.6.8 until then.
+- [x] **Phase 7 — Device optimization. Complete 2026-08-27 on v0.7.0.**
+      The measured budgets, soak, targeted CSV-download fix, and explicit
+      same-build repetition waiver are recorded in this checklist.
   - [x] Epic scope, priority order, exit criteria, and hardware matrix
         captured in ROADMAP.md Phase 7 and `HARDWARE_TESTING.md`
   - [x] P0 instrumentation implemented and locally verified: internal heap
         largest-block/block-count metrics, all five task stack watermarks,
         lifecycle `[mem]` checkpoints, and append-only `session.csv` fields.
         `pio test -e native`: 91/91; `pio run -e cardputer-adv`: SUCCESS,
-        50348B static RAM / 972209B flash. Hardware evidence remains open in
+        50348B static RAM / 972637B flash. Hardware evidence remains open in
         the matrix items below; a build is not a runtime measurement.
-  - [ ] Baseline A/B: cold boot, idle, real receive/logging, UI regression
-        - Run0065's partial A/B and browser evidence, stack minima, heap
-          stages, provisional budget targets, and exact follow-up build hash
-          are preserved in `hardware-results/2026-08-26-run0065.md`.
-          The full UI interaction pass and 800-detection combined load remain
-          open, so none of the provisional stack targets is approved yet.
+  - [x] Baseline A/B: cold boot, idle, real receive/logging, UI regression —
+        **run0099 PASS, 2026-08-27.** The v0.6.8 `d3c4fe4-dirty` build held
+        233,848B free / 221,172B largest block through the WiFi-off 10-minute
+        idle interval, then recorded 191 received and 191 logged detections,
+        157 flushes, and zero radio CRC, queue, bus, or row drops. The full
+        carousel/menu/profile/pause/brightness/idle-dim UI pass was exercised
+        on real glass with no visible regression. Stack minima and artifact
+        hashes are preserved in
+        `hardware-results/2026-08-27-run0099-baseline-ab.md`; the final row's
+        169,300B WiFi-on heap is explicitly excluded from the idle baseline.
   - [x] Baseline C: 10 WiFi on/off cycles with recovery trend recorded
         - **2026-08-26 partial hardware result, run0065:** stopped after
           cycle 2 exposed a repeatable lifecycle leak. Cold WiFi-off heap
@@ -676,8 +679,16 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
           retained in the ignored `hardware-results/private/` directory;
           boot/artifact identity was not captured because the monitor
           attached after reset.
-  - [ ] Baseline D: browser polling, run listing, repeated CSV downloads,
-        and settings saves with allocation checkpoints
+  - [x] Baseline D: browser polling, Downloads-tab CSV retrieval, and
+        settings saves — **operator-confirmed PASS on run0099, 2026-08-27.**
+        The shipped web firmware exposes file retrieval through its
+        `Downloads` tab; there is no separate operator-facing run-list
+        control. The operator completed the dashboard polling, repeated
+        detections/session downloads, and both profile settings saves on the
+        same v0.6.8 build. Run 99's final session row records the expected
+        WiFi-on retrieval state; the earlier short-window run0069 recovery
+        concern is superseded by this accepted run and the run0081 five-minute
+        client-only recovery control.
         - **2026-08-26 run0069 browser workload: finding, not accepted.** Ten
           CSV transfer checkpoints and both profile settings writes completed;
           counters stayed clean, but the first AP-off sample was 211772B /
@@ -709,9 +720,38 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         combined-load evidence and waived the matrix's nominal 30-minute/800-
         detection duration for this cycle. Full evidence: `hardware-results/
         2026-08-27-run0095-15min-combined-control.md`.
-  - [ ] P1 task-stack right-sizing, one measured stack at a time
-  - [ ] P2 WiFi lifecycle/request optimization if the baseline identifies a
+  - [x] Baseline F: two-hour soak — **run0102 PASS, 2026-08-27.** The
+        replacement run held for 7,596s (2h06m36s) on MeshCore traffic with
+        1,094 logged detections, 958 flushes, flat post-warm-up
+        `heap_free=233052B` / `heap_largest=221172B`, and zero queue, bus, row,
+        or NMEA CRC errors. Four radio CRC errors were accepted as transient
+        RF errors. The fixed 2.5 KB transient Probe/Sweep buffer is accepted
+        conditionally with no second copy, raw history, or dynamic growth.
+        Full evidence and CSV hashes: `hardware-results/
+        2026-08-27-run0102-baseline-f.md`.
+  - [x] **Operator scope decision — no repeated full matrix on the final
+        download-fix build.** The final change adds only a stack-local client
+        handle, short-write/disconnect guards, and a 1ms scheduler yield; it
+        adds no persistent buffer or heap-resident state. Run0102 is therefore
+        the authoritative final-build heap/soak evidence, while run0108 is the
+        targeted hardware validation of the changed CSV path. The strict
+        one-build repetition wording in ROADMAP.md §7 is explicitly waived for
+        this cycle; pre-fix/older-build A/B/E evidence remains labeled as such
+        rather than being presented as a repeated final-build matrix.
+  - [x] P1 task-stack right-sizing — **no-change decision.** Final measured
+        minima across the soak and CSV-download validation were radio 2,116B,
+        GPS 1,444B, logger 1,784B, UI 2,180B, and WiFi 3,220B. Every task
+        retained more than 1KB and more than 25% of its allocated stack, so
+        reducing any stack would add risk without a meaningful budget gain.
+  - [x] P2 WiFi lifecycle/request optimization if the baseline identifies a
         persistent off-state or request-time cost
+        - **2026-08-27 CSV-download watchdog fixed and hardware-validated.**
+          Run0105 reproduced a CPU 0 WiFi-task watchdog inside the manual
+          `WiFiClient::write()` CSV stream for `run0102/detections.csv`.
+          The stream now rejects disconnected/short writes and yields between
+          successful chunks; the same operator-triggered download completed on
+          run0108 with no watchdog or reboot. Full evidence:
+          `hardware-results/2026-08-27-run102-download-watchdog-fix.md`.
         - **2026-08-26 run0070 control:** a settings POST followed by an
           explicit dashboard GET produced the same initial off-state as a
           POST-only sequence (212480B vs 212464B; 159732B largest block), so
@@ -731,12 +771,28 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
           or request handling based on the earlier short-window deficit; the
           remaining P2 watch item is serial-transport truncation, not a
           measured lifecycle leak.
-  - [ ] P3 canvas alternative only if it is proven to be the limiting
-        allocation; otherwise explicitly close as no-change
-  - [ ] Final two-hour soak, Phase 8/9 memory budgets recorded, the
-        provisional 2.5 KB transient-scan result buffer explicitly accepted
-        or rejected, hardware evidence linked here, and version advanced to
-        v0.7.x
+  - [x] P3 canvas allocation — **no-change decision.** The verified indexed
+        canvas remains about 32KB, while the soak held 221,172B largest free
+        block and the WiFi-on evidence held at least 155,636B. No measurement
+        identified the canvas as the limiting allocation, so it remains in
+        place.
+  - [x] Final Phase 7 close: normal/WiFi-on heap, largest-block, and task
+        stack budgets are recorded; the provisional 2.5 KB transient-scan
+        result buffer is conditionally accepted; hardware evidence is linked;
+        and `src/version.h` is advanced to v0.7.0. The strict one-build matrix
+        repetition was explicitly waived by the operator and is documented
+        above rather than treated as completed evidence.
+
+    **Final budget record:**
+
+    | Condition | Free heap | Largest block | Evidence |
+    |---|---:|---:|---|
+    | Normal, post-warm-up soak | 233,052B | 221,172B | run0102 |
+    | WiFi-on combined workload | 169,300B | 155,636B | run0099 |
+    | Fixed transient result buffer | 2,560B | fits both margins | accepted conditionally |
+
+    Minimum unused stack across the soak and targeted download validation was
+    radio 2,116B, GPS 1,444B, logger 1,784B, UI 2,180B, and WiFi 3,220B.
 - [ ] **Phase 8 — Probe / `DISCOVERY_SWEEP`. Not started.** Expanded from
       the earlier outline by the accepted 2026-08-26 Phase 7–10 design in
       `research/LoRaTrace-Phases-7-10-Design.md`.

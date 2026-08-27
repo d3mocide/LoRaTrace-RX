@@ -67,6 +67,29 @@ the matrix until its cause is understood.
    pause/resume, and a profile switch while paused.
 4. Confirm `queue_drop`, `row_drop`, and `bus_miss` remain 0.
 
+For the manual UI pass, record these exact transitions in the run notes:
+
+1. Carousel: visit pages 1, 2, 3, and 4, then wrap once with PREV/NEXT.
+2. Open the menu with ESC; select Trace and confirm RADIO shows `STANDBY`.
+3. While paused, enter Profile and select the other profile; confirm the
+   CHANNEL page changes. Profile switching resumes the radio by design, so
+   enter Trace again, pause it, then enter Trace once more and confirm RX
+   continues after the explicit resume.
+4. Enter System > Display > Brightness, step the slider both directions,
+   then back out; cycle Idle dim and wait through its selected timeout.
+5. Return to the carousel. Confirm every frame is tear-free and no menu,
+   toast, slider, or dim transition clips or crashes.
+
+After copying the run's `session.csv` from the card, the objective portion can
+be checked without hand-counting rows:
+
+```text
+python3 scripts/check_phase7_baseline.py --session session.csv --ui-ok
+```
+
+The command intentionally keeps the UI confirmation manual: a CSV can prove
+the counters and stack telemetry, but cannot prove what the real glass showed.
+
 ### C. WiFi lifecycle
 
 1. Toggle the AP on and wait 30 seconds.
@@ -80,7 +103,8 @@ the matrix until its cause is understood.
 With the AP active and a real client connected:
 
 1. Poll the status dashboard for 5 minutes.
-2. Load the run list repeatedly.
+2. Open the `Downloads` tab and repeatedly retrieve the available run files;
+   the web firmware has no separate operator-facing run-list control.
 3. Download a realistically large `detections.csv` five times.
 4. Download `session.csv` five times.
 5. Save each profile's settings, then reboot and confirm they apply.

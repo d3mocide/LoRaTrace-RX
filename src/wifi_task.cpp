@@ -190,8 +190,16 @@ void streamCsvFile(const char *path, const char *downloadName) {
             f.close();
         }
         if (readLen <= 0) break;
-        server.client().write(buf, (size_t)readLen);
-        offset += (size_t)readLen;
+        WiFiClient client = server.client();
+        if (!client.connected()) break;
+        const size_t written = client.write(buf, (size_t)readLen);
+        if (written != (size_t)readLen) break;
+        offset += written;
+
+        // WiFiClient::write() can spend multiple seconds retrying a full TCP
+        // socket. Yield between successful chunks so the Core 0 idle task can
+        // service the watchdog during a large SD download.
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
     memoryStatsLog("csv-download-after");
 }

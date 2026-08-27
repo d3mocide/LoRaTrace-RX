@@ -144,7 +144,7 @@ sd-template/loratrace/
 
 ## Status
 
-**v0.6.8** (current, `src/version.h`). Phases 0-6 complete and
+**v0.7.0** (current, `src/version.h`). Phases 0-7 complete and
 hardware-verified: radio bring-up (Phase 1), the task/queue architecture +
 GPS + SD logging that makes up MVP-Beta (Phase 2), the WiFi AP + web
 command center (Phase 3), the MeshCore profile and live profile switch
@@ -152,10 +152,10 @@ command center (Phase 3), the MeshCore profile and live profile switch
 redesign — grouped menu, toast layer, canvas-based rendering to fix
 real-hardware flicker/tearing, animated boot-mark splash, real PWM
 backlight control, and persistence for display settings and last-active
-profile (Phase 6). Phase 7 (device optimization) is in progress: memory
-instrumentation and the hardware protocol are ready for the first baseline,
-but the phase is not complete or versioned as v0.7.x until the real-device
-matrix passes. Phase 8 (`DISCOVERY_SWEEP`) and Phase 9 (`ENERGY_SWEEP`) are
+profile (Phase 6), plus measured Phase 7 heap/stack budgets, soak, and the
+validated CSV-download watchdog fix. The strict same-build repetition
+criterion was explicitly waived for this cycle and is recorded in
+PROGRESS.md. Phase 8 (`DISCOVERY_SWEEP`) and Phase 9 (`ENERGY_SWEEP`) are
 not started. Phase 10 (Field Analyzer, including bounded radio-owned Scope
 acquisition) is accepted as planned scope; whether it gates v1.0 remains an
 explicit decision after Phase 9 hardware evidence exists.

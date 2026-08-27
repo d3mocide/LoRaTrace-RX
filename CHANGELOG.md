@@ -3184,3 +3184,13 @@ PATCH = fix with no new phase scope).
   one-time WiFi framework cost is tracked separately and is not labeled a
   leak. Host tests/build verify the fix compiles; the ten-cycle hardware
   recovery test remains the next bench gate rather than being claimed here.
+
+- **2026-08-27 — Phase 7 closed as v0.7.0.** Run0099 established the cold
+  boot/idle/receive/UI baseline; run0102 supplied 7,596 seconds of final-build
+  MeshCore soak evidence with flat post-warm-up heap; and run0108 validated the
+  CSV-download watchdog fix on hardware. P1 and P3 were explicitly closed as
+  measured no-change decisions, and the single fixed 2.5KB transient result
+  buffer was conditionally accepted for future Probe/Sweep work. The operator
+  waived repeating the unaffected A-E matrix on the final download-fix build;
+  that nominal-criterion deviation is recorded in PROGRESS.md rather than
+  being presented as same-build evidence.
