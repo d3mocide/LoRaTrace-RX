@@ -87,7 +87,7 @@ latency spikes; keep them off the radio task entirely.
 
 | Profile | Frequency | SF | BW | CR | Confidence |
 |---|---|---|---|---|---|
-| **Meshtastic** (US LongFast default) | 906.875 MHz (slot 20 of 104) | 11 | 250 kHz | 4/8 | High — official docs, multiple corroborating sources |
+| **Meshtastic** (US LongFast default) | 906.875 MHz (slot 20 of 104) | 11 | 250 kHz | 4/5 | High — current upstream Meshtastic preset; built-in firmware correction/OTA gate tracked in Phase 8 |
 | **MeshCore** (US/Canada "Recommended", post-Oct-2025 "narrow" migration) | 910.525 MHz | 7 | 62.5 kHz | 4/5 | High — MeshCore's own FAQ + multiple community sites agree |
 | **MeshCore** (legacy, pre-migration, may still be in the wild) | ~915 MHz region | 11 | 250 kHz | — | Medium — worth a fallback discovery pass |
 | **Reticulum** | **No standard exists.** Communities deliberately pick arbitrary settings, often specifically offset from Meshtastic/MeshCore to avoid collision (one documented example uses 869.463MHz/SF8 specifically to dodge 868.0MHz) | — | — | — | N/A by design |
@@ -120,28 +120,29 @@ legacy-config MeshCore stragglers.
 
 **B. Discovery family (Reticulum, General Exploration)** — `ENERGY_SWEEP` /
 `CAD_SWEEP` dominant. No known target, so the strategy is a protocol-agnostic
-RSSI sweep across the full band (catches any emitter, not just LoRa) layered
-with LoRa-mode CAD checks at a handful of common SF/BW combinations (7/8/9 ×
-125/250/500/62.5kHz) to flag likely LoRa activity specifically. A useful
-heuristic for Reticulum specifically: a LoRa CAD hit at a frequency that does
-**not** match a known Meshtastic/MeshCore channel is a Reticulum (or
-unclassified private LoRa) candidate, since Reticulum operators deliberately
-avoid those frequencies.
+RSSI sweep across the full band (catches any emitter, not just LoRa), followed
+by selective LoRa-mode CAD checks at measured energy peaks, operator-selected
+bins, or a sparse sourced SF/BW subset. Energy alone is never labeled LoRa,
+and an off-grid CAD hit is an **unknown LoRa candidate**, not evidence that the
+signal is Reticulum.
 
 ## 5. Radio task state machine
 
 - `INIT` — bring up SX1262 on its own SPI host, set IO-expander P0 high,
   mount SD, load channel tables
 - `HOME_LISTEN(profile)` — continuous RX locked to the profile's known
-  channel; on valid packet → attempt decode if cleartext/known-key → push
-  detection event → stay locked
+  channel; on valid packet → classify only safe cleartext header metadata →
+  push detection event → stay locked
 - `DISCOVERY_SWEEP(profile)` — bounded-duration (a few seconds), CAD-cycles
   a curated candidate list for the active profile; logs hits; returns to
   `HOME_LISTEN`
 - `ENERGY_SWEEP` — top-level mode, mutually exclusive with the above two;
-  FSK/OOK RSSI sweep across 868–923MHz plus periodic LoRa-mode CAD checks
-  at common SF/BW combos; this state *is* the Reticulum and General
-  Exploration profiles
+  frequency-binned RSSI measurements across 868–923MHz followed by selective
+  LoRa CAD checks where they have information value; this state *is* the
+  Reticulum and General Exploration profiles
+- `SCOPE_ACQUIRE(frequency)` — bounded Phase 10 request that samples RSSI at
+  one explicitly displayed frequency; like every scan state, it snapshots
+  and restores the resolved home configuration on every exit path
 
 Mission profile is operator-selected (keyboard), not auto-detected. Switching
 profiles reconfigures which channel table `HOME_LISTEN`/`DISCOVERY_SWEEP`
@@ -165,11 +166,12 @@ gets tagged with a best-guess classification for later analysis:
 | SF7/BW62.5 near 910.525MHz (or other narrow-BW cluster) | MeshCore (current) |
 | SF11/BW250 near 915MHz, off the Meshtastic slot grid | MeshCore (legacy) — ambiguous, check sync word |
 | Sync word 0x34 | LoRaWAN (public) |
-| LoRa CAD hit, frequency not matching known Meshtastic/MeshCore channels | Reticulum candidate / unclassified private LoRa |
+| LoRa CAD hit, frequency not matching known Meshtastic/MeshCore channels | Unknown LoRa candidate; protocol identity unproven |
 
-**Resolved for Meshtastic (2026-08-23), still open for MeshCore** — see §7.
-Meshtastic's value is now verified from upstream firmware source and set in
-`channel_plans.h`; MeshCore's is not, and must not be guessed.
+**Resolved for both Meshtastic and MeshCore (2026-08-23)** — see §7. Their
+sync words are verified from upstream firmware and set explicitly in
+`channel_plans.h`; the two constants remain separate even though MeshCore's
+0x12 currently equals RadioLib's private default.
 
 ## 7. Known unknowns — verify before / during build
 
@@ -191,8 +193,9 @@ Meshtastic's value is now verified from upstream firmware source and set in
       does the two-byte register mapping internally — Meshtastic itself uses
       that same RadioLib API, so passing 0x2B matches it exactly. The 0x34 →
       LoRaWAN note independently corroborates §6's fingerprint table.
-      Bench-confirmation that this actually recovers Meshtastic RX is still
-      pending (see PROGRESS.md).
+      Live Meshtastic reception with 0x2B was confirmed on hardware the same
+      day; Phase 8 separately tracks the still-open built-in LongFast CR 4/5
+      no-override test.
 - [ ] **MeshCore's encryption/PSK scheme.** Don't assume it mirrors
       Meshtastic's default-channel PSK model — MeshCore's own docs
       explicitly warn against importing Meshtastic preset assumptions.
@@ -341,6 +344,14 @@ hop), not an absence marker.
 `ENERGY_SWEEP` data gets threshold-filtered against a rolling noise floor
 before logging — don't dump every sweep point, only peaks, or the card fills
 fast for near-zero value.
+
+Probe and Sweep have two explicit result policies. **Durable** mode requires
+its output file to open before leaving Watch. **Transient** mode may run
+without SD only if Phase 7's final budget accepts a fixed result buffer of at
+most 2.5 KB. It reuses the live measurement buffer, retains one result until
+the next scan replaces it, stores neither raw samples nor history, and shows
+`NOT SAVED` throughout. Failure of that Phase 7 memory gate makes SD mandatory
+instead of permitting dynamic or larger allocation.
 
 ### 8.2 `session.csv` — the run's own vital signs
 
@@ -495,6 +506,9 @@ still self-describing via uptime.
    MeshMapper-observed frequencies where available — adds entries to step
    6's grouped menu, doesn't reopen UI architecture a second time
 9. `ENERGY_SWEEP` — General Exploration and Reticulum profiles
+10. Field Analyzer — bounded Meter/Waterfall/Scope/Captures/Nodes views over
+    real Watch/Probe/Sweep observations. Live Scope uses radio-owned
+    `SCOPE_ACQUIRE`; whether this phase gates v1.0 is decided after Phase 9.
 
 ## 10. Keyboard input decode (Phase 5)
 

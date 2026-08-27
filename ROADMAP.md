@@ -282,6 +282,7 @@ CHANGELOG.md for the full session history (canvas/framebuffer rework,
 bugs found/fixed, and the still-open WiFi AP heap/counter re-measurement).
 
 ### Phase 7 — Device optimization
+
 **Goal:** turn the current memory assumptions into measured budgets before
 new scan states add load to the no-PSRAM device.
 
@@ -304,7 +305,8 @@ measured optimizations that preserve radio/GPS/SD/UI behavior.
    the limiting allocation. Any tiled/partial alternative must repeat the
    full real-glass regression pass; moving it to static RAM is not a saving.
 5. **P4 — Final budget.** Record normal, WiFi-on, largest-block, and per-task
-   stack budgets for Phases 8/9, then complete a combined-load soak.
+   stack budgets for Phases 8/9, explicitly accept or reject the provisional
+   2.5 KB transient-scan result buffer, then complete a combined-load soak.
 
 **Exit criteria:** every `HARDWARE_TESTING.md` stage passes on one identified
 build; no continuing decline in current free heap or largest block after
@@ -317,8 +319,26 @@ not optimize from compile-time RAM percentages alone. One lever changes per
 measurement cycle so gains and regressions remain attributable.
 
 ### Phase 8 — `DISCOVERY_SWEEP`
-**Deliverable:** bounded-duration CAD-cycle sweep of a curated candidate
-list per active profile — non-default Meshtastic slots, legacy MeshCore.
+
+**Operator label:** Probe.
+
+**Deliverable:** a bounded-duration, radio-task-owned CAD sweep of a curated
+candidate list per active profile — non-default Meshtastic slots and sourced
+legacy MeshCore tuples. Every complete, cancel, timeout, and failure path
+restores the resolved home configuration and reports total time away from
+Watch.
+
+Packet-bearing hits keep using the existing `Detection` pipeline. CAD-only
+observations use a separate fixed-size, non-blocking queue; cumulative retry,
+drop, recovery, and home-away values belong in the run summary/health log,
+not every observation.
+
+Durable Probe writes to SD. An explicitly selected transient mode may run
+without SD only if Phase 7 accepts a fixed result-buffer ceiling of 2.5 KB.
+It reuses the live measurement buffer, retains one result, stores no raw or
+historical stream, replaces the prior result on the next scan, and displays
+`NOT SAVED`. If the budget fails, Probe requires SD.
+
 **Blocking unknowns:** curated candidate lists should be weighted by
 MeshMapper-observed frequencies ([[meshmapper-pipeline]], per CLAUDE.md)
 where available, not scraped defaults alone. CAD `symNum` tuning (§7)
@@ -326,13 +346,67 @@ needs bench testing against Semtech AN1200.48 before trusting false-
 positive/miss rates. New sweep results are additional entries in Phase 6's
 grouped menu, not a reason to reopen UI architecture a second time.
 
+Phase 8 ships with bounded, versioned built-in plans plus the existing
+per-profile home override. Persistent operator-edited candidate lists are a
+post-Phase-8 enhancement requiring their own bounded schema, validation,
+deduplication, provenance, and device/web editing design; they do not block
+Phase 8 completion.
+
+**Exit criteria:** correct built-in LongFast CR 4/5 is host- and OTA-verified;
+a known alternate transmitter is found; CAD false-positive/miss rates are
+measured; 1,000 Probe cycles pass through a deterministic automated bench
+mode; deterministic cancellation/fault injection covers every acquisition
+state; queues and memory remain stable; every exit restores Watch.
+
 ### Phase 9 — `ENERGY_SWEEP`
-**Deliverable:** Reticulum and General Exploration profiles — FSK/OOK RSSI
-sweep across 868–923MHz with periodic LoRa CAD checks at common SF/BW
-combos.
+
+**Operator label:** Sweep.
+
+**Deliverable:** a truthful frequency-binned energy map across the supported
+868–923MHz front end, followed by selective LoRa CAD only at energy peaks,
+operator-selected bins, or a sparse sourced subset. This realizes Reticulum
+and General Exploration without claiming that energy is LoRa or that an
+off-grid CAD hit is Reticulum; those results are labeled `unknown LoRa
+candidate` until stronger evidence exists.
+
+Each bin retains only bounded streaming statistics. Durable energy peaks use
+a schema that cannot be confused with packet detections. Transient mode uses
+the same Phase 7-gated 2.5 KB ceiling and `NOT SAVED` behavior as Probe.
+
 **Blocking unknowns:** 923–928MHz front-end rolloff should be
 characterized (empirical RSSI floor sweep) so the UI can be honest about
 reduced sensitivity in that sub-band rather than silently under-reporting.
+
+**Exit criteria:** timing and home-away duration are measured; injected
+low/mid/high carriers land in the correct bins; quiet-band behavior is
+characterized with WiFi off/on; CAD never promotes energy alone to LoRa;
+24 hours of repeated sweeps show bounded memory and reliable recovery.
+
+### Phase 10 — Field Analyzer (planned; release gate provisional)
+
+**Deliverable:** Meter, truthful frequency waterfall, bounded live Scope,
+recent captures, and a passive node roster over data acquired by Watch,
+Probe, and Sweep. Field Analyzer is not another mission profile and never
+controls the SX1262 directly.
+
+Scope uses an explicit bounded `SCOPE_ACQUIRE` request owned by the radio
+task. It samples one displayed frequency, exposes `Watch paused`, and restores
+the resolved home configuration on complete, cancel, timeout, or failure.
+Ordinary analyzer page changes consume snapshots and never retune the radio.
+
+Analyzer storage is fixed-size and reuses the existing indexed canvas. The
+initial incremental ceiling is 8 KB beyond that canvas, subject to Phase 7 and
+the measured Phase 8/9 costs. Waterfall plot columns use deterministic,
+host-tested aggregation of real frequency bins; Scope is never presented as
+a spectrum.
+
+**Exit criteria:** bin-to-pixel and scope-source truthfulness are verified;
+bounded memory and deterministic roster eviction hold; a worst-case UI/radio
+run has no drops, deadlocks, or watchdog resets; outdoor readability and
+minimum-brightness rendering are tested as separate conditions.
+
+Whether Phase 10 is required for `v1.0.x`, or follows a Phase 9-based v1.0,
+is deliberately decided after Phase 9 hardware evidence exists.
 
 ## Distribution
 
@@ -427,9 +501,8 @@ reports can use.
   the boot banner (Serial) and on `ui_task`'s SYSTEM status page (on-device,
   since Phase 2). A bug report against a specific build should always be
   traceable to this string.
-- **Release trigger:** pushing a `vX.Y.Z` git tag. `src/version.h` should
-  be bumped to match *before* tagging — CI doesn't currently cross-check
-  the two, so a mismatch is a review-time catch, not an automated one.
+- **Release trigger:** pushing a `vX.Y.Z` git tag. `src/version.h` must be
+  bumped to match before tagging; release CI rejects a tag/header mismatch.
 - **CI:** `.github/workflows/build.yml` runs `pio run` (+ `pio test`) on
   every push/PR — catches build breaks before they land, independent of
   tagging. `.github/workflows/release.yml` runs only on a `vX.Y.Z` tag
@@ -458,7 +531,7 @@ reports can use.
 | v0.7.x | Phase 7 (device optimization) |
 | v0.8.x | Phase 8 (discovery sweep) |
 | v0.9.x | Phase 9 (energy sweep: Reticulum + General Exploration) |
-| v1.0.x | all four profiles built, on-device UI covers all of them |
+| v1.0.x | promotion target after Phase 9; whether Phase 10 is required is decided from Phase 9 hardware evidence |
 
 **Renumbered 2026-08-24** (same restructuring precedent as WiFi's Phase-3
 pull-forward): the on-device UI overhaul moved from a trailing "Phase 7
@@ -484,7 +557,14 @@ now overlaps WiFi's ~55–56KB runtime cost, while only the logger task had a
 stack watermark and the post-canvas combined-load gate was still open.
 Device optimization therefore became Phase 7, before either new scan state.
 `DISCOVERY_SWEEP` moved to Phase 8 and `ENERGY_SWEEP` to Phase 9; their scope
-did not change. `v1.0` still means all four profiles and their UI are stable.
+did not change. `v1.0` still meant all four profiles and their UI were stable
+at that point.
+
+**Phase 10 added to the plan 2026-08-26:** Field Analyzer is accepted as
+planned post-Sweep scope, including bounded radio-owned Scope acquisition.
+This does not silently move the release gate: after Phase 9 hardware evidence
+exists, explicitly decide whether Field Analyzer is part of `v1.0.x` or the
+first post-v1.0 phase.
 
 ## Non-goals
 
@@ -493,6 +573,6 @@ did not change. `v1.0` still means all four profiles and their UI are stable.
   eventually reach.
 - Auto-detecting mission profile. Operator-selected via keyboard, by
   design (DESIGN.md §5).
-- Full protocol decode/decrypt as an MVP-Beta requirement — depends on the
-  two genuinely-open unknowns above (sync word, MeshCore PSK model) and
-  isn't needed for the core "detect and log" value proposition.
+- Full protocol decode/decrypt, payload display, or key handling. LoRaTrace
+  remains a metadata-first passive field instrument; safe cleartext radio
+  headers are the boundary.

@@ -13,7 +13,9 @@ what's actually true today: **v0.6.8, Phases 0-6 complete and Phase 7
 awaiting its hardware baseline. See
 CLAUDE.md's Status section for the running narrative, or the Build-order
 checklist immediately below for the live phase-by-phase state. Phase 8
-(`DISCOVERY_SWEEP`) and Phase 9 (`ENERGY_SWEEP`) are not started.
+(`DISCOVERY_SWEEP`) and Phase 9 (`ENERGY_SWEEP`) are not started; Phase 10
+(Field Analyzer) is accepted as planned scope, with its v1.0 gate deferred
+until Phase 9 hardware evidence exists.
 
 Phase 0 (project scaffold) complete. Phase 1 (RadioLib bring-up, now
 including optional SD-based channel config) **boots successfully on real
@@ -675,30 +677,38 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         persistent off-state or request-time cost
   - [ ] P3 canvas alternative only if it is proven to be the limiting
         allocation; otherwise explicitly close as no-change
-  - [ ] Final two-hour soak, Phase 8/9 memory budgets recorded, hardware
-        evidence linked here, and version advanced to v0.7.x
-- [ ] **Phase 8** — `DISCOVERY_SWEEP`. **Not started; broken out below
-      2026-08-25 doc pass** — this checklist previously had no sub-items at
-      all, unlike every phase before it. Sub-items are pulled directly from
-      DESIGN.md §4/§5/§9 and ROADMAP.md's Phase 8 section, not new scope —
-      flagging that as a distinction worth keeping, since this doc's own
-      Decisions log entries have shown more than once that "no sub-items"
-      quietly reads as "not really planned yet" until a phase is already
-      underway.
-  - [ ] Curated candidate frequency list per profile — non-default
-        Meshtastic channel-hash slots, legacy-config MeshCore — weighted by
-        [[meshmapper-pipeline]]'s real-world observed frequencies for this
-        area where available, not scraped defaults alone (DESIGN.md §3, §9
-        step 8; CLAUDE.md's "Related context" note)
+  - [ ] Final two-hour soak, Phase 8/9 memory budgets recorded, the
+        provisional 2.5 KB transient-scan result buffer explicitly accepted
+        or rejected, hardware evidence linked here, and version advanced to
+        v0.7.x
+- [ ] **Phase 8 — Probe / `DISCOVERY_SWEEP`. Not started.** Expanded from
+      the earlier outline by the accepted 2026-08-26 Phase 7–10 design in
+      `research/LoRaTrace-Phases-7-10-Design.md`.
+  - [ ] Correct the built-in Meshtastic LongFast tuple from CR 4/8 to the
+        upstream CR 4/5, add complete-tuple host coverage, and receive a
+        known LongFast packet over the air with no SD override
+  - [ ] Curated, versioned complete candidate tuples per profile — non-default
+        Meshtastic channel-hash slots and sourced legacy MeshCore settings —
+        weighted by [[meshmapper-pipeline]]'s real-world observations where
+        available and including the existing per-profile home override
+        (DESIGN.md §3/§9; CLAUDE.md's "Related context" note)
   - [ ] CAD `symNum` tuning bench-tested against Semtech AN1200.48 before
         trusting any false-positive/miss rate this phase reports (DESIGN.md
         §7 open item, carried since Phase 0)
   - [ ] `DISCOVERY_SWEEP(profile)` radio-task state: bounded-duration
-        (DESIGN.md §5 says "a few seconds"), CAD-cycles the curated
-        candidate list, logs hits, returns to `HOME_LISTEN` — confirm it
-        never blocks the radio task longer than that bounded window
+        CAD-cycles the curated candidate list, optionally opens a bounded
+        receive-on-hit window, and restores the complete resolved home
+        configuration on complete/cancel/timeout/failure
         (CLAUDE.md's "radio task must never block" constraint applies here
         same as everywhere else)
+  - [ ] Separate fixed-size `ScanObservation` queue for non-packet CAD/energy
+        measurements; keep `Detection` unchanged and put cumulative retries,
+        drops, recoveries, abort reason, and home-away time in run-summary or
+        health records rather than every observation
+  - [ ] Durable and transient modes implemented: durable mode refuses a
+        missing output file; transient mode is available only if Phase 7
+        accepts the fixed 2.5 KB ceiling, reuses the live buffer, retains one
+        result, stores no raw/history stream, and displays `NOT SAVED`
   - [ ] Sweep results/trigger surfaced as new entries under Phase 6's
         existing grouped menu — explicitly *not* a reason to reopen UI
         architecture a second time (DESIGN.md §9 step 8, ROADMAP.md Phase 8)
@@ -709,19 +719,25 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [ ] Bench-verify against a real non-default-channel Meshtastic
         transmitter and/or a legacy-config MeshCore node once one is
         available to test against
-- [ ] **Phase 9** — `ENERGY_SWEEP`. **Not started; broken out below
-      2026-08-25 doc pass**, same reasoning as the now-Phase-8 sweep above.
-      Sub-items pulled from DESIGN.md §4/§5/§8/§9 and ROADMAP.md's Phase 9
-      section.
+  - [ ] Deterministic automated bench mode completes 1,000 Probe runs, with
+        deterministic fault injection or a bench-only hook covering cancel
+        at every acquisition state and proving Watch restoration
+  - [ ] **Post-Phase-8 enhancement, not a v0.8 exit gate:** persistent custom
+        candidate editing with a bounded schema/count, tuple validation,
+        provenance, deduplication, and explicit device/web ownership
+- [ ] **Phase 9 — Sweep / `ENERGY_SWEEP`. Not started.** Expanded by the
+      accepted 2026-08-26 Phase 7–10 design; depends on Phase 8's proven
+      observation/recovery path and Phase 7's final memory budget.
   - [ ] `ENERGY_SWEEP` implemented as its own top-level radio-task state,
         mutually exclusive with `HOME_LISTEN`/`DISCOVERY_SWEEP` (DESIGN.md
-        §5) — FSK/OOK RSSI sweep across the full 868–923MHz range
-  - [ ] Periodic LoRa-mode CAD checks layered in at common SF/BW combos
-        (7/8/9 × 125/250/500/62.5kHz, DESIGN.md §4) alongside the RSSI sweep
-  - [ ] Reticulum heuristic: a LoRa CAD hit at a frequency not matching a
-        known Meshtastic/MeshCore channel gets flagged as a Reticulum/
-        unclassified-private-LoRa candidate (DESIGN.md §4, §6's
-        fingerprinting table)
+        §5) — frequency-binned RSSI sweep across the supported 868–923MHz
+        range, with bounded timeout/recovery and guaranteed Watch restore
+  - [ ] Two-pass acquisition: bounded energy statistics first, then LoRa CAD
+        only at measured peaks, operator-selected bins, or a sparse sourced
+        SF/BW subset
+  - [ ] A CAD hit away from a known Meshtastic/MeshCore channel is labeled
+        `unknown LoRa candidate`, never promoted to Reticulum without stronger
+        evidence; energy alone is never labeled LoRa
   - [ ] Rolling-noise-floor threshold filtering for `ENERGY_SWEEP` data
         before logging — DESIGN.md §8.1 already specifies *why* (log peaks
         only, or the card fills fast for near-zero value) but the actual
@@ -730,14 +746,34 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         noise-floor sweep, so the UI/docs can be honest about reduced
         sensitivity in that sub-band instead of silently under-reporting
         (ROADMAP.md Phase 9, DESIGN.md §7 open item)
+  - [ ] Transient Sweep shares Probe's Phase 7-gated 2.5 KB buffer ceiling,
+        single-result replacement, and visible `NOT SAVED` behavior
+  - [ ] Deterministic bin-to-display-column aggregation covers both endpoints
+        without implying one plot pixel per stored bin
   - [ ] Reticulum and Spectrum (General Exploration) become real selectable
-        entries in Phase 6's Profile menu group once this phase gives them
-        an actual channel table — today they fall through to Meshtastic's
-        resolved channel in `channelParamsForProfile()`/
-        `resolvedChannelForProfile()`, and the v0.6.2 Decisions log entry
-        already notes they'll "slot in as two more flat entries... once
-        Phase 9 gives them a real channel table, no new nesting decision
-        needed"
+        entries in Phase 6's Profile menu group as `ENERGY_SWEEP` consumers;
+        they do not receive fictional fixed home-channel tables
+  - [ ] Known low/mid/high carriers map to correct bins, WiFi-off/on quiet
+        baselines are characterized, and 24 hours of repeated sweeps show no
+        leak, stack erosion, queue growth, or unrecovered radio lockup
+- [ ] **Phase 10 — Field Analyzer. Planned; release gate provisional.**
+      Whether this phase is required for v1.0 is decided explicitly after
+      Phase 9 hardware evidence exists.
+  - [ ] Meter identifies whether its value came from a packet, selected Sweep
+        bin, or live Scope and displays measurement age
+  - [ ] Waterfall rows come only from completed real frequency sweeps and use
+        deterministic host-tested bin-to-pixel aggregation
+  - [ ] Bounded radio-owned `SCOPE_ACQUIRE` samples one displayed frequency,
+        shows `Watch paused`, and restores the resolved home configuration on
+        complete/cancel/timeout/failure; UI code never polls the SX1262
+  - [ ] Recent captures and a deterministic fixed-capacity passive node roster
+        expose safe header metadata only—no payload text, keys, names, or
+        transmitted coordinates
+  - [ ] Incremental analyzer memory is measured against an initial 8 KB ceiling
+        beyond the existing indexed canvas; no draw-loop allocation
+  - [ ] Worst-case analyzer/WiFi/SD/radio stress has no drops, deadlocks, or
+        watchdog resets; outdoor readability and minimum-brightness rendering
+        pass as separate physical-display checks
 
 ## Open questions (from DESIGN.md §7 — verify before / during build)
 
@@ -746,8 +782,9 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
       (`const uint8_t syncWord = 0x2b;`). 0x12 turned out to be *pre-1.2*
       Meshtastic **and** RadioLib's own default, which this firmware had
       been silently inheriting. Now set explicitly in `channel_plans.h`
-      and pinned by a native unit test. See DESIGN.md §7 and the Decisions
-      log for the full citation. Bench-confirmation still pending
+      and pinned by a native unit test. Live Meshtastic reception with 0x2B
+      was confirmed on hardware 2026-08-23; Phase 8 separately tracks the
+      built-in LongFast CR 4/5 no-override test
 - [x] **MeshCore's** sync word — **resolved 2026-08-23** from upstream
       source. The repo has moved to `meshcore-dev/MeshCore`;
       `src/helpers/radiolib/CustomSX1262.h` calls

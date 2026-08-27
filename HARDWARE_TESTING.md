@@ -102,6 +102,12 @@ Only after A-E pass, run for at least two hours with the intended field
 configuration. A flat post-warm-up trend in current free heap and largest
 block is the no-leak result; a falling `heap_min` by itself is not.
 
+Use the final stable measurements to record an explicit accept/reject decision
+for a fixed 2.5 KB transient Probe/Sweep result buffer. Acceptance does not
+permit a second result copy, raw-sample history, or dynamic growth; rejection
+makes SD mandatory for those modes. Preserve the decision and evidence in
+`PROGRESS.md` with the other Phase 8/9 budgets.
+
 ## Optimization acceptance rules
 
 - Change one memory lever at a time and repeat the affected matrix stages.

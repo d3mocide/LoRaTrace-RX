@@ -156,7 +156,9 @@ profile (Phase 6). Phase 7 (device optimization) is in progress: memory
 instrumentation and the hardware protocol are ready for the first baseline,
 but the phase is not complete or versioned as v0.7.x until the real-device
 matrix passes. Phase 8 (`DISCOVERY_SWEEP`) and Phase 9 (`ENERGY_SWEEP`) are
-not started.
+not started. Phase 10 (Field Analyzer, including bounded radio-owned Scope
+acquisition) is accepted as planned scope; whether it gates v1.0 remains an
+explicit decision after Phase 9 hardware evidence exists.
 
 **Don't read PROGRESS.md or CHANGELOG.md end-to-end by default** — they're
 reference/history, not required context for every task. For what's true
