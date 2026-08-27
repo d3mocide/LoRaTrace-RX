@@ -63,5 +63,5 @@ void memoryStatsLog(const char *event) {
              (unsigned long)memoryTaskStackFree(s, MemoryTask::WIFI));
 
     SerialLock lock(pdMS_TO_TICKS(200));
-    if (lock.held()) Serial.println(line);
+    if (lock.held()) serialPrintln(line);
 }

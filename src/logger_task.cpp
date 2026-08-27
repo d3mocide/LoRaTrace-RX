@@ -314,7 +314,7 @@ void appendDetection(const Detection &det) {
         memcpy(debugLine + 8, row, n);
         debugLine[8 + n] = '\n';
         SerialLock lock(pdMS_TO_TICKS(200));
-        if (lock.held()) Serial.write((const uint8_t *)debugLine, 8 + n + 1);
+        if (lock.held()) serialWriteAll((const uint8_t *)debugLine, 8 + n + 1);
     }
 
     if (!sdReady) {
@@ -437,7 +437,7 @@ void loggerDebugToggle() {
         int n = snprintf(buf, sizeof(buf), "[debug] verbose mode ON\n[debug] %s\n", LOG_CSV_HEADER);
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held() && n > 0) {
-            Serial.write((const uint8_t *)buf, (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1);
+            serialWriteAll((const uint8_t *)buf, (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1);
         }
     } else {
         SerialLock lock(pdMS_TO_TICKS(200));

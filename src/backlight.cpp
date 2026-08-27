@@ -69,7 +69,7 @@ void backlightInit() {
              (unsigned long)BACKLIGHT_PWM_FREQ_HZ, (unsigned long)actualFreq);
     {
         SerialLock lock(pdMS_TO_TICKS(200));
-        if (lock.held()) Serial.println(line);
+        if (lock.held()) serialPrintln(line);
     }
     backlightSetPercent(100);
 }
@@ -84,5 +84,5 @@ void backlightSetPercent(uint8_t pct) {
     snprintf(line, sizeof(line), "[backlight] set: pct=%u brightness=%u duty=%lu/%lu",
              (unsigned)pct, (unsigned)brightness, (unsigned long)duty, (unsigned long)BACKLIGHT_PWM_MAX_DUTY);
     SerialLock lock(pdMS_TO_TICKS(200));
-    if (lock.held()) Serial.println(line);
+    if (lock.held()) serialPrintln(line);
 }

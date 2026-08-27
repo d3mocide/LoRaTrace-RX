@@ -30,6 +30,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <stddef.h>
 
 // Creates the mutex. Call once from setup(), right after Serial.begin(),
 // before any task that might print is started. Returns false if the mutex
@@ -40,6 +41,21 @@ bool serialLockInit();
 bool serialLockTake(TickType_t timeout);
 void serialLockGive();
 
+// Write the complete byte range while the serial mutex is held.  The
+// ESP32-S3 USB-CDC driver may return a short count when its TX ring is full;
+// callers must not silently discard the unwritten suffix.
+size_t serialWriteAll(const uint8_t *data, size_t length);
+
+// Convenience for the common operator-facing diagnostic shape.  The caller
+// must hold SerialLock, just as with a direct Serial.println() call.
+bool serialPrintln(const char *line);
+
+// Drains the native USB-CDC TX queue. Call only while the serial mutex is
+// held, so another task cannot enqueue a second diagnostic before the first
+// one has reached the host. The ESP32 USB-CDC driver can otherwise retain a
+// short burst in its small TX ring and return a partial write under load.
+void serialLockDrain();
+
 // Scoped lock. Always check held() before printing — losing one diagnostic
 // line to a timeout is far better than a torn one, and far better than
 // blocking indefinitely on a console nobody's reading.
@@ -47,7 +63,10 @@ class SerialLock {
   public:
     explicit SerialLock(TickType_t timeout) : held_(serialLockTake(timeout)) {}
     ~SerialLock() {
-        if (held_) serialLockGive();
+        if (held_) {
+            serialLockDrain();
+            serialLockGive();
+        }
     }
     bool held() const { return held_; }
 

@@ -314,7 +314,7 @@ bool writeProfileConfigToSD(MissionProfile profile, const ChannelParams &params,
     }
     {
         SerialLock slock(pdMS_TO_TICKS(200));
-        if (slock.held()) Serial.println(line);
+        if (slock.held()) serialPrintln(line);
     }
     return ok;
 }

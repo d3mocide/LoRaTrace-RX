@@ -325,7 +325,7 @@ void startAp() {
     snprintf(line, sizeof(line), "[wifi] AP started: %s @ %s", ssid, WIFI_AP_IP);
     {
         SerialLock lock(pdMS_TO_TICKS(200));
-        if (lock.held()) Serial.println(line);
+        if (lock.held()) serialPrintln(line);
     }
     memoryStatsLog("wifi-start-after");
 }
@@ -341,7 +341,7 @@ void stopAp() {
     apActive = false;
     {
         SerialLock lock(pdMS_TO_TICKS(200));
-        if (lock.held()) Serial.println(F("[wifi] AP stopped."));
+        if (lock.held()) serialPrintln("[wifi] AP stopped.");
     }
     memoryStatsLog("wifi-stop-after");
 }
@@ -361,7 +361,7 @@ void logClientCountChanges() {
              clients > lastClientCount ? "connected" : "disconnected", (unsigned)clients);
     {
         SerialLock lock(pdMS_TO_TICKS(200));
-        if (lock.held()) Serial.println(line);
+        if (lock.held()) serialPrintln(line);
     }
     lastClientCount = clients;
 }

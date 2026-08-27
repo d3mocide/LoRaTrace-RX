@@ -658,7 +658,7 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
           are preserved in `hardware-results/2026-08-26-run0065.md`.
           The full UI interaction pass and 800-detection combined load remain
           open, so none of the provisional stack targets is approved yet.
-  - [ ] Baseline C: 10 WiFi on/off cycles with recovery trend recorded
+  - [x] Baseline C: 10 WiFi on/off cycles with recovery trend recorded
         - **2026-08-26 partial hardware result, run0065:** stopped after
           cycle 2 exposed a repeatable lifecycle leak. Cold WiFi-off heap
           was 233952B; the first cycle settled at the expected one-time
@@ -667,14 +667,70 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
           321. Root cause: `startAp()` called `registerRoutes()` every time,
           while this Arduino `WebServer::stop()` retains its handler list.
           Route registration is now idempotent; the required 10-cycle
-          hardware retest is intentionally still open.
+          hardware retest was pending at the time of this partial result.
+        - **2026-08-26 route-fix retest, run0069: PASS.** Ten complete
+          client-free cycles on the replacement build settled at
+          217,304–217,592B free heap (217,448B final), 167,924B largest
+          block, and 20/274–277 blocks; no cumulative loss appeared and
+          `queue_drop`, `bus_miss`, and `row_drop` stayed 0. The capture is
+          retained in the ignored `hardware-results/private/` directory;
+          boot/artifact identity was not captured because the monitor
+          attached after reset.
   - [ ] Baseline D: browser polling, run listing, repeated CSV downloads,
         and settings saves with allocation checkpoints
-  - [ ] Baseline E: WiFi+GPS+SD+UI plus real RF traffic for at least 800
-        detections or 30 minutes; all data-path counters remain clean
+        - **2026-08-26 run0069 browser workload: finding, not accepted.** Ten
+          CSV transfer checkpoints and both profile settings writes completed;
+          counters stayed clean, but the first AP-off sample was 211772B /
+          159732B / 27/328 versus 217448B / 167924B / 20/276 before browser
+          traffic. One client reset produced socket-write errors. A later
+          run0070 control rose several KB during the idle tail, so the delta
+          is not yet proven persistent; repeat with a >=5-minute off-state
+          settle before accepting or rejecting D.
+        - **2026-08-26 run0076 client-only control: provisional finding.** A
+          fresh no-client AP cycle recovered to a stable 216,744B free heap
+          after five minutes; a fresh one-client/no-request cycle left about
+          211KB on the device display after the same settling interval. The
+          serial link dropped before the client-only `wifi-stop-after` sample,
+          so largest-block/block-count recovery is missing and D remains open.
+        - **2026-08-27 run0081 client-only repeat: persistent delta rejected.**
+          With the full boot identity captured (`v0.6.8`, `a24abaa`), the
+          client-only stop checkpoint was 209,592B free / 167,924B largest;
+          it recovered to 216,624B and held there for five minutes, within
+          120B of run0072's 216,744B no-client result. One late `crcerr`
+          occurred, but `qdrop`, `busmiss`, and `rowdrop` stayed 0. D's browser
+          workload is still open; the earlier 211KB reading was delayed
+          coalescing, not a persistent client leak.
+  - [x] Baseline E: WiFi+GPS+SD+UI plus real RF traffic — **operator-accepted
+        early close, run0095 (2026-08-27).** Approximately 15 minutes of one-
+        client WiFi/browser activity, live RF reception, GPS, SD, and UI held
+        current heap near 170KB with no queue or row drops. The sole
+        `busmiss=1` occurred during an operator radio-settings save and did
+        not recur; `crcerr` remained 0. The operator judged this sufficient
+        combined-load evidence and waived the matrix's nominal 30-minute/800-
+        detection duration for this cycle. Full evidence: `hardware-results/
+        2026-08-27-run0095-15min-combined-control.md`.
   - [ ] P1 task-stack right-sizing, one measured stack at a time
   - [ ] P2 WiFi lifecycle/request optimization if the baseline identifies a
         persistent off-state or request-time cost
+        - **2026-08-26 run0070 control:** a settings POST followed by an
+          explicit dashboard GET produced the same initial off-state as a
+          POST-only sequence (212480B vs 212464B; 159732B largest block), so
+          stale request arguments are not the primary cause. The off-state
+          later rose to 215856B during idle, so delayed WiFi teardown/coalescing
+          remains plausible; use a >=5-minute settle and fresh no-client versus
+          client-only controls before choosing a fix.
+        - **2026-08-26 run0072/run0076 fresh controls:** no-client AP
+          recovered to 216,744B after five minutes; one client with no
+          intentional requests left about 211KB on the display after five
+          minutes. This is a provisional ~5–6KB client-associated cost, but
+          the serial link dropped before run0076's stop checkpoint, so the
+          largest-block/block-count comparison is incomplete. P2 remains open.
+        - **2026-08-27 run0081 repeat:** the client-only heap fully recovered
+          to 216,624B after five minutes (120B below the no-client control),
+          with no persistent largest-block loss. Do not change WiFi teardown
+          or request handling based on the earlier short-window deficit; the
+          remaining P2 watch item is serial-transport truncation, not a
+          measured lifecycle leak.
   - [ ] P3 canvas alternative only if it is proven to be the limiting
         allocation; otherwise explicitly close as no-change
   - [ ] Final two-hour soak, Phase 8/9 memory budgets recorded, the
@@ -1032,3 +1088,18 @@ above) — remaining items are follow-through, in the order it's worth doing.
      rather than dug into further given the hour; if it recurs, worth
      trying an explicit `Serial.flush()` after the locked write, or a
      larger USB-CDC TX buffer, as a first mitigation to test.
+   - **2026-08-27 recurrence, run0081:** the raw capture still contained
+     malformed individual lines during the AP/client burst (`wifi-start-before`,
+     the AP-start announcement, and one client event), despite the cable being
+     stable and the software mutex held. The stop memory checkpoints and later
+     status lines were complete. Treat serial text as incomplete evidence until
+     the proposed `Serial.flush()`/TX-buffer mitigation is tested; do not infer
+     a WiFi lifecycle failure from a missing log line alone.
+   - **2026-08-27 mitigation flashed and exercised in run0095:** runtime
+     diagnostics now use a complete-write helper, the native USB-CDC TX ring
+     is 1KB (up from the 256B default), and `SerialLock` avoids the driver's
+     disconnected-queue discard path. The GPS clock line and AP start/stop
+     announcements arrived complete; long pre-operation/config lines still
+     occasionally clipped under WebServer activity, so serial text remains
+     supplemental to `session.csv` and status counters. The build is 50,348B
+     static RAM / 972,573B flash; native tests remain 91/91.

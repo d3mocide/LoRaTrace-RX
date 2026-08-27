@@ -288,6 +288,14 @@ void setup() {
     pinMode(PIN_LORA_NSS, OUTPUT);
     digitalWrite(PIN_LORA_NSS, HIGH);
 
+    // The ESP32-S3 native USB-CDC default TX ring is only 256 bytes.  Phase 7
+    // diagnostics can emit several 100+ byte lines back-to-back while WiFi
+    // starts, so give the driver enough queueing room before begin() creates
+    // its default ring.  This is a small, fixed allocation, not per-message
+    // heap churn.
+#if ARDUINO_USB_MODE && ARDUINO_USB_CDC_ON_BOOT
+    Serial.setTxBufferSize(1024);
+#endif
     Serial.begin(115200);
     unsigned long t0 = millis();
     while (!Serial && millis() - t0 < 3000) {}
@@ -534,6 +542,6 @@ void loop() {
         // enough. A held-but-lost race here just means this cycle's line is
         // skipped rather than torn; the next one is 5s away.
         SerialLock lock(pdMS_TO_TICKS(200));
-        if (lock.held()) Serial.println(line);
+        if (lock.held()) serialPrintln(line);
     }
 }

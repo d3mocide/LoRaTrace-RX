@@ -85,14 +85,17 @@ void handleSentence(const char *s) {
                 // main.cpp's [status] line, for the same reason
                 // (serial_lock.h): this races against every other task's
                 // own prints just like any other cross-core Serial write.
-                char line[80];
+                // Keep enough room for the fixed text plus the longest
+                // supported date/time fields; an 80-byte buffer silently
+                // clipped the tail of this operator-facing diagnostic.
+                char line[128];
                 snprintf(line, sizeof(line),
                          "[gps] system clock set from GPS: %u-%u-%u %u:%u UTC — SD file "
                          "timestamps are real from here.",
                          (unsigned)updated.year, (unsigned)updated.month, (unsigned)updated.day,
                          (unsigned)updated.hour, (unsigned)updated.minute);
                 SerialLock lock(pdMS_TO_TICKS(200));
-                if (lock.held()) Serial.println(line);
+                if (lock.held()) serialPrintln(line);
             }
         }
     }
