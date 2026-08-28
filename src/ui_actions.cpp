@@ -15,7 +15,7 @@
 #include "backlight.h"
 #include "display_settings.h"
 #include "logger_task.h"
-#include "low_profile.h"
+#include "serial_control.h"
 #include "profile_state.h"
 #include "radio_task.h"
 #include "ui_labels.h"
@@ -128,9 +128,9 @@ void fireMenuAction(MenuAction action) {
             }
             break;
         }
-        case MenuAction::LOW_PROFILE_TOGGLE: {
-            const bool next = !lowProfileIsEnabled();
-            lowProfileSetEnabled(next);
+        case MenuAction::SERIAL_CONTROL_TOGGLE: {
+            const bool next = !serialControlIsEnabled();
+            serialControlSetEnabled(next);
             showToast(next ? "Serial Control: ON" : "Serial Control: OFF");
             break;
         }

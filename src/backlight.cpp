@@ -5,7 +5,7 @@
 
 #include "board_pins.h"
 #include "logger_task.h"
-#include "low_profile.h"
+#include "serial_control.h"
 #include "serial_lock.h"
 
 namespace {
@@ -69,7 +69,7 @@ void backlightInit() {
     char line[64];
     snprintf(line, sizeof(line), "[backlight] init: requested %luHz, got %luHz",
              (unsigned long)BACKLIGHT_PWM_FREQ_HZ, (unsigned long)actualFreq);
-    if (loggerDebugIsEnabled() && !lowProfileIsEnabled()) {
+    if (loggerDebugIsEnabled() && !serialControlIsEnabled()) {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) serialPrintln(line);
     }
@@ -85,7 +85,7 @@ void backlightSetPercent(uint8_t pct) {
     char line[64];
     snprintf(line, sizeof(line), "[backlight] set: pct=%u brightness=%u duty=%lu/%lu",
              (unsigned)pct, (unsigned)brightness, (unsigned long)duty, (unsigned long)BACKLIGHT_PWM_MAX_DUTY);
-    if (loggerDebugIsEnabled() && !lowProfileIsEnabled()) {
+    if (loggerDebugIsEnabled() && !serialControlIsEnabled()) {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) serialPrintln(line);
     }

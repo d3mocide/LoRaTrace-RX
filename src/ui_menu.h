@@ -46,7 +46,7 @@ enum class MenuAction : uint8_t {
     WIFI_TOGGLE,
     DEBUG_TOGGLE,
     SD_RETRY,
-    LOW_PROFILE_TOGGLE,
+    SERIAL_CONTROL_TOGGLE,
     TRACE_TOGGLE,
     PROBE_TOGGLE,
     SWEEP_TOGGLE,

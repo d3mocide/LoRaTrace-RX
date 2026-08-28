@@ -926,7 +926,12 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         rename and Debug-gated periodic health/heap/backlight output landed
         2026-08-28; internal
         `lowProfile*` symbols and wire/NVS identifiers remain compatibility
-        names pending a later cleanup. STATUS now adds per-Probe CAD counts
+        names pending a later cleanup — **done, later the same day**: see
+        the Phase 9 Sweep entry above for the `serial_control.*` file/symbol
+        rename, which kept the NVS namespace/key strings and every wire
+        opcode name (including the still-`LOW_PROFILE_OFF`-named one)
+        unchanged, confirmed byte-for-byte compatible over real USB
+        afterward. STATUS now adds per-Probe CAD counts
         and a candidate-index mask for fixture correlation. The 100-cycle
         contention run measured 478.7 seconds while servicing 668 framed
         STATUS requests at a 25 ms target (4.79 seconds/cycle, no terminal
@@ -1004,12 +1009,12 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         sensitivity in that sub-band instead of silently under-reporting
         (ROADMAP.md Phase 9, DESIGN.md §7 open item)
   - [x] Serial Control USB support for Sweep: `SWEEP_START`/`SWEEP_CANCEL`
-        opcodes (`low_profile_protocol.h`/`low_profile.cpp`) mirroring
+        opcodes (`serial_control_protocol.h`/`serial_control.cpp`) mirroring
         Probe's `PROBE_START`/`PROBE_CANCEL` exactly (including the same
         `SD_REQUIRED`/`BUSY`/cancel-in-place semantics), plus `W`/`WI`/`WN`/`WP`
         compact Sweep fields added to `STATUS`'s existing response —
         terminal state, current/last bin index, total bin count, peaks
-        logged this run. Host-tested (`test_low_profile_protocol`,
+        logged this run. Host-tested (`test_serial_control_protocol`,
         round-trip coverage for both new opcodes) and hardware-verified
         2026-08-28 over real USB: `HELLO`/`STATUS` parse correctly with the
         new fields present, `SWEEP_START` returned `ACK QUEUED`, and

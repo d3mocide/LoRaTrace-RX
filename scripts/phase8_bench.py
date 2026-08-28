@@ -83,7 +83,7 @@ def main():
         transmitter = None
         try:
             # Native USB opening resets the Cardputer; its UI task must finish
-            # hardware initialization before Low Profile begins polling.
+            # hardware initialization before Serial Control begins polling.
             boot_identity = require_ack(card, "HELLO", "-", timeout=15.0)
             card.record("BOOT_CONFIRMED " + boot_identity)
             if results:

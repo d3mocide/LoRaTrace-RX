@@ -10,6 +10,28 @@ here for full history. See ROADMAP.md for phase-by-phase scope and
 src/version.h for the versioning convention (MAJOR.MINOR = phase,
 PATCH = fix with no new phase scope).
 
+- **2026-08-28 — Serial Control firmware-side rename completed.** The
+  2026-08-28 diagnostic-policy work renamed the operator-facing feature to
+  Serial Control but deliberately kept internal `lowProfile*` C++ symbols,
+  file names, and the `LowProfileOpcode`/`LowProfileFrame` types as
+  compatibility names pending a later cleanup. That cleanup is now done:
+  `src/low_profile.h`/`.cpp`/`low_profile_protocol.h` are
+  `src/serial_control.h`/`.cpp`/`serial_control_protocol.h`, every
+  `lowProfile*` function/type is `serialControl*`/`SerialControl*`, and
+  `MenuAction::LOW_PROFILE_TOGGLE` is `SERIAL_CONTROL_TOGGLE`. The actual
+  compatibility surface — the NVS namespace/key strings (`"lowprofile"`/
+  `"usb_enabled"`) and every wire opcode name, including the still-literally-
+  named `LOW_PROFILE_OFF` opcode — was deliberately left untouched, since
+  those (not the C++ symbol names) are what a reconnecting host or an
+  already-provisioned device's persisted enable-state actually depend on.
+  Verified compatible on real hardware: the exact same `HELLO`/`STATUS`
+  request produced byte-for-byte identical wire output before and after the
+  rename, and `SWEEP_START`/`SWEEP_CANCEL` (added the same session) round-
+  tripped correctly post-rename too. Host tests (132/132, including the
+  renamed `test_serial_control_protocol`) and both the production and
+  `cardputer-adv-bench` builds are unaffected — identical binary sizes to
+  the pre-rename build, as expected for a pure rename.
+
 - **2026-08-28 — Phase 8 closed as v0.8.0.** The replacement-card durable
   CSV review found stable headers, zero malformed/non-terminated rows, and
   intact Probe/session/detection records across the retained runs. The

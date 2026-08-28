@@ -10,7 +10,7 @@
 #include "energy_observation.h"
 #include "gps_task.h"
 #include "memory_stats.h"
-#include "low_profile.h"
+#include "serial_control.h"
 #include "radio_task.h"
 #include "run_log.h"
 #include "serial_lock.h"
@@ -350,7 +350,7 @@ void appendDetection(const Detection &det) {
     // line runs on Core 1 while this runs on Core 0, and even a single
     // call can be torn by another core's Serial call landing inside it
     // (see serial_lock.h) — the lock is the actual guarantee.
-    if (debugVerbose && !lowProfileIsEnabled()) {
+    if (debugVerbose && !serialControlIsEnabled()) {
         char debugLine[8 + sizeof(row) + 1]; // "[debug] " + row + '\n'
         memcpy(debugLine, "[debug] ", 8);
         memcpy(debugLine + 8, row, n);
@@ -589,7 +589,7 @@ uint32_t loggerEnergyRowsDropped() {
 
 void loggerDebugToggle() {
     debugVerbose = !debugVerbose;
-    if (debugVerbose && !lowProfileIsEnabled()) {
+    if (debugVerbose && !serialControlIsEnabled()) {
         // Column header once on enable, so the CSV-shaped lines that follow
         // are readable rather than a wall of unlabeled commas. One locked
         // Serial call — an earlier unlocked version of this exact line
@@ -600,7 +600,7 @@ void loggerDebugToggle() {
         if (lock.held() && n > 0) {
             serialWriteAll((const uint8_t *)buf, (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1);
         }
-    } else if (!lowProfileIsEnabled()) {
+    } else if (!serialControlIsEnabled()) {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) serialPrintln("[debug] verbose mode OFF");
     }

@@ -37,7 +37,7 @@
 #include "gps_task.h"
 #include "io_expander.h"
 #include "logger_task.h"
-#include "low_profile.h"
+#include "serial_control.h"
 #include "profile_state.h"
 #include "radio_task.h"
 #include "serial_lock.h"
@@ -516,7 +516,7 @@ void loop() {
     // Serial Control owns the USB console while enabled. Suppress the
     // human-readable health line there, and keep it Debug-gated otherwise so
     // an unattended device does not spend CPU/USB time on periodic noise.
-    if (lowProfileIsEnabled() || !loggerDebugIsEnabled()) {
+    if (serialControlIsEnabled() || !loggerDebugIsEnabled()) {
         delay(20);
         return;
     }

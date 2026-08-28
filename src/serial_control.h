@@ -7,6 +7,6 @@
 
 #include <stdint.h>
 
-void lowProfileSetEnabled(bool enabled);
-bool lowProfileIsEnabled();
-void lowProfilePoll();
+void serialControlSetEnabled(bool enabled);
+bool serialControlIsEnabled();
+void serialControlPoll();

@@ -21,7 +21,7 @@
 #include "board_pins.h"
 #include "display_settings.h"
 #include "keyboard.h"
-#include "low_profile.h"
+#include "serial_control.h"
 #include "memory_stats.h"
 #include "radio_task.h"
 
@@ -106,7 +106,7 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
     {"WiFi", ItemKind::ACTION, MenuAction::WIFI_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Retry SD", ItemKind::ACTION, MenuAction::SD_RETRY, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Serial Control", ItemKind::ACTION, MenuAction::LOW_PROFILE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Serial Control", ItemKind::ACTION, MenuAction::SERIAL_CONTROL_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
 };
 // Trace remains the root-level operating toggle. Probe has no duplicate menu
@@ -218,7 +218,7 @@ void uiTask(void *) {
     bool wasAnimating = false;
 
     for (;;) {
-        lowProfilePoll();
+        serialControlPoll();
         const KeyAction action = pollKeyAction();
         bool redraw = false;
 

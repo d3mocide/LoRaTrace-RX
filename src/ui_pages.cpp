@@ -16,7 +16,7 @@
 #include "detection.h"
 #include "gps_task.h"
 #include "logger_task.h"
-#include "low_profile.h"
+#include "serial_control.h"
 #include "radio_task.h"
 #include "spi_bus.h"
 #include "ui_labels.h"
@@ -576,7 +576,7 @@ const char *menuEntryValue(MenuAction action) {
         case MenuAction::WIFI_TOGGLE: return wifiIsEnabled() ? "ON" : "OFF";
         case MenuAction::DEBUG_TOGGLE: return loggerDebugIsEnabled() ? "ON" : "OFF";
         case MenuAction::SD_RETRY: return loggerSdReady() ? "READY" : "OFFLINE";
-        case MenuAction::LOW_PROFILE_TOGGLE: return lowProfileIsEnabled() ? "ON" : "OFF";
+        case MenuAction::SERIAL_CONTROL_TOGGLE: return serialControlIsEnabled() ? "ON" : "OFF";
         case MenuAction::TRACE_TOGGLE: return radioIsTracePaused() ? "STANDBY" : "ACTIVE";
         case MenuAction::PROBE_TOGGLE:
             return radioDiscoverySweepIsActive() ? "RUNNING" : "";
