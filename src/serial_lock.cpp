@@ -48,6 +48,15 @@ size_t serialWriteAll(const uint8_t *data, size_t length) {
             // endpoint-sized chunks. Without this pause, back-to-back frame
             // chunks can be acknowledged by the driver yet one whole chunk
             // is occasionally absent at the host under boot/log load.
+            // Tried Serial.flush() here instead of delay(1) on 2026-08-28
+            // (PROGRESS.md): no measured improvement against the same
+            // repro, and it risks blocking the caller — and this whole
+            // critical section — for longer if the host isn't draining.
+            // Reverted; the driver drops chunks (sometimes the first,
+            // sometimes mid/last) regardless of write pacing, so this stays
+            // a real driver-level limitation, not a timing bug software can
+            // close from this side. See serialPrintln()'s always-terminate
+            // fix for the one piece that is fixable here.
             if (written < length) delay(1);
             continue;
         }
@@ -62,9 +71,17 @@ size_t serialWriteAll(const uint8_t *data, size_t length) {
 
 bool serialPrintln(const char *line) {
     const size_t length = line != nullptr ? strlen(line) : 0;
-    if (serialWriteAll((const uint8_t *)line, length) != length) return false;
+    // Always attempt the terminator, even when the body came up short: a
+    // truncated-but-terminated line lets the host's line reader (and this
+    // protocol's CRC check) reject one bad line and resync on the next.
+    // Skipping the terminator here left a dangling open line on the wire
+    // that the following writer's bytes ran directly into, producing a
+    // single unparseable hybrid line instead of two separable ones
+    // (PROGRESS.md, 2026-08-28 STATUS-response repro).
+    const bool bodyOk = serialWriteAll((const uint8_t *)line, length) == length;
     static const uint8_t newline[] = {'\r', '\n'};
-    return serialWriteAll(newline, sizeof(newline)) == sizeof(newline);
+    const bool newlineOk = serialWriteAll(newline, sizeof(newline)) == sizeof(newline);
+    return bodyOk && newlineOk;
 }
 
 void serialLockDrain() {

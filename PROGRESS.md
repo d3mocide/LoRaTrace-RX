@@ -15,7 +15,9 @@ checklist immediately below for the live phase-by-phase state. Phase 8
 (`DISCOVERY_SWEEP`) has nominal, fault, contention, durable-output, and
 packet-bearing interoperability evidence; CAD false-rate calibration remains
 an explicit lab limitation rather than a production claim. Phase 9
-(`ENERGY_SWEEP`) is not started; Phase 10
+(`ENERGY_SWEEP`) is in progress: its data-model/schema foundation has
+landed (see the Build-order checklist below); radio-task/logger/UI
+integration has not started. Phase 10
 (Field Analyzer) is accepted as planned scope, with its v1.0 gate deferred
 until Phase 9 hardware evidence exists.
 
@@ -929,9 +931,25 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [ ] **Post-Phase-8 enhancement, not a v0.8 exit gate:** persistent custom
         candidate editing with a bounded schema/count, tuple validation,
         provenance, deduplication, and explicit device/web ownership
-- [ ] **Phase 9 — Sweep / `ENERGY_SWEEP`. Not started.** Expanded by the
-      accepted 2026-08-26 Phase 7–10 design; depends on Phase 8's proven
+- [ ] **Phase 9 — Sweep / `ENERGY_SWEEP`. In progress (2026-08-28):
+      data-model/schema foundation landed.** Expanded by the accepted
+      2026-08-26 Phase 7–10 design; depends on Phase 8's proven
       observation/recovery path and Phase 7's final memory budget.
+  - [x] Pure data-model/schema foundation: `src/energy_plan.h` (868–923MHz
+        band bounds, 250/500kHz bin-step presets, 221/111-bin counts, the
+        224-bin reserved ceiling) and `src/energy_observation.h` (compact
+        ~8B `EnergyBinStats` Pass-A working aggregate, ~28B
+        `EnergyObservation` queued/logged record kept separate from both
+        `Detection` and `ScanObservation` — the same "a CAD result is not
+        a packet" reasoning `scan_observation.h` already documents applies
+        one level down to "an energy sample is not a CAD result" — a
+        rolling noise-floor update and threshold/peak decision function,
+        and `ENERGY_CSV_HEADER`/`energyObservationFormatCsv()` for a
+        dedicated `energy.csv`), with host coverage in
+        `test/test_energy_plan/` (11 tests) and
+        `test/test_energy_observation/` (14 tests). Radio-task/logger/UI
+        integration is deliberately out of scope for this slice — see the
+        sub-items below, all still unstarted.
   - [ ] `ENERGY_SWEEP` implemented as its own top-level radio-task state,
         mutually exclusive with `HOME_LISTEN`/`DISCOVERY_SWEEP` (DESIGN.md
         §5) — frequency-binned RSSI sweep across the supported 868–923MHz
@@ -1251,6 +1269,54 @@ above) — remaining items are follow-through, in the order it's worth doing.
      occasionally clipped under WebServer activity, so serial text remains
      supplemental to `session.csv` and status counters. The build is 50,348B
      static RAM / 972,573B flash; native tests remain 91/91.
+   - **2026-08-28 repro at plain boot, no WiFi involved:** a Phase 8 smoke
+     test (fresh `pio run -e cardputer-adv` build/flash of `ce653e7`, RTS
+     reset, full boot capture) caught the GPS task's `SerialLock`-guarded
+     "system clock set from GPS" line losing its tail (`timestamps are real
+     from here.`) with `main.cpp`'s own `SerialLock`-guarded "Active
+     channel:" line starting right where it was cut off — no interleaving,
+     no newline, just a dropped tail. WiFi/WebServer was never started this
+     boot, so the WebServer-activity correlation noted in the 2026-08-27
+     mitigation entry above is not the whole story; this narrows it toward
+     genuine USB-CDC driver behavior under two back-to-back locked writes
+     rather than anything WiFi-specific. No code change made — still a
+     watch item pending the logic-analyzer-level investigation noted above.
+   - **2026-08-28 investigated against Serial Control STATUS polling
+     (Cardputer + Heltec V4R8 bench fixture, `phase8_bench.py`, 6 Probe
+     cycles across two runs):** reproduced far more frequently under rapid
+     `STATUS` polling than at boot — roughly one garbled response per
+     Probe cycle. The pattern is a truncated response (front, middle, or
+     tail all observed) with the next locked write's bytes landing directly
+     against the cut with no separator, sometimes gluing three separate
+     writes together. Two mitigations were built, flashed, and bench-tested
+     back to back and neither closed it:
+     1. `serialPrintln()` used to skip the `\r\n` terminator entirely when
+        the body write came up short, which is one clear way two writes end
+        up glued with no separator. Fixed to always attempt the terminator
+        regardless of body-write outcome (kept — real bug, if a narrower
+        contributor than the dominant one below; every call site already
+        ignored the return value, so this is safe everywhere).
+     2. Replacing `serialWriteAll()`'s inter-chunk `delay(1)` with
+        `Serial.flush()` (block until the HWCDC TX ring actually drains
+        before queuing the next chunk) made no measured difference against
+        the same repro, and sometimes the *front* of a chunk went missing
+        instead of the tail — proof this isn't a pacing/timing race
+        software can close by writing more carefully. Reverted rather than
+        keep unproven latency risk (a stalled host could now block the
+        SerialLock critical section longer than the old fixed delay).
+     Despite the frequency, every one of the 6 Probe cycles across both
+     runs completed with a clean, correct final result (`B=COMPLETE`,
+     `SD=1`, `R` advancing 1..3 per run) — the frame CRC check already
+     rejects every garbled/glued line observed, so the retry protocol
+     absorbs this correctly end to end. This is a diagnostic-text
+     reliability problem, not an operator-facing correctness one. Confirms
+     the standing conclusion: this is a genuine ESP32-S3 USB-Serial/JTAG
+     driver-level behavior (the driver reports full write success for
+     chunks that never reach the host), not something delay tuning or
+     write chunking can paper over from the application side. Still needs
+     the logic-analyzer-level investigation to actually root-cause;
+     treat serial text as supplemental to `session.csv`/`probe.csv` and
+     STATUS's own CRC-verified content, never as a reliable log on its own.
 
 9. **SD resilience and remaining contention evidence (2026-08-28).**
    v0.7.1 retains the boot-time SD mount for logger startup and removes
