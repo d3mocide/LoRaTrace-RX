@@ -114,6 +114,20 @@ void fireMenuAction(MenuAction action) {
             }
             break;
         }
+        case MenuAction::SWEEP_TOGGLE: {
+            // Same non-blocking radio-task-owned shape as Probe above. No
+            // dedicated result page yet (Phase 9 slice 2) — the toast plus
+            // ui_task.cpp's async-completion toast are the only feedback.
+            const bool cancelling = radioEnergySweepIsActive();
+            if (!cancelling && !loggerSdReady()) {
+                showToast("Sweep: SD REQUIRED");
+            } else if (radioRequestEnergySweep()) {
+                showToast(cancelling ? "Sweep: CANCEL" : "Sweep: START");
+            } else {
+                showToast("Sweep: UNAVAILABLE");
+            }
+            break;
+        }
         case MenuAction::LOW_PROFILE_TOGGLE: {
             const bool next = !lowProfileIsEnabled();
             lowProfileSetEnabled(next);

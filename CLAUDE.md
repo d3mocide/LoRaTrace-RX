@@ -166,9 +166,13 @@ output, and a real packet-bearing Meshtastic interoperability run. The
 statistical CAD false/miss matrix remains an explicit post-Phase-8 lab
 follow-up because the available bench cannot provide a known-quiet RF
 control. Transient mode is post-Phase-8 scope. Phase 9
-(`ENERGY_SWEEP`) is in progress: its pure data-model/schema foundation
-(`energy_plan.h`/`energy_observation.h`) has landed; radio-task/logger/UI
-integration has not. Phase 10 (Field Analyzer, including bounded radio-owned Scope
+(`ENERGY_SWEEP`) is in progress: its Pass-A acquisition engine is
+hardware-verified end-to-end (real `energy.csv` peak rows spanning the full
+868–923MHz band, zero queue drops, clean home-restore across repeated
+sweeps), with a known finding that the placeholder noise-floor margin is
+too permissive (65% of bins logged as peaks) and needs real calibration.
+Pass B (CAD at peaks), a dedicated UI page, and low-profile wiring have not
+started. Phase 10 (Field Analyzer, including bounded radio-owned Scope
 acquisition) is accepted as planned scope; whether it gates v1.0 remains an
 explicit decision after Phase 9 hardware evidence exists.
 

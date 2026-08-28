@@ -137,6 +137,18 @@ constexpr uint8_t KEY_RAW_5_PRESS = 25;
 // shortcut: ui_task.cpp starts/cancels the bounded action from any UI state.
 constexpr uint8_t KEY_RAW_P_PRESS = 52;
 
+// S: physical (row 2, col 3) per RetroBreeze's cardputer-keyboard-reference
+// `_key_value_map[4][14]` (row 2: {FN}{SHF}{'a'}{'s'}...) — same source this
+// whole file already cites. Cross-checked before trusting it for a new key:
+// that same table's row 1/col 10 is 'p', matching this file's own already
+// bench-confirmed KEY_RAW_P_PRESS=52 exactly. Inverting the documented
+// formula (t=col>>1=1, topbit=col&1=1, u=((topbit<<2)|row)+1=7, K=t*10+u=17)
+// gives 17; checked by re-running the forward formula back to (row 2, col 3).
+// Global Sweep shortcut, same shape as P/Probe above. Sourced but **not yet
+// bench-confirmed on real hardware** — same bar as every other newly-added
+// key in this file before its own bench pass.
+constexpr uint8_t KEY_RAW_S_PRESS = 17;
+
 enum class KeyAction {
     NONE,
     // ',' or ';' (Fn-arrow "left"/"up") — previous status page (carousel) /
@@ -169,12 +181,13 @@ enum class KeyAction {
     JUMP_4,
     JUMP_5,
     PROBE,
+    SWEEP,
 };
 
 // Maps one raw TCA8418 event byte to a KeyAction. Deliberately an allowlist:
-// only the twelve press bytes above resolve to anything — every release
-// event (including these twelve keys' own) and all other keys on the board
-// return NONE. That's what keeps this safe despite covering only twelve of
+// only the thirteen press bytes above resolve to anything — every release
+// event (including these thirteen keys' own) and all other keys on the board
+// return NONE. That's what keeps this safe despite covering only thirteen of
 // the board's 56 keys: there's no "unknown key does something surprising"
 // case, only "known key does its one thing" or "ignored."
 inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
@@ -191,6 +204,7 @@ inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
         case KEY_RAW_4_PRESS: return KeyAction::JUMP_4;
         case KEY_RAW_5_PRESS: return KeyAction::JUMP_5;
         case KEY_RAW_P_PRESS: return KeyAction::PROBE;
+        case KEY_RAW_S_PRESS: return KeyAction::SWEEP;
         default: return KeyAction::NONE;
     }
 }

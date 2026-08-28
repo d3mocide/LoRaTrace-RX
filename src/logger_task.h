@@ -37,15 +37,18 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+#include "energy_observation.h"
 #include "scan_observation.h"
 
 // Starts the task on Core 0. `queue` supplies Detections from the radio
-// task and `scanQueue` supplies fixed CAD observations from Probe.
+// task, `scanQueue` supplies fixed CAD observations from Probe, and
+// `energyQueue` supplies fixed energy-peak observations from Sweep.
 // `initialSdMounted` is the boot-time config reader's mount result: when it
 // is true, the logger adopts that already-working mount rather than tearing
 // it down and immediately remounting it. Returns false if the task could
 // not be created.
-bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, bool initialSdMounted);
+bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, QueueHandle_t energyQueue,
+                     bool initialSdMounted);
 
 // True once SD is mounted and the log file is writable. When false the
 // task keeps draining the queue and discarding — a missing card must not
@@ -74,6 +77,8 @@ uint32_t loggerMaxSessionMs(); // worst HEALTH-row bus hold. Tracked apart
 uint32_t loggerSessionRows();  // health rows committed to this run's session.csv
 uint32_t loggerScanRowsWritten();
 uint32_t loggerScanRowsDropped();
+uint32_t loggerEnergyRowsWritten();
+uint32_t loggerEnergyRowsDropped();
 
 // This power-on's run index, or 0 before SD has mounted. Matches the
 // runNNNN directory the logs are being written into.

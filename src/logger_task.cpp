@@ -7,6 +7,7 @@
 #include "battery.h"
 #include "board_pins.h"
 #include "detection.h"
+#include "energy_observation.h"
 #include "gps_task.h"
 #include "memory_stats.h"
 #include "low_profile.h"
@@ -24,12 +25,14 @@ constexpr const char *LOG_DIR = "/loratrace";
 constexpr const char *DETECTIONS_LEAF = "detections.csv";
 constexpr const char *SESSION_LEAF = "session.csv";
 constexpr const char *PROBE_LEAF = "probe.csv";
+constexpr const char *ENERGY_LEAF = "energy.csv";
 
 // Resolved once, on the first successful mount of this power-on.
 uint16_t runIndex = 0;
 char detectionsPath[RUN_PATH_MAX];
 char sessionPath[RUN_PATH_MAX];
 char probePath[RUN_PATH_MAX];
+char energyPath[RUN_PATH_MAX];
 
 // ~2KB holds roughly 15-20 rows. Sized to keep a single flush short (see
 // the header): bigger buffers mean longer bus holds, which is exactly the
@@ -55,6 +58,7 @@ constexpr TickType_t BUS_WAIT = pdMS_TO_TICKS(2000);
 
 QueueHandle_t detectionQueue = nullptr;
 QueueHandle_t scanObservationQueue = nullptr;
+QueueHandle_t energyObservationQueue = nullptr;
 bool sdReady = false;
 bool initialSdMounted = false;
 volatile bool sdRetryRequested = false;
@@ -78,6 +82,9 @@ volatile uint32_t maxSessionMs = 0;
 volatile uint32_t maxScanMs = 0;
 volatile uint32_t scanRowsWritten = 0;
 volatile uint32_t scanRowsDropped = 0;
+volatile uint32_t maxEnergyMs = 0;
+volatile uint32_t energyRowsWritten = 0;
+volatile uint32_t energyRowsDropped = 0;
 
 // Highest runNNNN index already on the card, or 0 if there are none.
 // Assumes the caller holds the bus and SD is mounted.
@@ -155,6 +162,9 @@ bool openLogsLocked(bool remount) {
         if (runFilePath(probePath, sizeof(probePath), LOG_DIR, runIndex, PROBE_LEAF) == 0) {
             return false;
         }
+        if (runFilePath(energyPath, sizeof(energyPath), LOG_DIR, runIndex, ENERGY_LEAF) == 0) {
+            return false;
+        }
     }
 
     if (!ensureCsvLocked(detectionsPath, LOG_CSV_HEADER)) return false;
@@ -164,6 +174,10 @@ bool openLogsLocked(bool remount) {
     // Probe observations are durable mission output when a Probe is run.
     // Creating the empty file at boot keeps the run directory schema stable.
     if (!ensureCsvLocked(probePath, SCAN_CSV_HEADER)) return false;
+    // Same durability tier as probePath: Sweep is mission output too, and
+    // DESIGN.md requires a durable scan to refuse starting if its output
+    // file cannot be opened.
+    if (!ensureCsvLocked(energyPath, ENERGY_CSV_HEADER)) return false;
     return true;
 }
 
@@ -293,6 +307,8 @@ void writeSessionRow(const char *reason) {
     s.probe_failures = radioDiscoveryFailureCount();
     s.probe_recoveries = radioDiscoveryRecoveryCount();
     s.probe_last_away_ms = radioDiscoveryLastAwayMs();
+    s.energy_observations = radioEnergyObservationCount();
+    s.energy_observation_drops = radioEnergyObservationDropCount() + loggerEnergyRowsDropped();
 
     char timestamp[24];
     detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
@@ -395,6 +411,43 @@ void appendScanObservation(const ScanObservation &observation) {
     }
 }
 
+// Sweep peak observations are deliberately a separate queue and file, same
+// reasoning as appendScanObservation() above: not a packet, must never
+// change RX/log counters.
+void appendEnergyObservation(const EnergyObservation &observation) {
+    if (!sdReady) {
+        energyRowsDropped++;
+        return;
+    }
+
+    GpsFix fix;
+    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
+    const uint32_t now = millis();
+    const bool fresh = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+
+    char timestamp[24];
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+                             fix.month, fix.day, fix.hour, fix.minute, fix.second);
+
+    char row[256];
+    const size_t n = energyObservationFormatCsv(
+        observation, row, sizeof(row), timestamp, fresh, fix.lat, fix.lon,
+        haveFix ? fix.fix_quality : 0, runIndex);
+    if (n == 0) {
+        energyRowsDropped++;
+        return;
+    }
+    row[n] = '\n';
+
+    const WriteResult result = appendToFile(energyPath, row, n + 1, maxEnergyMs);
+    if (result == WriteResult::OK) {
+        energyRowsWritten++;
+    } else {
+        energyRowsDropped++;
+        if (result == WriteResult::FILE_ERROR) sdReady = false;
+    }
+}
+
 void loggerTask(void *) {
     memoryStatsRegisterCurrentTask(MemoryTask::LOGGER);
     // The config reader mounted the card a moment ago during setup(). Keep
@@ -424,6 +477,15 @@ void loggerTask(void *) {
             ScanObservation observation;
             if (xQueueReceive(scanObservationQueue, &observation, 0) == pdTRUE) {
                 appendScanObservation(observation);
+            }
+        }
+
+        // Sweep peak observations, same non-blocking drain shape as Probe's
+        // above — a separate queue and file, never packet detections.
+        if (energyObservationQueue != nullptr) {
+            EnergyObservation observation;
+            if (xQueueReceive(energyObservationQueue, &observation, 0) == pdTRUE) {
+                appendEnergyObservation(observation);
             }
         }
 
@@ -463,9 +525,11 @@ void loggerTask(void *) {
 
 } // namespace
 
-bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, bool mountedAtBoot) {
+bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, QueueHandle_t energyQueue,
+                     bool mountedAtBoot) {
     detectionQueue = queue;
     scanObservationQueue = scanQueue;
+    energyObservationQueue = energyQueue;
     initialSdMounted = mountedAtBoot;
     sdReady = false;
     sdRetryRequested = false;
@@ -515,6 +579,12 @@ uint32_t loggerScanRowsWritten() {
 }
 uint32_t loggerScanRowsDropped() {
     return scanRowsDropped;
+}
+uint32_t loggerEnergyRowsWritten() {
+    return energyRowsWritten;
+}
+uint32_t loggerEnergyRowsDropped() {
+    return energyRowsDropped;
 }
 
 void loggerDebugToggle() {

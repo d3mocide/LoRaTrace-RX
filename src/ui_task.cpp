@@ -212,6 +212,9 @@ void uiTask(void *) {
     uint32_t lastProbeRunSeen = radioDiscoverySweepCount();
     uint32_t lastProbeCancelSeen = radioDiscoveryCancelCount();
     uint32_t lastProbeFailureSeen = radioDiscoveryFailureCount();
+    uint32_t lastEnergyRunSeen = radioEnergySweepCount();
+    uint32_t lastEnergyCancelSeen = radioEnergyCancelCount();
+    uint32_t lastEnergyFailureSeen = radioEnergyFailureCount();
     bool wasAnimating = false;
 
     for (;;) {
@@ -268,11 +271,38 @@ void uiTask(void *) {
             redraw = true;
         }
 
+        // Same async-completion-toast shape as Probe's block above, for
+        // Sweep. No dedicated result page to jump to yet (Phase 9 slice 2).
+        const uint32_t energyRuns = radioEnergySweepCount();
+        if (energyRuns != lastEnergyRunSeen) {
+            lastEnergyRunSeen = energyRuns;
+            const bool energyFailed = radioEnergyFailureCount() != lastEnergyFailureSeen;
+            const bool energyCancelled = radioEnergyCancelCount() != lastEnergyCancelSeen;
+            lastEnergyFailureSeen = radioEnergyFailureCount();
+            lastEnergyCancelSeen = radioEnergyCancelCount();
+            char energyMsg[48];
+            if (energyFailed) {
+                snprintf(energyMsg, sizeof(energyMsg), "Sweep: FAILED %d", radioLastError());
+            } else if (energyCancelled) {
+                snprintf(energyMsg, sizeof(energyMsg), "Sweep: CANCELLED");
+            } else {
+                snprintf(energyMsg, sizeof(energyMsg), "Sweep: DONE %u peaks in %lums",
+                         (unsigned)radioEnergyPeakCount(), (unsigned long)radioEnergyLastAwayMs());
+            }
+            showToast(energyMsg);
+            redraw = true;
+        }
+
         // P is deliberately global rather than card- or menu-scoped: it is
         // the one hard shortcut for the bounded Probe start/cancel action.
         // showProbeResults() closes any open menu after an accepted request.
         if (action == KeyAction::PROBE) {
             fireMenuAction(MenuAction::PROBE_TOGGLE);
+            redraw = true;
+        } else if (action == KeyAction::SWEEP) {
+            // Same global-shortcut shape as P/Probe — works from any UI
+            // state, no dedicated card to jump to (toast-only feedback).
+            fireMenuAction(MenuAction::SWEEP_TOGGLE);
             redraw = true;
         } else if (!menu.isOpen()) {
             // Carousel: page navigation is this file's own concern, not

@@ -15,9 +15,12 @@ checklist immediately below for the live phase-by-phase state. Phase 8
 (`DISCOVERY_SWEEP`) has nominal, fault, contention, durable-output, and
 packet-bearing interoperability evidence; CAD false-rate calibration remains
 an explicit lab limitation rather than a production claim. Phase 9
-(`ENERGY_SWEEP`) is in progress: its data-model/schema foundation has
-landed (see the Build-order checklist below); radio-task/logger/UI
-integration has not started. Phase 10
+(`ENERGY_SWEEP`) is in progress: its Pass-A acquisition engine is
+hardware-verified end-to-end (real `energy.csv` peak rows, full-band
+coverage, zero queue drops — see the Build-order checklist below), with a
+known placeholder-margin calibration finding still open. Pass B (CAD at
+peaks), a dedicated result page, and low-profile wiring have not started.
+Phase 10
 (Field Analyzer) is accepted as planned scope, with its v1.0 gate deferred
 until Phase 9 hardware evidence exists.
 
@@ -932,7 +935,7 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         candidate editing with a bounded schema/count, tuple validation,
         provenance, deduplication, and explicit device/web ownership
 - [ ] **Phase 9 — Sweep / `ENERGY_SWEEP`. In progress (2026-08-28):
-      data-model/schema foundation landed.** Expanded by the accepted
+      Pass-A acquisition engine hardware-verified.** Expanded by the accepted
       2026-08-26 Phase 7–10 design; depends on Phase 8's proven
       observation/recovery path and Phase 7's final memory budget.
   - [x] Pure data-model/schema foundation: `src/energy_plan.h` (868–923MHz
@@ -947,23 +950,54 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         and `ENERGY_CSV_HEADER`/`energyObservationFormatCsv()` for a
         dedicated `energy.csv`), with host coverage in
         `test/test_energy_plan/` (11 tests) and
-        `test/test_energy_observation/` (14 tests). Radio-task/logger/UI
-        integration is deliberately out of scope for this slice — see the
-        sub-items below, all still unstarted.
-  - [ ] `ENERGY_SWEEP` implemented as its own top-level radio-task state,
-        mutually exclusive with `HOME_LISTEN`/`DISCOVERY_SWEEP` (DESIGN.md
-        §5) — frequency-binned RSSI sweep across the supported 868–923MHz
-        range, with bounded timeout/recovery and guaranteed Watch restore
+        `test/test_energy_observation/` (14 tests).
+  - [x] `ENERGY_SWEEP` implemented as its own top-level radio-task state
+        (`performEnergySweep()`, radio_task.cpp), mutually exclusive with
+        `HOME_LISTEN`/`DISCOVERY_SWEEP` in both directions, retuning across
+        every bin (reusing the home channel's own SF/BW/CR/sync — a
+        deliberate placeholder, not a dedicated scan modem config),
+        4 RSSI samples/bin via RadioLib's `getRSSI(false)` (confirmed
+        instantaneous, not last-packet, from RadioLib source), bench-fault
+        hooks at retune/home-restore reused from Probe, and guaranteed
+        Watch restore on every exit path. Wired end-to-end through
+        `main.cpp`/`logger_task.cpp` to a durable `energy.csv` (hard SD
+        requirement, same tier as `probe.csv`), plus a minimal hardware
+        trigger — a new global `S` keyboard shortcut (`KeyAction::SWEEP`,
+        raw byte 17, sourced from RetroBreeze's keymap the same way `P`
+        was) with toast-only start/cancel/done feedback. No dedicated
+        result page, low-profile opcode, or `session.csv` run-level Sweep
+        columns yet (`energy_observations`/`energy_observation_drops`
+        cumulative totals are logged; `sweep_runs` etc. are not).
+        **Hardware-verified 2026-08-28**, run0034: the `S` key fired
+        correctly on the first real bench press (keycode derivation
+        confirmed), two back-to-back sweeps completed cleanly in the same
+        power-on (258 total peak rows), spanned the full 868.500–923.000MHz
+        range end to end, `energy_observation_drops=0` in `session.csv`
+        (queue never backed up), modem params matched the home MeshOregon
+        tuple (SF8/BW125/CR4:5/sync 0x2b) on every row as designed, and
+        `detections.csv` shows real Meshtastic RX both immediately before
+        the sweep and via the still-correct home channel after — indirect
+        but solid evidence `restoreHomeListen()` succeeded, since the
+        second sweep's own retune-from-home only works if the first
+        sweep's restore actually landed. **Finding, not yet acted on:**
+        144/221 bins (65%) were logged as peaks — the placeholder 100
+        (10dB) margin against a 4-sample-per-bin floor is far more
+        permissive than DESIGN.md's "only peaks, sparse" intent describes;
+        this is the concrete number the already-planned real-hardware
+        margin calibration (research/LoRaTrace-Phases-7-10-Design.md §7.3)
+        needs to fix, not a structural bug — the engine, schema, and
+        pipeline are all confirmed correct.
   - [ ] Two-pass acquisition: bounded energy statistics first, then LoRa CAD
         only at measured peaks, operator-selected bins, or a sparse sourced
-        SF/BW subset
+        SF/BW subset — Pass A only so far, see above
   - [ ] A CAD hit away from a known Meshtastic/MeshCore channel is labeled
         `unknown LoRa candidate`, never promoted to Reticulum without stronger
         evidence; energy alone is never labeled LoRa
-  - [ ] Rolling-noise-floor threshold filtering for `ENERGY_SWEEP` data
-        before logging — DESIGN.md §8.1 already specifies *why* (log peaks
-        only, or the card fills fast for near-zero value) but the actual
-        threshold logic doesn't exist yet
+  - [x] Rolling-noise-floor threshold filtering for `ENERGY_SWEEP` data
+        before logging exists and is hardware-verified end-to-end (see
+        above) — DESIGN.md §8.1's "log peaks only" is implemented, but the
+        margin constant needs the calibration pass noted above before the
+        rate is trustworthy for anything beyond "the pipeline works"
   - [ ] 923–928MHz front-end rolloff characterized via an empirical RSSI
         noise-floor sweep, so the UI/docs can be honest about reduced
         sensitivity in that sub-band instead of silently under-reporting

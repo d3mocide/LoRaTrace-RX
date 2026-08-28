@@ -7,6 +7,7 @@
 #include "board_pins.h"
 #include "bench_fault.h"
 #include "discovery_plan.h"
+#include "energy_plan.h"
 #include "memory_stats.h"
 #include "spi_bus.h"
 
@@ -56,6 +57,19 @@ volatile uint16_t discoveryCadDetectedMask = 0;
 volatile uint16_t discoveryCadTimeoutCount = 0;
 volatile uint16_t discoveryErrorCount = 0;
 
+// Sweep (ENERGY_SWEEP, Phase 9) mirrors Probe's one-slot-mailbox-plus-
+// cancellation-flag shape exactly — see the discovery* block above. Mutual
+// exclusion with Probe is enforced in radioRequestEnergySweep()/
+// radioRequestDiscoverySweep(), not here.
+QueueHandle_t energySweepQueue = nullptr;
+QueueHandle_t energyObservationQueue = nullptr;
+volatile bool energyActive = false;
+volatile bool energyCancelRequested = false;
+volatile uint16_t energyBinIndex = 0;
+volatile uint16_t energyTotalBins = 0;
+volatile EnergySweepState energyState = EnergySweepState::IDLE;
+volatile uint16_t energyPeakCount = 0;
+
 int lastError = RADIOLIB_ERR_NONE;
 
 volatile uint32_t packetCount = 0;
@@ -71,6 +85,14 @@ volatile uint32_t discoveryFailureCount = 0;
 volatile uint32_t discoveryRecoveryCount = 0;
 volatile uint32_t discoveryLastAwayMs = 0;
 
+volatile uint32_t energyObservationCount = 0;
+volatile uint32_t energyObservationDropCount = 0;
+volatile uint32_t energySweepCount = 0;
+volatile uint32_t energyCancelCount = 0;
+volatile uint32_t energyFailureCount = 0;
+volatile uint32_t energyRecoveryCount = 0;
+volatile uint32_t energyLastAwayMs = 0;
+
 // How long the radio task waits for the shared SPI bus. Generous enough to
 // ride out a normal SD flush, short enough that a wedged logger can't take
 // the receiver down with it. On timeout the packet is dropped and RX keeps
@@ -78,6 +100,12 @@ volatile uint32_t discoveryLastAwayMs = 0;
 constexpr TickType_t BUS_WAIT = pdMS_TO_TICKS(250);
 constexpr uint32_t DISCOVERY_CAD_TIMEOUT_MS = 300;
 constexpr uint32_t DISCOVERY_RX_WINDOW_MS = 2500;
+// Placeholders pending real calibration (energy_observation.h carries the
+// same caveat for the noise-floor margin/divisor): 4 samples spaced 1ms
+// apart per bin keeps a full 221-bin sweep in the few-second range Probe's
+// own CAD sweep already established as a reasonable bounded-scan duration.
+constexpr uint8_t ENERGY_SAMPLES_PER_BIN = 4;
+constexpr uint32_t ENERGY_SAMPLE_INTERVAL_MS = 1;
 
 uint8_t discoveryCadSymbolConfig() {
     switch (benchCadSymbols()) {
@@ -189,6 +217,46 @@ void enqueueScanObservation(const DiscoveryCandidate &candidate, uint8_t candida
 
 bool discoveryAbortPending() {
     if (discoveryCancelRequested) return true;
+    if (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) return true;
+    if (pauseQueue != nullptr && uxQueueMessagesWaiting(pauseQueue) > 0) return true;
+    return false;
+}
+
+// A threshold-filtered peak only — Pass A never enqueues a non-peak bin
+// (DESIGN.md §8.1: "don't dump every sweep point, only peaks"). `wifi_on`
+// is hardcoded false: a real WiFi-state getter is a later slice's concern
+// (this task has no WiFi dependency today and shouldn't grow one just to
+// answer this field).
+void enqueueEnergyObservation(uint16_t binIndex, const ChannelParams &channel,
+                              const EnergyBinStats &stats) {
+    EnergyObservation observation;
+    observation.rx_millis = millis();
+    observation.freq_mhz = energyBinFrequencyMhz(binIndex, ENERGY_SWEEP_DEFAULT_STEP);
+    observation.bw_khz_x10 = (uint16_t)(channel.bw_khz * 10.0f + 0.5f);
+    observation.bin_step_khz = energyBinStepKhz(ENERGY_SWEEP_DEFAULT_STEP);
+    observation.rssi_avg_dbm_x10 = stats.rssi_avg_dbm_x10;
+    observation.rssi_peak_dbm_x10 = stats.rssi_peak_dbm_x10;
+    observation.radio_status = 0;
+    observation.profile = (uint8_t)activeProfile;
+    observation.bin_index = (uint8_t)binIndex;
+    observation.sf = channel.sf;
+    observation.cr_denom = channel.cr_denom;
+    observation.sync_word = channel.sync_word;
+    observation.sample_count = stats.sample_count;
+    observation.result = EnergyObservationResult::ENERGY_PEAK;
+    observation.packet_metadata_present = false;
+    observation.wifi_on = false;
+
+    energyPeakCount++;
+    energyObservationCount++;
+    if (energyObservationQueue == nullptr ||
+        xQueueSend(energyObservationQueue, &observation, 0) != pdTRUE) {
+        energyObservationDropCount++;
+    }
+}
+
+bool energyAbortPending() {
+    if (energyCancelRequested) return true;
     if (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) return true;
     if (pauseQueue != nullptr && uxQueueMessagesWaiting(pauseQueue) > 0) return true;
     return false;
@@ -453,6 +521,133 @@ void performDiscoverySweep() {
     discoveryActive = false;
 }
 
+// Pass A only (DESIGN.md §7.2): bounded RSSI sweep across every frequency
+// bin, threshold-filtered peaks logged, home restored on every exit path.
+// Pass B (selective CAD at peaks) is a later slice — see energy_observation.h's
+// EnergyObservationResult comment for why its enum has no CAD outcomes yet.
+void performEnergySweep() {
+    if (energyActive || discoveryActive) return;
+
+    energyActive = true;
+    energyState = EnergySweepState::RUNNING;
+    energyCancelRequested = false;
+    const uint32_t awayStarted = millis();
+    const ChannelParams homeChannel = activeChannel;
+    const MissionProfile homeProfile = activeProfile;
+    const uint16_t totalBins = energyBinCount(ENERGY_SWEEP_DEFAULT_STEP);
+    energyBinIndex = 0;
+    energyTotalBins = totalBins;
+    energyPeakCount = 0;
+    bool aborted = false;
+    bool failed = false;
+    // Rolling noise floor (energy_observation.h): seeded from bin 0's own
+    // average rather than an arbitrary constant, since there is no prior
+    // floor to compare against yet. Bin 0 is never itself logged as a peak.
+    int16_t noiseFloor = 0;
+    bool haveFloor = false;
+
+    // A notification may be left by the home RX IRQ that woke the task to
+    // service the Sweep request — same reasoning as Probe's own discard.
+    ulTaskNotifyTake(pdTRUE, 0);
+
+    for (uint16_t bin = 0; bin < totalBins; bin++) {
+        if (energyAbortPending()) {
+            aborted = true;
+            break;
+        }
+        energyBinIndex = bin;
+
+        if (applyBenchFault(BenchFaultPoint::BEFORE_RETUNE, nullptr, 0, aborted, failed)) {
+            break;
+        }
+
+        const float freq = energyBinFrequencyMhz(bin, ENERGY_SWEEP_DEFAULT_STEP);
+        int beginState;
+        {
+            SpiBusLock lock(BUS_WAIT);
+            if (!lock.held()) {
+                busMissCount++;
+                failed = true;
+                break;
+            }
+            // Sweep is protocol-agnostic energy measurement, not a decode
+            // attempt — reusing the home channel's own SF/BW/CR/sync keeps
+            // this slice simple; a dedicated wide-BW scan config is a
+            // future calibration decision, not a correctness requirement.
+            beginState = radio.begin(freq, homeChannel.bw_khz, homeChannel.sf,
+                                     homeChannel.cr_denom, homeChannel.sync_word);
+            if (beginState == RADIOLIB_ERR_NONE) beginState = radio.startReceive();
+        }
+        if (beginState != RADIOLIB_ERR_NONE) {
+            lastError = beginState;
+            failed = true;
+            break;
+        }
+
+        if (applyBenchFault(BenchFaultPoint::AFTER_RETUNE, nullptr, 0, aborted, failed)) {
+            break;
+        }
+
+        EnergyBinStats stats;
+        for (uint8_t s = 0; s < ENERGY_SAMPLES_PER_BIN; s++) {
+            float rssi = 0.0f;
+            bool gotSample = false;
+            {
+                SpiBusLock lock(BUS_WAIT);
+                if (lock.held()) {
+                    rssi = radio.getRSSI(false); // instantaneous, not last-packet
+                    gotSample = true;
+                } else {
+                    busMissCount++;
+                }
+            }
+            if (gotSample) {
+                const int16_t fixed = energyRssiDbmToFixed(rssi);
+                energyBinStatsAddSample(stats, fixed);
+                if (haveFloor) {
+                    energyBinStatsNoteOccupancy(stats, energyExceedsFloor(fixed, noiseFloor));
+                }
+            }
+            if (s + 1 < ENERGY_SAMPLES_PER_BIN) vTaskDelay(pdMS_TO_TICKS(ENERGY_SAMPLE_INTERVAL_MS));
+        }
+
+        if (!haveFloor) {
+            noiseFloor = stats.rssi_avg_dbm_x10;
+            haveFloor = true;
+        } else {
+            // Decide against the floor as it stood *before* this bin, then
+            // fold this bin's average in — so a strong bin can't drag its
+            // own floor upward and mask itself (energy_observation.h's own
+            // noted concern).
+            if (energyBinIsPeak(stats, noiseFloor)) {
+                enqueueEnergyObservation(bin, homeChannel, stats);
+            }
+            noiseFloor = energyNoiseFloorUpdate(noiseFloor, stats.rssi_avg_dbm_x10);
+        }
+    }
+
+    const bool requestPending =
+        (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) ||
+        (pauseQueue != nullptr && uxQueueMessagesWaiting(pauseQueue) > 0);
+    ulTaskNotifyTake(pdTRUE, 0);
+    applyBenchFault(BenchFaultPoint::HOME_RESTORE_BEFORE, nullptr, 0, aborted, failed);
+    const bool restored = restoreHomeListen(homeChannel, homeProfile);
+    applyBenchFault(BenchFaultPoint::HOME_RESTORE_AFTER, nullptr, 0, aborted, failed);
+    if (requestPending && radioTaskHandle != nullptr) xTaskNotifyGive(radioTaskHandle);
+    if (!restored) failed = true;
+
+    energySweepCount++;
+    if (aborted || energyCancelRequested) energyCancelCount++;
+    if (failed) energyFailureCount++;
+    if (restored) energyRecoveryCount++;
+    energyLastAwayMs = millis() - awayStarted;
+    energyState = failed ? EnergySweepState::FAILED
+                         : (aborted || energyCancelRequested ? EnergySweepState::CANCELLED
+                                                              : EnergySweepState::COMPLETE);
+    energyCancelRequested = false;
+    energyActive = false;
+}
+
 void radioTask(void *) {
     memoryStatsRegisterCurrentTask(MemoryTask::RADIO);
     uint8_t buf[256];
@@ -523,6 +718,12 @@ void radioTask(void *) {
             continue;
         }
 
+        bool energyReq;
+        if (energySweepQueue != nullptr && xQueueReceive(energySweepQueue, &energyReq, 0) == pdTRUE) {
+            if (energyReq && !paused) performEnergySweep();
+            continue;
+        }
+
         if (paused) {
             // Nothing else to do while asleep — DIO1 can't fire, and the
             // liveness branch above already skips re-arming.
@@ -557,12 +758,13 @@ void radioTask(void *) {
 
 bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
                     const ProfileOverrides &overrides, QueueHandle_t queue,
-                    QueueHandle_t scanQueue) {
+                    QueueHandle_t scanQueue, QueueHandle_t energyQueue) {
     activeChannel = channel;
     activeProfile = profile;
     activeOverrides = overrides;
     detectionQueue = queue;
     scanObservationQueue = scanQueue;
+    energyObservationQueue = energyQueue;
 
     // Depth-1 mailbox for radioRequestProfileSwitch(). Created here, not
     // lazily, so a switch request right after boot can't race a
@@ -575,6 +777,9 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
 
     discoveryQueue = xQueueCreate(1, sizeof(bool));
     if (discoveryQueue == nullptr) return false;
+
+    energySweepQueue = xQueueCreate(1, sizeof(bool));
+    if (energySweepQueue == nullptr) return false;
 
     {
         SpiBusLock lock(portMAX_DELAY);
@@ -708,7 +913,9 @@ bool radioRequestDiscoverySweep() {
         xTaskNotifyGive(radioTaskHandle);
         return true;
     }
-    if (tracePaused) return false;
+    // Mutually exclusive with Sweep (DESIGN.md §5) — neither can preempt
+    // the other; see radioRequestEnergySweep()'s matching guard.
+    if (tracePaused || energyActive) return false;
     const bool start = true;
     xQueueOverwrite(discoveryQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -717,4 +924,66 @@ bool radioRequestDiscoverySweep() {
 
 bool radioDiscoverySweepIsActive() {
     return discoveryActive;
+}
+
+bool radioRequestEnergySweep() {
+    if (radioTaskHandle == nullptr || energySweepQueue == nullptr) return false;
+    if (energyActive) {
+        energyCancelRequested = true;
+        xTaskNotifyGive(radioTaskHandle);
+        return true;
+    }
+    if (tracePaused || discoveryActive) return false;
+    const bool start = true;
+    xQueueOverwrite(energySweepQueue, &start);
+    xTaskNotifyGive(radioTaskHandle);
+    return true;
+}
+
+bool radioEnergySweepIsActive() {
+    return energyActive;
+}
+
+uint16_t radioEnergyBinIndex() {
+    return energyBinIndex;
+}
+
+uint16_t radioEnergyBinCount() {
+    return energyTotalBins;
+}
+
+uint16_t radioEnergyPeakCount() {
+    return energyPeakCount;
+}
+
+EnergySweepState radioEnergySweepState() {
+    return energyState;
+}
+
+uint32_t radioEnergyObservationCount() {
+    return energyObservationCount;
+}
+
+uint32_t radioEnergyObservationDropCount() {
+    return energyObservationDropCount;
+}
+
+uint32_t radioEnergySweepCount() {
+    return energySweepCount;
+}
+
+uint32_t radioEnergyCancelCount() {
+    return energyCancelCount;
+}
+
+uint32_t radioEnergyFailureCount() {
+    return energyFailureCount;
+}
+
+uint32_t radioEnergyRecoveryCount() {
+    return energyRecoveryCount;
+}
+
+uint32_t radioEnergyLastAwayMs() {
+    return energyLastAwayMs;
 }

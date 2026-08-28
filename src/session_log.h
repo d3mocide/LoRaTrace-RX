@@ -118,6 +118,11 @@ struct SessionStats {
     // repeated in every scan observation.
     uint32_t scan_observations = 0;
     uint32_t scan_observation_drops = 0;
+    // Phase 9 Sweep peak totals. No sweep_runs/sweep_cancels/etc. columns
+    // yet — those follow once Sweep has an operator-facing surface worth
+    // trending, same as probe_* below did after Probe's own landed.
+    uint32_t energy_observations = 0;
+    uint32_t energy_observation_drops = 0;
     uint32_t probe_runs = 0;
     uint32_t probe_cancels = 0;
     uint32_t probe_timeouts = 0;
@@ -136,7 +141,9 @@ constexpr const char *SESSION_CSV_HEADER =
     "gps_max_loop_gap_ms,gps_oversize_drops,"
     "heap_largest,heap_free_blocks,heap_allocated_blocks,"
     "radio_stack_free,gps_stack_free,ui_stack_free,wifi_stack_free,"
-    "scan_observations,scan_observation_drops,probe_runs,probe_cancels,"
+    "scan_observations,scan_observation_drops,"
+    "energy_observations,energy_observation_drops,"
+    "probe_runs,probe_cancels,"
     "probe_timeouts,probe_failures,probe_recoveries,probe_last_away_ms";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
@@ -168,7 +175,9 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%lu,%lu,%lu,%lu,%lu,%s,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%u,"
                      "%lu,%lu,"
-                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu",
+                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
+                     "%lu,%lu,%lu,%lu,"
+                     "%lu,%lu,%lu,%lu,%lu,%lu",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -206,6 +215,8 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.wifi_stack_free,
                      (unsigned long)s.scan_observations,
                      (unsigned long)s.scan_observation_drops,
+                     (unsigned long)s.energy_observations,
+                     (unsigned long)s.energy_observation_drops,
                      (unsigned long)s.probe_runs,
                      (unsigned long)s.probe_cancels,
                      (unsigned long)s.probe_timeouts,

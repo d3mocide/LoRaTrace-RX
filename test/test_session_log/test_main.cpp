@@ -65,6 +65,10 @@ static SessionStats healthySample() {
     s.wifi_stack_free = 5000;
     s.scan_observations = 12;
     s.scan_observation_drops = 1;
+    // Distinct nonzero values, same reasoning as the gps_max_loop_gap_ms/
+    // gps_oversize_drops pair below: catches a swapped-argument bug.
+    s.energy_observations = 6;
+    s.energy_observation_drops = 4;
     s.probe_runs = 2;
     s.probe_cancels = 1;
     s.probe_timeouts = 8;
@@ -93,7 +97,7 @@ void test_row_with_fix_carries_position_and_counters() {
         "912,17,0,0,"
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7,"
-        "18,0,200000,19,155,3000,2200,2100,5000,12,1,2,1,8,0,2,1900",
+        "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900",
         row);
 }
 
@@ -208,7 +212,7 @@ void test_phase7_memory_diagnostics_are_the_last_columns() {
     SessionStats s = healthySample();
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
-    const char *suffix = "200000,19,155,3000,2200,2100,5000,12,1,2,1,8,0,2,1900";
+    const char *suffix = "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }

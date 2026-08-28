@@ -21,11 +21,13 @@
 
 #include "channel_plans.h"
 #include "detection.h"
+#include "energy_observation.h"
 #include "scan_observation.h"
 
 // Starts the SX1262 on `channel`/`profile` and launches the task on Core 1.
-// `queue` receives Detection structs and `scanQueue` receives fixed CAD
-// observations; both must outlive the task. `overrides`
+// `queue` receives Detection structs, `scanQueue` receives fixed CAD
+// observations, and `energyQueue` receives fixed energy-peak observations
+// from Sweep; all three must outlive the task. `overrides`
 // is the per-profile SD/web config main.cpp already loaded (config.h) —
 // copied in and held for the task's lifetime so a later
 // radioRequestProfileSwitch() resolves each profile's *current* override
@@ -37,7 +39,7 @@
 // receiver has nothing to do.
 bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
                     const ProfileOverrides &overrides, QueueHandle_t queue,
-                    QueueHandle_t scanQueue);
+                    QueueHandle_t scanQueue, QueueHandle_t energyQueue);
 
 // Last RadioLib error code from begin()/startReceive() — including a live
 // profile switch's own begin() call, so a failed switch is visible the same
@@ -100,6 +102,43 @@ uint16_t radioDiscoveryCadDetectedCount();
 uint16_t radioDiscoveryCadDetectedMask();
 uint16_t radioDiscoveryCadTimeoutCount();
 uint16_t radioDiscoveryErrorCount();
+
+// Starts a bounded Pass-A energy sweep (Phase 9, DESIGN.md §5's
+// `ENERGY_SWEEP`): the radio task retunes across every frequency bin
+// (energy_plan.h), samples RSSI, and logs threshold-filtered peaks to a
+// separate fixed queue/file (energy_observation.h) — never CAD, never a
+// packet. Mutually exclusive with Probe: refuses while a Probe is active,
+// and radioRequestDiscoverySweep() likewise refuses while a Sweep is
+// active. Calling it while a sweep is active requests cancellation, same
+// convention as radioRequestDiscoverySweep().
+bool radioRequestEnergySweep();
+bool radioEnergySweepIsActive();
+uint16_t radioEnergyBinIndex();
+uint16_t radioEnergyBinCount();
+// Peaks logged during the most recent sweep (resets to 0 at the start of
+// each run) — distinct from the cumulative radioEnergyObservationCount()
+// below.
+uint16_t radioEnergyPeakCount();
+
+// Same terminal-state shape as DiscoverySweepState, kept as its own type:
+// Sweep and Probe are different operations even though both resolve to
+// one of these five outcomes.
+enum class EnergySweepState : uint8_t {
+    IDLE,
+    RUNNING,
+    COMPLETE,
+    CANCELLED,
+    FAILED,
+};
+EnergySweepState radioEnergySweepState();
+
+uint32_t radioEnergyObservationCount();
+uint32_t radioEnergyObservationDropCount();
+uint32_t radioEnergySweepCount();
+uint32_t radioEnergyCancelCount();
+uint32_t radioEnergyFailureCount();
+uint32_t radioEnergyRecoveryCount();
+uint32_t radioEnergyLastAwayMs();
 
 // --- Diagnostics -------------------------------------------------------
 // Exposed because Phase 2's exit criterion is "no dropped packets
