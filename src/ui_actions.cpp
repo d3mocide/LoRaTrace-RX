@@ -89,6 +89,21 @@ void fireMenuAction(MenuAction action) {
             showToast(pausing ? "Trace: STANDBY" : "Trace: ACTIVE");
             break;
         }
+        case MenuAction::PROBE_TOGGLE: {
+            // Probe is a radio-task-owned bounded sweep. The request is
+            // non-blocking; selecting it again while active asks that task
+            // to cancel and restore Watch before it returns to RX.
+            const bool cancelling = radioDiscoverySweepIsActive();
+            if (!cancelling && !loggerSdReady()) {
+                showToast("Probe: SD REQUIRED");
+            } else if (radioRequestDiscoverySweep()) {
+                showToast(cancelling ? "Probe: CANCEL" : "Probe: START");
+                showProbeResults();
+            } else {
+                showToast("Probe: UNAVAILABLE");
+            }
+            break;
+        }
         case MenuAction::BRIGHTNESS_UP:
         case MenuAction::BRIGHTNESS_DOWN: {
             // Live-applied every step, like scrubbing any real slider —

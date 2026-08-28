@@ -326,6 +326,14 @@ measurement cycle so gains and regressions remain attributable.
 
 **Operator label:** Probe.
 
+**Implementation status:** bounded acquisition slice started 2026-08-27. The
+source-backed, versioned fixed candidate-plan layer is documented in
+`research/phase8-discovery-research.md` and implemented in
+`src/discovery_plan.h`; radio-owned CAD/receive-on-hit, observation queues,
+durable Probe output, and the menu trigger are now implemented. Hardware
+validation, transient mode, and deterministic cancellation/fault coverage
+remain open. This is not a phase-complete release.
+
 **Deliverable:** a bounded-duration, radio-task-owned CAD sweep of a curated
 candidate list per active profile — non-default Meshtastic slots and sourced
 legacy MeshCore tuples. Every complete, cancel, timeout, and failure path

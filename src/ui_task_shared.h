@@ -91,3 +91,4 @@ constexpr uint8_t IDLE_TIMEOUT_OPTION_COUNT = 5;
 void drawHeader();                      // ui_pages.cpp  — called by ui_task.cpp's fullRedraw()
 void drawPage();                        // ui_pages.cpp  — called by ui_task.cpp's fullRedraw()
 void fireMenuAction(MenuAction action); // ui_actions.cpp — called by ui_task.cpp's main loop
+void showProbeResults();                // ui_task.cpp — closes menu onto the Probe page

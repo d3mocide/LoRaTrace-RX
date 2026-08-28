@@ -10,6 +10,28 @@ here for full history. See ROADMAP.md for phase-by-phase scope and
 src/version.h for the versioning convention (MAJOR.MINOR = phase,
 PATCH = fix with no new phase scope).
 
+- **2026-08-27 — Phase 8 research/foundation slice started.** Added
+  `research/phase8-discovery-research.md` and the pure, fixed
+  `src/discovery_plan.h` candidate layer with host coverage. Meshtastic
+  candidates use the upstream bandwidth-specific slot formula; ShortTurbo is
+  excluded because its US centre is outside the Cap's supported band. Only
+  source-backed MeshCore tuples are included; legacy coding-rate guesses stay
+  out. No version bump yet: bounded radio acquisition and hardware gates are
+  not complete.
+
+- **2026-08-27 — Phase 8 bounded Probe acquisition slice added.** Added a
+  radio-task-owned, deadline-bounded CAD/receive-on-hit sweep using the fixed
+  candidate plans, explicit two-symbol CAD, home-configuration restoration,
+  cancellation/recovery counters, and a separate fixed `ScanObservation`
+  queue. Probe observations are stamped by the logger into durable
+  `probe.csv`, cumulative totals append to `session.csv`, and the global P-key
+  shortcut plus Enter on the Probe card expose start/cancel; Enter on the
+  Radio card toggles Trace. An explicit `WATCH PAUSED` display state and a
+  retained second-card results page keep a short successful scan visible.
+  Native tests pass 100/100 and the final
+  Cardputer-Adv build succeeds at 50,492 bytes RAM and 978,489 bytes flash;
+  no version bump or hardware claim is made until the RF/recovery gates run.
+
 
 - **2026-08-12** — Board id: used `esp32-s3-devkitc-1` in `platformio.ini`.
   No dedicated PlatformIO board definition for Cardputer-Adv was found;

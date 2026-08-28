@@ -49,6 +49,7 @@ const char *pageName(UiPage p) {
         case UiPage::CHANNEL: return "CHANNEL";
         case UiPage::GPS: return "GPS";
         case UiPage::SYSTEM: return "SYSTEM";
+        case UiPage::PROBE: return "PROBE";
         default: return "?";
     }
 }
@@ -153,7 +154,7 @@ void statBlock(int16_t x, int16_t y, const char *label, const char *value, uint1
 }
 
 void drawRadioPage() {
-    const uint32_t drops = radioQueueDropCount() + loggerRowsDropped();
+    const uint32_t drops = radioQueueDropCount() + loggerRowsDropped() + loggerScanRowsDropped();
     char buf[16];
 
     // Left column — the three numbers an operator checks first.
@@ -180,14 +181,27 @@ void drawRadioPage() {
     uiTft->print("drop ");
     uiTft->print(drops);
 
-    // STANDBY banner (Trace pause/standby, System menu): rx/log/drop above
+    // STANDBY/Probe banner (Radio menu): rx/log/drop above
     // stay as real frozen totals rather than being replaced — the thing
     // that must not be ambiguous is "is the radio actually listening right
     // now," not the counters themselves, which are still meaningful while
     // paused. Sits in the gap between the hero column and the bottom flush
     // band, which RADIO's layout otherwise leaves empty (unlike GPS/SYSTEM,
     // which use it for their own secondary content).
-    if (radioIsTracePaused()) {
+    if (radioDiscoverySweepIsActive()) {
+        const uint8_t current = radioDiscoveryCandidateIndex();
+        const uint8_t total = radioDiscoveryCandidateCount();
+        uiTft->setTextSize(2);
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 66);
+        uiTft->print("PROBE ");
+        uiTft->print(current);
+        uiTft->print('/');
+        uiTft->print(total);
+        uiTft->setTextSize(1);
+        uiTft->setCursor(2, HEADER_H + 86);
+        uiTft->print("WATCH PAUSED");
+    } else if (radioIsTracePaused()) {
         uiTft->setTextSize(2);
         uiTft->setTextColor(COL_WARN, COL_BG);
         uiTft->setCursor(2, HEADER_H + 66);
@@ -218,6 +232,79 @@ void drawRadioPage() {
     uiTft->print("  max ");
     uiTft->print(loggerMaxFlushMs());
     uiTft->print("ms");
+}
+
+void drawProbePage() {
+    const DiscoverySweepState state = radioDiscoverySweepState();
+    const uint8_t done = radioDiscoveryCandidateIndex();
+    const uint8_t total = radioDiscoveryCandidateCount();
+    const uint16_t hits = radioDiscoveryCadDetectedCount();
+    const uint16_t free = radioDiscoveryCadFreeCount();
+    const uint16_t timeouts = radioDiscoveryCadTimeoutCount();
+    const uint16_t errors = radioDiscoveryErrorCount();
+
+    uiTft->setTextSize(2);
+    uiTft->setCursor(2, HEADER_H + 8);
+    if (state == DiscoverySweepState::IDLE) {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print("NO PROBE YET");
+        uiTft->setTextSize(1);
+        uiTft->setCursor(2, HEADER_H + 34);
+        uiTft->print("P / Enter to run Probe");
+        return;
+    }
+
+    const bool running = state == DiscoverySweepState::RUNNING;
+    const uint16_t colour = state == DiscoverySweepState::FAILED
+                                ? COL_BAD
+                                : (running || state == DiscoverySweepState::CANCELLED ? COL_WARN : COL_GOOD);
+    uiTft->setTextColor(colour, COL_BG);
+    if (running) {
+        uiTft->print("SCANNING");
+    } else if (state == DiscoverySweepState::COMPLETE) {
+        uiTft->print("COMPLETE");
+    } else if (state == DiscoverySweepState::CANCELLED) {
+        uiTft->print("CANCELLED");
+    } else {
+        uiTft->print("FAILED");
+    }
+
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 31);
+    if (running) {
+        uiTft->print("watch paused  ");
+        uiTft->print(done);
+        uiTft->print('/');
+        uiTft->print(total);
+    } else {
+        uiTft->print("targets ");
+        uiTft->print(done);
+        uiTft->print('/');
+        uiTft->print(total);
+        uiTft->print("  away ");
+        uiTft->print(radioDiscoveryLastAwayMs());
+        uiTft->print("ms");
+    }
+
+    char value[10];
+    snprintf(value, sizeof(value), "%u", (unsigned)hits);
+    statBlock(2, HEADER_H + 52, "cad hit", value, hits == 0 ? COL_DIM : COL_WARN);
+    snprintf(value, sizeof(value), "%u", (unsigned)free);
+    statBlock(80, HEADER_H + 52, "free", value);
+    snprintf(value, sizeof(value), "%u", (unsigned)timeouts);
+    statBlock(156, HEADER_H + 52, "timeout", value, timeouts == 0 ? COL_DIM : COL_WARN);
+    snprintf(value, sizeof(value), "%u", (unsigned)errors);
+    statBlock(2, HEADER_H + 80, "errors", value, errors == 0 ? COL_GOOD : COL_BAD);
+    if (state == DiscoverySweepState::FAILED) {
+        snprintf(value, sizeof(value), "%d", radioLastError());
+        statBlock(80, HEADER_H + 80, "radio", value, COL_BAD);
+    } else {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(80, HEADER_H + 89);
+        uiTft->print("CAD hit = activity");
+    }
+
 }
 
 // Track + marker, not a fill bar — frequency is a *position* within the
@@ -487,11 +574,11 @@ const char *menuEntryValue(MenuAction action) {
             return radioActiveProfile() == MissionProfile::MESHCORE ? "ACTIVE" : "";
         case MenuAction::WIFI_TOGGLE: return wifiIsEnabled() ? "ON" : "OFF";
         case MenuAction::DEBUG_TOGGLE: return loggerDebugIsEnabled() ? "ON" : "OFF";
+        case MenuAction::TRACE_TOGGLE: return radioIsTracePaused() ? "STANDBY" : "ACTIVE";
+        case MenuAction::PROBE_TOGGLE:
+            return radioDiscoverySweepIsActive() ? "RUNNING" : "";
         case MenuAction::IDLE_TIMEOUT_CYCLE: return IDLE_TIMEOUT_OPTIONS[idleTimeoutIndex].label;
-        // TRACE_TOGGLE has no case here: it's a root-level ACTION row whose
-        // live state is rendered directly below rather than through this
-        // ACTION-only lookup. BRIGHTNESS_UP/DOWN aren't ACTION rows at all
-        // (SLIDER kind) so never reach this function.
+        // BRIGHTNESS_UP/DOWN aren't ACTION rows, so they never reach here.
         default: return "";
     }
 }
@@ -505,12 +592,7 @@ void drawMenuList() {
     for (uint8_t i = 0; i < count; i++) {
         const MenuItem &item = list[i];
         char label[24];
-        if (item.action == MenuAction::TRACE_TOGGLE) {
-            // "Trace: Active"/"Trace: Standby" — colon format, consistent
-            // with Profile/Brightness's own live-value rows.
-            snprintf(label, sizeof(label), "Trace: %s", radioIsTracePaused() ? "STANDBY" : "ACTIVE");
-            drawMenuRow(HEADER_H + 10 + i * 24, label, nullptr, menu.currentIndex() == i);
-        } else if (item.kind == ItemKind::SLIDER) {
+        if (item.kind == ItemKind::SLIDER) {
             // Brightness is the only SLIDER row today, so this reaches
             // straight for activeBrightnessPercent rather than being fully
             // generic — revisit if a second slider is added.
@@ -634,6 +716,7 @@ void drawPage() {
             case UiPage::CHANNEL: drawChannelPage(); break;
             case UiPage::GPS: drawGpsPage(); break;
             case UiPage::SYSTEM: drawSystemPage(); break;
+            case UiPage::PROBE: drawProbePage(); break;
             default: break;
         }
     }

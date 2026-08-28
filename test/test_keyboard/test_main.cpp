@@ -3,7 +3,7 @@
 // unrelated key on the board fire a menu action. Runs on the host (`pio test
 // -e native`), no hardware needed — see platformio.ini [env:native].
 //
-// The eleven raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
+// The twelve raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
 // backtick/ESC, and five digit-jump keys) are the ones keyboard.h derives
 // and cites; this test doesn't re-derive them, it pins them so a future
 // edit can't silently drift off the sourced values.
@@ -59,6 +59,10 @@ void test_digits_are_jumps() {
     TEST_ASSERT_TRUE(KeyAction::JUMP_5 == keyboardDecodeEvent(KEY_RAW_5_PRESS));
 }
 
+void test_p_is_probe_shortcut() {
+    TEST_ASSERT_TRUE(KeyAction::PROBE == keyboardDecodeEvent(KEY_RAW_P_PRESS));
+}
+
 // Actions fire on press only. A release event is the press byte + 0x80
 // (Adafruit_TCA8418::getEvent()'s own documented encoding) — must decode to
 // NONE, or releasing any of these keys would silently repeat whatever its
@@ -75,13 +79,14 @@ void test_release_events_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_3_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_4_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_5_PRESS + 0x80));
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_P_PRESS + 0x80));
 }
 
-// The allowlist property that makes covering only 11 of the board's 56 keys
+// The allowlist property that makes covering only 12 of the board's 56 keys
 // safe: everything else must resolve to NONE, not something surprising.
 // These three raw values are 'q' (physical row1,col1 -> K=6), 'a' (row2,
 // col2 -> K=13), and Space (row3,col13 -> K=68) — derived the same way
-// keyboard.h derives its eleven, from mapRawKeyToPhysical()'s formula and
+// keyboard.h derives its twelve, from mapRawKeyToPhysical()'s formula and
 // RetroBreeze's _key_value_map, picked to span different rows/cols from the
 // keys actually in the allowlist (including '6'-'9'/'0', the rest of the
 // digit row the five jump keys don't use).
@@ -114,6 +119,7 @@ int main(int, char **) {
     RUN_TEST(test_esc_is_back);
     RUN_TEST(test_backspace_is_no_longer_mapped);
     RUN_TEST(test_digits_are_jumps);
+    RUN_TEST(test_p_is_probe_shortcut);
     RUN_TEST(test_release_events_are_ignored);
     RUN_TEST(test_unrelated_keys_are_ignored);
     RUN_TEST(test_zero_is_no_event);

@@ -11,8 +11,8 @@
 
 namespace {
 
-// Mirrors the real ui_task.cpp table shape as of the 2026-08-25 Display-
-// nesting revision: Trace(ACTION) / Profile(GROUP) / System(GROUP: WiFi,
+// Mirrors the real ui_task.cpp table shape as of the Phase 8 Probe revision:
+// Trace(ACTION) / Profile(GROUP) / System(GROUP: WiFi,
 // Debug, Display(GROUP: Brightness(SLIDER), Idle dim(ACTION))). Without
 // depending on ui_task.cpp itself, so this test exercises the same
 // structure production code uses — including the one place nesting two
@@ -34,7 +34,7 @@ constexpr MenuItem kSystemGroup[] = {
 };
 
 constexpr MenuItem kRoots[] = {
-    {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Trace:", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, kProfileGroup, 2},
     {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, kSystemGroup, 3},
 };
@@ -72,8 +72,6 @@ void test_root_next_prev_wrap() {
 }
 
 void test_select_trace_root_fires_directly() {
-    // index 0 == "Trace" — the one ACTION root row in production: fires
-    // immediately on SELECT, depth stays at 1.
     MenuState menu(kRoots, kRootCount);
     menu.open();
     const MenuAction fired = menu.handle(KeyAction::SELECT);
@@ -109,8 +107,9 @@ void test_nested_group_opens_one_level_deeper() {
     // generalization exists for.
     MenuState menu(kRoots, kRootCount);
     menu.open();
-    menu.handle(KeyAction::NEXT);   // "Profile"
-    menu.handle(KeyAction::NEXT);   // "System"
+    menu.handle(KeyAction::NEXT);
+    menu.handle(KeyAction::NEXT);
+    // "System"
     menu.handle(KeyAction::SELECT); // enter System's list
     TEST_ASSERT_EQUAL_UINT8(2, menu.depth());
     menu.handle(KeyAction::NEXT); // "Debug"

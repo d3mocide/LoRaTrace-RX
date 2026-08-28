@@ -67,6 +67,9 @@ src/
   [x] display_settings.h / .cpp  # brightness + idle-dim timeout, persisted to /loratrace/display.txt, separate from config.h's channel-override scope
   --- added during phase 7, not in the original proposal ---
   [x] memory_stats.h / .cpp      # internal heap fragmentation + all-task stack telemetry
+  --- added during phase 8 foundation, not in the original proposal ---
+  [x] discovery_plan.h           # fixed, source-backed candidate tuples
+  [x] scan_observation.h         # fixed CAD result record + probe.csv formatter
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native
   [x] test_detection/            # queue-record + CSV, fixtures are REAL captured packets
@@ -155,8 +158,10 @@ backlight control, and persistence for display settings and last-active
 profile (Phase 6), plus measured Phase 7 heap/stack budgets, soak, and the
 validated CSV-download watchdog fix. The strict same-build repetition
 criterion was explicitly waived for this cycle and is recorded in
-PROGRESS.md. Phase 8 (`DISCOVERY_SWEEP`) and Phase 9 (`ENERGY_SWEEP`) are
-not started. Phase 10 (Field Analyzer, including bounded radio-owned Scope
+PROGRESS.md. Phase 8 has started with a source-backed, fixed candidate-plan
+and bounded radio-acquisition slice; hardware evidence, transient mode, and
+deterministic cancellation coverage remain open. Phase 9
+(`ENERGY_SWEEP`) is not started. Phase 10 (Field Analyzer, including bounded radio-owned Scope
 acquisition) is accepted as planned scope; whether it gates v1.0 remains an
 explicit decision after Phase 9 hardware evidence exists.
 

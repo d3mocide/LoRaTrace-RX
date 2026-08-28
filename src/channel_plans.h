@@ -67,7 +67,7 @@ constexpr ChannelParams CHANNEL_MESHTASTIC_LONGFAST_US = {
     .freq_mhz = 906.875f,
     .sf = 11,
     .bw_khz = 250.0f,
-    .cr_denom = 8,
+    .cr_denom = 5,
     .sync_word = SYNC_WORD_MESHTASTIC,
 };
 

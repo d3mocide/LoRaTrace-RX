@@ -13,7 +13,7 @@ void test_meshtastic_longfast_in_tuned_band() {
     TEST_ASSERT_TRUE(CHANNEL_MESHTASTIC_LONGFAST_US.freq_mhz <= 923.0f);
     TEST_ASSERT_EQUAL_UINT8(11, CHANNEL_MESHTASTIC_LONGFAST_US.sf);
     TEST_ASSERT_EQUAL_FLOAT(250.0f, CHANNEL_MESHTASTIC_LONGFAST_US.bw_khz);
-    TEST_ASSERT_EQUAL_UINT8(8, CHANNEL_MESHTASTIC_LONGFAST_US.cr_denom);
+    TEST_ASSERT_EQUAL_UINT8(5, CHANNEL_MESHTASTIC_LONGFAST_US.cr_denom);
 }
 
 // The sync word is a hardware RX filter — a wrong value means hearing

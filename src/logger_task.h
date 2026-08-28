@@ -2,7 +2,8 @@
 // LoRaTrace RX — logger task (Core 0).
 //
 // Dequeues Detections, stamps each with the newest GPS fix, and writes them
-// to SD in batches per DESIGN.md §2/§8.
+// to SD in batches per DESIGN.md §2/§8. Probe observations are written to a
+// separate durable file so CAD-only activity never masquerades as a packet.
 //
 // Batching is the core design decision here, and it's about bus time, not
 // throughput. SD and the SX1262 share one physical bus (spi_bus.h), and an
@@ -23,7 +24,7 @@
 // mean packets frequently arrive in pairs milliseconds apart (PROGRESS.md
 // 2026-08-23), so back-to-back RX is the common case, not the rare one.
 //
-// This task writes two files, both inside THIS RUN's own directory —
+// This task writes three files, all inside THIS RUN's own directory —
 // /loratrace/runNNNN/ (run_log.h). One wardrive is one folder, so a drive
 // can be copied, shared or deleted as a unit instead of being carved out of
 // one ever-growing file:
@@ -31,13 +32,17 @@
 //   session.csv    — one health row a minute (session_log.h), so an
 //                    unattended run leaves evidence of whether it held up
 //                    instead of only evidence of what it heard
+//   probe.csv      — one bounded CAD observation per Probe candidate
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+#include "scan_observation.h"
+
 // Starts the task on Core 0. `queue` supplies Detections from the radio
-// task. Returns false if the task could not be created.
-bool loggerTaskStart(QueueHandle_t queue);
+// task and `scanQueue` supplies fixed CAD observations from Probe. Returns
+// false if the task could not be created.
+bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue);
 
 // True once SD is mounted and the log file is writable. When false the
 // task keeps draining the queue and discarding — a missing card must not
@@ -57,6 +62,8 @@ uint32_t loggerMaxSessionMs(); // worst HEALTH-row bus hold. Tracked apart
                                // for evidence that batching needs retuning.
                                // Worst hold overall = max of the two.
 uint32_t loggerSessionRows();  // health rows committed to this run's session.csv
+uint32_t loggerScanRowsWritten();
+uint32_t loggerScanRowsDropped();
 
 // This power-on's run index, or 0 before SD has mounted. Matches the
 // runNNNN directory the logs are being written into.

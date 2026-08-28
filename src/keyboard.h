@@ -2,7 +2,7 @@
 // LoRaTrace RX — keyboard input decode (Phase 5).
 //
 // Turns a raw TCA8418 event byte (Adafruit_TCA8418::getEvent()) into one of
-// four navigation actions, for the on-device menu (ui_task.cpp). Pure logic,
+// recognized UI actions for the on-device menu (ui_task.cpp). Pure logic,
 // no Arduino dependency, so it's host-testable (pio test -e native) same as
 // detection.h/gps_parse.h.
 //
@@ -133,6 +133,10 @@ constexpr uint8_t KEY_RAW_4_PRESS = 21;
 // '5': physical (row 0, col 5) -> t=2, u=5 -> K=25.
 constexpr uint8_t KEY_RAW_5_PRESS = 25;
 
+// P: physical (row 1, col 10) -> t=5, u=2 -> K=52. It is the global Probe
+// shortcut: ui_task.cpp starts/cancels the bounded action from any UI state.
+constexpr uint8_t KEY_RAW_P_PRESS = 52;
+
 enum class KeyAction {
     NONE,
     // ',' or ';' (Fn-arrow "left"/"up") — previous status page (carousel) /
@@ -142,10 +146,10 @@ enum class KeyAction {
     // '.' or '/' (Fn-arrow "down"/"right") — next status page (carousel) /
     // move selection down (menu). Same two-keys-one-action pattern as PREV.
     NEXT,
-    // Enter — no-op in the carousel; activate/commit the highlighted
-    // selection in the menu. Used to also open the menu from the carousel
-    // until bench feedback 2026-08-24 moved that onto BACK/ESC instead (see
-    // below) — Enter's role narrowed to "act on what's already open."
+    // Enter — activate/commit the highlighted selection in the menu. In the
+    // carousel it toggles Trace on RADIO and starts/cancels Probe on PROBE;
+    // it remains a no-op on the other status cards. It does not open the
+    // menu (BACK/ESC does that).
     SELECT,
     // Backtick/ESC — open the menu (carousel) / return to the carousel
     // (menu). Same key both opens and closes it, ui_task.cpp picks the
@@ -155,7 +159,7 @@ enum class KeyAction {
     BACK,
     // '1'-'5' — jump straight to that carousel page (carousel mode only).
     // Numbered to match UiPage's declared order 1:1 (ui_task.h): 1=RADIO,
-    // 2=CHANNEL, 3=GPS, 4=SYSTEM, 5=WIFI. Kept as plain, separately-named
+    // 2=PROBE, 3=CHANNEL, 4=GPS, 5=SYSTEM. Kept as plain, separately-named
     // actions rather than one "JUMP + index" action so this header stays
     // free of any dependency on ui_task.h's UiPage enum — ui_task.cpp does
     // the index mapping itself.
@@ -164,12 +168,13 @@ enum class KeyAction {
     JUMP_3,
     JUMP_4,
     JUMP_5,
+    PROBE,
 };
 
 // Maps one raw TCA8418 event byte to a KeyAction. Deliberately an allowlist:
-// only the eleven press bytes above resolve to anything — every release
-// event (including these eleven keys' own) and all other keys on the board
-// return NONE. That's what keeps this safe despite covering only eleven of
+// only the twelve press bytes above resolve to anything — every release
+// event (including these twelve keys' own) and all other keys on the board
+// return NONE. That's what keeps this safe despite covering only twelve of
 // the board's 56 keys: there's no "unknown key does something surprising"
 // case, only "known key does its one thing" or "ignored."
 inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
@@ -185,6 +190,7 @@ inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
         case KEY_RAW_3_PRESS: return KeyAction::JUMP_3;
         case KEY_RAW_4_PRESS: return KeyAction::JUMP_4;
         case KEY_RAW_5_PRESS: return KeyAction::JUMP_5;
+        case KEY_RAW_P_PRESS: return KeyAction::PROBE;
         default: return KeyAction::NONE;
     }
 }

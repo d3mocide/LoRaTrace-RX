@@ -113,6 +113,17 @@ struct SessionStats {
     uint32_t gps_stack_free = 0;
     uint32_t ui_stack_free = 0;
     uint32_t wifi_stack_free = 0;
+
+    // Phase 8 Probe totals. These stay cumulative here rather than being
+    // repeated in every scan observation.
+    uint32_t scan_observations = 0;
+    uint32_t scan_observation_drops = 0;
+    uint32_t probe_runs = 0;
+    uint32_t probe_cancels = 0;
+    uint32_t probe_timeouts = 0;
+    uint32_t probe_failures = 0;
+    uint32_t probe_recoveries = 0;
+    uint32_t probe_last_away_ms = 0;
 };
 
 // Column order for each run's session.csv. One string so the header row and
@@ -124,7 +135,9 @@ constexpr const char *SESSION_CSV_HEADER =
     "nmea,nmea_bad_crc,heap_free,heap_min,batt_mv,logger_stack_free,run,"
     "gps_max_loop_gap_ms,gps_oversize_drops,"
     "heap_largest,heap_free_blocks,heap_allocated_blocks,"
-    "radio_stack_free,gps_stack_free,ui_stack_free,wifi_stack_free";
+    "radio_stack_free,gps_stack_free,ui_stack_free,wifi_stack_free,"
+    "scan_observations,scan_observation_drops,probe_runs,probe_cancels,"
+    "probe_timeouts,probe_failures,probe_recoveries,probe_last_away_ms";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
 // detectionFormatTimestamp() the detection rows use, and is empty before
@@ -155,7 +168,7 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%lu,%lu,%lu,%lu,%lu,%s,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%u,"
                      "%lu,%lu,"
-                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu",
+                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -190,7 +203,15 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.radio_stack_free,
                      (unsigned long)s.gps_stack_free,
                      (unsigned long)s.ui_stack_free,
-                     (unsigned long)s.wifi_stack_free);
+                     (unsigned long)s.wifi_stack_free,
+                     (unsigned long)s.scan_observations,
+                     (unsigned long)s.scan_observation_drops,
+                     (unsigned long)s.probe_runs,
+                     (unsigned long)s.probe_cancels,
+                     (unsigned long)s.probe_timeouts,
+                     (unsigned long)s.probe_failures,
+                     (unsigned long)s.probe_recoveries,
+                     (unsigned long)s.probe_last_away_ms);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

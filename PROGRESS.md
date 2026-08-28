@@ -8,11 +8,13 @@ source, `DESIGN.md` is the "why" source. Don't let them drift.
 
 **Note, 2026-08-25 doc pass:** this section is Phase 0/1 history, kept as
 written per this file's own convention of not rewriting past entries. For
-what's actually true today: **v0.7.0, Phases 0-7 complete**, with the
+what's actually true today: **v0.7.0, Phases 0-7 complete and Phase 8
+bounded acquisition work started**, with the
 measured device budgets and soak recorded below. See
 CLAUDE.md's Status section for the running narrative, or the Build-order
 checklist immediately below for the live phase-by-phase state. Phase 8
-(`DISCOVERY_SWEEP`) and Phase 9 (`ENERGY_SWEEP`) are not started; Phase 10
+(`DISCOVERY_SWEEP`) has a host/build-verified radio acquisition slice but no
+hardware behavior evidence yet; Phase 9 (`ENERGY_SWEEP`) is not started; Phase 10
 (Field Analyzer) is accepted as planned scope, with its v1.0 gate deferred
 until Phase 9 hardware evidence exists.
 
@@ -793,12 +795,21 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 
     Minimum unused stack across the soak and targeted download validation was
     radio 2,116B, GPS 1,444B, logger 1,784B, UI 2,180B, and WiFi 3,220B.
-- [ ] **Phase 8 — Probe / `DISCOVERY_SWEEP`. Not started.** Expanded from
+- [ ] **Phase 8 — Probe / `DISCOVERY_SWEEP`. In progress (bounded radio
+      acquisition slice, 2026-08-27; hardware validation remains open).** Expanded from
       the earlier outline by the accepted 2026-08-26 Phase 7–10 design in
       `research/LoRaTrace-Phases-7-10-Design.md`.
-  - [ ] Correct the built-in Meshtastic LongFast tuple from CR 4/8 to the
-        upstream CR 4/5, add complete-tuple host coverage, and receive a
-        known LongFast packet over the air with no SD override
+  - [x] Correct the built-in Meshtastic LongFast tuple to upstream CR 4/5;
+        add the source-backed fixed candidate plan and host coverage in
+        `src/discovery_plan.h` / `test/test_discovery_plan/`. Hardware RX
+        verification remains open.
+  - [x] Document primary-source findings and the bandwidth-specific
+        Meshtastic slot formula in `research/phase8-discovery-research.md`.
+  - [x] Add radio-owned bounded CAD acquisition with explicit two-symbol CAD,
+        deadline polling, receive-on-hit, home restore, separate fixed
+        `ScanObservation` queue, durable `probe.csv`, cumulative session
+        counters, and a grouped-menu Probe trigger. Host/build verification
+        is complete; hardware behavior and recovery evidence remain open.
   - [ ] Curated, versioned complete candidate tuples per profile — non-default
         Meshtastic channel-hash slots and sourced legacy MeshCore settings —
         weighted by [[meshmapper-pipeline]]'s real-world observations where
@@ -807,7 +818,7 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [ ] CAD `symNum` tuning bench-tested against Semtech AN1200.48 before
         trusting any false-positive/miss rate this phase reports (DESIGN.md
         §7 open item, carried since Phase 0)
-  - [ ] `DISCOVERY_SWEEP(profile)` radio-task state: bounded-duration
+  - [ ] Hardware-verify `DISCOVERY_SWEEP(profile)` radio-task state: bounded-duration
         CAD-cycles the curated candidate list, optionally opens a bounded
         receive-on-hit window, and restores the complete resolved home
         configuration on complete/cancel/timeout/failure

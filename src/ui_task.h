@@ -12,7 +12,7 @@
 //
 // Phase 5 replaced the old timed hold-gestures with a real menu, using
 // keyboard.h's sourced (partly bench-verified — see its own comments and
-// PROGRESS.md's Phase 5 checklist) decode for eleven specific keys: ',' or
+// PROGRESS.md's Phase 5 checklist) decode for twelve specific keys: ',' or
 // ';' / '.' or '/' move (the Fn-arrow diamond's left/up and down/right,
 // both pairs alias the same action), Enter selects, the backtick/ESC key
 // goes back, '1'-'5' jump straight to a numbered carousel page.
@@ -25,10 +25,12 @@
 // throughout, now three levels instead of two:
 //   - **Carousel** (default): ','/';'/'.'/'/' cycle the read-only status
 //     pages below; digits '1'-'5' jump straight to one of them; the
-//     backtick/ESC key opens the menu at its root; Enter is a no-op (no
-//     menu is open yet to act on).
+//     backtick/ESC key opens the menu at its root; Enter toggles Trace on
+//     RADIO and starts/cancels Probe on PROBE (no-op on other cards), while
+//     P starts/cancels Probe from any UI state.
 //   - **Menu root**: the same move keys move a highlighted root row; Enter
-//     opens a GROUP row's sub-list (both root rows are groups — see
+//     opens a GROUP row's sub-list (Profile and System are groups; Trace is
+//     a direct action — see
 //     ROOT_ITEMS in ui_task.cpp and BRAND.md's Interface Naming section);
 //     the backtick/ESC key closes the menu back to the carousel. Digit
 //     keys are ignored here, same as Phase 5.
@@ -41,7 +43,7 @@
 // A toast overlay (ui_task.cpp's showToast()) confirms whatever action just
 // fired, independent of which page/menu level is on screen afterward.
 // Deliberately not a general keymap or text-entry UI — see keyboard.h for
-// why eleven keys is enough for this scope (DESIGN.md/PROGRESS.md Phase 5).
+// why twelve keys are enough for this scope (DESIGN.md/PROGRESS.md Phase 5).
 //
 // Owns the ST7789 exclusively once started — main.cpp must stop drawing.
 // The display is on its own SPI host (HSPI) with pins disjoint from the
@@ -53,14 +55,14 @@
 
 // Pages the operator can cycle through in carousel mode. Order is
 // deliberate: RADIO first because it's the reason the device exists,
-// CHANNEL right after it since it's RADIO's own RF detail (the actual
-// active freq/SF/BW/CR/sync word — added Phase 5, previously visible only
-// over Serial or the web UI), GPS/SYSTEM unchanged after. WIFI is gone as
+// then the retained second-card PROBE results page for the bounded discovery
+// action, followed by CHANNEL (RADIO's RF detail), GPS, and SYSTEM. WIFI is gone as
 // its own page (Phase 6 UI redesign, 2026-08-25) — folded into SYSTEM as a
 // fourth stat block, since AP-on/off plus client count didn't need a whole
 // carousel slot of its own once SYSTEM had room for a 2x2 grid.
 enum class UiPage : uint8_t {
     RADIO = 0,
+    PROBE,
     CHANNEL,
     GPS,
     SYSTEM,

@@ -22,11 +22,13 @@ constexpr const char *LOG_DIR = "/loratrace";
 // (run_log.h): /loratrace/runNNNN/{detections,session}.csv.
 constexpr const char *DETECTIONS_LEAF = "detections.csv";
 constexpr const char *SESSION_LEAF = "session.csv";
+constexpr const char *PROBE_LEAF = "probe.csv";
 
 // Resolved once, on the first successful mount of this power-on.
 uint16_t runIndex = 0;
 char detectionsPath[RUN_PATH_MAX];
 char sessionPath[RUN_PATH_MAX];
+char probePath[RUN_PATH_MAX];
 
 // ~2KB holds roughly 15-20 rows. Sized to keep a single flush short (see
 // the header): bigger buffers mean longer bus holds, which is exactly the
@@ -51,6 +53,7 @@ constexpr uint32_t SESSION_INTERVAL_MS = 60000;
 constexpr TickType_t BUS_WAIT = pdMS_TO_TICKS(2000);
 
 QueueHandle_t detectionQueue = nullptr;
+QueueHandle_t scanObservationQueue = nullptr;
 bool sdReady = false;
 
 // Menu-toggled (ui_task.cpp); both it and this task run on Core 0, so a
@@ -68,6 +71,9 @@ volatile uint32_t flushCount = 0;
 volatile uint32_t maxFlushMs = 0;
 volatile uint32_t sessionRows = 0;
 volatile uint32_t maxSessionMs = 0;
+volatile uint32_t maxScanMs = 0;
+volatile uint32_t scanRowsWritten = 0;
+volatile uint32_t scanRowsDropped = 0;
 
 // Highest runNNNN index already on the card, or 0 if there are none.
 // Assumes the caller holds the bus and SD is mounted.
@@ -109,7 +115,7 @@ bool ensureCsvLocked(const char *path, const char *header) {
     return true;
 }
 
-// Mounts SD and ensures both CSVs exist with their header rows. Assumes the
+// Mounts SD and ensures all run CSVs exist with their header rows. Assumes the
 // caller holds the bus.
 bool openLogsLocked() {
     // SD.end() first, always. Arduino-ESP32's SD.begin() returns true
@@ -140,12 +146,18 @@ bool openLogsLocked() {
         if (runFilePath(sessionPath, sizeof(sessionPath), LOG_DIR, runIndex, SESSION_LEAF) == 0) {
             return false;
         }
+        if (runFilePath(probePath, sizeof(probePath), LOG_DIR, runIndex, PROBE_LEAF) == 0) {
+            return false;
+        }
     }
 
     if (!ensureCsvLocked(detectionsPath, LOG_CSV_HEADER)) return false;
     // A missing health log must not stop detections being logged: the
     // detections are the mission, this is instrumentation.
     ensureCsvLocked(sessionPath, SESSION_CSV_HEADER);
+    // Probe observations are durable mission output when a Probe is run.
+    // Creating the empty file at boot keeps the run directory schema stable.
+    if (!ensureCsvLocked(probePath, SCAN_CSV_HEADER)) return false;
     return true;
 }
 
@@ -267,6 +279,14 @@ void writeSessionRow(const char *reason) {
     s.logger_stack_free = memoryTaskStackFree(memory, MemoryTask::LOGGER);
     s.ui_stack_free = memoryTaskStackFree(memory, MemoryTask::UI);
     s.wifi_stack_free = memoryTaskStackFree(memory, MemoryTask::WIFI);
+    s.scan_observations = radioScanObservationCount();
+    s.scan_observation_drops = radioScanObservationDropCount() + loggerScanRowsDropped();
+    s.probe_runs = radioDiscoverySweepCount();
+    s.probe_cancels = radioDiscoveryCancelCount();
+    s.probe_timeouts = radioDiscoveryTimeoutCount();
+    s.probe_failures = radioDiscoveryFailureCount();
+    s.probe_recoveries = radioDiscoveryRecoveryCount();
+    s.probe_last_away_ms = radioDiscoveryLastAwayMs();
 
     char timestamp[24];
     detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
@@ -335,6 +355,40 @@ void appendDetection(const Detection &det) {
     batchRows++;
 }
 
+void appendScanObservation(const ScanObservation &observation) {
+    if (!sdReady) {
+        scanRowsDropped++;
+        return;
+    }
+
+    GpsFix fix;
+    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
+    const uint32_t now = millis();
+    const bool fresh = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+
+    char timestamp[24];
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+                             fix.month, fix.day, fix.hour, fix.minute, fix.second);
+
+    char row[256];
+    const size_t n = scanObservationFormatCsv(
+        observation, row, sizeof(row), timestamp, fresh, fix.lat, fix.lon,
+        haveFix ? fix.fix_quality : 0, runIndex);
+    if (n == 0) {
+        scanRowsDropped++;
+        return;
+    }
+    row[n] = '\n';
+
+    const WriteResult result = appendToFile(probePath, row, n + 1, maxScanMs);
+    if (result == WriteResult::OK) {
+        scanRowsWritten++;
+    } else {
+        scanRowsDropped++;
+        if (result == WriteResult::FILE_ERROR) sdReady = false;
+    }
+}
+
 void loggerTask(void *) {
     memoryStatsRegisterCurrentTask(MemoryTask::LOGGER);
     {
@@ -350,8 +404,17 @@ void loggerTask(void *) {
         Detection det;
         // Wake either on a detection or on the flush interval, whichever
         // comes first — so a quiet period still commits buffered rows.
-        if (xQueueReceive(detectionQueue, &det, pdMS_TO_TICKS(500)) == pdTRUE) {
+        if (xQueueReceive(detectionQueue, &det, pdMS_TO_TICKS(100)) == pdTRUE) {
             appendDetection(det);
+        }
+
+        // CAD observations are deliberately a separate queue and file. They
+        // are not packet detections and must never change RX/log counters.
+        if (scanObservationQueue != nullptr) {
+            ScanObservation observation;
+            if (xQueueReceive(scanObservationQueue, &observation, 0) == pdTRUE) {
+                appendScanObservation(observation);
+            }
         }
 
         const uint32_t now = millis();
@@ -388,8 +451,9 @@ void loggerTask(void *) {
 
 } // namespace
 
-bool loggerTaskStart(QueueHandle_t queue) {
+bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue) {
     detectionQueue = queue;
+    scanObservationQueue = scanQueue;
     // Core 0, priority 2: above GPS (1) so rows drain promptly, below the
     // radio (3) which must always win.
     //
@@ -424,6 +488,12 @@ uint16_t loggerRunIndex() {
 }
 uint32_t loggerMaxSessionMs() {
     return maxSessionMs;
+}
+uint32_t loggerScanRowsWritten() {
+    return scanRowsWritten;
+}
+uint32_t loggerScanRowsDropped() {
+    return scanRowsDropped;
 }
 
 void loggerDebugToggle() {

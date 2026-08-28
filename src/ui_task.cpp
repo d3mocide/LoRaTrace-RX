@@ -106,16 +106,11 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
     {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
 };
-// Trace pause/standby is a root-level ACTION row, not under System —
-// promoted the same day it shipped since it's central enough to toggle
-// without drilling in first. Named "Trace" alone, not "MeshTrace" (that
-// compound word was walked back in BRAND.md for overloading "Trace" across
-// too many meanings already). Puts the SX1262 in warm sleep instead of
-// continuous RX — a real battery lever; GPS keeps running (its power
-// shares the antenna-switch line, so there's no independent GPS power to
-// save) so position is already fresh the instant Trace resumes.
+// Trace remains the root-level operating toggle. Probe has no duplicate menu
+// row: P is the global start/cancel shortcut and the dedicated second card
+// also exposes it through Enter.
 constexpr MenuItem ROOT_ITEMS[] = {
-    {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Trace:", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 2},
     {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 3},
 };
@@ -211,6 +206,9 @@ void uiTask(void *) {
     lastPageChange = lastRedraw;
     lastKeyActivity = lastRedraw;
     uint32_t lastRxSeen = radioPacketCount();
+    uint32_t lastProbeRunSeen = radioDiscoverySweepCount();
+    uint32_t lastProbeCancelSeen = radioDiscoveryCancelCount();
+    uint32_t lastProbeFailureSeen = radioDiscoveryFailureCount();
     bool wasAnimating = false;
 
     for (;;) {
@@ -242,7 +240,37 @@ void uiTask(void *) {
             rxPulseUntil = millis() + RX_PULSE_MS;
         }
 
-        if (!menu.isOpen()) {
+        // A small fixed CAD plan can complete before the normal one-second
+        // page redraw. Surface the radio-owned completion so it cannot look
+        // like the Probe action did nothing.
+        const uint32_t probeRuns = radioDiscoverySweepCount();
+        if (probeRuns != lastProbeRunSeen) {
+            lastProbeRunSeen = probeRuns;
+            const bool failed = radioDiscoveryFailureCount() != lastProbeFailureSeen;
+            const bool cancelled = radioDiscoveryCancelCount() != lastProbeCancelSeen;
+            lastProbeFailureSeen = radioDiscoveryFailureCount();
+            lastProbeCancelSeen = radioDiscoveryCancelCount();
+            char msg[48];
+            if (failed) {
+                snprintf(msg, sizeof(msg), "Probe: FAILED %d", radioLastError());
+            } else if (cancelled) {
+                snprintf(msg, sizeof(msg), "Probe: CANCELLED");
+            } else {
+                snprintf(msg, sizeof(msg), "Probe: DONE %u in %lums",
+                         (unsigned)radioDiscoveryCandidateCount(),
+                         (unsigned long)radioDiscoveryLastAwayMs());
+            }
+            showToast(msg);
+            redraw = true;
+        }
+
+        // P is deliberately global rather than card- or menu-scoped: it is
+        // the one hard shortcut for the bounded Probe start/cancel action.
+        // showProbeResults() closes any open menu after an accepted request.
+        if (action == KeyAction::PROBE) {
+            fireMenuAction(MenuAction::PROBE_TOGGLE);
+            redraw = true;
+        } else if (!menu.isOpen()) {
             // Carousel: page navigation is this file's own concern, not
             // MenuState's (ui_menu.h stays free of any UiPage dependency).
             if (action == KeyAction::PREV) {
@@ -258,19 +286,26 @@ void uiTask(void *) {
                 jumpToPage(UiPage::RADIO);
                 redraw = true;
             } else if (action == KeyAction::JUMP_2) {
-                jumpToPage(UiPage::CHANNEL);
+                jumpToPage(UiPage::PROBE);
                 redraw = true;
             } else if (action == KeyAction::JUMP_3) {
-                jumpToPage(UiPage::GPS);
+                jumpToPage(UiPage::CHANNEL);
                 redraw = true;
             } else if (action == KeyAction::JUMP_4) {
+                jumpToPage(UiPage::GPS);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_5) {
                 jumpToPage(UiPage::SYSTEM);
                 redraw = true;
+            } else if (action == KeyAction::SELECT && page == UiPage::RADIO) {
+                fireMenuAction(MenuAction::TRACE_TOGGLE);
+                redraw = true;
+            } else if (action == KeyAction::SELECT && page == UiPage::PROBE) {
+                fireMenuAction(MenuAction::PROBE_TOGGLE);
+                redraw = true;
             }
-            // JUMP_5 has no target now — WIFI folded into SYSTEM, ignored
-            // the same way JUMP_1..5 are already ignored inside the menu.
-            // SELECT (Enter) is a no-op here — ESC (BACK) opens the menu
-            // instead, so the same key that closes it also opens it.
+            // Enter only acts on RADIO (Trace) and PROBE (start/cancel).
+            // Elsewhere it remains a no-op; ESC (BACK) opens the menu.
         } else if (action != KeyAction::NONE) {
             // Menu open (root/group/slider) — MenuState owns navigation;
             // this file only reacts to what fired. Captured before handle()
@@ -326,6 +361,11 @@ void uiTask(void *) {
 }
 
 } // namespace
+
+void showProbeResults() {
+    jumpToPage(UiPage::PROBE);
+    menu.close();
+}
 
 // menu's constructor needs ROOT_ITEMS/ROOT_COUNT, fine to reference here
 // even though this definition needs external linkage (ui_pages.cpp/

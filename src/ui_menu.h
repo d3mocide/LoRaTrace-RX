@@ -46,6 +46,7 @@ enum class MenuAction : uint8_t {
     WIFI_TOGGLE,
     DEBUG_TOGGLE,
     TRACE_TOGGLE,
+    PROBE_TOGGLE,
     // Fixed 25/50/75/100 presets replaced by a real slider — UP/DOWN step a
     // live value by 5% instead of jumping between 4 fixed points.
     BRIGHTNESS_UP,

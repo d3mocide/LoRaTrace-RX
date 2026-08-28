@@ -99,10 +99,12 @@ DisplaySettings displaySettings;
 // no-PSRAM budget in DESIGN.md §1. Depth is a real tuning knob — watch
 // radioQueueDropCount() in the status line before changing it.
 constexpr UBaseType_t DETECTION_QUEUE_DEPTH = 32;
+constexpr UBaseType_t SCAN_OBSERVATION_QUEUE_DEPTH = 16;
 // How long the completed boot checklist stays on screen before uiTaskStart()
 // takes over the panel with the main status pages.
 constexpr uint32_t BOOT_CHECKLIST_HOLD_MS = 1000;
 QueueHandle_t detectionQueue = nullptr;
+QueueHandle_t scanObservationQueue = nullptr;
 
 void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
     if (!displayReady) return;
@@ -361,6 +363,10 @@ void setup() {
     if (detectionQueue == nullptr) {
         fatal(F("FATAL: could not allocate the detection queue."), F("FATAL: queue alloc"));
     }
+    scanObservationQueue = xQueueCreate(SCAN_OBSERVATION_QUEUE_DEPTH, sizeof(ScanObservation));
+    if (scanObservationQueue == nullptr) {
+        fatal(F("FATAL: could not allocate the scan queue."), F("FATAL: scan queue alloc"));
+    }
 
     // Consumers before producer: the logger must be draining before the
     // radio starts filling, or the first burst is dropped for no reason.
@@ -374,7 +380,7 @@ void setup() {
         }
     }
 
-    if (!loggerTaskStart(detectionQueue)) {
+    if (!loggerTaskStart(detectionQueue, scanObservationQueue)) {
         fatal(F("FATAL: logger task failed to start."), F("FATAL: logger task"));
     }
     // No splash line on success: this is RTOS resource allocation, not a
@@ -386,7 +392,8 @@ void setup() {
     // `channelOverrides` is passed too, not just `activeChannel` —
     // radio_task.cpp holds onto it so a later switch resolves *its*
     // override the same way this boot resolved `bootProfile`'s.
-    if (!radioTaskStart(activeChannel, bootProfile, channelOverrides, detectionQueue)) {
+    if (!radioTaskStart(activeChannel, bootProfile, channelOverrides, detectionQueue,
+                        scanObservationQueue)) {
         {
             SerialLock lock(pdMS_TO_TICKS(200));
             if (lock.held()) {
@@ -435,8 +442,9 @@ void setup() {
             // own footer hint (ui_task.cpp) after the 2026-08-24 rework that
             // moved menu-open off Enter and onto this key.
             Serial.println(F("On-device menu: ,/. to move, ` to open/close, Enter to act "
-                             "-- covers profile switch (Meshtastic/MeshCore, DESIGN.md S5), "
-                             "WiFi, and verbose debug logging."));
+                             "-- Trace, profile switch (Meshtastic/MeshCore, DESIGN.md S5), "
+                             "WiFi, and verbose debug logging; P runs Probe anywhere. "
+                             "Enter toggles Trace on Radio or Probe on its card."));
             Serial.print(F("Free heap after task start: "));
             Serial.print(ESP.getFreeHeap());
             Serial.println(F(" bytes"));

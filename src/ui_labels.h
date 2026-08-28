@@ -44,12 +44,8 @@ inline const char *uiProfileLabel(MissionProfile profile) {
     }
 }
 
-// BRAND.md "Interface Naming": HOME_LISTEN -> Watch. The only one of the
-// three radio-mode labels (Watch / Probe / Sweep) with anything to name
-// today — DISCOVERY_SWEEP ("Probe") and ENERGY_SWEEP ("Sweep") are Phase
-// 7/8 (ROADMAP.md) and don't exist as radio states yet. A function rather
-// than a bare string constant so callers read the same way the label
-// above does, and so Probe/Sweep have an obvious place to join it once
-// those phases land instead of needing a second lookup pattern invented
-// from scratch.
+// BRAND.md "Interface Naming": HOME_LISTEN -> Watch. Probe is now the
+// Phase 8 bounded mode; Sweep remains the future Phase 9 mode. A function
+// rather than a bare string constant keeps the mode labels in one lookup
+// pattern as those later radio states land.
 inline const char *uiModeLabelWatch() { return "Watch"; }

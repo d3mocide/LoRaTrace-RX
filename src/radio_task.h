@@ -6,8 +6,8 @@
 // push a Detection into the queue and stay locked. Phase 4 adds the other
 // half of §5's state machine text — "operator-selected... mutually
 // exclusive" — as a live retune via radioRequestProfileSwitch(), below.
-// DISCOVERY_SWEEP and ENERGY_SWEEP are phases 8/9 and are still deliberately
-// absent — the state machine's shape is here, those two states are not.
+// DISCOVERY_SWEEP is implemented as the radio-owned bounded Probe path below.
+// ENERGY_SWEEP remains Phase 9 and is deliberately absent here.
 //
 // The one hard rule (DESIGN.md §2, CLAUDE.md): this task never touches SD
 // or the display, and never blocks on another task. It reads the packet,
@@ -21,9 +21,11 @@
 
 #include "channel_plans.h"
 #include "detection.h"
+#include "scan_observation.h"
 
 // Starts the SX1262 on `channel`/`profile` and launches the task on Core 1.
-// `queue` receives Detection structs; it must outlive the task. `overrides`
+// `queue` receives Detection structs and `scanQueue` receives fixed CAD
+// observations; both must outlive the task. `overrides`
 // is the per-profile SD/web config main.cpp already loaded (config.h) —
 // copied in and held for the task's lifetime so a later
 // radioRequestProfileSwitch() resolves each profile's *current* override
@@ -34,7 +36,8 @@
 // created — callers should treat that as fatal, since a wardriver with no
 // receiver has nothing to do.
 bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
-                    const ProfileOverrides &overrides, QueueHandle_t queue);
+                    const ProfileOverrides &overrides, QueueHandle_t queue,
+                    QueueHandle_t scanQueue);
 
 // Last RadioLib error code from begin()/startReceive() — including a live
 // profile switch's own begin() call, so a failed switch is visible the same
@@ -71,6 +74,30 @@ bool radioRequestTracePause(bool paused);
 // as radioActiveProfile() etc.
 bool radioIsTracePaused();
 
+// Starts a durable Probe sweep for the active profile. The radio task owns
+// every retune/CAD operation; this call only writes a one-slot request and
+// wakes that task. Calling it while a sweep is active requests cancellation.
+bool radioRequestDiscoverySweep();
+bool radioDiscoverySweepIsActive();
+uint8_t radioDiscoveryCandidateIndex();
+uint8_t radioDiscoveryCandidateCount();
+
+// The most recent Probe's terminal state and its CAD result counts. These
+// are a compact radio-owned summary for the on-device results page; detailed
+// observations remain durable in probe.csv.
+enum class DiscoverySweepState : uint8_t {
+    IDLE,
+    RUNNING,
+    COMPLETE,
+    CANCELLED,
+    FAILED,
+};
+DiscoverySweepState radioDiscoverySweepState();
+uint16_t radioDiscoveryCadFreeCount();
+uint16_t radioDiscoveryCadDetectedCount();
+uint16_t radioDiscoveryCadTimeoutCount();
+uint16_t radioDiscoveryErrorCount();
+
 // --- Diagnostics -------------------------------------------------------
 // Exposed because Phase 2's exit criterion is "no dropped packets
 // attributable to SD latency" — that claim is only checkable if drops are
@@ -79,6 +106,14 @@ uint32_t radioPacketCount();     // successfully decoded
 uint32_t radioCrcErrorCount();   // received but failed CRC
 uint32_t radioQueueDropCount();  // decoded but the queue was full
 uint32_t radioBusMissCount();    // couldn't get the SPI bus in time
+uint32_t radioScanObservationDropCount();
+uint32_t radioScanObservationCount();
+uint32_t radioDiscoverySweepCount();
+uint32_t radioDiscoveryCancelCount();
+uint32_t radioDiscoveryTimeoutCount();
+uint32_t radioDiscoveryFailureCount();
+uint32_t radioDiscoveryRecoveryCount();
+uint32_t radioDiscoveryLastAwayMs();
 
 // The channel table HOME_LISTEN is locked to right now (post SD-config-
 // override at boot; post radioRequestProfileSwitch() if one has landed
