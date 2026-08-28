@@ -839,6 +839,12 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [x] Probe result card and controls surfaced in the existing UI (card 2,
         global P start/cancel, Enter on the Probe card) without reopening the
         UI architecture
+  - [ ] Low Profile USB support: bounded, CRC-framed remote requests for
+        existing Trace/profile/Probe actions are implemented behind an
+        on-device, reset-disabled toggle with native/build verification;
+        hardware validation and the deterministic host/Heltec harness remain
+        open. BLE is a separately authenticated and measured future gate,
+        not an implemented control surface.
   - [ ] `detections.csv`/`session.csv` check: a `DISCOVERY_SWEEP` hit logs
         cleanly alongside `HOME_LISTEN` detections without a format change
         that breaks concatenating against already-logged runs (DESIGN.md

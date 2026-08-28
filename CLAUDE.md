@@ -57,6 +57,8 @@ src/
   [x] gps_parse.h                # GpsFix + gpsApplySentence(), pure so it's host-testable
   [x] spi_bus.h / .cpp           # mutex + SPIClass for the bus SD and the SX1262 SHARE
   [x] serial_lock.h / .cpp       # mutex guarding cross-core Serial writes (not in original proposal, see PROGRESS.md decisions log)
+  [x] low_profile.h / .cpp       # operator-gated bounded USB control; no radio ownership (Phase 8 support)
+  [x] low_profile_protocol.h     # fixed line/CRC command grammar, host-testable (Phase 8 support)
   [x] io_expander.h / .cpp       # PI4IOE5V6408 P0: antenna switch AND GPS power
   [x] gps_probe.cpp              # standalone GPS bring-up sketch ([env:gps-probe])
   [x] battery.h / .cpp           # voltage + charge % via GPIO10/ADC1, M5Unified's board_M5CardputerADV constants (phase 2)

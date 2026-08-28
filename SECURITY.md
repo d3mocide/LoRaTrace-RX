@@ -38,11 +38,16 @@ backported.
   is assumed to grant full read/write access to firmware and stored data;
   this is out of scope for a security fix and treated as an accepted
   constraint of the platform, not a vulnerability.
-- **Serial/USB console.** Diagnostic output only (see CLAUDE.md's Serial
-  mutex notes) — there is no command console or remote-control path over
-  serial today. If one is ever added, it needs its own threat-model pass
-  before shipping (this was explicitly deferred once already, see
-  CHANGELOG.md).
+- **Serial/USB Low Profile control.** Diagnostic output is always available.
+  The bounded command endpoint is disabled by default and only accepts its
+  small allowlist after the operator enables System > Low Profile on-device;
+  a reset disables it again. It can request existing Trace, Meshtastic/
+  MeshCore profile, and Probe actions, but exposes no shell, files, arbitrary
+  RF configuration, WiFi/AP control, or direct radio access. Treat an enabled
+  USB endpoint as physical-presence authorization, not as a secret channel.
+  Bluetooth LE control is not implemented or advertised yet; it must not be
+  added without the authenticated-pairing and measured-memory gate documented
+  in `research/phase8-low-profile-harness-design.md`.
 
 ## Data sensitivity
 

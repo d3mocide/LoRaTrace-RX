@@ -21,6 +21,7 @@
 #include "board_pins.h"
 #include "display_settings.h"
 #include "keyboard.h"
+#include "low_profile.h"
 #include "memory_stats.h"
 #include "radio_task.h"
 
@@ -104,6 +105,7 @@ constexpr MenuItem DISPLAY_GROUP_ITEMS[] = {
 constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
     {"WiFi", ItemKind::ACTION, MenuAction::WIFI_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Low profile", ItemKind::ACTION, MenuAction::LOW_PROFILE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
 };
 // Trace remains the root-level operating toggle. Probe has no duplicate menu
@@ -112,7 +114,7 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
 constexpr MenuItem ROOT_ITEMS[] = {
     {"Trace:", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 2},
-    {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 3},
+    {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 4},
 };
 constexpr uint8_t ROOT_COUNT = 3;
 
@@ -212,6 +214,7 @@ void uiTask(void *) {
     bool wasAnimating = false;
 
     for (;;) {
+        lowProfilePoll();
         const KeyAction action = pollKeyAction();
         bool redraw = false;
 
