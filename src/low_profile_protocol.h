@@ -1,5 +1,7 @@
 #pragma once
-// Bounded, line-framed Low Profile control protocol. This header stays free
+// Bounded, line-framed Serial Control protocol. Internal legacy opcode names
+// remain stable so existing hosts can reconnect across the user-facing rename.
+// This header stays free
 // of Arduino/FreeRTOS so malformed-host input is testable on the native host.
 
 #include <stddef.h>
@@ -7,7 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
-constexpr size_t LOW_PROFILE_FRAME_MAX = 128;
+constexpr size_t LOW_PROFILE_FRAME_MAX = 160;
 
 enum class LowProfileOpcode : uint8_t {
     INVALID = 0,
@@ -17,6 +19,8 @@ enum class LowProfileOpcode : uint8_t {
     PROFILE_SET,
     PROBE_START,
     PROBE_CANCEL,
+    BENCH_FAULT,
+    BENCH_CAD,
     LOW_PROFILE_OFF,
     ACK,
     ERROR,
@@ -25,7 +29,7 @@ enum class LowProfileOpcode : uint8_t {
 struct LowProfileFrame {
     uint16_t sequence = 0;
     LowProfileOpcode opcode = LowProfileOpcode::INVALID;
-    char argument[80] = {};
+    char argument[96] = {};
 };
 
 inline uint16_t lowProfileCrc16(const char *data, size_t length) {
@@ -48,6 +52,8 @@ inline const char *lowProfileOpcodeName(LowProfileOpcode opcode) {
         case LowProfileOpcode::PROFILE_SET: return "PROFILE_SET";
         case LowProfileOpcode::PROBE_START: return "PROBE_START";
         case LowProfileOpcode::PROBE_CANCEL: return "PROBE_CANCEL";
+        case LowProfileOpcode::BENCH_FAULT: return "BENCH_FAULT";
+        case LowProfileOpcode::BENCH_CAD: return "BENCH_CAD";
         case LowProfileOpcode::LOW_PROFILE_OFF: return "LOW_PROFILE_OFF";
         case LowProfileOpcode::ACK: return "ACK";
         case LowProfileOpcode::ERROR: return "ERROR";
@@ -63,6 +69,8 @@ inline LowProfileOpcode lowProfileOpcodeFromName(const char *name) {
     if (strcmp(name, "PROFILE_SET") == 0) return LowProfileOpcode::PROFILE_SET;
     if (strcmp(name, "PROBE_START") == 0) return LowProfileOpcode::PROBE_START;
     if (strcmp(name, "PROBE_CANCEL") == 0) return LowProfileOpcode::PROBE_CANCEL;
+    if (strcmp(name, "BENCH_FAULT") == 0) return LowProfileOpcode::BENCH_FAULT;
+    if (strcmp(name, "BENCH_CAD") == 0) return LowProfileOpcode::BENCH_CAD;
     if (strcmp(name, "LOW_PROFILE_OFF") == 0) return LowProfileOpcode::LOW_PROFILE_OFF;
     if (strcmp(name, "ACK") == 0) return LowProfileOpcode::ACK;
     if (strcmp(name, "ERROR") == 0) return LowProfileOpcode::ERROR;

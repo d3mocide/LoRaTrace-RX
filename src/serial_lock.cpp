@@ -29,13 +29,26 @@ void serialLockGive() {
 size_t serialWriteAll(const uint8_t *data, size_t length) {
     if (data == nullptr || length == 0) return 0;
 
+    // USB Serial/JTAG has a 64-byte endpoint/FIFO boundary. Feeding a long
+    // frame in one write can lose the first packet on ESP32-S3 while the
+    // driver still reports the full count (observed on 70-byte STATUS
+    // frames). Keep the mutex across these smaller writes so chunks from
+    // another task cannot interleave.
+    constexpr size_t USB_WRITE_CHUNK = 32;
     size_t written = 0;
     uint32_t lastProgress = millis();
     while (written < length) {
-        const size_t n = Serial.write(data + written, length - written);
+        const size_t remaining = length - written;
+        const size_t request = remaining < USB_WRITE_CHUNK ? remaining : USB_WRITE_CHUNK;
+        const size_t n = Serial.write(data + written, request);
         if (n > 0) {
             written += n;
             lastProgress = millis();
+            // Give the USB Serial/JTAG ISR a scheduling opportunity between
+            // endpoint-sized chunks. Without this pause, back-to-back frame
+            // chunks can be acknowledged by the driver yet one whole chunk
+            // is occasionally absent at the host under boot/log load.
+            if (written < length) delay(1);
             continue;
         }
         // A disconnected or wedged USB host must never stall a task forever.

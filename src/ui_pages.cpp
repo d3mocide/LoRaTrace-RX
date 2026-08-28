@@ -575,7 +575,8 @@ const char *menuEntryValue(MenuAction action) {
             return radioActiveProfile() == MissionProfile::MESHCORE ? "ACTIVE" : "";
         case MenuAction::WIFI_TOGGLE: return wifiIsEnabled() ? "ON" : "OFF";
         case MenuAction::DEBUG_TOGGLE: return loggerDebugIsEnabled() ? "ON" : "OFF";
-        case MenuAction::LOW_PROFILE_TOGGLE: return lowProfileIsEnabled() ? "USB" : "OFF";
+        case MenuAction::SD_RETRY: return loggerSdReady() ? "READY" : "OFFLINE";
+        case MenuAction::LOW_PROFILE_TOGGLE: return lowProfileIsEnabled() ? "ON" : "OFF";
         case MenuAction::TRACE_TOGGLE: return radioIsTracePaused() ? "STANDBY" : "ACTIVE";
         case MenuAction::PROBE_TOGGLE:
             return radioDiscoverySweepIsActive() ? "RUNNING" : "";

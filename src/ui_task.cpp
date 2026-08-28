@@ -105,7 +105,8 @@ constexpr MenuItem DISPLAY_GROUP_ITEMS[] = {
 constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
     {"WiFi", ItemKind::ACTION, MenuAction::WIFI_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Low profile", ItemKind::ACTION, MenuAction::LOW_PROFILE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Retry SD", ItemKind::ACTION, MenuAction::SD_RETRY, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Serial Control", ItemKind::ACTION, MenuAction::LOW_PROFILE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
 };
 // Trace remains the root-level operating toggle. Probe has no duplicate menu
@@ -114,7 +115,7 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
 constexpr MenuItem ROOT_ITEMS[] = {
     {"Trace:", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 2},
-    {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 4},
+    {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 5},
 };
 constexpr uint8_t ROOT_COUNT = 3;
 

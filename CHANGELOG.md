@@ -10,6 +10,124 @@ here for full history. See ROADMAP.md for phase-by-phase scope and
 src/version.h for the versioning convention (MAJOR.MINOR = phase,
 PATCH = fix with no new phase scope).
 
+- **2026-08-28 — Phase 8 closed as v0.8.0.** The replacement-card durable
+  CSV review found stable headers, zero malformed/non-terminated rows, and
+  intact Probe/session/detection records across the retained runs. The
+  100-cycle USB-contention repetition completed every Probe and serviced 668
+  framed STATUS requests during 478.7 seconds with no terminal or home-restore
+  failure. For application interoperability, an externally flashed official
+  Meshtastic Heltec V4 R8 was configured to LONG_MODERATE and sent ten live
+  packets through one persistent API connection while the Cardputer Probe ran;
+  the terminal was `B=COMPLETE`, `SD=1`, `R=1`, `C=6,2,0,0`, with the expected
+  version-2 LongModerate candidate bit in `M=0024`. The repository's
+  deterministic Heltec bench image was restored afterward. CAD `symNum` remains
+  at the upstream two-symbol setting: the available bench cannot create a
+  known-quiet RF control, so no statistical false-positive/miss rate or
+  production retune is claimed. Transient mode and calibrated CAD work are
+  explicitly post-Phase-8 follow-up. Production firmware is v0.8.0.
+  Evidence: `hardware-results/private/phase8/phase8-meshtastic-longmod-interop-20260828T2052.serial.log`.
+
+- **2026-08-28 — CAD antenna-path isolation and retained quiet-only evidence.**
+  The lower-gain four-symbol fixture link passed 20/20 capped Heltec pulses
+  without a CAD timeout, but its quiet target bit remained active in 14/20
+  controls. Local-mesh-off and metal-ammo-box antenna-attached preflights
+  still produced two target hits in three quiet controls while retaining 3/3
+  fixture pulses. A new observe-only quiet-only harness mode then tested the
+  Cardputer with its receive antenna disconnected: zero LongModerate target
+  hits in ten quiet Probes, although unrelated candidate activity remained.
+  This isolates the recurring target activity to the receive antenna path;
+  it does not establish a calibrated outside-RF source or a universal CAD
+  false-positive rate. Production remains on the source-backed two-symbol
+  setting. Artifacts: `phase8-cad-rate-20260828T200710Z.*`,
+  `phase8-cad-rate-20260828T201901Z.*`,
+  `phase8-cad-rate-20260828T202210Z.*`, and
+  `phase8-cad-rate-20260828T202539Z.*` under
+  `hardware-results/private/phase8/`.
+
+- **2026-08-28 — Phase 8 CAD-rate harness and room-rate pilot.** Added a
+  compile-time bench-only `BENCH_CAD` selector limited to SX1262's supported
+  1/2/4/8/16-symbol CAD windows; normal firmware rejects it, and the radio
+  task remains the sole SX1262 owner. The shared rate harness checks every
+  Probe's terminal state, SD health, home restoration, fixture `TX_DONE`,
+  target candidate bit, and CAD timeout count. Its first exposed-room
+  observation pilot ran three quiet and three capped -9 dBm LongModerate
+  pulses per window: all 30 Probes completed with `SD=1`, restored home, and
+  detected every fixture pulse. Quiet target-bit activity was respectively
+  0/3, 2/3, 2/3, 1/3, and 0/3 for 1/2/4/8/16 symbols, proving the room cannot
+  supply a known-quiet false-positive control. Sixteen symbols also timed out
+  once on each cycle, so zero CAD timeouts is now an explicit strict-gate
+  requirement. This is useful correlation and a complete harness check, not
+  a CAD tuning verdict; the 20/20 rate gate awaits an attenuated or shielded
+  quiet fixture. Artifact: `phase8-cad-rate-20260828T190616Z.*` under
+  `hardware-results/private/phase8/`.
+
+- **2026-08-28 — MeshOregon candidate-specific Probe pilot.** Replaced the
+  obsolete OregonMesh fixture tuple with the operator-supplied current
+  MeshOregon physical configuration: 918.5 MHz, SF8, BW125, CR4/5. The
+  community-specific candidate is first in discovery-plan version 2, avoiding
+  later-candidate timing distortion from ambient CAD receive windows; names
+  and PSKs are intentionally absent because CAD needs neither. The capped
+  -9 dBm Heltec fixture completed four-for-four target-bit pulses (`M & 0001`)
+  with `TX_DONE`, `SD=1`, zero timeout/error, and Watch restored to 906875 on
+  every run. A three-cycle no-transmit control had no MeshOregon candidate-bit
+  hits, but two runs saw unrelated candidate activity, so it is explicitly
+  preliminary correlation—not a false-positive/miss-rate result. Artifacts:
+  `phase8-meshoregon-20260828T170023Z.*`,
+  `phase8-meshoregon-quiet3-20260828T170300Z.*`, and
+  `phase8-meshoregon-pulse3-20260828T170400Z.*` under
+  `hardware-results/private/phase8/`.
+
+- **2026-08-28 — Curated source boundary and candidate-specific CAD evidence.**
+  Rechecked the fixed Phase 8 tuple set against current Meshtastic and
+  MeshCore primary documentation. Meshtastic custom channel-name hashes are
+  not enumerable as a universal fixed plan, so Probe remains bounded to its
+  standard anchors plus a known per-profile override; MeshCore's current
+  USA/Canada narrow tuple remains source-backed at 910.525 MHz/SF7/BW62.5/
+  CR5. Serial Control STATUS now emits compact per-Probe CAD counts and a
+  candidate-index mask, allowing the shared `phase8_cad_bench.py` harness to
+  distinguish a fixture's intended candidate from unrelated live RF. After a
+  rejected arm-after-Probe calibration (`M=80`), pre-arming the capped -9 dBm
+  LongModerate Heltec produced the target bit (`M & 0x02`) on two runs with
+  matching TX_DONE, SD intact, zero timeout/error, and home restoration; a
+  quiet control produced `M=00`. The second target run also had ambient
+  candidate hits, so this is targeted tuple evidence—not a claim of a
+  noise-free environment or a statistical false/miss rate. Artifacts:
+  `phase8-cad-pulse-target-20260828T164413Z.*`,
+  `phase8-cad-pulse-target-20260828T164509Z.*`, and
+  `phase8-cad-quiet-mask-20260828T164443Z.*` under
+  `hardware-results/private/phase8/`. Native tests remain 104/104 and the
+  production Cardputer build/flash passed.
+
+- **2026-08-28 — v0.7.1 SD recovery hardening.** The logger now adopts the
+  successful boot-time SD mount instead of forcibly calling `SD.end()` and
+  remounting it during task startup. Automatic failed-card remount attempts
+  were removed: a missing or electrically sick card leaves RX/Watch alive
+  with logging offline, rather than repeatedly entering synchronous SD I/O.
+  System > **Retry SD** queues one explicit remount after a physical reseat.
+  On-device verification covered no-card boot (device remains alive) and a
+  reseat followed by Retry SD (logging returns with `SD=1`). Native tests
+  pass 104/104; production and bench builds succeed.
+
+- **2026-08-28 — Complete stable-boot Phase 8 fault matrix passed.** With
+  the replacement card reporting `SD=1`, the Cardputer/Heltec V4 R8 matrix
+  passed every CANCEL and FAIL action at BEFORE_RETUNE, AFTER_RETUNE,
+  CAD_WAIT, RX_WAIT, HOME_RESTORE_BEFORE, and HOME_RESTORE_AFTER. Every
+  terminal record restored `F=906875` and recovery advanced `R=1..12`.
+  The RX_WAIT fixture now arms the Heltec before Probe begins so its
+  LongModerate packet occupies the first non-home window; the matrix also
+  uses a one-second inter-case USB settle interval. Evidence is retained in
+  `hardware-results/private/phase8/phase8-fault-matrix-20260828T160815Z.*`.
+
+- **2026-08-28 — Phase 8 USB-contention evidence passed.** The bench image
+  completed 100/100 Probe cycles while the host issued STATUS requests at a
+  25ms target cadence. Every terminal record was `COMPLETE`, retained
+  `SD=1`, restored `F=906875`, and advanced recovery `R=1..100`; 668 framed
+  STATUS responses were validated. Native USB text still occasionally clips
+  or duplicates a frame, so the CRC-framed parser and JSONL terminal records
+  remain authoritative. Production v0.7.1 was then restored and confirmed
+  without bench capability, with Watch active and `SD=1`. Evidence is under
+  `hardware-results/private/phase8/phase8-contention-100-20260828T160944Z.*`.
+
 - **2026-08-27 — Phase 8 research/foundation slice started.** Added
   `research/phase8-discovery-research.md` and the pure, fixed
   `src/discovery_plan.h` candidate layer with host coverage. Meshtastic
@@ -18,6 +136,58 @@ PATCH = fix with no new phase scope).
   source-backed MeshCore tuples are included; legacy coding-rate guesses stay
   out. No version bump yet: bounded radio acquisition and hardware gates are
   not complete.
+
+- **2026-08-28 — Nominal Phase 8 automated bench gate completed.** The
+  Cardputer/Heltec V4 R8 harness completed 1,000 Probe runs in 2h17m31s:
+  every cycle reached `B=COMPLETE`, restored the resolved home channel
+  (`918500` kHz), advanced recovery `R=1..1000`, and produced a matching
+  `TX_DONE OK` event. The final Heltec `QUIET` acknowledgement arrived and no
+  harness failure occurred. One `TX_STARTED` line (sequence 322) was clipped
+  in the native USB capture while its `TX_DONE OK` remained intact, so the
+  serial transcript is supplemental to the terminal/home-restore assertions.
+  Raw and console artifacts are retained under
+  `hardware-results/private/phase8/phase8-1000-20260828T053715Z.*`.
+
+- **2026-08-28 — Harness and serial-observability revamp accepted.** The
+  one-file Phase 8 host script is no longer the architecture: shared framing,
+  CRC recovery, endpoint setup, retries, status parsing, and capture now live
+  in `scripts/bench_harness.py`; `scripts/phase8_bench.py` contains only the
+  nominal scenario. Future cancellation, fault, contention, and bench-node
+  scenarios must reuse that core; the first cancellation scenario is now
+  `scripts/phase8_cancel_bench.py`. All scenarios keep separate `.serial.log`,
+  `.console.log`, and `.results.jsonl` artifacts. The user-facing firmware feature is renamed from
+  Low Profile to **Serial Control**; internal NVS and wire identifiers remain
+  compatible until the firmware-side rename is implemented. The tracked plan
+  and acceptance gates are in `research/phase8-low-profile-harness-design.md`.
+
+- **2026-08-28 — Serial diagnostic policy foundation implemented.** The
+  System menu and toasts now call the feature **Serial Control** while the
+  internal `lowProfile*` functions, NVS namespace, and wire opcode remain
+  stable for host compatibility. Periodic `[status]`, `[mem]`, and backlight
+  instrumentation now requires Debug and is suppressed while Serial Control
+  is enabled; boot/fatal/lifecycle messages and framed command responses stay
+  available. Cardputer build succeeds with 50,900 bytes static RAM and
+  983,925 bytes flash; native tests remain 104/104.
+
+- **2026-08-28 — Bench fault and contention scenarios added.** Added the
+  compile-time-gated `cardputer-adv-bench` image and bounded `BENCH_FAULT`
+  command. Named one-shot hooks cover candidate retune, CAD wait, receive
+  wait, and both sides of home restoration; production firmware returns
+  `UNSUPPORTED`. Added shared-core `phase8_fault_bench.py` and
+  `phase8_contention_bench.py` scenarios plus durable launchers. A real
+  `CAD_WAIT:FAIL` smoke reached `B=FAILED`, restored `F=918500`, and advanced
+  recovery `R=1`; a three-cycle USB-contention smoke also completed with
+  intact `TX_DONE` events and home restoration. The remaining fault matrix
+  and long contention run are still open evidence.
+
+- **2026-08-28 — Fault-matrix hardware attempt paused by SD failure.** The
+  initial per-case runner was replaced with a stable-boot matrix after reset
+  churn caused invalid transport results. The stable-boot retry captured
+  `sdCommand()` CRC/no-token errors, `SD=0`, and a logger task watchdog reset;
+  Probe correctly refused to start without its required datastore. These
+  artifacts are retained as a boot/SD reliability finding, not counted as
+  fault-hook failures. Reseat or replace the microSD card and confirm `SD=1`
+  before rerunning the matrix.
 
 - **2026-08-27 — Phase 8 bounded Probe acquisition slice added.** Added a
   radio-task-owned, deadline-bounded CAD/receive-on-hit sweep using the fixed

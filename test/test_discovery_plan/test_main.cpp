@@ -13,7 +13,7 @@ void test_meshtastic_standard_plan_is_fixed_and_in_band() {
     TEST_ASSERT_EQUAL_UINT8(DISCOVERY_PLAN_VERSION, plan.version);
     // ShortTurbo's US slot-50 centre is 926.75 MHz, outside this module's
     // supported 868-923 MHz front-end range, so it is intentionally omitted.
-    TEST_ASSERT_EQUAL_UINT8(8, plan.count);
+    TEST_ASSERT_EQUAL_UINT8(9, plan.count);
     TEST_ASSERT_NOT_NULL(plan.candidates);
 
     for (uint8_t i = 0; i < plan.count; i++) {
@@ -21,11 +21,21 @@ void test_meshtastic_standard_plan_is_fixed_and_in_band() {
         TEST_ASSERT_TRUE(c.freq_mhz >= 868.0f);
         TEST_ASSERT_TRUE(c.freq_mhz <= 923.0f);
         TEST_ASSERT_EQUAL_UINT8(SYNC_WORD_MESHTASTIC, c.sync_word);
-        TEST_ASSERT_TRUE(plan.candidates[i].slot != DISCOVERY_NO_SLOT);
+        if (plan.candidates[i].kind == DiscoveryCandidateKind::MESHTASTIC_STANDARD_PRESET) {
+            TEST_ASSERT_TRUE(plan.candidates[i].slot != DISCOVERY_NO_SLOT);
+        }
         for (uint8_t j = 0; j < i; j++) {
             TEST_ASSERT_FALSE(discoveryChannelEquals(c, plan.candidates[j].channel));
         }
     }
+    const DiscoveryCandidate &meshOregon = plan.candidates[0];
+    TEST_ASSERT_EQUAL_INT((int)DiscoveryCandidateKind::MESHTASTIC_COMMUNITY_CUSTOM,
+                          (int)meshOregon.kind);
+    TEST_ASSERT_EQUAL_FLOAT(918.5f, meshOregon.channel.freq_mhz);
+    TEST_ASSERT_EQUAL_UINT8(8, meshOregon.channel.sf);
+    TEST_ASSERT_EQUAL_FLOAT(125.0f, meshOregon.channel.bw_khz);
+    TEST_ASSERT_EQUAL_UINT8(5, meshOregon.channel.cr_denom);
+    TEST_ASSERT_EQUAL_UINT8(DISCOVERY_NO_SLOT, meshOregon.slot);
 }
 
 void test_meshcore_plan_keeps_only_source_backed_tuples() {

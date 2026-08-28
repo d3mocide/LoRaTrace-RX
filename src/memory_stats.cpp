@@ -5,6 +5,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include "logger_task.h"
+#include "low_profile.h"
 #include "serial_lock.h"
 
 namespace {
@@ -48,6 +50,7 @@ uint32_t memoryTaskStackFree(const MemorySnapshot &snapshot, MemoryTask task) {
 }
 
 void memoryStatsLog(const char *event) {
+    if (!loggerDebugIsEnabled() || lowProfileIsEnabled()) return;
     const MemorySnapshot s = memoryStatsSnapshot();
     char line[256];
     snprintf(line, sizeof(line),

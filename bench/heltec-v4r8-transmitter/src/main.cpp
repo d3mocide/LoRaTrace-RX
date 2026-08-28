@@ -44,6 +44,7 @@ constexpr Candidate CANDIDATES[] = {
     {"SHORT_FAST", 918.875f, 7, 250.0f, 5, 0x2B},
     {"SHORT_SLOW", 920.625f, 8, 250.0f, 5, 0x2B},
     {"LONG_TURBO", 908.750f, 11, 500.0f, 8, 0x2B},
+    {"MESH_OREGON", 918.5f, 8, 125.0f, 5, 0x2B},
 };
 
 SX1262 radio = new Module(PIN_LORA_NSS, PIN_LORA_DIO1, PIN_LORA_RST, PIN_LORA_BUSY);

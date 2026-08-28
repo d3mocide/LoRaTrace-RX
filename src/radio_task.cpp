@@ -5,6 +5,7 @@
 #include <freertos/task.h>
 
 #include "board_pins.h"
+#include "bench_fault.h"
 #include "discovery_plan.h"
 #include "memory_stats.h"
 #include "spi_bus.h"
@@ -51,6 +52,7 @@ volatile uint8_t discoveryCandidateCount = 0;
 volatile DiscoverySweepState discoveryState = DiscoverySweepState::IDLE;
 volatile uint16_t discoveryCadFreeCount = 0;
 volatile uint16_t discoveryCadDetectedCount = 0;
+volatile uint16_t discoveryCadDetectedMask = 0;
 volatile uint16_t discoveryCadTimeoutCount = 0;
 volatile uint16_t discoveryErrorCount = 0;
 
@@ -76,6 +78,17 @@ volatile uint32_t discoveryLastAwayMs = 0;
 constexpr TickType_t BUS_WAIT = pdMS_TO_TICKS(250);
 constexpr uint32_t DISCOVERY_CAD_TIMEOUT_MS = 300;
 constexpr uint32_t DISCOVERY_RX_WINDOW_MS = 2500;
+
+uint8_t discoveryCadSymbolConfig() {
+    switch (benchCadSymbols()) {
+        case 1: return RADIOLIB_SX126X_CAD_ON_1_SYMB;
+        case 4: return RADIOLIB_SX126X_CAD_ON_4_SYMB;
+        case 8: return RADIOLIB_SX126X_CAD_ON_8_SYMB;
+        case 16: return RADIOLIB_SX126X_CAD_ON_16_SYMB;
+        case 2:
+        default: return RADIOLIB_SX126X_CAD_ON_2_SYMB;
+    }
+}
 
 // DIO1 fires on RX-done. Keep this to a notification and nothing else: no
 // SPI, no Serial, no allocation. RadioLib requires the ISR be IRAM-safe.
@@ -158,7 +171,10 @@ void enqueueScanObservation(const DiscoveryCandidate &candidate, uint8_t candida
 
     switch (result) {
         case ScanObservationResult::CAD_FREE: discoveryCadFreeCount++; break;
-        case ScanObservationResult::CAD_DETECTED: discoveryCadDetectedCount++; break;
+        case ScanObservationResult::CAD_DETECTED:
+            discoveryCadDetectedCount++;
+            if (candidateIndex < 16) discoveryCadDetectedMask |= (uint16_t)(1U << candidateIndex);
+            break;
         case ScanObservationResult::CAD_TIMEOUT: discoveryCadTimeoutCount++; break;
         case ScanObservationResult::RADIO_ERROR: discoveryErrorCount++; break;
         default: break;
@@ -186,6 +202,24 @@ bool waitForDioUntil(uint32_t timeoutMs) {
         if (millis() - started >= timeoutMs) return false;
         vTaskDelay(1);
     }
+}
+
+bool applyBenchFault(BenchFaultPoint point, const DiscoveryCandidate *candidate,
+                     uint8_t candidateIndex, bool &aborted, bool &failed) {
+    BenchFaultAction action;
+    if (!benchFaultTake(point, action)) return false;
+    if (action == BenchFaultAction::CANCEL) {
+        discoveryCancelRequested = true;
+        aborted = true;
+    } else {
+        lastError = RADIOLIB_ERR_UNKNOWN;
+        if (candidate != nullptr) {
+            enqueueScanObservation(*candidate, candidateIndex, ScanObservationResult::RADIO_ERROR,
+                                   RADIOLIB_ERR_UNKNOWN);
+        }
+        failed = true;
+    }
+    return true;
 }
 
 bool restoreHomeListen(const ChannelParams &homeChannel, MissionProfile homeProfile) {
@@ -224,6 +258,7 @@ void performDiscoverySweep() {
     discoveryCandidateCount = 0;
     discoveryCadFreeCount = 0;
     discoveryCadDetectedCount = 0;
+    discoveryCadDetectedMask = 0;
     discoveryCadTimeoutCount = 0;
     discoveryErrorCount = 0;
     for (uint8_t i = 0; i < plan.count; i++) {
@@ -249,6 +284,10 @@ void performDiscoverySweep() {
         if (discoveryChannelEquals(candidate.channel, homeChannel)) continue;
         discoveryCandidateIndex++;
 
+        if (applyBenchFault(BenchFaultPoint::BEFORE_RETUNE, &candidate, i, aborted, failed)) {
+            break;
+        }
+
         int beginState;
         {
             SpiBusLock lock(BUS_WAIT);
@@ -265,7 +304,7 @@ void performDiscoverySweep() {
             if (beginState == RADIOLIB_ERR_NONE) {
                 ChannelScanConfig_t config = {
                     .cad = {
-                        .symNum = RADIOLIB_SX126X_CAD_ON_2_SYMB,
+                        .symNum = discoveryCadSymbolConfig(),
                         .detPeak = RADIOLIB_SX126X_CAD_PARAM_DEFAULT,
                         .detMin = RADIOLIB_SX126X_CAD_PARAM_DEFAULT,
                         .exitMode = RADIOLIB_SX126X_CAD_GOTO_STDBY,
@@ -283,6 +322,13 @@ void performDiscoverySweep() {
             enqueueScanObservation(candidate, i, ScanObservationResult::RADIO_ERROR,
                                    (int16_t)beginState);
             failed = true;
+            break;
+        }
+
+        if (applyBenchFault(BenchFaultPoint::AFTER_RETUNE, &candidate, i, aborted, failed)) {
+            break;
+        }
+        if (applyBenchFault(BenchFaultPoint::CAD_WAIT, &candidate, i, aborted, failed)) {
             break;
         }
 
@@ -350,6 +396,9 @@ void performDiscoverySweep() {
             break;
         }
 
+        if (applyBenchFault(BenchFaultPoint::RX_WAIT, &candidate, i, aborted, failed)) {
+            break;
+        }
         if (!waitForDioUntil(DISCOVERY_RX_WINDOW_MS)) {
             if (discoveryAbortPending()) {
                 aborted = true;
@@ -385,7 +434,9 @@ void performDiscoverySweep() {
         (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) ||
         (pauseQueue != nullptr && uxQueueMessagesWaiting(pauseQueue) > 0);
     ulTaskNotifyTake(pdTRUE, 0);
+    applyBenchFault(BenchFaultPoint::HOME_RESTORE_BEFORE, nullptr, 0, aborted, failed);
     const bool restored = restoreHomeListen(homeChannel, homeProfile);
+    applyBenchFault(BenchFaultPoint::HOME_RESTORE_AFTER, nullptr, 0, aborted, failed);
     if (requestPending && radioTaskHandle != nullptr) xTaskNotifyGive(radioTaskHandle);
     if (!restored) failed = true;
 
@@ -603,6 +654,9 @@ uint16_t radioDiscoveryCadFreeCount() {
 }
 uint16_t radioDiscoveryCadDetectedCount() {
     return discoveryCadDetectedCount;
+}
+uint16_t radioDiscoveryCadDetectedMask() {
+    return discoveryCadDetectedMask;
 }
 uint16_t radioDiscoveryCadTimeoutCount() {
     return discoveryCadTimeoutCount;

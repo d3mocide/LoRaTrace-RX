@@ -95,6 +95,9 @@ enum class DiscoverySweepState : uint8_t {
 DiscoverySweepState radioDiscoverySweepState();
 uint16_t radioDiscoveryCadFreeCount();
 uint16_t radioDiscoveryCadDetectedCount();
+// Bit N is set when candidate N produced CAD_DETECTED in the latest Probe.
+// Plans are capped below sixteen entries, so this stays a small fixed value.
+uint16_t radioDiscoveryCadDetectedMask();
 uint16_t radioDiscoveryCadTimeoutCount();
 uint16_t radioDiscoveryErrorCount();
 

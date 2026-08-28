@@ -8,13 +8,14 @@ source, `DESIGN.md` is the "why" source. Don't let them drift.
 
 **Note, 2026-08-25 doc pass:** this section is Phase 0/1 history, kept as
 written per this file's own convention of not rewriting past entries. For
-what's actually true today: **v0.7.0, Phases 0-7 complete and Phase 8
-bounded acquisition work started**, with the
+what's actually true today: **v0.8.0, Phases 0-8 complete**, with the
 measured device budgets and soak recorded below. See
 CLAUDE.md's Status section for the running narrative, or the Build-order
 checklist immediately below for the live phase-by-phase state. Phase 8
-(`DISCOVERY_SWEEP`) has a host/build-verified radio acquisition slice but no
-hardware behavior evidence yet; Phase 9 (`ENERGY_SWEEP`) is not started; Phase 10
+(`DISCOVERY_SWEEP`) has nominal, fault, contention, durable-output, and
+packet-bearing interoperability evidence; CAD false-rate calibration remains
+an explicit lab limitation rather than a production claim. Phase 9
+(`ENERGY_SWEEP`) is not started; Phase 10
 (Field Analyzer) is accepted as planned scope, with its v1.0 gate deferred
 until Phase 9 hardware evidence exists.
 
@@ -795,31 +796,60 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
 
     Minimum unused stack across the soak and targeted download validation was
     radio 2,116B, GPS 1,444B, logger 1,784B, UI 2,180B, and WiFi 3,220B.
-- [ ] **Phase 8 — Probe / `DISCOVERY_SWEEP`. In progress (bounded radio
-      acquisition slice, 2026-08-27; hardware validation remains open).** Expanded from
+- [x] **Phase 8 — Probe / `DISCOVERY_SWEEP`. Complete with an explicit
+      uncalibrated-CAD caveat (2026-08-28).** Expanded from
       the earlier outline by the accepted 2026-08-26 Phase 7–10 design in
       `research/LoRaTrace-Phases-7-10-Design.md`.
   - [x] Correct the built-in Meshtastic LongFast tuple to upstream CR 4/5;
         add the source-backed fixed candidate plan and host coverage in
         `src/discovery_plan.h` / `test/test_discovery_plan/`. Hardware RX
-        verification remains open.
+        verification passed in the nominal, fault, contention, and packet
+        interoperability runs below.
   - [x] Document primary-source findings and the bandwidth-specific
         Meshtastic slot formula in `research/phase8-discovery-research.md`.
   - [x] Add radio-owned bounded CAD acquisition with explicit two-symbol CAD,
         deadline polling, receive-on-hit, home restore, separate fixed
         `ScanObservation` queue, durable `probe.csv`, cumulative session
         counters, and on-device Probe controls (global P plus Enter on the
-        Probe card). Host/build verification is complete; hardware behavior
-        and recovery evidence remain open.
-  - [ ] Curated, versioned complete candidate tuples per profile — non-default
+        Probe card). Host/build verification is complete. The nominal
+        Cardputer/Heltec harness completed 1,000 automated runs in 2h17m,
+        restoring the resolved home channel (`918500` kHz) on every run with
+        recovery `R=1..1000`, 1,000 `TX_DONE OK` events, and no harness
+        failures. One `TX_STARTED` line was clipped in the USB capture; the
+        matching `TX_DONE OK` and terminal/home-restore record were intact.
+        Fault-matrix, contention, durable SD-output, and packet-bearing
+        interoperability evidence are recorded below.
+  - [x] Curated, versioned complete candidate tuples per profile — non-default
         Meshtastic channel-hash slots and sourced legacy MeshCore settings —
         weighted by [[meshmapper-pipeline]]'s real-world observations where
         available and including the existing per-profile home override
-        (DESIGN.md §3/§9; CLAUDE.md's "Related context" note)
-  - [ ] CAD `symNum` tuning bench-tested against Semtech AN1200.48 before
+        (DESIGN.md §3/§9; CLAUDE.md's "Related context" note). The version-2
+        plan also carries the operator-supplied MeshOregon physical tuple
+        (918.5MHz/SF8/BW125/CR4/5) as a clearly labeled local candidate; its
+        4/4 controlled CAD pilot is evidence for that tuple only, not a
+        universal default. Cascadia's local guidance confirms the
+        910.525MHz USA/Canada MeshCore candidate should remain first; the
+        unsourced pre-migration SF11/250 fallback remains excluded.
+  - [x] CAD `symNum` tuning gate disposition recorded against Semtech AN1200.48:
         trusting any false-positive/miss rate this phase reports (DESIGN.md
-        §7 open item, carried since Phase 0)
-  - [ ] Hardware-verify `DISCOVERY_SWEEP(profile)` radio-task state: bounded-duration
+        §7 open item, carried since Phase 0). The bounded bench selector and
+        1/2/4/8/16-symbol rate harness are implemented and the first complete
+        three-quiet/three-pulse room-rate pilot retained `COMPLETE`, `SD=1`,
+        and home restore on all 30 cycles; every pulse detected. Its exposed
+        quiet controls were RF-active (target-bit hits 0/3, 2/3, 2/3, 1/3,
+        0/3), so it is evidence of room activity rather than a false-positive
+        rate. Sixteen symbols also timed out once in every cycle. The strict
+        20/20 gate now rejects any target quiet hit, controlled miss, or CAD
+        timeout and remains open pending a shielded/attenuated quiet fixture.
+        A lower-gain four-symbol follow-up retained 20/20 controlled pulses
+        with zero timeouts but had 14/20 target quiet hits; ammo-box preflights
+        remained 2/3 quiet hits despite 3/3 pulses. A ten-quiet antenna-
+        disconnected diagnostic had zero target hits, isolating the activity
+        to the antenna path without proving or quantifying an outside source.
+        No production CAD change is justified; the formal calibrated
+        false/miss-rate experiment is carried as a post-Phase-8 lab follow-up
+        because this bench cannot produce a known-quiet RF control.
+  - [x] Hardware-verify `DISCOVERY_SWEEP(profile)` radio-task state: bounded-duration
         CAD-cycles the curated candidate list, optionally opens a bounded
         receive-on-hit window, and restores the complete resolved home
         configuration on complete/cancel/timeout/failure
@@ -829,32 +859,73 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         measurements; keep `Detection` unchanged and put cumulative retries,
         drops, recoveries, abort reason, and home-away time in run-summary or
         health records rather than every observation — implemented with host
-        coverage; hardware queue/SD evidence remains open below
+        coverage and hardware queue/SD evidence below.
   - [x] Durable Probe output implemented: `probe.csv` is created as part of
         each run schema and Probe refuses to start when SD is unavailable.
-        Hardware output validation remains open below.
-  - [ ] Transient mode: use the Phase 7-accepted fixed 2.5 KB ceiling, reuse
+        Replacement-card output validation is recorded below.
+  - [ ] **Post-Phase-8 enhancement, not an exit gate:** transient mode: use the Phase 7-accepted fixed 2.5 KB ceiling, reuse
         the live buffer, retain one result with no raw/history stream, and
         display `NOT SAVED`
   - [x] Probe result card and controls surfaced in the existing UI (card 2,
         global P start/cancel, Enter on the Probe card) without reopening the
         UI architecture
-  - [ ] Low Profile USB support: bounded, CRC-framed remote requests for
+  - [x] Serial Control USB support (formerly Low Profile): bounded,
+        CRC-framed remote requests for
         existing Trace/profile/Probe actions are implemented behind an
-        on-device, reset-disabled toggle with native/build verification;
-        hardware validation and the deterministic host/Heltec harness remain
-        open. BLE is a separately authenticated and measured future gate,
+        on-device NVS-persisted toggle with native/build verification;
+        the nominal 1,000-run host/Heltec stress confirms boot-gated control,
+        candidate synchronization, capped pulses, recovery, and clean
+        teardown. BLE is a separately authenticated and measured future gate,
         not an implemented control surface.
-  - [ ] `detections.csv`/`session.csv` check: a `DISCOVERY_SWEEP` hit logs
-        cleanly alongside `HOME_LISTEN` detections without a format change
-        that breaks concatenating against already-logged runs (DESIGN.md
-        §8's own "check the header before concatenating" rule)
-  - [ ] Bench-verify against a real non-default-channel Meshtastic
-        transmitter and/or a legacy-config MeshCore node once one is
-        available to test against
-  - [ ] Deterministic automated bench mode completes 1,000 Probe runs, with
+  - [x] `detections.csv`/`session.csv` check: the replacement card's 16
+        runs have one stable header per CSV type and no malformed rows;
+        run0014 contains 700 Probe observations plus 15 Detection rows with
+        `SD=ok`, zero row/scan drops, and intact final newlines. Raw
+        GPS-bearing rows remain private.
+  - [x] Bench-verify against a real non-default-channel Meshtastic
+        transmitter. The official Heltec V4 R8 Meshtastic image was configured
+        to LONG_MODERATE and sent ten live packets through one persistent API
+        connection while the Cardputer Probe ran: `B=COMPLETE`, `SD=1`,
+        `R=1`, `C=6,2,0,0`, and `M=0024` (the version-2 LongModerate bit is
+        `0x0004`). Evidence is retained in
+        `hardware-results/private/phase8/phase8-meshtastic-longmod-interop-20260828T2052.serial.log`;
+        the repository bench image was restored afterward.
+  - [x] Deterministic automated bench mode completes 1,000 Probe runs, with
         deterministic fault injection or a bench-only hook covering cancel
-        at every acquisition state and proving Watch restoration
+        at every acquisition state and proving Watch restoration. Nominal
+        1,000-run completion is evidenced; the shared fault hook and scripts
+        now cover every named boundary. The final stable-boot matrix passed
+        all 12 point/action pairs on the replacement card: each reported
+        `SD=1`, produced its expected `CANCELLED` or `FAILED` terminal state,
+        restored home `F=906875`, and advanced recovery `R=1..12`
+        (`phase8-fault-matrix-20260828T160815Z.*`). The earlier failed-card
+        capture remains a separate SD/boot-reliability finding, not a
+        fault-hook failure. The 100-cycle USB-contention repetition also
+        passed: every Probe completed and restored home with `SD=1`, recovery
+        advanced `R=1..100`, and the harness validated 668 framed STATUS
+        responses at a 25ms poll target
+        (`phase8-contention-100-20260828T160944Z.*`).
+  - [x] Serial observability and harness revamp: user-facing Serial Control
+        rename, explicit normal/debug output levels, measured USB/lock cost,
+        and shared host transport/scenario modules for cancellation, fault,
+        contention, and future bench-node tests. Shared host transport,
+        structured JSONL results, nominal-scenario extraction, the
+        compile-time bench fault image, and thin cancellation/fault/contention
+        scenarios landed 2026-08-28. The final matrix uses a one-second
+        inter-case USB settling interval and arms the Heltec before the first
+        non-home LongModerate window for `RX_WAIT`; all 12 cases passed on
+        hardware. The 100-cycle/668-poll contention run also passed. The
+        attempted full matrix on the failed card is retained as an invalid
+        SD/boot-reliability finding, not a hook failure. The user-facing UI
+        rename and Debug-gated periodic health/heap/backlight output landed
+        2026-08-28; internal
+        `lowProfile*` symbols and wire/NVS identifiers remain compatibility
+        names pending a later cleanup. STATUS now adds per-Probe CAD counts
+        and a candidate-index mask for fixture correlation. The 100-cycle
+        contention run measured 478.7 seconds while servicing 668 framed
+        STATUS requests at a 25 ms target (4.79 seconds/cycle, no terminal
+        failures or restore loss); this is the bounded USB/lock workload
+        measurement, not a CPU-utilization claim.
   - [ ] **Post-Phase-8 enhancement, not a v0.8 exit gate:** persistent custom
         candidate editing with a bounded schema/count, tuple validation,
         provenance, deduplication, and explicit device/web ownership
@@ -1180,3 +1251,14 @@ above) — remaining items are follow-through, in the order it's worth doing.
      occasionally clipped under WebServer activity, so serial text remains
      supplemental to `session.csv` and status counters. The build is 50,348B
      static RAM / 972,573B flash; native tests remain 91/91.
+
+9. **SD resilience and remaining contention evidence (2026-08-28).**
+   v0.7.1 retains the boot-time SD mount for logger startup and removes
+   automatic remount retries. With no card, the receiver remains up/offline;
+   after a reseat, System > Retry SD queues one deliberate remount. This was
+   tested on-device with the replacement card. The 12-case fault matrix and
+   100-cycle/668-poll USB-contention run pass; production v0.7.1 is restored
+   and reports `SD=1`. Preserve the normal versus Debug-gated diagnostic
+   policy. Serial Control remains the user-facing name while internal
+   wire/NVS compatibility is preserved. The tracked design and artifact
+   contract are in `research/phase8-low-profile-harness-design.md`.

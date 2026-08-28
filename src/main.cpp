@@ -14,8 +14,8 @@
 // task touching SD arbitrates through spi_bus.h — two devices on one bus
 // can't transact at the same instant no matter which core issues them.
 //
-// loop() only keeps the periodic Serial status line — ui_task owns the
-// display exclusively once started.
+// loop() only keeps the optional Debug health line — ui_task owns the display
+// exclusively once started.
 //
 // Boot order matters:
 //   1. NSS high      — before any I2C/SPI, or SD mounts unreliably
@@ -37,6 +37,7 @@
 #include "gps_task.h"
 #include "io_expander.h"
 #include "logger_task.h"
+#include "low_profile.h"
 #include "profile_state.h"
 #include "radio_task.h"
 #include "serial_lock.h"
@@ -380,7 +381,7 @@ void setup() {
         }
     }
 
-    if (!loggerTaskStart(detectionQueue, scanObservationQueue)) {
+    if (!loggerTaskStart(detectionQueue, scanObservationQueue, sdMounted)) {
         fatal(F("FATAL: logger task failed to start."), F("FATAL: logger task"));
     }
     // No splash line on success: this is RTOS resource allocation, not a
@@ -503,6 +504,13 @@ void loop() {
     // inline status rows would race it for the same pixels.
     static uint32_t lastStatus = 0;
     uint32_t now = millis();
+    // Serial Control owns the USB console while enabled. Suppress the
+    // human-readable health line there, and keep it Debug-gated otherwise so
+    // an unattended device does not spend CPU/USB time on periodic noise.
+    if (lowProfileIsEnabled() || !loggerDebugIsEnabled()) {
+        delay(20);
+        return;
+    }
     if (now - lastStatus < 5000) {
         delay(20); // nothing to do; leave the CPU to the tasks
         return;

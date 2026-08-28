@@ -11,11 +11,12 @@
 
 #include "channel_plans.h"
 
-constexpr uint8_t DISCOVERY_PLAN_VERSION = 1;
+constexpr uint8_t DISCOVERY_PLAN_VERSION = 2;
 constexpr uint8_t DISCOVERY_NO_SLOT = 0xFF;
 
 enum class DiscoveryCandidateKind : uint8_t {
     MESHTASTIC_STANDARD_PRESET,
+    MESHTASTIC_COMMUNITY_CUSTOM,
     MESHCORE_UPSTREAM_DEFAULT,
     MESHCORE_CURRENT_US,
 };
@@ -44,11 +45,18 @@ constexpr float meshtasticUsFrequencyForSlot(uint16_t slot, float bw_khz) {
     return 902.0f + (bw_khz / 2000.0f) + (slot * bw_khz / 1000.0f);
 }
 
-// Standard Meshtastic preset-name hashes are the source-backed channel
-// anchors. The active home tuple is included so the radio task can uniformly
-// skip the resolved home channel (including an operator override) at runtime.
-// Coding-rate values follow the upstream preset table: 5 means CR 4/5.
-constexpr DiscoveryCandidate MESHTASTIC_STANDARD_CANDIDATES[] = {
+// This operator-requested MeshOregon tuple is first so an intentionally
+// selected local custom plan is sampled before unrelated RF activity can
+// consume the bounded RX-on-CAD window. Channel names and PSKs are not
+// physical modem settings, so they do not belong in an RX occupancy plan.
+constexpr DiscoveryCandidate MESHTASTIC_PROBE_CANDIDATES[] = {
+    {{918.5f, 8, 125.0f, 5, SYNC_WORD_MESHTASTIC},
+     DiscoveryCandidateKind::MESHTASTIC_COMMUNITY_CUSTOM, DISCOVERY_NO_SLOT},
+    // Standard Meshtastic preset-name hashes are source-backed channel
+    // anchors. The active home tuple is included so the radio task can
+    // uniformly skip the resolved home channel (including an operator
+    // override) at runtime. Coding-rate values follow the upstream preset
+    // table: 5 means CR 4/5.
     {{meshtasticUsFrequencyForSlot(19, 250.0f), 11, 250.0f, 5, SYNC_WORD_MESHTASTIC},
      DiscoveryCandidateKind::MESHTASTIC_STANDARD_PRESET, 19}, // LongFast
     {{meshtasticUsFrequencyForSlot(86, 125.0f), 11, 125.0f, 8, SYNC_WORD_MESHTASTIC},
@@ -85,9 +93,9 @@ constexpr DiscoveryPlan EMPTY_DISCOVERY_PLAN = {
 inline DiscoveryPlan discoveryPlanForProfile(MissionProfile profile) {
     switch (profile) {
         case MissionProfile::MESHTASTIC:
-            return {DISCOVERY_PLAN_VERSION, MESHTASTIC_STANDARD_CANDIDATES,
-                    (uint8_t)(sizeof(MESHTASTIC_STANDARD_CANDIDATES) /
-                              sizeof(MESHTASTIC_STANDARD_CANDIDATES[0]))};
+            return {DISCOVERY_PLAN_VERSION, MESHTASTIC_PROBE_CANDIDATES,
+                    (uint8_t)(sizeof(MESHTASTIC_PROBE_CANDIDATES) /
+                              sizeof(MESHTASTIC_PROBE_CANDIDATES[0]))};
         case MissionProfile::MESHCORE:
             return {DISCOVERY_PLAN_VERSION, MESHCORE_CANDIDATES,
                     (uint8_t)(sizeof(MESHCORE_CANDIDATES) /

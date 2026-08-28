@@ -42,11 +42,22 @@ void test_formatter_refuses_space_containing_argument() {
                                                      LowProfileOpcode::ACK, "NOT SAFE"));
 }
 
+void test_bench_cad_opcode_round_trips() {
+    char line[LOW_PROFILE_FRAME_MAX];
+    TEST_ASSERT_TRUE(lowProfileFormatFrame(line, sizeof(line), 18,
+                                           LowProfileOpcode::BENCH_CAD, "16") > 0);
+    LowProfileFrame frame;
+    TEST_ASSERT_TRUE(lowProfileParseFrame(line, frame));
+    TEST_ASSERT_EQUAL_INT((int)LowProfileOpcode::BENCH_CAD, (int)frame.opcode);
+    TEST_ASSERT_EQUAL_STRING("16", frame.argument);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_valid_frame_round_trips);
     RUN_TEST(test_bad_crc_and_extra_tokens_are_rejected);
     RUN_TEST(test_parser_rejects_unsupported_version_and_sequence_overflow);
     RUN_TEST(test_formatter_refuses_space_containing_argument);
+    RUN_TEST(test_bench_cad_opcode_round_trips);
     return UNITY_END();
 }

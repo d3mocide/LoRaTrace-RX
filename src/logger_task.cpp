@@ -9,6 +9,7 @@
 #include "detection.h"
 #include "gps_task.h"
 #include "memory_stats.h"
+#include "low_profile.h"
 #include "radio_task.h"
 #include "run_log.h"
 #include "serial_lock.h"
@@ -55,6 +56,9 @@ constexpr TickType_t BUS_WAIT = pdMS_TO_TICKS(2000);
 QueueHandle_t detectionQueue = nullptr;
 QueueHandle_t scanObservationQueue = nullptr;
 bool sdReady = false;
+bool initialSdMounted = false;
+volatile bool sdRetryRequested = false;
+volatile bool loggerStarted = false;
 
 // Menu-toggled (ui_task.cpp); both it and this task run on Core 0, so a
 // plain bool is enough — no cross-core visibility concern the way a Core
@@ -115,17 +119,19 @@ bool ensureCsvLocked(const char *path, const char *header) {
     return true;
 }
 
-// Mounts SD and ensures all run CSVs exist with their header rows. Assumes the
-// caller holds the bus.
-bool openLogsLocked() {
-    // SD.end() first, always. Arduino-ESP32's SD.begin() returns true
-    // immediately if a card object already exists, so once a card has been
-    // mounted and then pulled, the retry path below would "succeed"
-    // forever while every write kept failing. Tearing the mount down first
-    // makes the remount real, and makes this the sole authority on the
-    // mount regardless of what the boot-time config read (config.cpp) left.
-    SD.end();
-    if (!SD.begin(PIN_SD_CS, sharedSpi())) return false;
+// Ensures all run CSVs exist with their header rows. When `remount` is true,
+// first establishes a fresh SD mount; otherwise it intentionally adopts the
+// successful mount left by the boot-time config read. Assumes the caller
+// holds the bus.
+bool openLogsLocked(bool remount) {
+    if (remount) {
+        // Arduino-ESP32's SD.begin() can report success while retaining a
+        // stale card object after removal, so an operator-requested recovery
+        // must be a real remount. This is intentionally never done as an
+        // automatic periodic retry: a bad card can block synchronous SD I/O.
+        SD.end();
+        if (!SD.begin(PIN_SD_CS, sharedSpi())) return false;
+    }
     if (!SD.exists(LOG_DIR)) SD.mkdir(LOG_DIR);
 
     // Resolve the run once per power-on, not once per mount, so a card
@@ -328,7 +334,7 @@ void appendDetection(const Detection &det) {
     // line runs on Core 1 while this runs on Core 0, and even a single
     // call can be torn by another core's Serial call landing inside it
     // (see serial_lock.h) — the lock is the actual guarantee.
-    if (debugVerbose) {
+    if (debugVerbose && !lowProfileIsEnabled()) {
         char debugLine[8 + sizeof(row) + 1]; // "[debug] " + row + '\n'
         memcpy(debugLine, "[debug] ", 8);
         memcpy(debugLine + 8, row, n);
@@ -391,9 +397,13 @@ void appendScanObservation(const ScanObservation &observation) {
 
 void loggerTask(void *) {
     memoryStatsRegisterCurrentTask(MemoryTask::LOGGER);
-    {
+    // The config reader mounted the card a moment ago during setup(). Keep
+    // that mount live on the normal boot path. If it failed, remain offline
+    // and drain/drop queued records; an absent or sick card is never allowed
+    // to create a boot-time remount loop.
+    if (initialSdMounted) {
         SpiBusLock lock(portMAX_DELAY);
-        if (lock.held()) sdReady = openLogsLocked();
+        if (lock.held()) sdReady = openLogsLocked(false);
     }
 
     uint32_t lastFlush = millis();
@@ -423,13 +433,15 @@ void loggerTask(void *) {
             lastFlush = now;
         }
 
-        // Periodically retry a failed mount so a card inserted/reseated
-        // mid-session starts working without a reboot (known watch item,
-        // see CHANGELOG.md).
-        if (!sdReady && now - lastFlush >= FLUSH_INTERVAL_MS) {
+        // A recovery attempt is operator-triggered from System > Retry SD.
+        // SD/FatFS calls are synchronous, so repeatedly invoking them on a
+        // physically failed card can starve this Core and turn an SD fault
+        // into a watchdog reboot loop. One deliberate retry after a reseat
+        // is recoverable; unattended retries are not.
+        if (!sdReady && sdRetryRequested) {
+            sdRetryRequested = false;
             SpiBusLock lock(BUS_WAIT);
-            if (lock.held()) sdReady = openLogsLocked();
-            lastFlush = now;
+            if (lock.held()) sdReady = openLogsLocked(true);
         }
 
         // Health row last, so it samples counters that include this pass's
@@ -451,9 +463,12 @@ void loggerTask(void *) {
 
 } // namespace
 
-bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue) {
+bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, bool mountedAtBoot) {
     detectionQueue = queue;
     scanObservationQueue = scanQueue;
+    initialSdMounted = mountedAtBoot;
+    sdReady = false;
+    sdRetryRequested = false;
     // Core 0, priority 2: above GPS (1) so rows drain promptly, below the
     // radio (3) which must always win.
     //
@@ -462,11 +477,17 @@ bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue) {
     // calls into SD/FatFS from the bottom of it. Cheap margin on ~330KB
     // free heap; logger_stack_free in session.csv reports the real number.
     BaseType_t ok = xTaskCreatePinnedToCore(loggerTask, "logger", 5120, nullptr, 2, nullptr, 0);
+    loggerStarted = ok == pdPASS;
     return ok == pdPASS;
 }
 
 bool loggerSdReady() {
     return sdReady;
+}
+bool loggerRequestSdRetry() {
+    if (!loggerStarted || sdReady) return false;
+    sdRetryRequested = true;
+    return true;
 }
 uint32_t loggerRowsWritten() {
     return rowsWritten;
@@ -498,7 +519,7 @@ uint32_t loggerScanRowsDropped() {
 
 void loggerDebugToggle() {
     debugVerbose = !debugVerbose;
-    if (debugVerbose) {
+    if (debugVerbose && !lowProfileIsEnabled()) {
         // Column header once on enable, so the CSV-shaped lines that follow
         // are readable rather than a wall of unlabeled commas. One locked
         // Serial call — an earlier unlocked version of this exact line
@@ -509,9 +530,9 @@ void loggerDebugToggle() {
         if (lock.held() && n > 0) {
             serialWriteAll((const uint8_t *)buf, (size_t)n < sizeof(buf) ? (size_t)n : sizeof(buf) - 1);
         }
-    } else {
+    } else if (!lowProfileIsEnabled()) {
         SerialLock lock(pdMS_TO_TICKS(200));
-        if (lock.held()) Serial.println(F("[debug] verbose mode OFF"));
+        if (lock.held()) serialPrintln("[debug] verbose mode OFF");
     }
 }
 bool loggerDebugIsEnabled() {

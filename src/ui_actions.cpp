@@ -78,6 +78,15 @@ void fireMenuAction(MenuAction action) {
             loggerDebugToggle();
             showToast(loggerDebugIsEnabled() ? "Debug ON" : "Debug OFF");
             break;
+        case MenuAction::SD_RETRY:
+            if (loggerSdReady()) {
+                showToast("SD: READY");
+            } else if (loggerRequestSdRetry()) {
+                showToast("SD retry queued");
+            } else {
+                showToast("SD: UNAVAILABLE");
+            }
+            break;
         case MenuAction::TRACE_TOGGLE: {
             // Same pre-toggle-state-then-negate pattern as WIFI_TOGGLE above
             // (and the same reason): radioRequestTracePause() only queues
@@ -108,7 +117,7 @@ void fireMenuAction(MenuAction action) {
         case MenuAction::LOW_PROFILE_TOGGLE: {
             const bool next = !lowProfileIsEnabled();
             lowProfileSetEnabled(next);
-            showToast(next ? "Low profile: USB ON" : "Low profile: OFF");
+            showToast(next ? "Serial Control: ON" : "Serial Control: OFF");
             break;
         }
         case MenuAction::BRIGHTNESS_UP:

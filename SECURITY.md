@@ -38,10 +38,12 @@ backported.
   is assumed to grant full read/write access to firmware and stored data;
   this is out of scope for a security fix and treated as an accepted
   constraint of the platform, not a vulnerability.
-- **Serial/USB Low Profile control.** Diagnostic output is always available.
+- **Serial/USB Serial Control.** Diagnostic output is always available.
   The bounded command endpoint is disabled by default and only accepts its
-  small allowlist after the operator enables System > Low Profile on-device;
-  a reset disables it again. It can request existing Trace, Meshtastic/
+  small allowlist after the operator enables System > Serial Control on-device.
+  That physical enable is persisted in NVS so an ESP32-S3 native-USB host can
+  reconnect after reset; explicit on-device disable or `LOW_PROFILE_OFF`
+  turns it off. It can request existing Trace, Meshtastic/
   MeshCore profile, and Probe actions, but exposes no shell, files, arbitrary
   RF configuration, WiFi/AP control, or direct radio access. Treat an enabled
   USB endpoint as physical-presence authorization, not as a secret channel.
