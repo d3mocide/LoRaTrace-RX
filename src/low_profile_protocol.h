@@ -19,6 +19,8 @@ enum class LowProfileOpcode : uint8_t {
     PROFILE_SET,
     PROBE_START,
     PROBE_CANCEL,
+    SWEEP_START,
+    SWEEP_CANCEL,
     BENCH_FAULT,
     BENCH_CAD,
     LOW_PROFILE_OFF,
@@ -52,6 +54,8 @@ inline const char *lowProfileOpcodeName(LowProfileOpcode opcode) {
         case LowProfileOpcode::PROFILE_SET: return "PROFILE_SET";
         case LowProfileOpcode::PROBE_START: return "PROBE_START";
         case LowProfileOpcode::PROBE_CANCEL: return "PROBE_CANCEL";
+        case LowProfileOpcode::SWEEP_START: return "SWEEP_START";
+        case LowProfileOpcode::SWEEP_CANCEL: return "SWEEP_CANCEL";
         case LowProfileOpcode::BENCH_FAULT: return "BENCH_FAULT";
         case LowProfileOpcode::BENCH_CAD: return "BENCH_CAD";
         case LowProfileOpcode::LOW_PROFILE_OFF: return "LOW_PROFILE_OFF";
@@ -69,6 +73,8 @@ inline LowProfileOpcode lowProfileOpcodeFromName(const char *name) {
     if (strcmp(name, "PROFILE_SET") == 0) return LowProfileOpcode::PROFILE_SET;
     if (strcmp(name, "PROBE_START") == 0) return LowProfileOpcode::PROBE_START;
     if (strcmp(name, "PROBE_CANCEL") == 0) return LowProfileOpcode::PROBE_CANCEL;
+    if (strcmp(name, "SWEEP_START") == 0) return LowProfileOpcode::SWEEP_START;
+    if (strcmp(name, "SWEEP_CANCEL") == 0) return LowProfileOpcode::SWEEP_CANCEL;
     if (strcmp(name, "BENCH_FAULT") == 0) return LowProfileOpcode::BENCH_FAULT;
     if (strcmp(name, "BENCH_CAD") == 0) return LowProfileOpcode::BENCH_CAD;
     if (strcmp(name, "LOW_PROFILE_OFF") == 0) return LowProfileOpcode::LOW_PROFILE_OFF;

@@ -52,6 +52,22 @@ void test_bench_cad_opcode_round_trips() {
     TEST_ASSERT_EQUAL_STRING("16", frame.argument);
 }
 
+void test_sweep_opcodes_round_trip() {
+    char startLine[LOW_PROFILE_FRAME_MAX];
+    TEST_ASSERT_TRUE(lowProfileFormatFrame(startLine, sizeof(startLine), 19,
+                                           LowProfileOpcode::SWEEP_START, "-") > 0);
+    LowProfileFrame startFrame;
+    TEST_ASSERT_TRUE(lowProfileParseFrame(startLine, startFrame));
+    TEST_ASSERT_EQUAL_INT((int)LowProfileOpcode::SWEEP_START, (int)startFrame.opcode);
+
+    char cancelLine[LOW_PROFILE_FRAME_MAX];
+    TEST_ASSERT_TRUE(lowProfileFormatFrame(cancelLine, sizeof(cancelLine), 20,
+                                           LowProfileOpcode::SWEEP_CANCEL, "-") > 0);
+    LowProfileFrame cancelFrame;
+    TEST_ASSERT_TRUE(lowProfileParseFrame(cancelLine, cancelFrame));
+    TEST_ASSERT_EQUAL_INT((int)LowProfileOpcode::SWEEP_CANCEL, (int)cancelFrame.opcode);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_valid_frame_round_trips);
@@ -59,5 +75,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_parser_rejects_unsupported_version_and_sequence_overflow);
     RUN_TEST(test_formatter_refuses_space_containing_argument);
     RUN_TEST(test_bench_cad_opcode_round_trips);
+    RUN_TEST(test_sweep_opcodes_round_trip);
     return UNITY_END();
 }

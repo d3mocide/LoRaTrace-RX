@@ -66,15 +66,28 @@ void sendStatus(uint16_t sequence) {
         case DiscoverySweepState::FAILED: probe = "FAILED"; break;
         default: break;
     }
+    const char *sweep = "IDLE";
+    switch (radioEnergySweepState()) {
+        case EnergySweepState::RUNNING: sweep = "RUNNING"; break;
+        case EnergySweepState::COMPLETE: sweep = "COMPLETE"; break;
+        case EnergySweepState::CANCELLED: sweep = "CANCELLED"; break;
+        case EnergySweepState::FAILED: sweep = "FAILED"; break;
+        default: break;
+    }
     const ChannelParams channel = radioActiveChannel();
     // C is the last Probe's compact CAD result tuple: free,detected,timeout,error.
     // M is its fixed plan-index detection bitmask, which lets a harness tie
     // a known fixture pulse to its intended candidate rather than any ambient hit.
     // It is intentionally one bounded field so operator and harness STATUS
     // polling can measure CAD behavior without extracting probe.csv first.
-    char argument[96] = {};
-    snprintf(argument, sizeof(argument), "P=%s;T=%u;B=%s;SD=%u;F=%lu;R=%lu;I=%u;N=%u;C=%u,%u,%u,%u;M=%04X", profile,
-             radioIsTracePaused() ? 0U : 1U, probe, loggerSdReady() ? 1U : 0U,
+    // W/WI/WN/WP are Sweep's equivalent compact summary: terminal state,
+    // current/last bin index, total bin count, and peaks logged this run —
+    // same "measure without extracting energy.csv first" reasoning as Probe's.
+    char argument[128] = {};
+    snprintf(argument, sizeof(argument),
+             "P=%s;T=%u;B=%s;SD=%u;F=%lu;R=%lu;I=%u;N=%u;C=%u,%u,%u,%u;M=%04X;"
+             "W=%s;WI=%u;WN=%u;WP=%u",
+             profile, radioIsTracePaused() ? 0U : 1U, probe, loggerSdReady() ? 1U : 0U,
              (unsigned long)(channel.freq_mhz * 1000.0f),
              (unsigned long)radioDiscoveryRecoveryCount(),
              (unsigned)radioDiscoveryCandidateIndex(),
@@ -83,7 +96,9 @@ void sendStatus(uint16_t sequence) {
              (unsigned)radioDiscoveryCadDetectedCount(),
              (unsigned)radioDiscoveryCadTimeoutCount(),
              (unsigned)radioDiscoveryErrorCount(),
-             (unsigned)radioDiscoveryCadDetectedMask());
+             (unsigned)radioDiscoveryCadDetectedMask(),
+             sweep, (unsigned)radioEnergyBinIndex(), (unsigned)radioEnergyBinCount(),
+             (unsigned)radioEnergyPeakCount());
     sendFrame(sequence, LowProfileOpcode::STATUS, argument);
 }
 
@@ -153,6 +168,23 @@ void handleFrame(const LowProfileFrame &frame) {
             if (!radioDiscoverySweepIsActive()) sendFrame(frame.sequence, LowProfileOpcode::ACK, "IDLE");
             else {
                 const bool accepted = radioRequestDiscoverySweep();
+                sendFrame(frame.sequence, accepted ? LowProfileOpcode::ACK : LowProfileOpcode::ERROR,
+                          accepted ? "CANCEL_QUEUED" : "UNAVAILABLE");
+            }
+            break;
+        case LowProfileOpcode::SWEEP_START:
+            if (!loggerSdReady()) sendFrame(frame.sequence, LowProfileOpcode::ERROR, "SD_REQUIRED");
+            else if (radioEnergySweepIsActive()) sendFrame(frame.sequence, LowProfileOpcode::ERROR, "BUSY");
+            else {
+                const bool accepted = radioRequestEnergySweep();
+                sendFrame(frame.sequence, accepted ? LowProfileOpcode::ACK : LowProfileOpcode::ERROR,
+                          accepted ? "QUEUED" : "UNAVAILABLE");
+            }
+            break;
+        case LowProfileOpcode::SWEEP_CANCEL:
+            if (!radioEnergySweepIsActive()) sendFrame(frame.sequence, LowProfileOpcode::ACK, "IDLE");
+            else {
+                const bool accepted = radioRequestEnergySweep();
                 sendFrame(frame.sequence, accepted ? LowProfileOpcode::ACK : LowProfileOpcode::ERROR,
                           accepted ? "CANCEL_QUEUED" : "UNAVAILABLE");
             }

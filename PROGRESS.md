@@ -17,10 +17,11 @@ packet-bearing interoperability evidence; CAD false-rate calibration remains
 an explicit lab limitation rather than a production claim. Phase 9
 (`ENERGY_SWEEP`) is in progress: its Pass-A acquisition engine is
 hardware-verified end-to-end (real `energy.csv` peak rows, full-band
-coverage, zero queue drops — see the Build-order checklist below), with a
-known placeholder-margin calibration finding still open. Pass B (CAD at
-peaks), a dedicated result page, and low-profile wiring have not started.
-Phase 10
+coverage, zero queue drops), and Serial Control (`SWEEP_START`/
+`SWEEP_CANCEL`/`STATUS`) is wired and hardware-verified too — see the
+Build-order checklist below. A known placeholder-margin calibration
+finding is still open. Pass B (CAD at peaks) and a dedicated result page
+have not started. Phase 10
 (Field Analyzer) is accepted as planned scope, with its v1.0 gate deferred
 until Phase 9 hardware evidence exists.
 
@@ -1002,6 +1003,19 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         noise-floor sweep, so the UI/docs can be honest about reduced
         sensitivity in that sub-band instead of silently under-reporting
         (ROADMAP.md Phase 9, DESIGN.md §7 open item)
+  - [x] Serial Control USB support for Sweep: `SWEEP_START`/`SWEEP_CANCEL`
+        opcodes (`low_profile_protocol.h`/`low_profile.cpp`) mirroring
+        Probe's `PROBE_START`/`PROBE_CANCEL` exactly (including the same
+        `SD_REQUIRED`/`BUSY`/cancel-in-place semantics), plus `W`/`WI`/`WN`/`WP`
+        compact Sweep fields added to `STATUS`'s existing response —
+        terminal state, current/last bin index, total bin count, peaks
+        logged this run. Host-tested (`test_low_profile_protocol`,
+        round-trip coverage for both new opcodes) and hardware-verified
+        2026-08-28 over real USB: `HELLO`/`STATUS` parse correctly with the
+        new fields present, `SWEEP_START` returned `ACK QUEUED`, and
+        `SWEEP_CANCEL` sent ~300ms later correctly reported
+        `ACK CANCEL_QUEUED` (not `IDLE`) — proving both opcodes route into
+        the already-verified radio engine rather than just parsing.
   - [ ] Transient Sweep shares Probe's Phase 7-gated 2.5 KB buffer ceiling,
         single-result replacement, and visible `NOT SAVED` behavior
   - [ ] Deterministic bin-to-display-column aggregation covers both endpoints
