@@ -808,8 +808,9 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
   - [x] Add radio-owned bounded CAD acquisition with explicit two-symbol CAD,
         deadline polling, receive-on-hit, home restore, separate fixed
         `ScanObservation` queue, durable `probe.csv`, cumulative session
-        counters, and a grouped-menu Probe trigger. Host/build verification
-        is complete; hardware behavior and recovery evidence remain open.
+        counters, and on-device Probe controls (global P plus Enter on the
+        Probe card). Host/build verification is complete; hardware behavior
+        and recovery evidence remain open.
   - [ ] Curated, versioned complete candidate tuples per profile — non-default
         Meshtastic channel-hash slots and sourced legacy MeshCore settings —
         weighted by [[meshmapper-pipeline]]'s real-world observations where
@@ -824,17 +825,20 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         configuration on complete/cancel/timeout/failure
         (CLAUDE.md's "radio task must never block" constraint applies here
         same as everywhere else)
-  - [ ] Separate fixed-size `ScanObservation` queue for non-packet CAD/energy
+  - [x] Separate fixed-size `ScanObservation` queue for non-packet CAD/energy
         measurements; keep `Detection` unchanged and put cumulative retries,
         drops, recoveries, abort reason, and home-away time in run-summary or
-        health records rather than every observation
-  - [ ] Durable and transient modes implemented: durable mode refuses a
-        missing output file; transient mode is available only if Phase 7
-        accepts the fixed 2.5 KB ceiling, reuses the live buffer, retains one
-        result, stores no raw/history stream, and displays `NOT SAVED`
-  - [ ] Sweep results/trigger surfaced as new entries under Phase 6's
-        existing grouped menu — explicitly *not* a reason to reopen UI
-        architecture a second time (DESIGN.md §9 step 8, ROADMAP.md Phase 8)
+        health records rather than every observation — implemented with host
+        coverage; hardware queue/SD evidence remains open below
+  - [x] Durable Probe output implemented: `probe.csv` is created as part of
+        each run schema and Probe refuses to start when SD is unavailable.
+        Hardware output validation remains open below.
+  - [ ] Transient mode: use the Phase 7-accepted fixed 2.5 KB ceiling, reuse
+        the live buffer, retain one result with no raw/history stream, and
+        display `NOT SAVED`
+  - [x] Probe result card and controls surfaced in the existing UI (card 2,
+        global P start/cancel, Enter on the Probe card) without reopening the
+        UI architecture
   - [ ] `detections.csv`/`session.csv` check: a `DISCOVERY_SWEEP` hit logs
         cleanly alongside `HOME_LISTEN` detections without a format change
         that breaks concatenating against already-logged runs (DESIGN.md

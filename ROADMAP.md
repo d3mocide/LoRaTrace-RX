@@ -330,7 +330,7 @@ measurement cycle so gains and regressions remain attributable.
 source-backed, versioned fixed candidate-plan layer is documented in
 `research/phase8-discovery-research.md` and implemented in
 `src/discovery_plan.h`; radio-owned CAD/receive-on-hit, observation queues,
-durable Probe output, and the menu trigger are now implemented. Hardware
+durable Probe output, and the on-device trigger are now implemented. Hardware
 validation, transient mode, and deterministic cancellation/fault coverage
 remain open. This is not a phase-complete release.
 
@@ -355,8 +355,8 @@ historical stream, replaces the prior result on the next scan, and displays
 MeshMapper-observed frequencies ([[meshmapper-pipeline]], per CLAUDE.md)
 where available, not scraped defaults alone. CAD `symNum` tuning (§7)
 needs bench testing against Semtech AN1200.48 before trusting false-
-positive/miss rates. New sweep results are additional entries in Phase 6's
-grouped menu, not a reason to reopen UI architecture a second time.
+positive/miss rates. New sweep results use the existing carousel and Probe
+controls, not a reason to reopen UI architecture a second time.
 
 Phase 8 ships with bounded, versioned built-in plans plus the existing
 per-profile home override. Persistent operator-edited candidate lists are a
