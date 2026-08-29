@@ -16,6 +16,15 @@ void test_energy_observation_is_compact_and_separate_from_detection_and_scan_obs
         "energy_peak", energyObservationResultName(EnergyObservationResult::ENERGY_PEAK));
 }
 
+// Phase 9 Pass B result names, appended (not inserted) after ENERGY_PEAK/
+// RADIO_ERROR so any already-written energy.csv keeps its existing values
+// (research/phase9-sweep-pass-b-design.md).
+void test_pass_b_result_names() {
+    TEST_ASSERT_EQUAL_STRING("cad_free", energyObservationResultName(EnergyObservationResult::CAD_FREE));
+    TEST_ASSERT_EQUAL_STRING("cad_detected", energyObservationResultName(EnergyObservationResult::CAD_DETECTED));
+    TEST_ASSERT_EQUAL_STRING("cad_timeout", energyObservationResultName(EnergyObservationResult::CAD_TIMEOUT));
+}
+
 void test_energy_bin_stats_add_sample_running_average_and_peak() {
     EnergyBinStats stats;
     energyBinStatsAddSample(stats, -900);
@@ -137,6 +146,7 @@ int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_energy_bin_stats_is_compact_and_fits_reserved_table_budget);
     RUN_TEST(test_energy_observation_is_compact_and_separate_from_detection_and_scan_observation);
+    RUN_TEST(test_pass_b_result_names);
     RUN_TEST(test_energy_bin_stats_add_sample_running_average_and_peak);
     RUN_TEST(test_energy_bin_stats_add_sample_overflow_flag);
     RUN_TEST(test_energy_bin_stats_note_occupancy_counts_only_when_occupied);

@@ -885,7 +885,16 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         the nominal 1,000-run host/Heltec stress confirms boot-gated control,
         candidate synchronization, capped pulses, recovery, and clean
         teardown. BLE is a separately authenticated and measured future gate,
-        not an implemented control surface.
+        not an implemented control surface. **2026-08-28 addition:**
+        `SD_RETRY` opcode added, mirroring the on-device menu's own
+        `MenuAction::SD_RETRY` handler exactly (`ACK READY`/`ACK QUEUED`/
+        `ERROR UNAVAILABLE`) — see CHANGELOG.md and
+        `research/phase8-low-profile-harness-design.md`'s allowlist note
+        for the full survey of what else was/wasn't added and why.
+        `src/version.h` bumped to v0.8.1 (no new phase scope). Native
+        tests (137/137) and hardware-verified live: `HELLO` now reports
+        `V=0.8.1`, `SD_RETRY` returns `ACK READY` with the SD card already
+        mounted.
   - [x] `detections.csv`/`session.csv` check: the replacement card's 16
         runs have one stable header per CSV type and no malformed rows;
         run0014 contains 700 Probe observations plus 15 Detection rows with
@@ -996,12 +1005,43 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         margin calibration (research/LoRaTrace-Phases-7-10-Design.md §7.3)
         needs to fix, not a structural bug — the engine, schema, and
         pipeline are all confirmed correct.
-  - [ ] Two-pass acquisition: bounded energy statistics first, then LoRa CAD
-        only at measured peaks, operator-selected bins, or a sparse sourced
-        SF/BW subset — Pass A only so far, see above
-  - [ ] A CAD hit away from a known Meshtastic/MeshCore channel is labeled
-        `unknown LoRa candidate`, never promoted to Reticulum without stronger
-        evidence; energy alone is never labeled LoRa
+  - [x] **Two-pass acquisition engine landed 2026-08-28, retimed same day**
+        — Pass B (`research/phase9-sweep-pass-b-design.md`): CAD across a
+        small sourced `PASS_B_SF_BW_CANDIDATES` table (10 combos,
+        deduplicated from real Meshtastic/MeshCore defaults already cited
+        elsewhere — `src/pass_b_plan.h`), reusing Probe's own CAD +
+        bounded-receive-on-hit sequence. First version deferred all of
+        Pass B until after Pass A's full 221-bin loop, selecting the
+        `PASS_B_TOP_K_PEAKS` (8) *strongest* peaks by RSSI. An operator
+        observation ("we might pick up a brief packet and miss it in Pass
+        B") caught a real gap: a deferred pass can arrive well after a
+        brief transmitter has gone quiet. Retimed to run Pass B
+        *immediately* when Pass A flags each peak, capped at the first 8
+        peaks encountered (renamed `PASS_B_MAX_PEAKS_PER_SWEEP` — no
+        longer "strongest", since future peaks aren't known yet when
+        deciding whether to spend time on the current one).
+        Hardware-verified, both versions: deferred version — quiet room
+        8.8s/zero Pass-B work; a Heltec-beacon-stimulated run found 4
+        peaks, ran 4×10=40 CAD attempts (`PBA` 0→40), 44.6s total, clean
+        home restore. Retimed version, same beacon test — `WI` visibly
+        *paused* mid-sweep while `PBA` climbed, confirming real
+        interleaving (not just different bookkeeping); found 1 peak, 10
+        attempts, 12.1s total, clean home restore. **Not yet resolved
+        either time:** `PBD` (promoted detections) stayed 0, including the
+        one combo matching the beacon's own SF/BW exactly (differing only
+        in Pass B's placeholder sync word vs. the beacon's real one) —
+        the retimed run's near-zero latency to the matching attempt
+        actually strengthens the sync-word hypothesis over a timing/
+        staleness explanation, though it isn't proof by itself (`energy.csv`
+        would need pulling to see the per-attempt CAD_FREE/CAD_DETECTED
+        breakdown, not done either round). The full bench matrix this
+        needs is still open — see the design doc's own open questions.
+  - [x] A CAD hit away from a known Meshtastic/MeshCore channel is labeled
+        `unknown LoRa candidate`, never promoted to Reticulum without
+        stronger evidence — `Detection.off_grid` (new field, `detection.h`)
+        gates `detectionClassification()`; energy alone is never labeled
+        LoRa (Pass A's own `EnergyObservationResult::ENERGY_PEAK` rows never
+        touch `Detection` at all, only Pass B's own promoted hits do)
   - [x] Rolling-noise-floor threshold filtering for `ENERGY_SWEEP` data
         before logging exists and is hardware-verified end-to-end (see
         above) — DESIGN.md §8.1's "log peaks only" is implemented, but the

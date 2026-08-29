@@ -156,6 +156,14 @@ uint32_t radioEnergyFailureCount();
 uint32_t radioEnergyRecoveryCount();
 uint32_t radioEnergyLastAwayMs();
 
+// Phase 9 Pass B (research/phase9-sweep-pass-b-design.md): CAD attempts run
+// at the first PASS_B_MAX_PEAKS_PER_SWEEP Pass-A peaks this sweep, and how
+// many of those attempts promoted a real packet to Detection
+// (off_grid = true). Cumulative across sweeps, same convention as the
+// other counters on this page.
+uint32_t radioPassBAttemptCount();
+uint32_t radioPassBDetectionCount();
+
 // --- Diagnostics -------------------------------------------------------
 // Exposed because Phase 2's exit criterion is "no dropped packets
 // attributable to SD latency" — that claim is only checkable if drops are

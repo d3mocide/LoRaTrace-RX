@@ -75,6 +75,292 @@ PATCH = fix with no new phase scope).
   including new `BENCH_SWEEP_MARGIN` round-trip coverage) and both the
   production and `cardputer-adv-bench` builds pass.
 
+- **2026-08-28 — Pass B retimed same day: immediate follow-up, not
+  deferred to the end of the sweep.** After the entry below shipped and
+  ran on hardware, the operator asked whether Pass B was "a deep dive into
+  the captured traffic" and noted "we might pick up a brief packet and
+  miss it in Pass B" — exactly right, and a real gap in the first version:
+  Pass B ran only after Pass A's entire 221-bin loop finished, picking the
+  8 *strongest* peaks by RSSI from the whole sweep. A peak found early in
+  Pass A's ~9s loop might not get checked until 10+ seconds later, or
+  never if it wasn't among the loudest 8 — long enough for a brief,
+  one-shot transmitter to have gone quiet again. Retimed: Pass B now runs
+  immediately inside Pass A's own loop, the moment a bin is flagged as a
+  peak. The 8-peak cap stays (same worst-case cost) but is no longer
+  "strongest" — extracted the CAD sequence into its own
+  `passBCadAtBin(bin, freq, aborted, failed)` (`radio_task.cpp`), removed
+  the top-K-by-RSSI tracking array, and replaced it with one
+  `passBPeaksThisSweep` counter incremented the moment each peak is found.
+  Renamed `PASS_B_TOP_K_PEAKS` → `PASS_B_MAX_PEAKS_PER_SWEEP`
+  (`pass_b_plan.h`) so the name stops claiming a ranking that no longer
+  happens — arguably more honest anyway, since loudness never predicted
+  whether a transmitter was still on air, only recency did.
+
+  Verified: native suite still 142/142 (renamed the one test asserting the
+  old constant), both firmware images build clean. Hardware, live —
+  re-ran the exact same Heltec-beacon test from the entry below: `WI`
+  visibly *paused* at one bin for several `STATUS` polls while `PBA`
+  climbed 0→9→10, confirming the interleaving is real and not just
+  different bookkeeping; found 1 peak this time (real async RF timing
+  variance, not a regression) for 10 CAD attempts and a 12.1s total sweep
+  (vs. the deferred version's 44.6s for 4 peaks/40 attempts); clean home
+  restore both times, no crash. `PBD` stayed 0 again — with near-zero
+  latency between the peak and its matching-SF/BW CAD attempt this time,
+  that actually strengthens the sync-word hypothesis over a
+  timing/staleness explanation for the earlier null result, though
+  distinguishing "CAD never fired" from "CAD fired, decode failed" still
+  needs `energy.csv` pulled from the SD card, not done either round. Full
+  writeup in `research/phase9-sweep-pass-b-design.md`'s new "Timing
+  revision" section.
+
+- **2026-08-28 — Phase 9 Sweep Pass B implemented and hardware-verified:
+  selective CAD at energy peaks, closing the two-pass acquisition design.**
+  Requested as "research and work on Pass B next." Wrote up the design
+  first (`research/phase9-sweep-pass-b-design.md`) because reading the
+  existing code surfaced a real correctness gap, not just an
+  implementation task: `detection.h`'s classification could only ever
+  return the active mission profile's name, and Sweep only runs under
+  RETICULUM/GENERAL_EXPLORATION — so naively reusing Probe's own
+  receive-on-hit path would have labeled every Pass B hit `RETICULUM` in
+  the CSV, exactly what DESIGN.md §7.2 forbids ("a CAD hit away from a
+  known channel is `unknown LoRa candidate`, not Reticulum"). Operator
+  approved all three open questions (add `Detection.off_grid`; K=8 top-peak
+  bound; start the code).
+
+  Landed: `Detection.off_grid` (new bool field) gates
+  `detectionClassification()`; `EnergyObservationResult` gained
+  `CAD_FREE`/`CAD_DETECTED`/`CAD_TIMEOUT` (appended, not inserted, so any
+  existing `energy.csv` keeps its values); a new `src/pass_b_plan.h` holds
+  10 sourced SF/BW combos (deduplicated from real Meshtastic/MeshCore
+  defaults already cited elsewhere in the codebase, not invented) plus the
+  `PASS_B_TOP_K_PEAKS = 8` bound; `performEnergySweep()` (`radio_task.cpp`)
+  runs Pass B after Pass A completes, reusing Probe's own CAD +
+  bounded-receive-on-hit sequence at each of the top-8 peaks' frequencies
+  across all 10 combos. `waitForDioUntil()` gained an abort-check function
+  parameter (defaulting to Probe's own check) so Pass B's waits respond to
+  a Sweep-cancel, not Probe's cancel flag. New cumulative
+  `radioPassBAttemptCount()`/`radioPassBDetectionCount()` counters, exposed
+  via `STATUS`'s new `;PBA=<n>;PBD=<n>` fields — added mid-slice because
+  verifying this on hardware needed some way to observe it running.
+
+  Verified: native suite 142/142 (new `test_pass_b_plan`, +1 each in
+  `test_detection`/`test_energy_observation`); both `cardputer-adv` and
+  `cardputer-adv-bench` build clean on the first real attempt. Hardware,
+  live: a quiet-room sweep completed in 8.8s with Pass B correctly doing
+  zero work (no peaks to check). With the Heltec's `BEACON` mode pulsing
+  its own LONG_FAST candidate (SF11/BW250, Meshtastic sync 0x2B) as a real
+  RF stimulus, Pass A found 4 peaks and Pass B ran exactly 4×10=40 CAD
+  attempts (`PBA` 0→40), completing in 44.6s total with a clean home
+  restore, no crash/hang/watchdog reset. **Real finding, not yet
+  resolved:** `PBD` (promoted detections) stayed 0 across all 40 attempts,
+  including the exact SF/BW-matching combo (only the sync word differed) —
+  evidence, not proof, that CAD may be sync-word-sensitive on this
+  hardware, which is exactly the standing "CAD-at-arbitrary-bin behavior
+  isn't verified" unknown already on record. Full writeup, what this does
+  and doesn't prove, and the next diagnostic steps (pull `energy.csv`,
+  try a same-sync-word re-run) are in the design doc.
+
+- **2026-08-28 — Heltec button long-press retuned again: 2.5s → 1.5s.**
+  After physically testing the 2.5s threshold from the entry below, the
+  operator found it too long a hold to trigger an action comfortably.
+  `BUTTON_LONG_PRESS_MS` moved to 1500. Panic-stop stays at 5.0s
+  (unchanged, not part of this request). Built, flashed, and confirmed
+  booting normally over serial; the actual hold feel needs another
+  physical test.
+
+- **2026-08-28 — Heltec: boot splash, button held to 2.5s/5.0s two-tier
+  panic-stop, and a real display bug fixed by an operator question.** The
+  operator confirmed the PRG-button hold-to-act behavior works physically
+  on real hardware, then asked for three things: a boot splash "as a nice
+  touch"; the long-press threshold nudged from 2.0s to 2.5s; and — since
+  `BEACON` now transmits untethered from the bench fixture — a longer,
+  unambiguous "stop everything" gesture. Landed all three:
+  `showSplash()` (`u8g2_font_9x15B_tf` title, held 1.5s) before the menu
+  appears; `BUTTON_LONG_PRESS_MS` 2000→2500; and a new
+  `BUTTON_PANIC_STOP_MS` (5000) tier — held from *any* screen, it cancels
+  an armed pulse and stops the beacon, the same effect as `QUIET`. Both
+  thresholds fire independently during one continuous hold rather than
+  being mutually exclusive (holding through 5s on `BEACON` starts it at
+  2.5s, then stops it again at 5s) — simpler than trying to "undo" an
+  action already fired. Factored `quietAll()` out of the `QUIET` command
+  handler so the button's panic-stop and the serial command share one
+  implementation instead of two copies.
+
+  Separately, the operator asked whether Sweep is hardcoded to the
+  candidate shown on the Heltec's `CANDIDATE` screen. It isn't — but while
+  answering that, found that the `SWEEP` screen's own OLED display was
+  showing `active->name` (the selected TX candidate) on its third line,
+  which falsely implied exactly that. Sweep always uses the fixed
+  MESH_OREGON tuple; fixed the screen to read `Fixed: MESH_OREGON`
+  instead. The underlying question also surfaced worth clarifying more
+  fully in `research/heltec-standalone-sweep.md`: what "hardcoded to
+  MESH_OREGON" actually constrains (the modem config used while sampling
+  RSSI — and since Sweep never demodulates anything, only bandwidth
+  meaningfully affects the reading) versus what it doesn't (the swept
+  frequency range, which is a fixed uniform grid independent of any
+  profile) — and that this is a documented, still-open Pass-A placeholder
+  (`radio_task.cpp`, `PROGRESS.md`'s Phase 9 checklist), not a hidden
+  design flaw.
+
+  Verified: `heltec-v4r8` builds clean, flashed, and confirmed live over
+  the real framed protocol — boots correctly post-splash-delay, `BEACON`/
+  `ARM`/`SWEEP` guards and `QUIET` (via the new shared `quietAll()`) all
+  still behave exactly as before the refactor. The button's own 2.5s/5.0s
+  timing and the splash's on-screen appearance are not yet physically
+  re-confirmed (I can drive the serial protocol but can't see the OLED or
+  press the button myself).
+
+- **2026-08-28 — Heltec/Cardputer sweep cross-check; System menu split to
+  fix a footer collision and unify toggle-row formatting.** With
+  `SWEEP_START`/`SWEEP_CANCEL` confirmed already remote-triggerable (see
+  the entry below), ran the promised side-by-side comparison: kicked
+  `SWEEP_START` on the Cardputer and the Heltec's own `SWEEP` within the
+  same second. Both, run concurrently in the same room, independently
+  agreed: `WP=0`/`P=0/221` — zero peaks at the 35.0dB margin on both
+  radios. (My first attempt at live progress-polling had its own bug —
+  reusing one sequence number hit Serial Control's replay-cache and kept
+  showing the first `RUNNING` response instead of real progress — but the
+  terminal state on a fresh poll afterward was correct and unaffected by
+  that.)
+
+  Separately, the operator flagged that System's menu (`ui_task.cpp`) had
+  grown to 5 flat rows (WiFi, Debug, Retry SD, Serial Control, Display)
+  and the 5th was visually colliding with the footer's ",/. move" nav
+  hint — `drawMenuList()` draws unconditionally at a fixed 24px/row with
+  no overflow handling, and on a 135px panel with `HEADER_H=12`, row 4's
+  bottom edge (y=135) lands on top of the footer text (y=126). Split
+  System into three groups instead of a flat five: **Connectivity** (WiFi,
+  Serial Control — the two external-interface toggles) and
+  **Diagnostics** (Debug, Retry SD — the two troubleshooting actions),
+  alongside the existing **Display** group. System itself is now 3 rows
+  (comfortably clear of the footer, with headroom to grow again before
+  recolliding).
+
+  Also asked for consistent `Name: STATE` formatting on every toggle-style
+  row — today some rows baked a colon into their own label ("Trace:") and
+  most didn't (`"WiFi"` + `"ON"` printed as "WiFi ON", no colon), which is
+  exactly the inconsistency `drawMenuRow`'s own existing comment says the
+  centralized separator exists to prevent. Fixed at the one place that
+  was already supposed to own it: `drawMenuRow()` (`ui_pages.cpp`) now
+  prints `": "` instead of `' '` whenever a row has a non-empty value, so
+  every ACTION row (Trace, WiFi, Debug, Retry SD, Serial Control, the
+  Profile/Meshtastic/MeshCore rows, Idle dim) gets the same shape from one
+  place. Removed `"Trace:"`'s baked-in colon (now `"Trace"`) and replaced
+  the Profile summary row's manual `snprintf("Profile: %s", ...)` with a
+  plain call through the same label/value path, so that row no longer
+  keeps its own private copy of the separator either.
+
+  Native suite unaffected (`test_ui_menu` exercises its own synthetic
+  mirror table, not `ui_task.cpp`'s real one) — 137/137 still pass. Both
+  `cardputer-adv` and `cardputer-adv-bench` build clean and the production
+  image is flashed and confirmed booting normally over Serial Control
+  (`STATUS` responds correctly post-flash). **Not verified by me:** the
+  actual on-device visual layout — I can drive Serial Control and the
+  native test suite, but I have no way to see the Cardputer's screen, so
+  the corrected row math and the new `Name: STATE` look need an operator
+  eyeball on real hardware.
+
+  **Same-day follow-up, after the operator saw it on real hardware and
+  liked it:** renamed the Diagnostics group's `"Retry SD"` row to plain
+  `"SD"` and its value from `READY`/`OFFLINE` to `READY`/`RETRY`, so the
+  row itself now reads `SD: READY` or `SD: RETRY` — the not-ready state
+  reads as an invitation to act (pressing it *is* the retry) rather than a
+  passive status word. Native suite still 137/137, both images rebuilt
+  clean, reflashed, and confirmed booting normally.
+
+- **2026-08-28 — `SD_RETRY` added to Serial Control's remote allowlist;
+  corrects an earlier wrong claim in this same log.** After the Heltec
+  work below, the operator asked to add `SWEEP_START`/`SWEEP_CANCEL` to
+  Serial Control's remote allowlist, based on my own claim in the entry
+  below that they weren't there. That claim was wrong — they were already
+  implemented, host-tested, and hardware-verified (see this file's own
+  2026-08-28 CAD-rate-adjacent Sweep entries and PROGRESS.md's Phase 9
+  Serial Control bullet); I'd only read an earlier section of
+  `PROGRESS.md` and missed the later entry recording the addition, and
+  hadn't actually opened `serial_control.cpp` to check. Verified live
+  against the attached Cardputer immediately after being corrected:
+  `SWEEP_START` moved Sweep to `RUNNING` (`WI=18;WN=221`) and
+  `SWEEP_CANCEL` ~0.3s later correctly reported `CANCELLED`.
+
+  Surveyed the on-device `MenuAction` set against the allowlist for other
+  gaps of the same shape (existing mission action, non-blocking request
+  API — the pattern the design doc already commits to). One genuine gap:
+  **`SD_RETRY`**, mirroring `ui_actions.cpp`'s own handler exactly
+  (`ACK READY` / `ACK QUEUED` / `ERROR UNAVAILABLE`). Considered and
+  rejected: `WIFI_TOGGLE` (already explicitly excluded by the design doc),
+  `BRIGHTNESS_*`/`IDLE_TIMEOUT_CYCLE` (persisted config writes, same
+  exclusion category), and `DEBUG_TOGGLE` (every verbose line it gates is
+  already independently suppressed by `!serialControlIsEnabled()` —
+  `memory_stats.cpp`, `logger_task.cpp`, `backlight.cpp`, `main.cpp` — so
+  toggling it on while connected over Serial Control has no visible effect
+  over that same channel). Added the opcode
+  (`serial_control_protocol.h`/`serial_control.cpp`) and a round-trip
+  native test; full survey recorded as a dated addition in
+  `research/phase8-low-profile-harness-design.md`'s allowlist section.
+  `src/version.h` bumped 0.8.0 → 0.8.1 (no new phase scope). Verified:
+  native suite 137/137 (including the new test), both `cardputer-adv` and
+  `cardputer-adv-bench` build clean, and live against the attached
+  Cardputer — `HELLO` now reports `V=0.8.1`, and `SD_RETRY` returns
+  `ACK READY` with the card already mounted.
+
+- **2026-08-28 — Heltec bench transmitter gains a single-button menu and a
+  `BEACON` field-test mode; Cardputer reattached.** The operator physically
+  confirmed the PRG-button hold-to-sweep trigger from the entry below
+  works, then asked for a periodic field beacon (for range/detection
+  verification with the Cardputer, no cable needed) and, since the button
+  was about to gain a second use, a proper menu — specifically suggesting
+  Meshtastic's own convention. Added a five-screen menu (`HOME`,
+  `CANDIDATE`, `FIRE`, `SWEEP`, `BEACON`) to
+  `bench/heltec-v4r8-transmitter/src/main.cpp`: a short press cycles
+  screens, a 2-second hold (the same duration already confirmed working)
+  acts on whichever screen is showing. `BEACON START`/`STOP` runs a
+  capped-count (120 pulses, ~4 minutes at a 2s interval) pulse train at the
+  same -9dBm cap as every other mode, mutually exclusive with `ARM`/`SWEEP`
+  in both directions, and stoppable via `QUIET`. This deliberately
+  supersedes `research/phase8-low-profile-harness-design.md`'s "not an
+  over-the-air field test transmitter" line for this one mode only — an
+  explicit operator call, recorded as a dated amendment in that document
+  rather than left silently contradicted. Verified live over the real
+  framed protocol: beacon start/pulses/stop, `ARM`/`SWEEP` both correctly
+  rejected with `BEACON_ACTIVE` while it runs, a double-stop correctly
+  erroring `NOT_ACTIVE`, `ARM` working normally again once stopped, and the
+  pre-existing `SWEEP` command still completing a full 221-bin scan after
+  the refactor. The screen-cycling/per-screen button behavior itself is
+  not yet physically walked through (only its underlying actions were
+  exercised, via their serial equivalents) — full writeup and open items in
+  `research/heltec-menu-and-beacon.md`. Also confirmed the Cardputer's
+  Serial Control is still enabled from a prior session
+  (`@LTRX/1 HELLO` → `V=0.8.0;R=c7f8f05-dirty`), though `ENERGY_SWEEP`
+  remains outside its remote allowlist, so a promised Heltec-vs-Cardputer
+  sweep comparison still needs a physical `S` press on the Cardputer.
+
+- **2026-08-28 — Heltec bench transmitter gains a standalone `SWEEP` mode,
+  turning it into a second independent RSSI instrument.** With the Cardputer
+  disconnected for a solo bench session, added a new `SWEEP` command to
+  `bench/heltec-v4r8-transmitter/src/main.cpp`, deliberately parameter-
+  matched to the Cardputer's own `ENERGY_SWEEP` (same 868.000-923.000MHz/
+  250kHz/221-bin grid, MESH_OREGON modem params, 4 samples/bin via
+  `getRSSI(false)`, EMA-8 rolling floor, 35.0dB margin) so a sweep run here
+  is directly comparable to a Cardputer sweep taken in the same room, not a
+  separate experiment. Refuses to run while a pulse is armed (`ERROR
+  ARMED`) so it can never delay a host-scheduled `ARM` deadline; restores
+  the previously-armed TX candidate afterward; `STATUS` gains a trailing
+  `SW=<peaks>/<total>` field. Every bin is also printed as an unframed
+  `#SWEEP` line so a plain serial terminal is sufficient to read
+  full-resolution results without any host script. Also added a
+  two-second PRG-button (GPIO0) hold as a no-host trigger, for standalone
+  bench use with no laptop attached — this path is unverified on real
+  hardware (I cannot physically press a button); everything else was
+  verified live against the attached Heltec over the real framed protocol:
+  `HELLO`/`CONFIG`/`STATUS` round-trip, a full 221-bin sweep completing in
+  9.7s with 0/221 peaks in a quiet office (noise floor ~-119 to -120dBm,
+  peaks ~-108 to -113dBm — a normal quiet-room reading, no anomalies), the
+  `ARMED` guard rejecting a sweep mid-countdown while the pulse still fired
+  and reported `TX_DONE OK` on schedule, and a bad-CRC frame producing no
+  reply at all (existing security model unchanged). Full writeup, other
+  ideas considered, and open follow-ups in
+  `research/heltec-standalone-sweep.md`.
+
 - **2026-08-28 — Serial Control firmware-side rename completed.** The
   2026-08-28 diagnostic-policy work renamed the operator-facing feature to
   Serial Control but deliberately kept internal `lowProfile*` C++ symbols,

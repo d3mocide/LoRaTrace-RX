@@ -87,10 +87,14 @@ void sendStatus(uint16_t sequence) {
     // W/WI/WN/WP are Sweep's equivalent compact summary: terminal state,
     // current/last bin index, total bin count, and peaks logged this run —
     // same "measure without extracting energy.csv first" reasoning as Probe's.
-    char argument[128] = {};
+    // PBA/PBD are Pass B's own cumulative-since-boot counters (research/
+    // phase9-sweep-pass-b-design.md) -- CAD attempts at Pass-A peaks and how
+    // many promoted a real packet -- not reset per sweep the way WP is, same
+    // "cumulative alongside per-run fields" convention R= already uses here.
+    char argument[160] = {};
     snprintf(argument, sizeof(argument),
              "P=%s;T=%u;B=%s;SD=%u;F=%lu;R=%lu;I=%u;N=%u;C=%u,%u,%u,%u;M=%04X;"
-             "W=%s;WI=%u;WN=%u;WP=%u",
+             "W=%s;WI=%u;WN=%u;WP=%u;PBA=%lu;PBD=%lu",
              profile, radioIsTracePaused() ? 0U : 1U, probe, loggerSdReady() ? 1U : 0U,
              (unsigned long)(channel.freq_mhz * 1000.0f),
              (unsigned long)radioDiscoveryRecoveryCount(),
@@ -102,7 +106,8 @@ void sendStatus(uint16_t sequence) {
              (unsigned)radioDiscoveryErrorCount(),
              (unsigned)radioDiscoveryCadDetectedMask(),
              sweep, (unsigned)radioEnergyBinIndex(), (unsigned)radioEnergyBinCount(),
-             (unsigned)radioEnergyPeakCount());
+             (unsigned)radioEnergyPeakCount(),
+             (unsigned long)radioPassBAttemptCount(), (unsigned long)radioPassBDetectionCount());
     sendFrame(sequence, SerialControlOpcode::STATUS, argument);
 }
 
@@ -217,6 +222,18 @@ void handleFrame(const SerialControlFrame &frame) {
                 sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
             } else {
                 sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            }
+            break;
+        case SerialControlOpcode::SD_RETRY:
+            // Mirrors ui_actions.cpp's own MenuAction::SD_RETRY handler
+            // exactly, so a remote request and the on-device menu item
+            // behave identically.
+            if (loggerSdReady()) {
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, "READY");
+            } else if (loggerRequestSdRetry()) {
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, "QUEUED");
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNAVAILABLE");
             }
             break;
         case SerialControlOpcode::LOW_PROFILE_OFF:

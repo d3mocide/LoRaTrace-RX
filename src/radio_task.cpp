@@ -9,6 +9,7 @@
 #include "discovery_plan.h"
 #include "energy_plan.h"
 #include "memory_stats.h"
+#include "pass_b_plan.h"
 #include "spi_bus.h"
 
 namespace {
@@ -102,6 +103,11 @@ volatile uint32_t energyCancelCount = 0;
 volatile uint32_t energyFailureCount = 0;
 volatile uint32_t energyRecoveryCount = 0;
 volatile uint32_t energyLastAwayMs = 0;
+
+// Phase 9 Pass B (research/phase9-sweep-pass-b-design.md). Cumulative
+// across sweeps, same convention as the counters above.
+volatile uint32_t passBAttemptCount = 0;
+volatile uint32_t passBDetectionCount = 0;
 
 // How long the radio task waits for the shared SPI bus. Generous enough to
 // ride out a normal SD flush, short enough that a wedged logger can't take
@@ -265,6 +271,43 @@ void enqueueEnergyObservation(uint16_t binIndex, const ChannelParams &channel,
     }
 }
 
+// One Pass B CAD attempt at a Pass-A peak bin (research/
+// phase9-sweep-pass-b-design.md). Unlike enqueueEnergyObservation() this
+// logs every attempt, not peaks only -- a bounded, sparse-by-construction
+// set (PASS_B_MAX_PEAKS_PER_SWEEP x PASS_B_SF_BW_CANDIDATE_COUNT per
+// sweep), so the "log peaks only" storage argument (DESIGN.md §8.1) that
+// motivates Pass A's own filtering doesn't apply here. rssi fields stay
+// 0: Pass B doesn't re-measure RSSI, only CAD/receive outcomes at a bin
+// Pass A already measured.
+void enqueuePassBObservation(uint16_t binIndex, const PassBModemParams &combo,
+                              EnergyObservationResult result, int16_t radioStatus,
+                              bool packetMetadataPresent) {
+    EnergyObservation observation;
+    observation.rx_millis = millis();
+    observation.freq_mhz = energyBinFrequencyMhz(binIndex, ENERGY_SWEEP_DEFAULT_STEP);
+    observation.bw_khz_x10 = (uint16_t)(combo.bw_khz * 10.0f + 0.5f);
+    observation.bin_step_khz = energyBinStepKhz(ENERGY_SWEEP_DEFAULT_STEP);
+    observation.rssi_avg_dbm_x10 = 0;
+    observation.rssi_peak_dbm_x10 = 0;
+    observation.radio_status = radioStatus;
+    observation.profile = (uint8_t)activeProfile;
+    observation.bin_index = (uint8_t)binIndex;
+    observation.sf = combo.sf;
+    observation.cr_denom = combo.cr_denom;
+    observation.sync_word = combo.sync_word;
+    observation.sample_count = 0;
+    observation.result = result;
+    observation.packet_metadata_present = packetMetadataPresent;
+    observation.wifi_on = false;
+
+    passBAttemptCount++;
+    energyObservationCount++;
+    if (energyObservationQueue == nullptr ||
+        xQueueSend(energyObservationQueue, &observation, 0) != pdTRUE) {
+        energyObservationDropCount++;
+    }
+}
+
 bool energyAbortPending() {
     if (energyCancelRequested) return true;
     if (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) return true;
@@ -272,11 +315,15 @@ bool energyAbortPending() {
     return false;
 }
 
-bool waitForDioUntil(uint32_t timeoutMs) {
+// abortPending defaults to discoveryAbortPending so Probe's two existing
+// call sites are untouched; Pass B (below) passes energyAbortPending
+// explicitly, since a Sweep-cancel request during Pass B's own CAD/RX
+// waits must be checked against Sweep's cancel flag, not Probe's.
+bool waitForDioUntil(uint32_t timeoutMs, bool (*abortPending)() = discoveryAbortPending) {
     const uint32_t started = millis();
     for (;;) {
         if (digitalRead(PIN_LORA_IRQ)) return true;
-        if (discoveryAbortPending()) return false;
+        if (abortPending()) return false;
         if (millis() - started >= timeoutMs) return false;
         vTaskDelay(1);
     }
@@ -531,10 +578,162 @@ void performDiscoverySweep() {
     discoveryActive = false;
 }
 
-// Pass A only (DESIGN.md §7.2): bounded RSSI sweep across every frequency
-// bin, threshold-filtered peaks logged, home restored on every exit path.
-// Pass B (selective CAD at peaks) is a later slice — see energy_observation.h's
-// EnergyObservationResult comment for why its enum has no CAD outcomes yet.
+// Pass B (research/phase9-sweep-pass-b-design.md): runs CAD across the
+// small sourced PASS_B_SF_BW_CANDIDATES table at one Pass-A peak bin.
+// Called immediately when performEnergySweep()'s own loop finds a peak,
+// not deferred to after the full sweep -- a 2026-08-28 revision after an
+// operator observation that a deferred second pass can arrive after a
+// brief transmitter has already gone quiet again. Reuses Probe's own CAD +
+// bounded-receive-on-hit sequence (performDiscoverySweep() above) almost
+// verbatim, at this bin's frequency instead of a curated candidate.
+void passBCadAtBin(uint16_t bin, float freq, bool &aborted, bool &failed) {
+    for (uint8_t c = 0; c < PASS_B_SF_BW_CANDIDATE_COUNT && !aborted && !failed; c++) {
+        if (energyAbortPending()) {
+            aborted = true;
+            break;
+        }
+        const PassBModemParams &combo = PASS_B_SF_BW_CANDIDATES[c];
+
+        if (applyBenchFault(BenchFaultPoint::BEFORE_RETUNE, nullptr, 0, aborted, failed)) {
+            break;
+        }
+
+        int beginState;
+        {
+            SpiBusLock lock(BUS_WAIT);
+            if (!lock.held()) {
+                busMissCount++;
+                failed = true;
+                break;
+            }
+            beginState = radio.begin(freq, combo.bw_khz, combo.sf, combo.cr_denom,
+                                     combo.sync_word);
+            if (beginState == RADIOLIB_ERR_NONE) {
+                ChannelScanConfig_t config = {
+                    .cad = {
+                        .symNum = discoveryCadSymbolConfig(),
+                        .detPeak = RADIOLIB_SX126X_CAD_PARAM_DEFAULT,
+                        .detMin = RADIOLIB_SX126X_CAD_PARAM_DEFAULT,
+                        .exitMode = RADIOLIB_SX126X_CAD_GOTO_STDBY,
+                        .timeout = DISCOVERY_CAD_TIMEOUT_MS * 1000UL,
+                        .irqFlags = RADIOLIB_IRQ_CAD_DEFAULT_FLAGS,
+                        .irqMask = RADIOLIB_IRQ_CAD_DEFAULT_MASK,
+                    },
+                };
+                beginState = radio.startChannelScan(config);
+            }
+        }
+        if (beginState != RADIOLIB_ERR_NONE) {
+            lastError = beginState;
+            enqueuePassBObservation(bin, combo, EnergyObservationResult::RADIO_ERROR,
+                                    (int16_t)beginState, false);
+            failed = true;
+            break;
+        }
+
+        if (applyBenchFault(BenchFaultPoint::AFTER_RETUNE, nullptr, 0, aborted, failed) ||
+            applyBenchFault(BenchFaultPoint::CAD_WAIT, nullptr, 0, aborted, failed)) {
+            break;
+        }
+
+        if (!waitForDioUntil(DISCOVERY_CAD_TIMEOUT_MS, energyAbortPending)) {
+            if (energyAbortPending()) {
+                aborted = true;
+                break;
+            }
+            enqueuePassBObservation(bin, combo, EnergyObservationResult::CAD_TIMEOUT, 0, false);
+            continue;
+        }
+
+        ulTaskNotifyTake(pdTRUE, 0);
+        int16_t scanState;
+        {
+            SpiBusLock lock(BUS_WAIT);
+            if (!lock.held()) {
+                busMissCount++;
+                failed = true;
+                break;
+            }
+            scanState = (int16_t)radio.getChannelScanResult();
+        }
+        if (scanState != RADIOLIB_LORA_DETECTED && scanState != RADIOLIB_CHANNEL_FREE) {
+            lastError = scanState;
+            enqueuePassBObservation(bin, combo, EnergyObservationResult::RADIO_ERROR,
+                                    scanState, false);
+            failed = true;
+            break;
+        }
+        if (scanState != RADIOLIB_LORA_DETECTED) {
+            enqueuePassBObservation(bin, combo, EnergyObservationResult::CAD_FREE, scanState,
+                                    false);
+            continue;
+        }
+
+        // Detected: bounded receive-on-hit, same reasoning as Probe's own
+        // -- a CAD hit is not a packet yet.
+        int receiveState;
+        {
+            SpiBusLock lock(BUS_WAIT);
+            if (!lock.held()) {
+                busMissCount++;
+                failed = true;
+                break;
+            }
+            receiveState = radio.startReceive();
+        }
+        if (receiveState != RADIOLIB_ERR_NONE) {
+            lastError = receiveState;
+            enqueuePassBObservation(bin, combo, EnergyObservationResult::RADIO_ERROR,
+                                    (int16_t)receiveState, false);
+            failed = true;
+            break;
+        }
+
+        if (applyBenchFault(BenchFaultPoint::RX_WAIT, nullptr, 0, aborted, failed)) {
+            break;
+        }
+        bool gotPacket = false;
+        if (waitForDioUntil(DISCOVERY_RX_WINDOW_MS, energyAbortPending)) {
+            ulTaskNotifyTake(pdTRUE, 0);
+            uint8_t buf[256];
+            Detection detection;
+            bool readFailed;
+            bool haveDetection = false;
+            {
+                SpiBusLock lock(BUS_WAIT);
+                if (lock.held()) {
+                    const ChannelParams passBChannel = {freq, combo.sf, combo.bw_khz,
+                                                        combo.cr_denom, combo.sync_word};
+                    haveDetection = readDetectionLocked(passBChannel, activeProfile, buf,
+                                                        sizeof(buf), detection, readFailed);
+                    if (readFailed) crcErrorCount++;
+                } else {
+                    busMissCount++;
+                }
+            }
+            if (haveDetection) {
+                // Never Meshtastic/MeshCore attribution: an off-grid hit is
+                // "unknown LoRa candidate" per DESIGN.md §7.2, regardless
+                // of activeProfile (always RETICULUM/GENERAL_EXPLORATION
+                // here) -- see detection.h's detectionClassification().
+                detection.off_grid = true;
+                enqueueDetection(detection);
+                passBDetectionCount++;
+                gotPacket = true;
+            }
+        } else if (energyAbortPending()) {
+            aborted = true;
+        }
+        enqueuePassBObservation(bin, combo, EnergyObservationResult::CAD_DETECTED, scanState,
+                                gotPacket);
+    }
+}
+
+// DESIGN.md §7.2's two-pass acquisition: Pass A is the bounded RSSI sweep
+// across every frequency bin below, threshold-filtered peaks logged to
+// energy.csv; Pass B (passBCadAtBin() above) runs inline the moment Pass A
+// flags a bin as a peak, up to PASS_B_MAX_PEAKS_PER_SWEEP peaks per run.
+// Home is restored on every exit path either way.
 void performEnergySweep() {
     if (energyActive || discoveryActive) return;
 
@@ -557,6 +756,12 @@ void performEnergySweep() {
     // floor to compare against yet. Bin 0 is never itself logged as a peak.
     int16_t noiseFloor = 0;
     bool haveFloor = false;
+
+    // Pass B (research/phase9-sweep-pass-b-design.md) only gets CAD time at
+    // the first PASS_B_MAX_PEAKS_PER_SWEEP peaks Pass A finds, not every
+    // peak -- run immediately as each one is discovered below (see
+    // passBCadAtBin() above), not deferred until the whole sweep finishes.
+    uint8_t passBPeaksThisSweep = 0;
 
     // A notification may be left by the home RX IRQ that woke the task to
     // service the Sweep request — same reasoning as Probe's own discard.
@@ -643,9 +848,20 @@ void performEnergySweep() {
                     energyStrongestValid = true;
                 }
                 enqueueEnergyObservation(bin, homeChannel, stats);
+
+                // Pass B, immediately -- not deferred (see
+                // passBCadAtBin()'s own comment above for why). Bounded to
+                // the first PASS_B_MAX_PEAKS_PER_SWEEP peaks this sweep;
+                // later peaks still get logged as ENERGY_PEAK by Pass A
+                // above, just no CAD time.
+                if (passBPeaksThisSweep < PASS_B_MAX_PEAKS_PER_SWEEP) {
+                    passBPeaksThisSweep++;
+                    passBCadAtBin(bin, freq, aborted, failed);
+                }
             }
             noiseFloor = energyNoiseFloorUpdate(noiseFloor, stats.rssi_avg_dbm_x10);
         }
+        if (aborted || failed) break;
     }
 
     const bool requestPending =
@@ -1021,4 +1237,12 @@ uint32_t radioEnergyRecoveryCount() {
 
 uint32_t radioEnergyLastAwayMs() {
     return energyLastAwayMs;
+}
+
+uint32_t radioPassBAttemptCount() {
+    return passBAttemptCount;
+}
+
+uint32_t radioPassBDetectionCount() {
+    return passBDetectionCount;
 }

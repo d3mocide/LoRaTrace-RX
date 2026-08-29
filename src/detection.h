@@ -41,6 +41,15 @@ struct Detection {
     uint8_t hop_limit;    // remaining hops; with hop_start gives hops taken
     uint8_t hop_start;
     uint8_t relay_node;   // last byte of the NodeNum that relayed this copy
+    // Set only by Sweep's Pass B (radio_task.cpp), never by Watch/Probe: a
+    // CAD hit at an arbitrary Pass-A peak bin, not a known curated channel.
+    // detectionClassification() below reads this before falling back to the
+    // active mission profile's name — DESIGN.md §7.2's own rule ("a CAD hit
+    // away from a known Meshtastic/MeshCore channel is labeled unknown LoRa
+    // candidate, not Reticulum") would otherwise be silently violated,
+    // since Sweep only ever runs under RETICULUM/GENERAL_EXPLORATION and
+    // profile-name classification would just print one of those two names.
+    bool off_grid;
 };
 
 // DESIGN.md §1 budgets ~40B per queue entry. Assert it rather than trust it:
@@ -140,6 +149,7 @@ constexpr const char *LOG_CSV_HEADER =
 // post-hoc classification (needs Phases 8/9's sweep data) replaces this
 // via fingerprint.h.
 inline const char *detectionClassification(const Detection &det) {
+    if (det.off_grid) return "unknown_lora_candidate";
     return missionProfileName(det.profile);
 }
 

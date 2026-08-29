@@ -78,6 +78,16 @@ void test_sweep_opcodes_round_trip() {
     TEST_ASSERT_EQUAL_INT((int)SerialControlOpcode::SWEEP_CANCEL, (int)cancelFrame.opcode);
 }
 
+void test_sd_retry_opcode_round_trips() {
+    char line[SERIAL_CONTROL_FRAME_MAX];
+    TEST_ASSERT_TRUE(serialControlFormatFrame(line, sizeof(line), 22,
+                                           SerialControlOpcode::SD_RETRY, "-") > 0);
+    SerialControlFrame frame;
+    TEST_ASSERT_TRUE(serialControlParseFrame(line, frame));
+    TEST_ASSERT_EQUAL_INT((int)SerialControlOpcode::SD_RETRY, (int)frame.opcode);
+    TEST_ASSERT_EQUAL_STRING("-", frame.argument);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_valid_frame_round_trips);
@@ -87,5 +97,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_bench_cad_opcode_round_trips);
     RUN_TEST(test_bench_sweep_margin_opcode_round_trips);
     RUN_TEST(test_sweep_opcodes_round_trip);
+    RUN_TEST(test_sd_retry_opcode_round_trips);
     return UNITY_END();
 }

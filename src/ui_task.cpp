@@ -107,20 +107,43 @@ constexpr MenuItem DISPLAY_GROUP_ITEMS[] = {
     // stays in the list" shape as WiFi/Debug, just cycling a value.
     {"Idle dim", ItemKind::ACTION, MenuAction::IDLE_TIMEOUT_CYCLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
-constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
+// System's flat list grew to 5 rows (WiFi, Debug, Retry SD, Serial
+// Control, Display) and started colliding with the footer's ",/. move"
+// nav hint at the bottom of a 135px-tall panel -- drawMenuList() draws
+// unconditionally at a fixed 24px/row with no overflow handling, so a
+// 5th row's bottom edge (y=135) lands right on top of the footer text
+// (y=126). Split into two more nested groups, the same "genuinely
+// distinct topics" reasoning Display already used: Connectivity (the two
+// external-interface toggles: WiFi AP, Serial Control) and Diagnostics
+// (the two troubleshooting actions: Debug, SD). System itself drops to 3
+// rows (2026-08-28 operator request). SD's row label is deliberately just
+// "SD", not "Retry SD" -- its value already reads RETRY/READY
+// (menuEntryValue(), ui_pages.cpp), so the row itself says "SD: RETRY" or
+// "SD: READY" rather than "Retry SD: RETRY" (2026-08-28 operator request).
+constexpr MenuItem CONNECTIVITY_GROUP_ITEMS[] = {
     {"WiFi", ItemKind::ACTION, MenuAction::WIFI_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Retry SD", ItemKind::ACTION, MenuAction::SD_RETRY, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Serial Control", ItemKind::ACTION, MenuAction::SERIAL_CONTROL_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+};
+constexpr MenuItem DIAGNOSTICS_GROUP_ITEMS[] = {
+    {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"SD", ItemKind::ACTION, MenuAction::SD_RETRY, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+};
+constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
+    {"Connectivity", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, CONNECTIVITY_GROUP_ITEMS, 2},
+    {"Diagnostics", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DIAGNOSTICS_GROUP_ITEMS, 2},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
 };
 // Trace remains the root-level operating toggle. Probe has no duplicate menu
 // row: P is the global start/cancel shortcut and the dedicated second card
-// also exposes it through Enter.
+// also exposes it through Enter. Label has no baked-in colon -- drawMenuRow
+// (ui_pages.cpp) inserts ": " itself whenever a row has a non-empty value,
+// so every toggle-style row (Trace/Profile/WiFi/Debug/...) gets the same
+// "Name: STATE" shape from one place instead of some labels remembering
+// their own colon and others not (2026-08-28 operator request).
 constexpr MenuItem ROOT_ITEMS[] = {
-    {"Trace:", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 2},
-    {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 5},
+    {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 3},
 };
 constexpr uint8_t ROOT_COUNT = 3;
 

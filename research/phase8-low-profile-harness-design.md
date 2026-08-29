@@ -97,6 +97,28 @@ The initial remote command allowlist is intentionally small:
 `LOW_PROFILE_OFF` is retained as the wire opcode for compatibility; the
 operator-facing feature name is **Serial Control**.
 
+This was the *initial* list; it has since grown (`SWEEP_START`/
+`SWEEP_CANCEL` mirroring Probe's own pair, `BENCH_FAULT`/`BENCH_CAD`/
+`BENCH_SWEEP_MARGIN` for the bench-only image, and `SD_RETRY` — see
+`serial_control_protocol.h`'s `SerialControlOpcode` enum for the current
+authoritative list and CHANGELOG.md for when/why each was added, rather
+than keeping this table exhaustively current by hand).
+
+**2026-08-28 addition — `SD_RETRY`.** Surveyed the on-device `MenuAction`
+set against this allowlist for other gaps of the same "existing mission
+action, non-blocking request API" shape the design above already commits
+to. `SD_RETRY` (mirrors `ui_actions.cpp`'s own handler: `loggerSdReady()`/
+`loggerRequestSdRetry()`) was the one clear match — recovering a card after
+a reseat during an unattended Serial-Control session, with no config
+write, no RF parameter, and no file-system access. Considered and
+rejected: `WIFI_TOGGLE` (explicitly excluded above already), `BRIGHTNESS_*`
+/`IDLE_TIMEOUT_CYCLE` (persisted display config writes, excluded for the
+same reason), and `DEBUG_TOGGLE` (technically addable, but every verbose
+line it gates is independently suppressed by `!serialControlIsEnabled()`
+already — `memory_stats.cpp`, `logger_task.cpp`, `backlight.cpp`,
+`main.cpp` — so toggling it on while connected over Serial Control has no
+visible effect over that same channel; not worth the allowlist entry).
+
 ### Serial diagnostic policy
 
 Serial Control and human diagnostics share the native USB endpoint, so the
@@ -192,6 +214,18 @@ Heltec RF -- fixed attenuator/coax fixture or shielded enclosure -- Cardputer RF
 The fixture is closed and low-power. It is not an over-the-air field test
 transmitter. Set attenuation only after confirming the parts' ratings and
 applicable local regulations.
+
+**2026-08-28 amendment:** the operator explicitly authorized a bounded
+exception to the line above — the Heltec bench transmitter's optional
+`BEACON` mode transmits over the air, untethered from this fixture, for
+deliberate Cardputer range/detection verification. It keeps the same
+-9dBm cap as every other mode here and is bounded by pulse count, not just
+a timer, so it can't be forgotten running. This is a narrow, named
+exception for that one mode, not a reversal of the fixture requirement for
+anything else described in this document (Probe/CAD timing, fault
+injection, contention, CAD-rate work all still require the closed
+fixture). See `research/heltec-menu-and-beacon.md` for the full design and
+hardware verification.
 
 ### Heltec test-transmitter firmware
 

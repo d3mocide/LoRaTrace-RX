@@ -724,7 +724,7 @@ void drawMenuRow(int16_t y, const char *rowLabel, const char *value, bool select
     uiTft->setCursor(4, y);
     uiTft->print(rowLabel);
     if (value != nullptr && value[0] != '\0') {
-        uiTft->print(' ');
+        uiTft->print(": ");
         uiTft->print(value);
     }
 }
@@ -741,7 +741,7 @@ const char *menuEntryValue(MenuAction action) {
             return radioActiveProfile() == MissionProfile::MESHCORE ? "ACTIVE" : "";
         case MenuAction::WIFI_TOGGLE: return wifiIsEnabled() ? "ON" : "OFF";
         case MenuAction::DEBUG_TOGGLE: return loggerDebugIsEnabled() ? "ON" : "OFF";
-        case MenuAction::SD_RETRY: return loggerSdReady() ? "READY" : "OFFLINE";
+        case MenuAction::SD_RETRY: return loggerSdReady() ? "READY" : "RETRY";
         case MenuAction::SERIAL_CONTROL_TOGGLE: return serialControlIsEnabled() ? "ON" : "OFF";
         case MenuAction::TRACE_TOGGLE: return radioIsTracePaused() ? "STANDBY" : "ACTIVE";
         case MenuAction::PROBE_TOGGLE:
@@ -769,9 +769,12 @@ void drawMenuList() {
             drawMenuRow(HEADER_H + 10 + i * 24, label, nullptr, menu.currentIndex() == i);
         } else if (item.items == PROFILE_GROUP_ITEMS) {
             // "Profile: Meshtastic" — surfaces the live profile without
-            // drilling into the group.
-            snprintf(label, sizeof(label), "Profile: %s", uiProfileLabel(radioActiveProfile()));
-            drawMenuRow(HEADER_H + 10 + i * 24, label, nullptr, menu.currentIndex() == i);
+            // drilling into the group. Goes through the same label/value
+            // path as every ACTION row so drawMenuRow's ": " separator
+            // stays the one place that decides the shape, rather than this
+            // branch building its own copy of it.
+            drawMenuRow(HEADER_H + 10 + i * 24, item.label, uiProfileLabel(radioActiveProfile()),
+                        menu.currentIndex() == i);
         } else if (item.kind == ItemKind::GROUP) {
             drawMenuRow(HEADER_H + 10 + i * 24, item.label, nullptr, menu.currentIndex() == i);
         } else {

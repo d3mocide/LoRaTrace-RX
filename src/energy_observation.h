@@ -127,15 +127,23 @@ inline int16_t energyRssiDbmToFixed(float rssi_dbm) {
 enum class EnergyObservationResult : uint8_t {
     ENERGY_PEAK = 0, // Pass A: threshold-filtered peak, no CAD attempted
     RADIO_ERROR,     // tune/RSSI-read failed while acquiring this bin
-    // Pass-B CAD_FREE/CAD_DETECTED/CAD_TIMEOUT values are deliberately NOT
-    // added yet (a later Phase 9 slice): SX1262 CAD-at-arbitrary-bin
-    // behavior isn't verified. Appending new values later is non-breaking.
+    // Pass B (research/phase9-sweep-pass-b-design.md): one CAD attempt at
+    // a Pass-A peak bin, at one of the sourced SF/BW combos. Appended, not
+    // inserted, so ENERGY_PEAK/RADIO_ERROR keep their existing values in
+    // any already-written energy.csv.
+    CAD_FREE,      // startChannelScan() reported no LoRa preamble
+    CAD_DETECTED,  // reported a preamble; see Detection.off_grid for a
+                   // promoted packet from the bounded receive-on-hit window
+    CAD_TIMEOUT,   // bounded CAD wait elapsed with no result
 };
 
 inline const char *energyObservationResultName(EnergyObservationResult result) {
     switch (result) {
         case EnergyObservationResult::ENERGY_PEAK: return "energy_peak";
         case EnergyObservationResult::RADIO_ERROR: return "radio_error";
+        case EnergyObservationResult::CAD_FREE: return "cad_free";
+        case EnergyObservationResult::CAD_DETECTED: return "cad_detected";
+        case EnergyObservationResult::CAD_TIMEOUT: return "cad_timeout";
         default: return "unknown";
     }
 }

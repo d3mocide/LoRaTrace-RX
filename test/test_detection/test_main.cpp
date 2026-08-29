@@ -172,6 +172,29 @@ void test_meshcore_csv_row_has_no_header_fields() {
     TEST_ASSERT_NULL(strstr(row, "!00000000"));
 }
 
+// Phase 9 Pass B: a CAD hit at an arbitrary Sweep peak bin must never read
+// as the active mission profile's name in the CSV (DESIGN.md §7.2 — "not
+// Reticulum... protocol attribution requires evidence the radio layer
+// cannot provide"). Sweep only ever runs under RETICULUM/
+// GENERAL_EXPLORATION, so this is the exact case that would otherwise
+// silently mislabel an unknown signal as one of those two profiles.
+void test_off_grid_hit_is_not_labeled_by_profile() {
+    Detection det = {};
+    det.profile = (uint8_t)MissionProfile::RETICULUM;
+    det.off_grid = true;
+    det.freq_mhz = 900.125f;
+    det.rssi_dbm = -60.0f;
+    det.sf = 9;
+    det.bw_khz_x10 = 2500;
+
+    TEST_ASSERT_EQUAL_STRING("unknown_lora_candidate", detectionClassification(det));
+
+    char row[256];
+    size_t n = detectionFormatCsv(det, row, sizeof(row), "", false, 0.0, 0.0, 0, 1);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_NOT_NULL(strstr(row, ",reticulum,unknown_lora_candidate,"));
+}
+
 void test_csv_row_without_fix_leaves_coords_empty() {
     // The important one: no fix must NOT render as 0,0. Null Island is a
     // real coordinate and would quietly poison a track.
@@ -234,6 +257,7 @@ int main(int, char **) {
     RUN_TEST(test_runt_frame_yields_no_ids);
     RUN_TEST(test_csv_row_with_fix);
     RUN_TEST(test_meshcore_csv_row_has_no_header_fields);
+    RUN_TEST(test_off_grid_hit_is_not_labeled_by_profile);
     RUN_TEST(test_csv_exposes_relay_vs_original);
     RUN_TEST(test_csv_row_without_fix_leaves_coords_empty);
     RUN_TEST(test_uptime_anchors_a_detection_heard_before_the_first_fix);
