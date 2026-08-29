@@ -148,3 +148,11 @@ int16_t benchSweepMarginDbmX10() {
     return sweepMarginDbmX10;
 #endif
 }
+
+bool benchPassBCadTriggerAllowed() {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    return false;
+#else
+    return true;
+#endif
+}

@@ -29,6 +29,7 @@ enum class SerialControlOpcode : uint8_t {
     BENCH_FAULT,
     BENCH_CAD,
     BENCH_SWEEP_MARGIN,
+    BENCH_PASS_B_CAD,
     SD_RETRY,
     LOW_PROFILE_OFF,
     ACK,
@@ -66,6 +67,7 @@ inline const char *serialControlOpcodeName(SerialControlOpcode opcode) {
         case SerialControlOpcode::BENCH_FAULT: return "BENCH_FAULT";
         case SerialControlOpcode::BENCH_CAD: return "BENCH_CAD";
         case SerialControlOpcode::BENCH_SWEEP_MARGIN: return "BENCH_SWEEP_MARGIN";
+        case SerialControlOpcode::BENCH_PASS_B_CAD: return "BENCH_PASS_B_CAD";
         case SerialControlOpcode::SD_RETRY: return "SD_RETRY";
         case SerialControlOpcode::LOW_PROFILE_OFF: return "LOW_PROFILE_OFF";
         case SerialControlOpcode::ACK: return "ACK";
@@ -87,6 +89,7 @@ inline SerialControlOpcode serialControlOpcodeFromName(const char *name) {
     if (strcmp(name, "BENCH_FAULT") == 0) return SerialControlOpcode::BENCH_FAULT;
     if (strcmp(name, "BENCH_CAD") == 0) return SerialControlOpcode::BENCH_CAD;
     if (strcmp(name, "BENCH_SWEEP_MARGIN") == 0) return SerialControlOpcode::BENCH_SWEEP_MARGIN;
+    if (strcmp(name, "BENCH_PASS_B_CAD") == 0) return SerialControlOpcode::BENCH_PASS_B_CAD;
     if (strcmp(name, "SD_RETRY") == 0) return SerialControlOpcode::SD_RETRY;
     if (strcmp(name, "LOW_PROFILE_OFF") == 0) return SerialControlOpcode::LOW_PROFILE_OFF;
     if (strcmp(name, "ACK") == 0) return SerialControlOpcode::ACK;

@@ -1039,9 +1039,36 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         correlation to the transmitter — and not a new problem: it's
         DESIGN.md §7's "CAD symNum tuning... false-positive/miss tradeoff"
         item, open since Phase 0, now illustrated concretely inside Pass
-        B. A real bench matrix with a quiet control is still open (same
-        standing limitation as Phase 8's CAD-rate bench and Phase 9's
-        margin bench) — see the design doc's updated open questions.
+        B. **A proper controlled matrix followed, 2026-08-29:** new
+        bench-only `BENCH_PASS_B_CAD` opcode (`bench_fault.h`/`.cpp`,
+        `radio_task.cpp`'s `performBenchPassBCadTrigger()`) runs one Pass B
+        CAD attempt on demand at a fixed MESH_OREGON test point,
+        independent of any real peak — needed because production Pass B
+        only ever runs at a bin Pass A already flagged loud, so a genuinely
+        quiet condition never exercises it at all otherwise.
+        `scripts/phase9_pass_b_cad_bench.py` ran 400 cycles (20 quiet + 20
+        pulse per combo) against the Heltec configured to its own
+        MESH_OREGON tuple (SF8/BW125, the same physical source Pass B's
+        SF8/125 row is sourced from). Completed cleanly, `PBA` reached
+        exactly 400, clean home restores throughout. **The one clean,
+        unambiguous result: the exact-match combo (SF8/BW125) scored a
+        perfect 0/20 quiet false positives and 20/20 pulse detections** —
+        real evidence the CAD mechanism itself works correctly when
+        properly matched. The broader SF-only story doesn't fully survive
+        this controlled data, though: some non-matching combos (SF9/250,
+        SF10/250, SF11/500) also hit 20/20 on the real pulse (plausibly
+        bandwidth-superset energy capture), while others (SF11/125,
+        SF11/250, SF12/125, both SF7 rows, SF8/250) barely register the
+        real pulse at all (0-2/20). The quiet-condition false-positive
+        counts also trend upward across the run's ~18-minute span in the
+        same fixed order the combo table itself is sorted in (ascending
+        SF), so this run can't separate "false positives scale with SF"
+        from "ambient RF crept up over the session" — a repeat with
+        randomized/interleaved combo order is the needed next step, still
+        open. Native suite 143/143 (new opcode round-trip test); both
+        production (confirmed rejecting the opcode) and
+        `cardputer-adv-bench` build clean. Full numbers and analysis in
+        the design doc's "Controlled bench matrix" section.
   - [x] A CAD hit away from a known Meshtastic/MeshCore channel is labeled
         `unknown LoRa candidate`, never promoted to Reticulum without
         stronger evidence — `Detection.off_grid` (new field, `detection.h`)

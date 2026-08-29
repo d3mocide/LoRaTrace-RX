@@ -42,3 +42,12 @@ unsigned char benchCadSymbols();
 // rejects changes, same production/bench split as the CAD selector above.
 bool benchSweepMarginConfigure(const char *argument);
 int16_t benchSweepMarginDbmX10();
+
+// Bench-image-only gate for triggering one Pass B CAD attempt on demand
+// (research/phase9-sweep-pass-b-design.md's false-positive-vs-SF bench
+// matrix): production Pass B only ever runs at a real Pass-A peak, so this
+// is the only way to exercise a specific PASS_B_SF_BW_CANDIDATES entry
+// under a controlled quiet/pulse condition. Same production/bench split as
+// the two selectors above -- production radio_task.cpp calls this to
+// decide whether to accept the request at all, not just what value to use.
+bool benchPassBCadTriggerAllowed();

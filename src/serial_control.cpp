@@ -6,6 +6,7 @@
 
 #include "logger_task.h"
 #include "bench_fault.h"
+#include "pass_b_plan.h"
 #include "serial_control_protocol.h"
 #include "radio_task.h"
 #include "serial_lock.h"
@@ -91,10 +92,13 @@ void sendStatus(uint16_t sequence) {
     // phase9-sweep-pass-b-design.md) -- CAD attempts at Pass-A peaks and how
     // many promoted a real packet -- not reset per sweep the way WP is, same
     // "cumulative alongside per-run fields" convention R= already uses here.
+    // BPC is the bench-only single-combo CAD trigger's own active flag, so
+    // the false-positive-vs-SF bench matrix can poll for one request's
+    // completion (1 -> 0) without racing unrelated PBA increments.
     char argument[160] = {};
     snprintf(argument, sizeof(argument),
              "P=%s;T=%u;B=%s;SD=%u;F=%lu;R=%lu;I=%u;N=%u;C=%u,%u,%u,%u;M=%04X;"
-             "W=%s;WI=%u;WN=%u;WP=%u;PBA=%lu;PBD=%lu",
+             "W=%s;WI=%u;WN=%u;WP=%u;PBA=%lu;PBD=%lu;BPC=%u",
              profile, radioIsTracePaused() ? 0U : 1U, probe, loggerSdReady() ? 1U : 0U,
              (unsigned long)(channel.freq_mhz * 1000.0f),
              (unsigned long)radioDiscoveryRecoveryCount(),
@@ -107,7 +111,8 @@ void sendStatus(uint16_t sequence) {
              (unsigned)radioDiscoveryCadDetectedMask(),
              sweep, (unsigned)radioEnergyBinIndex(), (unsigned)radioEnergyBinCount(),
              (unsigned)radioEnergyPeakCount(),
-             (unsigned long)radioPassBAttemptCount(), (unsigned long)radioPassBDetectionCount());
+             (unsigned long)radioPassBAttemptCount(), (unsigned long)radioPassBDetectionCount(),
+             radioBenchPassBCadIsActive() ? 1U : 0U);
     sendFrame(sequence, SerialControlOpcode::STATUS, argument);
 }
 
@@ -224,6 +229,18 @@ void handleFrame(const SerialControlFrame &frame) {
                 sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
             }
             break;
+        case SerialControlOpcode::BENCH_PASS_B_CAD: {
+            uint16_t index = 0;
+            if (!serialControlParseSequence(frame.argument, index) ||
+                index >= PASS_B_SF_BW_CANDIDATE_COUNT) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
+            } else if (!radioRequestBenchPassBCadTrigger((uint8_t)index)) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, "QUEUED");
+            }
+            break;
+        }
         case SerialControlOpcode::SD_RETRY:
             // Mirrors ui_actions.cpp's own MenuAction::SD_RETRY handler
             // exactly, so a remote request and the on-device menu item

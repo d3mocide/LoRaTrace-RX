@@ -12,8 +12,13 @@ pulled off the SD card and inspected per-row afterward, which corrected an
 earlier guess: the standing CAD-at-arbitrary-bin unknown looks driven by
 spreading factor (a false-positive rate that scales with CAD's dwell time
 at a fixed 2-symbol window), not sync word as first suspected — see
-"Hardware verification." Still not resolved by a full bench matrix with a
-quiet control.
+"Hardware verification." A proper 400-cycle controlled matrix
+(`BENCH_PASS_B_CAD`, `scripts/phase9_pass_b_cad_bench.py`, 2026-08-29) then
+ran against a real quiet/pulse control, and the SF-only story didn't fully
+survive that either — see "Controlled bench matrix" below. The one
+genuinely clean, unambiguous result: the sourced table's exact match to a
+real transmission (SF8/BW125) scored 0/20 quiet false positives and 20/20
+pulse detections.
 
 ## What Pass B is
 
@@ -325,23 +330,102 @@ same way Phase 8's CAD symNum work and Phase 9's sweep-margin work both
 already were — a real bench matrix with a known-quiet control, not a
 desk estimate.
 
+## Controlled bench matrix (2026-08-29): `BENCH_PASS_B_CAD`
+
+The SF-only hypothesis above was built from two small, uncontrolled
+samples (4 peaks + 1 peak, from real sweeps, all under one pulsing
+condition). Testing it properly needed a real quiet-vs-pulse control per
+combo — which production Pass B can't provide, since it only ever runs at
+a bin Pass A has already flagged as loud, so a genuinely quiet room never
+exercises it at all.
+
+Added a new bench-only opcode, `BENCH_PASS_B_CAD` (`bench_fault.h`'s
+`benchPassBCadTriggerAllowed()` gate, `radio_task.cpp`'s
+`performBenchPassBCadTrigger()`), that runs one Pass B CAD attempt on
+demand at a fixed test frequency (918.5MHz, the same MESH_OREGON point
+`phase8_cad_rate_bench.py` already uses) for an operator-chosen
+`PASS_B_SF_BW_CANDIDATES` row — independent of any real peak. Extracted
+the single-combo CAD sequence out of `passBCadAtBin()`'s loop into its own
+`passBCadOneCombo()` so both the bench trigger and production Pass B share
+exactly one implementation. Logs through the same `enqueuePassBObservation()`
+path, so results land in `energy.csv` exactly like production Pass B's own
+rows — this script doesn't read that CSV itself (no file access over
+Serial Control by design); the SD card still has to be pulled afterward.
+Production firmware rejects the opcode (verified: `ERROR UNSUPPORTED`
+before even flashing the bench image); `cardputer-adv-bench` accepts it.
+
+`scripts/phase9_pass_b_cad_bench.py` ran 20 quiet + 20 pulse cycles per
+combo (400 total), configuring the Heltec to its own `MESH_OREGON`
+candidate (SF8/BW125/CR5, Meshtastic sync 0x2B — the *same* physical
+tuple Pass B's own table sources its SF8/125 row from) and firing one
+`ARM 0` pulse per pulse-cycle, mirroring `phase8_cad_bench.py`'s exact
+convention. Completed cleanly: `PBA` reached exactly 400, clean home
+restore throughout, no crashes. (One earlier attempt hit a single dropped
+response over native USB partway through — a known, already-documented
+transport characteristic, not a firmware bug; the request had in fact
+completed on-device, only its reply was lost. Bumped the trigger's retry
+timeout and re-ran clean.)
+
+| Combo | Quiet detected/20 | Pulse detected/20 |
+|---|---|---|
+| SF7/BW62.5 | 0 | 1 |
+| SF7/BW250 | 1 | 0 |
+| **SF8/BW125 (exact match)** | **0** | **20** |
+| SF8/BW250 | 2 | 2 |
+| SF9/BW250 | 5 | 20 |
+| SF10/BW250 | 3 | 20 |
+| SF11/BW125 | 3 | 0 |
+| SF11/BW250 | 5 | 1 |
+| SF11/BW500 | 7 | 20 |
+| SF12/BW125 | 5 | 0 |
+
+**The one clean, unambiguous result:** the table's exact match to the real
+transmission — SF8/BW125, sourced from the same MeshOregon tuple the
+Heltec was configured to — scored a perfect 0/20 quiet false positives and
+20/20 pulse detections. That's real, solid evidence the underlying CAD
+mechanism works correctly and reliably when Pass B's combo actually
+matches what's transmitting.
+
+**The SF-only story from the smaller sample doesn't fully survive this
+controlled run.** Some non-matching combos (SF9/250, SF10/250, SF11/500)
+also hit 20/20 on the real pulse — plausibly because their bandwidth is a
+superset of the real 125kHz signal, so CAD picks up genuine transmitted
+energy as a broadband correlation event even without an exact symbol
+match. But others (SF11/125, SF11/250, SF12/125, both SF7 combos, SF8/250)
+barely register the real pulse at all (0-2/20) — for these, CAD is
+essentially blind to the actual transmission, and whatever they show in
+the quiet column is unrelated noise, not a miss rate.
+
+**A real design gap in this run, not yet resolved:** combos were tested in
+a fixed order (matching the table's own SF-ascending order), each block
+taking a few minutes, so the whole matrix spans the same ~18-minute
+session in the same order every time. The quiet-condition counts trend
+upward through that span (0,1,0,2 → 5,3,3,5,7,5) — consistent with either
+"false positives scale with SF" (the original hypothesis) or "ambient RF
+crept up over the session" (a time confound), and this run's fixed
+ascending-SF order can't distinguish the two: SF and elapsed time increase
+together here. A repeat with **randomized or interleaved combo order**
+would separate them properly.
+
 ## Open questions needing your call
 
 Resolved: off_grid field (yes), K=8 bound (yes), proceed with code (yes),
 immediate-vs-deferred timing (immediate, yes), pull and inspect
-`energy.csv` (done — see the SF-vs-detection-rate finding above, which
-also resolves what was open question #2 here: the sync-word re-run is no
-longer the useful next experiment, the SF/symNum relationship is).
-Remaining:
+`energy.csv` (done, twice — the uncontrolled sample's SF-only hypothesis,
+then the controlled 400-cycle matrix that both confirmed the exact-match
+combo works cleanly and complicated the SF story further). Remaining:
 
-1. The full bench matrix (§ "standing hardware unknown" above) is still
-   open, now with a specific hypothesis to test rather than an open-ended
-   one: does `CAD_DETECTED` rate at a genuinely quiet bin still scale with
-   SF the way it did at these RSSI-elevated peaks? A shielded/attenuated
-   quiet control (same standing limitation Phase 8's CAD-rate bench and
-   Phase 9's margin bench both already had) would separate "SF-driven
-   false positive" from "this specific peak bin happened to be noisy."
-2. Worth a per-SF confidence weighting (or a scaled symNum per combo, so
-   every entry in `PASS_B_SF_BW_CANDIDATES` gets a comparable false-positive
-   exposure instead of SF12 getting ~60x SF7's dwell time) before Pass B's
-   `CAD_DETECTED` counts are used for anything beyond "the engine works"?
+1. **Re-run the matrix with randomized or interleaved combo order** to
+   separate "false positives scale with SF" from "ambient RF crept up over
+   the ~18-minute session" — this run's fixed ascending-SF order can't
+   tell those apart, since SF and elapsed time increased together.
+   `scripts/phase9_pass_b_cad_bench.py` would need a shuffled/interleaved
+   schedule option; `BENCH_PASS_B_CAD` itself needs no firmware change.
+2. A genuinely shielded/attenuated quiet control (same standing limitation
+   Phase 8's CAD-rate bench and Phase 9's margin bench both already had)
+   would still be worth it even after (1) — this bench's "quiet" condition
+   is still an open room, not a proven-silent one.
+3. Given the exact-match combo (SF8/BW125) already scored a clean 0/20 →
+   20/20, is a per-combo confidence weighting for the *other* 9 rows worth
+   doing now, or does Pass B ship as-is with the understanding that only
+   some combos carry real evidentiary weight until (1)/(2) resolve which?

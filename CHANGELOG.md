@@ -75,6 +75,57 @@ PATCH = fix with no new phase scope).
   including new `BENCH_SWEEP_MARGIN` round-trip coverage) and both the
   production and `cardputer-adv-bench` builds pass.
 
+- **2026-08-28 — Controlled Pass B CAD bench matrix (`BENCH_PASS_B_CAD`):
+  the exact-match combo works perfectly; the SF-only story gets more
+  complicated.** The operator asked how to actually fix the SF-driven
+  false-positive finding below, and whether to reconnect the radios and do
+  more research — both yes. Production Pass B only ever runs at a bin
+  Pass A already flagged as loud, so a genuinely quiet condition can't
+  exercise it at all through a real sweep (zero peaks means zero Pass B
+  attempts) — needed a new way to trigger one CAD attempt on demand.
+
+  Added a bench-only `BENCH_PASS_B_CAD` opcode (`bench_fault.h`/`.cpp`'s
+  `benchPassBCadTriggerAllowed()` gate, `radio_task.cpp`'s
+  `performBenchPassBCadTrigger()`) that runs exactly one Pass B CAD attempt
+  at a fixed MESH_OREGON test frequency for an operator-chosen
+  `PASS_B_SF_BW_CANDIDATES` row. Extracted the single-combo CAD sequence
+  out of `passBCadAtBin()`'s loop into its own `passBCadOneCombo()` so the
+  bench trigger and production Pass B share one implementation rather than
+  two copies. Logs through the same `enqueuePassBObservation()`/
+  `energy.csv` path as production. Production firmware confirmed rejecting
+  the opcode (`ERROR UNSUPPORTED`) before the bench image was even
+  flashed.
+
+  New `scripts/phase9_pass_b_cad_bench.py` ran 20 quiet + 20 pulse cycles
+  per combo (400 total) against the Heltec configured to its own
+  MESH_OREGON tuple (SF8/BW125/CR5, Meshtastic sync 0x2B) with one `ARM 0`
+  pulse per pulse-cycle, mirroring `phase8_cad_bench.py`'s exact
+  convention. Completed cleanly: `PBA` reached exactly 400, clean home
+  restores throughout. (One earlier attempt hit a single dropped response
+  over native USB partway through -- the request had actually completed
+  on-device, only its reply was lost, a known transport characteristic
+  already documented elsewhere in this project, not a firmware bug. Bumped
+  the trigger's retry timeout and re-ran clean.)
+
+  **The one unambiguous result: the table's exact match to the real
+  transmission (SF8/BW125) scored a perfect 0/20 quiet false positives and
+  20/20 pulse detections.** Real evidence the CAD mechanism works
+  correctly and reliably when Pass B's combo actually matches what's
+  transmitting. The broader SF-only hypothesis from the smaller
+  uncontrolled sample doesn't fully survive this data, though: some
+  non-matching combos (SF9/250, SF10/250, SF11/500) also hit 20/20 on the
+  real pulse (plausibly bandwidth-superset energy capture), while others
+  (SF11/125, SF11/250, SF12/125, both SF7 rows, SF8/250) barely register
+  the real pulse at all. And the quiet-condition false-positive counts
+  trend upward across the run's ~18-minute span in the same fixed
+  ascending-SF order the combo table is sorted in, so this run can't
+  separate "false positives scale with SF" from "ambient RF crept up over
+  the session" -- a repeat with randomized/interleaved combo order is the
+  needed next step. Native suite 143/143 (new opcode round-trip test);
+  both production and `cardputer-adv-bench` build clean. Full numbers and
+  analysis in `research/phase9-sweep-pass-b-design.md`'s new "Controlled
+  bench matrix" section.
+
 - **2026-08-28 — Pass B's `PBD=0` mystery resolved (mostly): CAD
   false-positive rate tracks spreading factor, not sync word.** The
   operator had the SD card attached and loaded; pulled `energy.csv` from

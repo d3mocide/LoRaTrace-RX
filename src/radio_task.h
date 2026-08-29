@@ -164,6 +164,15 @@ uint32_t radioEnergyLastAwayMs();
 uint32_t radioPassBAttemptCount();
 uint32_t radioPassBDetectionCount();
 
+// Bench-image-only (bench_fault.h's benchPassBCadTriggerAllowed()): runs
+// one Pass B CAD attempt on demand at a fixed test frequency, for the
+// false-positive-vs-SF bench matrix (research/phase9-sweep-pass-b-design.md).
+// comboIndex selects a row of PASS_B_SF_BW_CANDIDATES (pass_b_plan.h).
+// Refuses (returns false) outside the bench build, with a bad index, or
+// while any radio-owning action (Watch pause aside) is already active.
+bool radioRequestBenchPassBCadTrigger(uint8_t comboIndex);
+bool radioBenchPassBCadIsActive();
+
 // --- Diagnostics -------------------------------------------------------
 // Exposed because Phase 2's exit criterion is "no dropped packets
 // attributable to SD latency" — that claim is only checkable if drops are
