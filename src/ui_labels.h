@@ -30,6 +30,7 @@
 // one, so it doesn't need its own function here.
 
 #include "channel_plans.h"
+#include "discovery_plan.h"
 
 // The plain, technical profile name — BRAND.md: no per-profile branding,
 // just the real protocol name, except General Exploration, which has no
@@ -49,3 +50,34 @@ inline const char *uiProfileLabel(MissionProfile profile) {
 // rather than a bare string constant keeps the mode labels in one lookup
 // pattern as those later radio states land.
 inline const char *uiModeLabelWatch() { return "Watch"; }
+
+// Short, screen-width-friendly candidate name for Probe's result card —
+// turns "cad hit: 2" into "hit: LongModerate, ShortFast". Meshtastic
+// standard presets get their real upstream preset name, keyed by slot the
+// same source-backed way discovery_plan.h's own candidate table is built;
+// there's no preset-name concept for MeshCore or the operator's own
+// custom tuple, so those get a short descriptive word instead.
+inline const char *uiDiscoveryCandidateLabel(const DiscoveryCandidate &candidate) {
+    switch (candidate.kind) {
+        case DiscoveryCandidateKind::MESHTASTIC_COMMUNITY_CUSTOM:
+            return "Custom";
+        case DiscoveryCandidateKind::MESHTASTIC_STANDARD_PRESET:
+            switch (candidate.slot) {
+                case 19: return "LongFast";
+                case 86: return "LongModerate";
+                case 26: return "LongSlow";
+                case 44: return "MediumFast";
+                case 51: return "MediumSlow";
+                case 67: return "ShortFast";
+                case 74: return "ShortSlow";
+                case 13: return "LongTurbo";
+                default: return "?";
+            }
+        case DiscoveryCandidateKind::MESHCORE_CURRENT_US:
+            return "Current";
+        case DiscoveryCandidateKind::MESHCORE_UPSTREAM_DEFAULT:
+            return "Default";
+        default:
+            return "?";
+    }
+}

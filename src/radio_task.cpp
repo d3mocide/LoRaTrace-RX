@@ -69,6 +69,16 @@ volatile uint16_t energyBinIndex = 0;
 volatile uint16_t energyTotalBins = 0;
 volatile EnergySweepState energyState = EnergySweepState::IDLE;
 volatile uint16_t energyPeakCount = 0;
+// Bit N set if bin N was a peak in the most recent sweep — a UI-facing
+// occupancy sketch, not acquisition state (Pass A never reads this back).
+// 28 bytes covers ENERGY_BIN_RESERVED_COUNT's full 224 bits.
+uint8_t energyPeakBinMask[28] = {};
+// The strongest peak observed this sweep, for the UI's single "most
+// interesting thing found" callout — cheap to keep (one float + one
+// int16) precisely because it's a running max, not a per-bin history.
+volatile float energyStrongestFreqMhz = 0.0f;
+volatile int16_t energyStrongestRssiDbmX10 = 0;
+volatile bool energyStrongestValid = false;
 
 int lastError = RADIOLIB_ERR_NONE;
 
@@ -538,6 +548,8 @@ void performEnergySweep() {
     energyBinIndex = 0;
     energyTotalBins = totalBins;
     energyPeakCount = 0;
+    for (size_t i = 0; i < sizeof(energyPeakBinMask); i++) energyPeakBinMask[i] = 0;
+    energyStrongestValid = false;
     bool aborted = false;
     bool failed = false;
     // Rolling noise floor (energy_observation.h): seeded from bin 0's own
@@ -619,10 +631,17 @@ void performEnergySweep() {
             // Decide against the floor as it stood *before* this bin, then
             // fold this bin's average in — so a strong bin can't drag its
             // own floor upward and mask itself (energy_observation.h's own
-            // noted concern). benchSweepMarginDbmX10() is the production
-            // default (100 = 10.0dB) unless the cardputer-adv-bench image
-            // has an operator-armed BENCH_SWEEP_MARGIN override active.
+            // noted concern). benchSweepMarginDbmX10() is the calibrated
+            // production default (energy_observation.h) unless the
+            // cardputer-adv-bench image has an operator-armed
+            // BENCH_SWEEP_MARGIN override active.
             if (energyBinIsPeak(stats, noiseFloor, benchSweepMarginDbmX10())) {
+                energyPeakBinMask[bin / 8] |= (uint8_t)(1U << (bin % 8));
+                if (!energyStrongestValid || stats.rssi_peak_dbm_x10 > energyStrongestRssiDbmX10) {
+                    energyStrongestFreqMhz = energyBinFrequencyMhz(bin, ENERGY_SWEEP_DEFAULT_STEP);
+                    energyStrongestRssiDbmX10 = stats.rssi_peak_dbm_x10;
+                    energyStrongestValid = true;
+                }
                 enqueueEnergyObservation(bin, homeChannel, stats);
             }
             noiseFloor = energyNoiseFloorUpdate(noiseFloor, stats.rssi_avg_dbm_x10);
@@ -957,6 +976,19 @@ uint16_t radioEnergyBinCount() {
 
 uint16_t radioEnergyPeakCount() {
     return energyPeakCount;
+}
+
+bool radioEnergyPeakBinSet(uint16_t bin) {
+    if (bin >= sizeof(energyPeakBinMask) * 8) return false;
+    return (energyPeakBinMask[bin / 8] & (uint8_t)(1U << (bin % 8))) != 0;
+}
+
+EnergyStrongestPeak radioEnergyStrongestPeak() {
+    EnergyStrongestPeak peak;
+    peak.freq_mhz = energyStrongestFreqMhz;
+    peak.rssi_peak_dbm_x10 = energyStrongestRssiDbmX10;
+    peak.valid = energyStrongestValid;
+    return peak;
 }
 
 EnergySweepState radioEnergySweepState() {

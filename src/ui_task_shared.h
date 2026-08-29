@@ -87,6 +87,19 @@ struct IdleTimeoutOption {
 extern const IdleTimeoutOption IDLE_TIMEOUT_OPTIONS[];
 constexpr uint8_t IDLE_TIMEOUT_OPTION_COUNT = 5;
 
+// --- Probe/Sweep result hold ---
+// Timestamp of the first redraw after a NEW terminal Probe/Sweep result
+// (set by ui_task.cpp's existing async-completion polling, the same place
+// that already fires the toast for it), or 0 before any run this
+// power-on. drawProbePage()/drawSweepPage() (ui_pages.cpp) use this to
+// revert the big state word to a dim "IDLE" after RESULT_HOLD_MS, while
+// leaving the rest of the card showing the last real result — an
+// operator-visible "ready to run again" cue distinct from a genuine
+// never-run state, requested after watching the on-device behavior.
+extern uint32_t probeTerminalShownAt;
+extern uint32_t sweepTerminalShownAt;
+constexpr uint32_t RESULT_HOLD_MS = 8000;
+
 // --- Cross-file entry points ---
 void drawHeader();                      // ui_pages.cpp  — called by ui_task.cpp's fullRedraw()
 void drawPage();                        // ui_pages.cpp  — called by ui_task.cpp's fullRedraw()

@@ -1116,6 +1116,35 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         never LoRa evidence. Hardware-verified 2026-08-28: `S` jumps to a
         real SCANNING→COMPLETE card with a correct peak count and frequency
         bar, and SWEEP cycles correctly in the carousel rotation.
+  - [x] **UI polish pass, 2026-08-29** (operator feedback on the card
+        above, live on real hardware): the earlier claim that adding
+        `UiPage::SWEEP` "needed no digit JUMP-key remapping" was true for
+        the enum insertion itself but missed that the digit shortcuts'
+        *numbers* now disagreed with each page's own displayed position
+        (pressing 3 landed on CHANNEL while the footer read "4/6") —
+        JUMP_1..5 retargeted to RADIO/PROBE/SWEEP/CHANNEL/GPS, and a new
+        `KEY_RAW_6_PRESS`/`JUMP_6`→SYSTEM restores the 1:1 digit-to-page
+        mapping the six-page carousel needs (K=31 for `6`, corroborated by
+        `test_keyboard`'s own pre-existing "unrelated keys" check rather
+        than a fresh derivation). Sweep's card gained a peak-bin occupancy
+        bitmask (`radioEnergyPeakBinSet()`, 28 bytes, ticks drawn along the
+        existing frequency bar — the same 3x7 height as the position
+        marker per operator feedback, not 1px) and a strongest-peak
+        callout (`radioEnergyStrongestPeak()`: frequency + RSSI of the
+        best peak this run). Probe's card gained a decoded candidate-name
+        readout (`uiDiscoveryCandidateLabel()`, `ui_labels.h` — turns
+        "cad hit: 2" into "LongModerate, ShortFast") and a plain-English
+        "N/M channels active" headline, with the raw hits/free/timeout/err
+        counts restored as a single reference line underneath after
+        operator feedback that the redesign felt too sparse. Both cards'
+        headline word now fades to a dim "IDLE" 8 seconds after a terminal
+        result (`RESULT_HOLD_MS`, `ui_task_shared.h`) — an operator-visible
+        "ready to run again" cue distinct from a genuine never-run state —
+        while the rest of the card keeps showing the last real result.
+        Host tests extended (`test_ui_labels`: candidate-label collision/
+        fallback checks against the real Meshtastic/MeshCore tables;
+        `test_keyboard`: `JUMP_6` coverage). All confirmed on real
+        hardware after two feedback rounds.
   - [ ] Transient Sweep shares Probe's Phase 7-gated 2.5 KB buffer ceiling,
         single-result replacement, and visible `NOT SAVED` behavior
   - [ ] Deterministic bin-to-display-column aggregation covers both endpoints

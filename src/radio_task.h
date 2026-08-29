@@ -120,6 +120,22 @@ uint16_t radioEnergyBinCount();
 // below.
 uint16_t radioEnergyPeakCount();
 
+// True if `bin` was logged as a peak during the most recent sweep — a
+// UI-facing occupancy sketch (e.g. tick marks along a frequency bar), not
+// acquisition state. Always false for a bin index outside the current
+// sweep's fixed 224-bit mask.
+bool radioEnergyPeakBinSet(uint16_t bin);
+
+// The strongest peak observed during the most recent sweep, for a single
+// "most interesting thing found" UI callout. `valid` is false until at
+// least one peak has been logged this sweep.
+struct EnergyStrongestPeak {
+    float freq_mhz = 0.0f;
+    int16_t rssi_peak_dbm_x10 = 0;
+    bool valid = false;
+};
+EnergyStrongestPeak radioEnergyStrongestPeak();
+
 // Same terminal-state shape as DiscoverySweepState, kept as its own type:
 // Sweep and Probe are different operations even though both resolve to
 // one of these five outcomes.

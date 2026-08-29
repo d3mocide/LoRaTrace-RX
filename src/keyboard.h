@@ -132,6 +132,15 @@ constexpr uint8_t KEY_RAW_3_PRESS = 15;
 constexpr uint8_t KEY_RAW_4_PRESS = 21;
 // '5': physical (row 0, col 5) -> t=2, u=5 -> K=25.
 constexpr uint8_t KEY_RAW_5_PRESS = 25;
+// '6': physical (row 0, col 6) -> t=3, u=1 -> K=31. Added when UiPage grew
+// a 6th page (SWEEP, Phase 9) and the five-digit/five-page 1:1 mapping
+// broke; SYSTEM is what lost its slot (see JUMP_1..5's own comment below)
+// and gets it back here. Not a new derivation to trust blind: K=31 for
+// '6' was already independently on record in test_keyboard's own
+// "unrelated keys" check before this key had any mapped meaning, so this
+// value is corroborated by that pre-existing test, not just this file's
+// formula.
+constexpr uint8_t KEY_RAW_6_PRESS = 31;
 
 // P: physical (row 1, col 10) -> t=5, u=2 -> K=52. It is the global Probe
 // shortcut: ui_task.cpp starts/cancels the bounded action from any UI state.
@@ -169,25 +178,25 @@ enum class KeyAction {
     // KEY_RAW_ESC_PRESS above for that first move, and PROGRESS.md's
     // 2026-08-24 bench pass for this second one (Enter-to-open felt wrong).
     BACK,
-    // '1'-'5' — jump straight to that carousel page (carousel mode only).
-    // Numbered to match UiPage's declared order 1:1 (ui_task.h): 1=RADIO,
-    // 2=PROBE, 3=CHANNEL, 4=GPS, 5=SYSTEM. Kept as plain, separately-named
-    // actions rather than one "JUMP + index" action so this header stays
-    // free of any dependency on ui_task.h's UiPage enum — ui_task.cpp does
-    // the index mapping itself.
+    // '1'-'6' — jump straight to that carousel page (carousel mode only).
+    // 1=RADIO, 2=PROBE, 3=SWEEP, 4=CHANNEL, 5=GPS, 6=SYSTEM. Kept as plain,
+    // separately-named actions rather than one "JUMP + index" action so
+    // this header stays free of any dependency on ui_task.h's UiPage enum
+    // — ui_task.cpp does the index mapping itself.
     JUMP_1,
     JUMP_2,
     JUMP_3,
     JUMP_4,
     JUMP_5,
+    JUMP_6,
     PROBE,
     SWEEP,
 };
 
 // Maps one raw TCA8418 event byte to a KeyAction. Deliberately an allowlist:
-// only the thirteen press bytes above resolve to anything — every release
-// event (including these thirteen keys' own) and all other keys on the board
-// return NONE. That's what keeps this safe despite covering only thirteen of
+// only the fourteen press bytes above resolve to anything — every release
+// event (including these fourteen keys' own) and all other keys on the board
+// return NONE. That's what keeps this safe despite covering only fourteen of
 // the board's 56 keys: there's no "unknown key does something surprising"
 // case, only "known key does its one thing" or "ignored."
 inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
@@ -203,6 +212,7 @@ inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
         case KEY_RAW_3_PRESS: return KeyAction::JUMP_3;
         case KEY_RAW_4_PRESS: return KeyAction::JUMP_4;
         case KEY_RAW_5_PRESS: return KeyAction::JUMP_5;
+        case KEY_RAW_6_PRESS: return KeyAction::JUMP_6;
         case KEY_RAW_P_PRESS: return KeyAction::PROBE;
         case KEY_RAW_S_PRESS: return KeyAction::SWEEP;
         default: return KeyAction::NONE;

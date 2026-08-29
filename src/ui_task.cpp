@@ -48,6 +48,11 @@ UiPage page = UiPage::RADIO;
 char toastMsg[48] = {0};
 uint32_t toastShownAt = 0;
 
+// See ui_task_shared.h — set below, the moment each result's own
+// async-completion toast fires.
+uint32_t probeTerminalShownAt = 0;
+uint32_t sweepTerminalShownAt = 0;
+
 // activeBrightnessPercent is the operator's chosen level (5-100) — what
 // idle-dim restores to on the next keypress, not necessarily what the
 // backlight is driven at right now (see idleDimTargetPercent() below).
@@ -268,11 +273,11 @@ void uiTask(void *) {
                          (unsigned long)radioDiscoveryLastAwayMs());
             }
             showToast(msg);
+            probeTerminalShownAt = millis();
             redraw = true;
         }
 
-        // Same async-completion-toast shape as Probe's block above, for
-        // Sweep. No dedicated result page to jump to yet (Phase 9 slice 2).
+        // Same async-completion-toast shape as Probe's block above, for Sweep.
         const uint32_t energyRuns = radioEnergySweepCount();
         if (energyRuns != lastEnergyRunSeen) {
             lastEnergyRunSeen = energyRuns;
@@ -290,6 +295,7 @@ void uiTask(void *) {
                          (unsigned)radioEnergyPeakCount(), (unsigned long)radioEnergyLastAwayMs());
             }
             showToast(energyMsg);
+            sweepTerminalShownAt = millis();
             redraw = true;
         }
 
@@ -324,12 +330,15 @@ void uiTask(void *) {
                 jumpToPage(UiPage::PROBE);
                 redraw = true;
             } else if (action == KeyAction::JUMP_3) {
-                jumpToPage(UiPage::CHANNEL);
+                jumpToPage(UiPage::SWEEP);
                 redraw = true;
             } else if (action == KeyAction::JUMP_4) {
-                jumpToPage(UiPage::GPS);
+                jumpToPage(UiPage::CHANNEL);
                 redraw = true;
             } else if (action == KeyAction::JUMP_5) {
+                jumpToPage(UiPage::GPS);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_6) {
                 jumpToPage(UiPage::SYSTEM);
                 redraw = true;
             } else if (action == KeyAction::SELECT && page == UiPage::RADIO) {

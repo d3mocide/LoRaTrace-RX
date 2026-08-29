@@ -14,6 +14,7 @@
 
 #include "battery.h"
 #include "detection.h"
+#include "discovery_plan.h"
 #include "energy_plan.h"
 #include "gps_task.h"
 #include "logger_task.h"
@@ -258,18 +259,29 @@ void drawProbePage() {
     }
 
     const bool running = state == DiscoverySweepState::RUNNING;
-    const uint16_t colour = state == DiscoverySweepState::FAILED
-                                ? COL_BAD
-                                : (running || state == DiscoverySweepState::CANCELLED ? COL_WARN : COL_GOOD);
-    uiTft->setTextColor(colour, COL_BG);
-    if (running) {
-        uiTft->print("SCANNING");
-    } else if (state == DiscoverySweepState::COMPLETE) {
-        uiTft->print("COMPLETE");
-    } else if (state == DiscoverySweepState::CANCELLED) {
-        uiTft->print("CANCELLED");
+    // After RESULT_HOLD_MS, revert the headline word to a dim IDLE so the
+    // operator gets a clear "ready to run again" cue instead of a stale
+    // COMPLETE sitting on screen indefinitely — everything below this
+    // still reflects the real last result; only the headline changes.
+    const bool holdExpired = !running && probeTerminalShownAt != 0 &&
+                             millis() - probeTerminalShownAt >= RESULT_HOLD_MS;
+    if (holdExpired) {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print("IDLE");
     } else {
-        uiTft->print("FAILED");
+        const uint16_t colour = state == DiscoverySweepState::FAILED
+                                    ? COL_BAD
+                                    : (running || state == DiscoverySweepState::CANCELLED ? COL_WARN : COL_GOOD);
+        uiTft->setTextColor(colour, COL_BG);
+        if (running) {
+            uiTft->print("SCANNING");
+        } else if (state == DiscoverySweepState::COMPLETE) {
+            uiTft->print("COMPLETE");
+        } else if (state == DiscoverySweepState::CANCELLED) {
+            uiTft->print("CANCELLED");
+        } else {
+            uiTft->print("FAILED");
+        }
     }
 
     uiTft->setTextSize(1);
@@ -280,34 +292,68 @@ void drawProbePage() {
         uiTft->print(done);
         uiTft->print('/');
         uiTft->print(total);
-    } else {
-        uiTft->print("targets ");
-        uiTft->print(done);
-        uiTft->print('/');
-        uiTft->print(total);
-        uiTft->print("  away ");
-        uiTft->print(radioDiscoveryLastAwayMs());
-        uiTft->print("ms");
+        return; // nothing else to summarize until a candidate lands somewhere
     }
+    uiTft->print("targets ");
+    uiTft->print(done);
+    uiTft->print('/');
+    uiTft->print(total);
+    uiTft->print("  away ");
+    uiTft->print(radioDiscoveryLastAwayMs());
+    uiTft->print("ms");
 
-    char value[10];
-    snprintf(value, sizeof(value), "%u", (unsigned)hits);
-    statBlock(2, HEADER_H + 52, "cad hit", value, hits == 0 ? COL_DIM : COL_WARN);
-    snprintf(value, sizeof(value), "%u", (unsigned)free);
-    statBlock(80, HEADER_H + 52, "free", value);
-    snprintf(value, sizeof(value), "%u", (unsigned)timeouts);
-    statBlock(156, HEADER_H + 52, "timeout", value, timeouts == 0 ? COL_DIM : COL_WARN);
-    snprintf(value, sizeof(value), "%u", (unsigned)errors);
-    statBlock(2, HEADER_H + 80, "errors", value, errors == 0 ? COL_GOOD : COL_BAD);
-    if (state == DiscoverySweepState::FAILED) {
-        snprintf(value, sizeof(value), "%d", radioLastError());
-        statBlock(80, HEADER_H + 80, "radio", value, COL_BAD);
-    } else {
+    // Plain-English headline instead of raw "cad hit"/"free" jargon — the
+    // actual answer to "did I find anything", not internal counters.
+    char summary[24];
+    snprintf(summary, sizeof(summary), "%u/%u channels active", (unsigned)hits, (unsigned)total);
+    uiTft->setTextColor(hits > 0 ? COL_WARN : COL_DIM, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 47);
+    uiTft->print(summary);
+
+    // Which named candidates actually hit. Mask bit i corresponds to
+    // plan.candidates[i] — radio_task.cpp's own raw loop index into the
+    // candidate table, not the skip-adjusted done/total counters above
+    // (see radioDiscoveryCadDetectedMask()'s own doc comment).
+    uiTft->setCursor(2, HEADER_H + 59);
+    if (hits == 0) {
         uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(80, HEADER_H + 89);
-        uiTft->print("CAD hit = activity");
+        uiTft->print("no activity heard");
+    } else {
+        const DiscoveryPlan plan = discoveryPlanForProfile(radioActiveProfile());
+        const uint16_t mask = radioDiscoveryCadDetectedMask();
+        char names[40] = {0};
+        for (uint8_t i = 0; i < plan.count && i < 16; i++) {
+            if (!(mask & (1U << i))) continue;
+            const char *label = uiDiscoveryCandidateLabel(plan.candidates[i]);
+            const size_t used = strlen(names);
+            const size_t needed = (used == 0 ? 0 : 2) + strlen(label);
+            if (used + needed >= sizeof(names) - 4) {
+                strcat(names, "...");
+                break;
+            }
+            if (used != 0) strcat(names, ", ");
+            strcat(names, label);
+        }
+        uiTft->setTextColor(COL_FG, COL_BG);
+        uiTft->print(names);
     }
 
+    // The raw per-channel breakdown, restored as a single reference line
+    // under the readable summary above rather than dropped — full detail
+    // still lives in probe.csv, but the operator shouldn't have to pull
+    // the card to see "how many timed out" right after a run.
+    char stats[40];
+    snprintf(stats, sizeof(stats), "hits %u  free %u  timeout %u  err %u",
+             (unsigned)hits, (unsigned)free, (unsigned)timeouts, (unsigned)errors);
+    uiTft->setTextColor(errors > 0 ? COL_BAD : COL_DIM, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 84);
+    uiTft->print(stats);
+
+    if (state == DiscoverySweepState::FAILED) {
+        char value[10];
+        snprintf(value, sizeof(value), "%d", radioLastError());
+        statBlock(2, HEADER_H + 100, "radio error", value, COL_BAD);
+    }
 }
 
 // Track + marker, not a fill bar — frequency is a *position* within the
@@ -330,6 +376,25 @@ void drawFreqBar(int16_t x, int16_t y, int16_t w, float freqMhz) {
     snprintf(hiBuf, sizeof(hiBuf), "%d", (int)HI);
     uiTft->setCursor(x + w - (int16_t)strlen(hiBuf) * 6, y + 6);
     uiTft->print(hiBuf);
+}
+
+// One dim tick per peak bin, same height/vertical span as drawFreqBar()'s
+// own position marker (a 3x7 rect centred on the line) so the two read as
+// the same kind of mark — just thin (1px wide) since many bins can share
+// one pixel column. A cheap occupancy sketch (radioEnergyPeakBinSet() is a
+// 28-byte bitmask, not a per-bin RSSI history) showing *where* in the band
+// activity clustered, not just how many bins hit. Deliberately not a real
+// spectrum/waterfall (CLAUDE.md truthful-visualization rule): a stored
+// peak is a threshold-filtered occupancy fact, not a signal-strength plot.
+void drawSweepOccupancy(int16_t x, int16_t y, int16_t w, uint16_t totalBins) {
+    for (uint16_t bin = 0; bin < totalBins; bin++) {
+        if (!radioEnergyPeakBinSet(bin)) continue;
+        float frac = (float)bin / (float)(totalBins > 1 ? totalBins - 1 : 1);
+        if (frac < 0.0f) frac = 0.0f;
+        if (frac > 1.0f) frac = 1.0f;
+        const int16_t tx = x + (int16_t)((w - 1) * frac);
+        uiTft->fillRect(tx, y - 3, 1, 7, COL_WARN);
+    }
 }
 
 // Phase 9 Sweep result card, same layout shape as drawProbePage() above.
@@ -357,18 +422,28 @@ void drawSweepPage() {
     }
 
     const bool running = state == EnergySweepState::RUNNING;
-    const uint16_t colour = state == EnergySweepState::FAILED
-                                ? COL_BAD
-                                : (running || state == EnergySweepState::CANCELLED ? COL_WARN : COL_GOOD);
-    uiTft->setTextColor(colour, COL_BG);
-    if (running) {
-        uiTft->print("SCANNING");
-    } else if (state == EnergySweepState::COMPLETE) {
-        uiTft->print("COMPLETE");
-    } else if (state == EnergySweepState::CANCELLED) {
-        uiTft->print("CANCELLED");
+    // Same IDLE-after-hold reversion as drawProbePage() — the headline
+    // word is the only thing that changes; bin/peak data below still
+    // reflects the real last result.
+    const bool holdExpired = !running && sweepTerminalShownAt != 0 &&
+                             millis() - sweepTerminalShownAt >= RESULT_HOLD_MS;
+    if (holdExpired) {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print("IDLE");
     } else {
-        uiTft->print("FAILED");
+        const uint16_t colour = state == EnergySweepState::FAILED
+                                    ? COL_BAD
+                                    : (running || state == EnergySweepState::CANCELLED ? COL_WARN : COL_GOOD);
+        uiTft->setTextColor(colour, COL_BG);
+        if (running) {
+            uiTft->print("SCANNING");
+        } else if (state == EnergySweepState::COMPLETE) {
+            uiTft->print("COMPLETE");
+        } else if (state == EnergySweepState::CANCELLED) {
+            uiTft->print("CANCELLED");
+        } else {
+            uiTft->print("FAILED");
+        }
     }
 
     uiTft->setTextSize(1);
@@ -390,6 +465,11 @@ void drawSweepPage() {
     }
 
     drawFreqBar(2, HEADER_H + 62, 108, energyBinFrequencyMhz(bin, ENERGY_SWEEP_DEFAULT_STEP));
+    drawSweepOccupancy(2, HEADER_H + 62, 108, total);
+
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 96);
+    uiTft->print("energy only, not LoRa");
 
     char value[10];
     snprintf(value, sizeof(value), "%u", (unsigned)peaks);
@@ -398,11 +478,21 @@ void drawSweepPage() {
         snprintf(value, sizeof(value), "%d", radioLastError());
         statBlock(170, HEADER_H + 34, "radio", value, COL_BAD);
     } else {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(170, HEADER_H + 34);
-        uiTft->print("energy only,");
-        uiTft->setCursor(170, HEADER_H + 43);
-        uiTft->print("not LoRa");
+        // The single strongest peak this sweep — a more useful "what did
+        // we find" callout than a bare count.
+        const EnergyStrongestPeak strongest = radioEnergyStrongestPeak();
+        if (strongest.valid) {
+            char freqBuf[10];
+            snprintf(freqBuf, sizeof(freqBuf), "%.1f", (double)strongest.freq_mhz);
+            statBlock(170, HEADER_H + 34, "best MHz", freqBuf, COL_WARN);
+            char rssiBuf[10];
+            snprintf(rssiBuf, sizeof(rssiBuf), "%ddB", (int)(strongest.rssi_peak_dbm_x10 / 10));
+            statBlock(170, HEADER_H + 62, "rssi", rssiBuf);
+        } else {
+            uiTft->setTextColor(COL_DIM, COL_BG);
+            uiTft->setCursor(170, HEADER_H + 34);
+            uiTft->print("none found");
+        }
     }
 }
 

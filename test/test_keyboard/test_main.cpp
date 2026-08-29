@@ -3,8 +3,8 @@
 // unrelated key on the board fire a menu action. Runs on the host (`pio test
 // -e native`), no hardware needed — see platformio.ini [env:native].
 //
-// The thirteen raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
-// backtick/ESC, five digit-jump keys, P/Probe, and S/Sweep) are the ones
+// The fourteen raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
+// backtick/ESC, six digit-jump keys, P/Probe, and S/Sweep) are the ones
 // keyboard.h derives and cites; this test doesn't re-derive them, it pins
 // them so a future edit can't silently drift off the sourced values.
 
@@ -57,6 +57,7 @@ void test_digits_are_jumps() {
     TEST_ASSERT_TRUE(KeyAction::JUMP_3 == keyboardDecodeEvent(KEY_RAW_3_PRESS));
     TEST_ASSERT_TRUE(KeyAction::JUMP_4 == keyboardDecodeEvent(KEY_RAW_4_PRESS));
     TEST_ASSERT_TRUE(KeyAction::JUMP_5 == keyboardDecodeEvent(KEY_RAW_5_PRESS));
+    TEST_ASSERT_TRUE(KeyAction::JUMP_6 == keyboardDecodeEvent(KEY_RAW_6_PRESS));
 }
 
 void test_p_is_probe_shortcut() {
@@ -83,26 +84,26 @@ void test_release_events_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_3_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_4_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_5_PRESS + 0x80));
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_6_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_P_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_S_PRESS + 0x80));
 }
 
-// The allowlist property that makes covering only 13 of the board's 56 keys
+// The allowlist property that makes covering only 14 of the board's 56 keys
 // safe: everything else must resolve to NONE, not something surprising.
 // These three raw values are 'q' (physical row1,col1 -> K=6), 'a' (row2,
 // col2 -> K=13), and Space (row3,col13 -> K=68) — derived the same way
-// keyboard.h derives its twelve, from mapRawKeyToPhysical()'s formula and
+// keyboard.h derives its own keys, from mapRawKeyToPhysical()'s formula and
 // RetroBreeze's _key_value_map, picked to span different rows/cols from the
-// keys actually in the allowlist (including '6'-'9'/'0', the rest of the
-// digit row the five jump keys don't use).
+// keys actually in the allowlist ('7'-'9'/'0', the rest of the digit row
+// the six jump keys don't use — '6' itself moved to the allowlist above).
 void test_unrelated_keys_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(6));  // 'q'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(13)); // 'a'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(68)); // Space
-    // The rest of the digit row, immediately adjacent to '1'-'5' in the
-    // allowlist (row 0, col 6-10) — the boundary most likely to catch an
+    // The rest of the digit row, immediately adjacent to '1'-'6' in the
+    // allowlist (row 0, col 7-10) — the boundary most likely to catch an
     // off-by-one in the jump keys' derivation.
-    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(31)); // '6'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(35)); // '7'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(41)); // '8'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(45)); // '9'

@@ -10,6 +10,22 @@ here for full history. See ROADMAP.md for phase-by-phase scope and
 src/version.h for the versioning convention (MAJOR.MINOR = phase,
 PATCH = fix with no new phase scope).
 
+- **2026-08-29 — Probe/Sweep card UI polish, two operator feedback
+  rounds on real hardware.** Sweep gained a peak-bin occupancy bitmask
+  (tick marks along the frequency bar, sized to match the position
+  marker) and a strongest-peak frequency/RSSI callout. Probe gained a
+  decoded candidate-name readout (`uiDiscoveryCandidateLabel()`,
+  `ui_labels.h`) and a plain-English "N/M channels active" headline, with
+  the raw hits/free/timeout/err counts kept as a reference line after
+  feedback that the redesign felt too sparse. Both cards' headline now
+  fades to a dim "IDLE" 8 seconds after a terminal result. Fixed a
+  digit-shortcut regression the six-page carousel introduced: JUMP_1..5
+  were still pointing at Sweep's pre-insertion targets, so pressing "3"
+  landed on CHANNEL while the footer read "4/6" — retargeted to match each
+  page's real position and added `JUMP_6`→SYSTEM (`K=31` for `'6'`,
+  already corroborated by `test_keyboard`'s own prior "unrelated keys"
+  check). Full detail in PROGRESS.md's Phase 9 checklist.
+
 - **2026-08-29 — Sweep noise-floor margin recalibrated to 35.0dB; a
   production/bench default-propagation bug caught by hardware
   verification.** A 3-repeat confirmatory matrix at 20-40dB (same bench as
