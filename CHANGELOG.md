@@ -10,6 +10,31 @@ here for full history. See ROADMAP.md for phase-by-phase scope and
 src/version.h for the versioning convention (MAJOR.MINOR = phase,
 PATCH = fix with no new phase scope).
 
+- **2026-08-29 — Sweep noise-floor margin recalibrated to 35.0dB; a
+  production/bench default-propagation bug caught by hardware
+  verification.** A 3-repeat confirmatory matrix at 20-40dB (same bench as
+  below) found 35.0dB the first margin with a genuine 0/3 quiet
+  false-trigger rate across 221 bins, while still registering injected
+  LongModerate pulses more reliably than the only other zero-false-
+  positive point tested (40.0dB: 1.9% vs 0.8% active hit rate).
+  `ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10` (`energy_observation.h`) moved
+  from the 100 (10.0dB) placeholder to 350 (35.0dB). The first real sweep
+  on **production** firmware after that change still measured 96/221
+  (43%) peaks, unchanged — `bench_fault.cpp`'s `benchSweepMarginDbmX10()`
+  (the function `radio_task.cpp` actually calls) had its own hardcoded
+  `100` literal in the production-branch return and the bench image's
+  pre-override initial value, copied from the constant instead of
+  referencing it, so the constant edit alone did nothing at runtime.
+  Fixed by having both read `ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10`
+  directly. Re-verified: three consecutive production-firmware sweeps
+  measured 0/221 peaks, `COMPLETE`, and a correctly restored home
+  frequency every time. Recorded as a general lesson, not just a Sweep
+  one: a constant change plus a green test suite is not evidence a
+  runtime default actually moved — checking a live device against the
+  calibration bench's own expected number is what caught this, and
+  nothing in host or bench-image test coverage would have. Full matrix in
+  PROGRESS.md's Phase 9 checklist.
+
 - **2026-08-28/29 — Phase 9 Sweep margin calibration bench built and run.**
   New bench-image-only `BENCH_SWEEP_MARGIN` opcode
   (`src/bench_fault.h`/`.cpp`) mirrors `BENCH_CAD`'s exact production/bench

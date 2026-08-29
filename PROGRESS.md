@@ -15,13 +15,16 @@ checklist immediately below for the live phase-by-phase state. Phase 8
 (`DISCOVERY_SWEEP`) has nominal, fault, contention, durable-output, and
 packet-bearing interoperability evidence; CAD false-rate calibration remains
 an explicit lab limitation rather than a production claim. Phase 9
-(`ENERGY_SWEEP`) is in progress: its Pass-A acquisition engine is
-hardware-verified end-to-end (real `energy.csv` peak rows, full-band
-coverage, zero queue drops), and Serial Control (`SWEEP_START`/
-`SWEEP_CANCEL`/`STATUS`) is wired and hardware-verified too — see the
-Build-order checklist below. A known placeholder-margin calibration
-finding is still open. Pass B (CAD at peaks) and a dedicated result page
-have not started. Phase 10
+(`ENERGY_SWEEP`) is in progress: its Pass-A acquisition engine, Serial
+Control (`SWEEP_START`/`SWEEP_CANCEL`/`STATUS`), and a dedicated on-device
+result card are all wired and hardware-verified — see the Build-order
+checklist below. The noise-floor margin has since been calibrated against
+real hardware (a bench-run matrix plus a `BENCH_SWEEP_MARGIN` opcode, both
+new) and the shipped default moved from a 10.0dB placeholder to a
+measured 35.0dB, re-verified on production firmware at 0/221 peaks across
+three consecutive real sweeps after catching and fixing a literal that had
+silently kept the old default active on the actual runtime path. Pass B
+(CAD at peaks) has not started. Phase 10
 (Field Analyzer) is accepted as planned scope, with its v1.0 gate deferred
 until Phase 9 hardware evidence exists.
 
@@ -1039,6 +1042,48 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         visible in relative terms: peak count doubles). A 3-repeat
         follow-up matrix at 20-40dB is the next step to confirm this isn't
         a single-sample artifact before changing the shipped default.
+  - [x] **3-repeat confirmatory matrix (20-40dB) and production default
+        change, 2026-08-29.** Confirmed the single-sample trend cleanly:
+
+        | margin | quiet peaks/221 (3 trials) | mean | active mean | delta |
+        |---|---|---|---|---|
+        | 20.0dB | 28,21,29 | 26.0 (11.8%) | 44.3 (20.0%) | +18.3 |
+        | 25.0dB | 15,13,14 | 14.0 (6.3%) | 28.3 (12.8%) | +14.3 |
+        | 30.0dB | 8,8,4 | 6.7 (3.0%) | 16.3 (7.4%) | +9.7 |
+        | 35.0dB | 0,0,0 | 0.0 (0.0%) | 4.3 (1.9%) | +4.3 |
+        | 40.0dB | 0,0,0 | 0.0 (0.0%) | 1.7 (0.8%) | +1.7 |
+
+        35.0dB is the clean inflection point: the first margin with a
+        genuine 0/3 quiet false-trigger rate, while still registering the
+        injected LongModerate pulses more reliably than the only other
+        zero-false-positive point tested (40.0dB: 1.9% vs 0.8% hit rate) —
+        i.e. the tightest margin that didn't cost real sensitivity.
+        `ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10` (`energy_observation.h`)
+        changed from the placeholder 100 (10.0dB) to 350 (35.0dB), with
+        the full evidentiary trail in its own comment. Same standing
+        caveat as Phase 8's own CAD work: one room's RF environment, not a
+        universal calibration.
+
+        **Verification caught a real propagation bug before it shipped:**
+        the first post-change hardware sweep on **production** firmware
+        still measured 96/221 (43%) peaks — unchanged from the old
+        default. `bench_fault.cpp`'s `benchSweepMarginDbmX10()` (the
+        function `radio_task.cpp` actually calls) had its own hardcoded
+        literal `100` in both the production-branch return and the bench
+        image's pre-override initial value, copied from the constant
+        instead of referencing it — so updating
+        `ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10` alone did nothing at
+        runtime. Fixed by having both read
+        `ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10` directly
+        (`#include "energy_observation.h"` added to `bench_fault.cpp`).
+        Re-verified on production firmware after the fix: three
+        consecutive real sweeps all measured **0/221 peaks**, `COMPLETE`,
+        and a correctly restored home frequency every time — matching the
+        calibration bench's own 35.0dB quiet-condition result exactly.
+        This is the reason a constant change was checked against real
+        hardware rather than trusted on its own: the native/bench-image
+        test suite had no way to catch a production-path-only literal
+        drifting from the constant it claimed to mirror.
   - [ ] 923–928MHz front-end rolloff characterized via an empirical RSSI
         noise-floor sweep, so the UI/docs can be honest about reduced
         sensitivity in that sub-band instead of silently under-reporting

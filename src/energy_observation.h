@@ -79,8 +79,20 @@ constexpr int16_t energyNoiseFloorUpdate(int16_t floor_dbm_x10, int16_t sample_d
 // drag its own floor upward) is an acquisition-sequencing decision left
 // for that slice — this file only provides the arithmetic primitive.
 
-// Placeholder margin pending §7.3's real calibration (see above).
-constexpr int16_t ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10 = 100; // 10.0dB
+// Calibrated 2026-08-29 against real hardware (Cardputer + Heltec V4R8
+// LongModerate injection, scripts/phase9_sweep_margin_bench.py,
+// PROGRESS.md/CHANGELOG.md for the full matrix). The original 10.0dB
+// placeholder measured 45-51% of bins as "peaks" in a quiet room — nowhere
+// near DESIGN.md §8.1's "only peaks, sparse" intent. A 3-repeat matrix at
+// 20-40dB found 35.0dB the first point with a genuine zero false-trigger
+// rate (0/3 quiet repeats, 221 bins each) while still registering the
+// injected signal more often than the only other zero-false-positive
+// point tested (40.0dB: 1.95% vs 0.77% hit rate) — i.e. the tightest
+// margin that didn't cost real sensitivity. Still a single room's RF
+// environment, not a universal calibration (same standing caveat as
+// Phase 8's own CAD symNum work) — a different deployment site could
+// warrant revisiting this with the same bench.
+constexpr int16_t ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10 = 350; // 35.0dB
 
 constexpr bool energyExceedsFloor(int16_t value_dbm_x10, int16_t floor_dbm_x10,
                                    int16_t margin_dbm_x10 = ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10) {

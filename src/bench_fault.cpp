@@ -2,16 +2,24 @@
 
 #include <string.h>
 
+#include "energy_observation.h"
+
 namespace {
 
 volatile bool armed = false;
 volatile BenchFaultPoint armedPoint = BenchFaultPoint::CAD_WAIT;
 volatile BenchFaultAction armedAction = BenchFaultAction::FAIL;
 volatile unsigned char cadSymbols = 2;
-// Matches energy_observation.h's ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10
-// (100 = 10.0dB) so a bench image that never receives BENCH_SWEEP_MARGIN
-// behaves identically to production.
-volatile int16_t sweepMarginDbmX10 = 100;
+// References ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10 rather than a copied
+// literal so a bench image that never receives BENCH_SWEEP_MARGIN can
+// never silently drift from production's real default the moment that
+// constant is recalibrated (it did exactly that once, 2026-08-29: this
+// was hardcoded to the pre-calibration 100 and kept returning it in
+// benchSweepMarginDbmX10() below even after the real constant moved to
+// 350, caught only because a live production-firmware sweep was checked
+// against the calibration bench's own expected result instead of trusting
+// the constant edit alone).
+volatile int16_t sweepMarginDbmX10 = ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10;
 
 bool parsePoint(const char *text, BenchFaultPoint &point) {
     if (strcmp(text, "BEFORE_RETUNE") == 0) point = BenchFaultPoint::BEFORE_RETUNE;
@@ -135,7 +143,7 @@ bool benchSweepMarginConfigure(const char *argument) {
 
 int16_t benchSweepMarginDbmX10() {
 #if !defined(LORATRACE_BENCH_FAULTS)
-    return 100;
+    return ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10;
 #else
     return sweepMarginDbmX10;
 #endif

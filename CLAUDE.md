@@ -169,12 +169,18 @@ control. Transient mode is post-Phase-8 scope. Phase 9
 (`ENERGY_SWEEP`) is in progress: its Pass-A acquisition engine is
 hardware-verified end-to-end (real `energy.csv` peak rows spanning the full
 868–923MHz band, zero queue drops, clean home-restore across repeated
-sweeps), with a known finding that the placeholder noise-floor margin is
-too permissive (65% of bins logged as peaks) and needs real calibration.
-Serial Control (`SWEEP_START`/`SWEEP_CANCEL`/`STATUS`) and a dedicated
-on-device Sweep result card (carousel page, `S`/Enter to trigger, same
-colour/layout convention as Probe's own card) are wired and
-hardware-verified. Pass B (CAD at peaks) has not started. Phase 10 (Field
+sweeps). Serial Control (`SWEEP_START`/`SWEEP_CANCEL`/`STATUS`) and a
+dedicated on-device Sweep result card (carousel page, `S`/Enter to
+trigger, same colour/layout convention as Probe's own card) are wired and
+hardware-verified. The noise-floor margin is now calibrated: a bench-run
+matrix (`scripts/phase9_sweep_margin_bench.py`, `BENCH_SWEEP_MARGIN`
+opcode) found the shipped 10.0dB placeholder measuring 45-51% of bins as
+peaks, moved the default to a measured 35.0dB (`energy_observation.h`),
+and re-verified 0/221 peaks across three consecutive production-firmware
+sweeps — the same real-hardware check caught a literal in
+`bench_fault.cpp` that had kept the old default active on the actual
+runtime path after the constant alone was changed. Pass B (CAD at peaks)
+has not started. Phase 10 (Field
 Analyzer, including bounded radio-owned Scope
 acquisition) is accepted as planned scope; whether it gates v1.0 remains an
 explicit decision after Phase 9 hardware evidence exists.
