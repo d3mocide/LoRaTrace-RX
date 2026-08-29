@@ -7,10 +7,13 @@ peaks from the whole sweep. An operator observation caught a real
 architectural gap in that: a deferred pass can arrive well after a brief
 transmitter has gone quiet again. Revised to run Pass B **immediately**
 when Pass A finds each peak, capped at the first 8 peaks encountered
-(no longer "strongest" — see "Timing revision" below). The standing
-CAD-at-arbitrary-bin hardware unknown got a second real data point from
-this revision too — see "Hardware verification" — but is still not
-resolved by a full bench matrix.
+(no longer "strongest" — see "Timing revision" below). `energy.csv` was
+pulled off the SD card and inspected per-row afterward, which corrected an
+earlier guess: the standing CAD-at-arbitrary-bin unknown looks driven by
+spreading factor (a false-positive rate that scales with CAD's dwell time
+at a fixed 2-symbol window), not sync word as first suspected — see
+"Hardware verification." Still not resolved by a full bench matrix with a
+quiet control.
 
 ## What Pass B is
 
@@ -269,35 +272,76 @@ retuning receiver — expected run-to-run variance, not a regression), so
 only 10 CAD attempts ran and the whole sweep completed in 12.1s. Home
 restored correctly again (`F=918500`, `SD=1`), no crash.
 
-**The interesting number, both times: `PBD` stayed 0** — including the one
-combo (SF11/BW250) that exactly matches the beacon's own modem parameters,
-differing only in sync word (Pass B's placeholder 0x12 vs. the beacon's
-actual 0x2B). The revised run's result actually *strengthens* the
-sync-word hypothesis over the timing hypothesis: with near-zero latency
-between Pass A flagging the peak and Pass B's matching-combo CAD attempt,
-staleness can no longer explain the miss the way it plausibly could have
-with the deferred design's multi-second gap. That said, this still isn't
-proof by itself: `PBD` only counts a full successful receive-on-hit, not a
-bare CAD detection — `STATUS` doesn't expose the per-attempt `CAD_FREE`
-vs. `CAD_DETECTED` breakdown (only `energy.csv` on the SD card has that,
-not pulled either round). Distinguishing "CAD itself never fired" from
-"CAD fired, only decode failed" still needs the bench matrix below, this
-time with `energy.csv` actually pulled and inspected per-row.
+**`PBD` stayed 0 both times**, and at the time this looked like it might
+be a sync-word story (Pass B's placeholder 0x12 vs. the beacon's actual
+0x2B). **Correction, after actually pulling and reading `energy.csv` off
+the SD card** (both runs' full files, `run0064`/`run0065`): the sync-word
+theory doesn't hold up against the real per-attempt data, and something
+more specific and better-evidenced does.
+
+**`CAD_DETECTED` rate tracks spreading factor almost perfectly, not
+whether the combo matches the beacon:**
+
+| SF | Detected / attempted (both runs combined) |
+|---|---|
+| 7 | 0/10 (0%) |
+| 8 | 0/10 (0%) |
+| 9 | 3/5 (60%) |
+| 10 | 3/5 (60%) |
+| 11 | 5/15 (33%) |
+| 12 | 3/5 (60%) |
+
+SF7 and SF8 never once detected anything, across every peak in both runs.
+SF9 and up detected a third to two-thirds of the time — including firing
+at combos sharing nothing with the beacon (SF12/BW125, on the single peak
+in the second run, where SF9-11 all came back free) and *missing* at the
+beacon's own exact shape (SF11/BW250 detected in only 1 of 4 attempts
+across `run0064`'s four peaks). That inconsistency — detecting the wrong
+shape more often than the right one — is the signature of a false-positive
+rate driven by symbol duration, not a real correlation to the transmitter.
+LoRa symbol time is `2^SF / BW`: at a fixed 2-symbol CAD window
+(`discoveryCadSymbolConfig()`'s default), SF7 gets under 2ms of actual
+signal correlation per attempt while SF12 gets tens of milliseconds — far
+more opportunity to false-trigger on ambient energy. Pass B only ever
+runs at bins Pass A already flagged as elevated-RSSI peaks, which is
+exactly the population most prone to this at long dwell times.
+
+This is not a new problem surfacing — it's the **same "CAD symNum
+tuning... real false-positive/miss tradeoff needs bench testing" item
+DESIGN.md §7 has carried as open since Phase 0**, now with a clean,
+quantified illustration inside Pass B specifically. Sync word may still
+matter for the final decode step (the one true-shape `CAD_DETECTED` still
+didn't promote a packet), but that's a single data point next to this
+SF-driven pattern, not the dominant explanation the first-pass guess
+assumed.
+
+**Practical implication:** Pass B today treats every combo's
+`CAD_DETECTED` as equally meaningful. This data says that's wrong — a
+high-SF `CAD_DETECTED` at a Pass-A peak carries much less evidentiary
+weight than a low-SF one, purely from dwell-time false-positive exposure,
+independent of whether real LoRa traffic is present. Worth a per-SF (or
+scaled-symNum) confidence treatment in a future slice, calibrated the
+same way Phase 8's CAD symNum work and Phase 9's sweep-margin work both
+already were — a real bench matrix with a known-quiet control, not a
+desk estimate.
 
 ## Open questions needing your call
 
 Resolved: off_grid field (yes), K=8 bound (yes), proceed with code (yes),
-immediate-vs-deferred timing (immediate, yes) — see "Status" above.
-Remaining, now that the engine exists and the timing revision landed:
+immediate-vs-deferred timing (immediate, yes), pull and inspect
+`energy.csv` (done — see the SF-vs-detection-rate finding above, which
+also resolves what was open question #2 here: the sync-word re-run is no
+longer the useful next experiment, the SF/symNum relationship is).
+Remaining:
 
-1. Pull `energy.csv` from a run's SD card and look at the per-attempt
-   `CAD_FREE`/`CAD_DETECTED`/`CAD_TIMEOUT`/`RADIO_ERROR` breakdown — does
-   CAD itself ever fire at the matching SF/BW combo despite the sync-word
-   mismatch?
-2. Worth a same-sync-word re-run (temporarily pointing
-   `PASS_B_SYNC_WORD_PLACEHOLDER` at `SYNC_WORD_MESHTASTIC` and repeating
-   the beacon test) to isolate whether sync word is the actual variable,
-   before committing to a real bench matrix design?
-3. The full bench matrix itself (§ "standing hardware unknown" above) is
-   still open — worth scoping as its own follow-up now that there are two
-   real data points motivating it?
+1. The full bench matrix (§ "standing hardware unknown" above) is still
+   open, now with a specific hypothesis to test rather than an open-ended
+   one: does `CAD_DETECTED` rate at a genuinely quiet bin still scale with
+   SF the way it did at these RSSI-elevated peaks? A shielded/attenuated
+   quiet control (same standing limitation Phase 8's CAD-rate bench and
+   Phase 9's margin bench both already had) would separate "SF-driven
+   false positive" from "this specific peak bin happened to be noisy."
+2. Worth a per-SF confidence weighting (or a scaled symNum per combo, so
+   every entry in `PASS_B_SF_BW_CANDIDATES` gets a comparable false-positive
+   exposure instead of SF12 getting ~60x SF7's dwell time) before Pass B's
+   `CAD_DETECTED` counts are used for anything beyond "the engine works"?

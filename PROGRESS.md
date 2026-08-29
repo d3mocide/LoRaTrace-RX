@@ -1026,16 +1026,22 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         home restore. Retimed version, same beacon test — `WI` visibly
         *paused* mid-sweep while `PBA` climbed, confirming real
         interleaving (not just different bookkeeping); found 1 peak, 10
-        attempts, 12.1s total, clean home restore. **Not yet resolved
-        either time:** `PBD` (promoted detections) stayed 0, including the
-        one combo matching the beacon's own SF/BW exactly (differing only
-        in Pass B's placeholder sync word vs. the beacon's real one) —
-        the retimed run's near-zero latency to the matching attempt
-        actually strengthens the sync-word hypothesis over a timing/
-        staleness explanation, though it isn't proof by itself (`energy.csv`
-        would need pulling to see the per-attempt CAD_FREE/CAD_DETECTED
-        breakdown, not done either round). The full bench matrix this
-        needs is still open — see the design doc's own open questions.
+        attempts, 12.1s total, clean home restore. **`PBD` stayed 0 both
+        times; `energy.csv` was pulled off the SD card afterward and the
+        real per-attempt data corrected an initial sync-word guess.**
+        `CAD_DETECTED` rate tracks spreading factor almost perfectly
+        across both runs' peaks: SF7/SF8 = 0/10 (never), SF9-12 = roughly
+        a third to two-thirds detected — including firing on shapes
+        sharing nothing with the beacon and missing on its exact SF11/
+        BW250 shape 3 of 4 times. Consistent with a false-positive rate
+        driven by CAD's fixed 2-symbol window scaling with SF's much
+        longer symbol duration at high SF (up to ~60x SF7's), not a real
+        correlation to the transmitter — and not a new problem: it's
+        DESIGN.md §7's "CAD symNum tuning... false-positive/miss tradeoff"
+        item, open since Phase 0, now illustrated concretely inside Pass
+        B. A real bench matrix with a quiet control is still open (same
+        standing limitation as Phase 8's CAD-rate bench and Phase 9's
+        margin bench) — see the design doc's updated open questions.
   - [x] A CAD hit away from a known Meshtastic/MeshCore channel is labeled
         `unknown LoRa candidate`, never promoted to Reticulum without
         stronger evidence — `Detection.off_grid` (new field, `detection.h`)

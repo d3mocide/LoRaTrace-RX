@@ -75,6 +75,32 @@ PATCH = fix with no new phase scope).
   including new `BENCH_SWEEP_MARGIN` round-trip coverage) and both the
   production and `cardputer-adv-bench` builds pass.
 
+- **2026-08-28 — Pass B's `PBD=0` mystery resolved (mostly): CAD
+  false-positive rate tracks spreading factor, not sync word.** The
+  operator had the SD card attached and loaded; pulled `energy.csv` from
+  both hardware runs in the entry below (`run0064` deferred/4-peak,
+  `run0065` retimed/1-peak) and read the actual per-attempt `CAD_FREE`/
+  `CAD_DETECTED` rows for the first time — `STATUS`'s compact fields never
+  exposed that breakdown. The sync-word guess from the prior entry doesn't
+  survive contact with the real data: `CAD_DETECTED` rate is 0/10 for
+  SF7 and SF8 (never, across every peak in both runs) and roughly a third
+  to two-thirds for SF9-12 — including firing on combos sharing nothing
+  with the beacon and missing its own exact SF11/BW250 shape 3 of 4 times
+  in `run0064`. That's the signature of a false-positive rate scaling with
+  CAD's fixed 2-symbol dwell window against SF's symbol duration (`2^SF /
+  BW` — up to ~60x longer at SF12 than SF7 at the same bandwidth), not a
+  real correlation to the transmitter, and Pass B only ever runs at
+  Pass-A's already-elevated-RSSI peaks, exactly the population most prone
+  to this at long dwell times. Not a new problem — it's DESIGN.md §7's
+  "CAD symNum tuning... false-positive/miss tradeoff needs bench testing"
+  item, open since Phase 0, now illustrated concretely inside Pass B. Sync
+  word may still matter for the final decode step (the one true-shape
+  `CAD_DETECTED` still didn't promote a packet), but that's one data point
+  next to a 30-row pattern, not the dominant story. Docs updated: design
+  doc's status line, "Hardware verification," and "Open questions" (the
+  sync-word re-run experiment is superseded by this finding); PROGRESS.md's
+  Pass B bullet. No code changed this round — analysis only.
+
 - **2026-08-28 — Pass B retimed same day: immediate follow-up, not
   deferred to the end of the sweep.** After the entry below shipped and
   ran on hardware, the operator asked whether Pass B was "a deep dive into
