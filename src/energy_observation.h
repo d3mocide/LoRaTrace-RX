@@ -9,6 +9,7 @@
 #include <stdio.h>
 
 #include "detection.h"  // missionProfileName()
+#include "pass_b_plan.h"  // passBConfidenceFor()/passBConfidenceName()
 
 // --- Pass A working aggregate (radio task, per bin, RAM only) ----------
 //
@@ -187,7 +188,7 @@ constexpr const char *ENERGY_CSV_HEADER =
     "timestamp_utc,lat,lon,fix_quality,run,rx_uptime_ms,profile,result,"
     "bin_index,bin_step_khz,freq_mhz,sf,bw_khz,cr_denom,sync_word,"
     "rssi_avg_dbm,rssi_peak_dbm,sample_count,packet_metadata_present,"
-    "wifi_on,radio_status";
+    "wifi_on,radio_status,pass_b_confidence";
 
 inline size_t energyObservationFormatCsv(const EnergyObservation &observation,
                                           char *out, size_t outSize,
@@ -207,7 +208,7 @@ inline size_t energyObservationFormatCsv(const EnergyObservation &observation,
 
     const int n = snprintf(
         out, outSize,
-        "%s,%s,%s,%u,%u,%lu,%s,%s,%u,%u,%.3f,%u,%.1f,%u,0x%02x,%.1f,%.1f,%u,%u,%u,%d",
+        "%s,%s,%s,%u,%u,%lu,%s,%s,%u,%u,%.3f,%u,%.1f,%u,0x%02x,%.1f,%.1f,%u,%u,%u,%d,%s",
         timestamp_utc ? timestamp_utc : "", latbuf, lonbuf,
         (unsigned)fix_quality, (unsigned)run,
         (unsigned long)observation.rx_millis,
@@ -221,7 +222,8 @@ inline size_t energyObservationFormatCsv(const EnergyObservation &observation,
         (double)observation.rssi_peak_dbm_x10 / 10.0,
         (unsigned)observation.sample_count,
         (unsigned)observation.packet_metadata_present,
-        (unsigned)observation.wifi_on, (int)observation.radio_status);
+        (unsigned)observation.wifi_on, (int)observation.radio_status,
+        passBConfidenceName(passBConfidenceFor(observation.sf, observation.bw_khz_x10)));
 
     if (n < 0 || (size_t)n >= outSize) return 0;
     return (size_t)n;

@@ -18,7 +18,30 @@ ran against a real quiet/pulse control, and the SF-only story didn't fully
 survive that either — see "Controlled bench matrix" below. The one
 genuinely clean, unambiguous result: the sourced table's exact match to a
 real transmission (SF8/BW125) scored 0/20 quiet false positives and 20/20
-pulse detections.
+pulse detections. A same-day interleaved-order repeat (`--order
+interleaved`, now the script's default) confirmed the exact-match result
+again and mostly dissolved the earlier SF-vs-time confound — see
+"Interleaved re-run" below — leaving one genuine residual: a mild
+elapsed-session-time drift in quiet false positives that survives combo
+randomization, so it isn't purely an SF artifact. A shielded-box quiet
+control (2026-08-29, "Shielded-box quiet control" below) then ran the same
+matrix two more ways — both radios in one foil-lined box, then the
+Cardputer alone with the Heltec outside — and found shielding raised the
+quiet false-positive rate rather than lowering it (10.5% open-room →
+17.5% both-shielded → 14.5% Cardputer-only), most likely because a small
+reflective enclosure traps a device's own RF emissions and reflects them
+back into its own receiver rather than letting them dissipate the way open
+air does. The elapsed-session drift did not replicate cleanly in either
+shielded run, weakening confidence it was a strong, reproducible effect
+in the first place. Pooled across all three 400-cycle runs (1,200 cycles
+total), the two combos with genuinely reproducible behavior are SF8/BW125
+(2/60 quiet, still reliably 20/20 on the real pulse in every run) and
+SF11/BW500 (22/60 quiet, consistently the noisiest, still 19-20/20 on the
+real pulse); the other eight combos vary too much run-to-run at n=20 per
+condition to characterize confidently yet. Per-combo confidence weighting
+(`PassBConfidence`, `pass_b_plan.h`) then shipped as a descriptive
+`energy.csv` column derived from that pooled data — see "Confidence
+weighting" below.
 
 ## What Pass B is
 
@@ -407,25 +430,189 @@ ascending-SF order can't distinguish the two: SF and elapsed time increase
 together here. A repeat with **randomized or interleaved combo order**
 would separate them properly.
 
+## Interleaved re-run (2026-08-29): separating SF from elapsed time
+
+`scripts/phase9_pass_b_cad_bench.py` gained `--order {interleaved,block}`
+(interleaved is now the default; `build_schedule()` round-robins all ten
+combos each cycle, reshuffled per round, instead of running combo-by-combo).
+Each combo's 20 quiet + 20 pulse samples are now spread evenly across the
+whole ~18-minute session instead of clustered in one time block, so combo
+identity (and SF) is decorrelated from elapsed time. Re-ran the full
+400-cycle matrix this way (`run0074/energy.csv`, row order verified 1:1
+against the script's own per-cycle event log — zero misalignments):
+
+| Combo | Quiet detected/20 | Pulse detected/20 |
+|---|---|---|
+| SF7/BW62.5 | 0 | 1 |
+| SF7/BW250 | 1 | 0 |
+| **SF8/BW125 (exact match)** | **0** | **20** |
+| SF8/BW250 | 1 | 9 |
+| SF9/BW250 | 2 | 20 |
+| SF10/BW250 | 2 | 20 |
+| SF11/BW125 | 1 | 0 |
+| SF11/BW250 | 4 | 0 |
+| SF11/BW500 | 7 | 19 |
+| SF12/BW125 | 3 | 1 |
+
+The exact-match combo replicated perfectly: 0/20 quiet, 20/20 pulse, same
+as the block-ordered run. SF11/BW500 also replicated almost exactly (7/20
+quiet both times, 20→19 pulse) — that combo's high quiet false-positive
+rate looks like a real property of it (plausibly its 500kHz bandwidth
+being wide enough to correlate against ordinary broadband noise), not a
+time-order artifact. The combos that barely detected the real pulse
+before (SF11/125, SF11/250, SF12/125, both SF7 rows) still barely detect
+it here, so that part of the picture is also real and not an ordering
+artifact. SF8/250 fell somewhere between: 2/20 pulse in the block run
+became 9/20 here.
+
+**What did change:** overall quiet false-positive count dropped from
+31/200 (block order) to 21/200 (interleaved), and the clean *monotonic*
+staircase the block run showed (0,1,0,2,5,3,3,5,7,5, rising steadily with
+each successive SF-ascending block) is gone — the interleaved per-combo
+counts (0,1,0,1,2,2,1,4,7,3) no longer climb steadily with SF. That's
+consistent with the block run's staircase being mostly a time-ordering
+artifact rather than a clean SF effect, as suspected.
+
+**What didn't fully resolve:** splitting the 200 quiet-phase rows into
+session-time quartiles (in actual run order, combo now randomized within
+each quartile) still shows a mild rise: 6% → 8% → 16% → 12% detected. If
+the false-positive rate were purely a property of which combo ran, this
+should have flattened out completely once combo order stopped tracking
+time — it didn't, fully. So there is likely a real, modest elapsed-session
+component (self-heating, ambient RF drift, or similar) on top of the
+per-combo differences that are now much better isolated. Not chased
+further this round — see remaining open items below.
+
+## Shielded-box quiet control (2026-08-29): shielding made the baseline noisier, not cleaner
+
+A physical foil-wrapped enclosure was built and verified against an FM
+radio (lost signal entirely — confirmed real external RF attenuation).
+Two 400-cycle interleaved matrices then ran with it:
+
+**Both radios sharing one box** (`run0076`): overall quiet false-positive
+rate went **up**, 17.5% (35/200) vs. the open-room run's 10.5%, and the
+exact-match combo (SF8/BW125) — a clean 0/20 across two independent
+open-room runs — picked up its first-ever quiet false positive (1/20).
+Quartile pattern was 20%→24%→8%→18%, no longer a steady climb, just
+noisier throughout.
+
+**Cardputer alone, Heltec outside** (`run0080`, after the operator
+identified and fixed the confound): overall quiet false-positive rate
+landed at 14.5% (29/200) — between the open-room and both-shielded
+numbers, still above the open room. Quartile pattern: 10%→18%→14%→16%,
+again no clean climb.
+
+**Most likely explanation:** a small conductive enclosure is good at
+blocking external RF (that's what killed the FM signal) but bad for
+anything active *inside* it — a device's own RF emissions (MCU/USB
+oscillator harmonics, digital switching noise) reflect off the foil
+instead of dissipating via free-space spreading the way they would in an
+open room, so the receiver ends up seeing more of its own noise, not
+less. This held even with just the Cardputer alone in the box, which
+argues the effect is partly the Cardputer coupling with its own
+reflections, not only mutual coupling between the two radios (which was
+still worse than either — both-radios stayed the noisiest of the three
+conditions throughout).
+
+**Pulse detection was not suppressed by the shield, unexpectedly:**
+overall pulse detection rate in the Cardputer-only run was 44% (88/200),
+with the exact-match and near-match combos (SF8/BW125, SF9/250,
+SF10/250, SF11/500) still hitting 20/20 — essentially unchanged from the
+open-room baseline. The FM test proved the box blocks ~100MHz; it
+apparently does not equally block LoRa's ~918MHz. A hand-wrapped foil
+enclosure's seams/gaps are a plausible reason: a gap much smaller than
+FM's ~3m wavelength (fully blocking) can still leak at LoRa's ~33cm
+wavelength (a shorter wavelength "fits" through a smaller gap), so a
+seam that stops FM cold may pass a strong nearby LoRa signal fine — real,
+useful information about the box's actual shielding profile, not a
+bug in the bench script.
+
+**The original elapsed-session-time drift did not replicate cleanly.**
+All three runs (open-room 6%→8%→16%→12%, both-shielded 20%→24%→8%→18%,
+Cardputer-only 10%→18%→14%→16%) show a different, non-monotonic
+quartile-over-time shape — none matching the others. That weakens
+confidence there is one strong, reproducible "warms up over ~18 minutes"
+effect at all; it looks more like normal run-to-run variance on a
+background rate that is itself fairly volatile at n=50 samples per
+quartile, rather than a stable phenomenon worth chasing with a bigger
+enclosure or RF-absorptive lining.
+
+**Pooled across all three 400-cycle runs (1,200 cycles, 60 quiet + 60
+pulse samples per combo):**
+
+| Combo | Quiet FP (open/both-shielded/card-only) | Quiet total/60 | Pulse (typical) |
+|---|---|---|---|
+| SF7/BW62.5 | 0/0/0 | 0 | rarely fires (real or noise) |
+| SF7/BW250 | 1/0/0 | 1 | rarely fires |
+| **SF8/BW125 (exact match)** | 0/1/1 | **2** | **20/20 every run** |
+| SF8/BW250 | 1/2/1 | 4 | inconsistent (2-9/20) |
+| SF9/250 | 2/4/4 | 10 | 20/20 every run |
+| SF10/250 | 2/5/4 | 11 | 20/20 every run |
+| SF11/125 | 1/8/4 | 13 | rarely fires (0/20 every run) |
+| SF11/250 | 4/5/1 | 10 | rarely fires (0-5/20) |
+| SF11/500 | 7/8/7 | **22** | 19-20/20 every run |
+| SF12/125 | 3/2/7 | 12 | rarely fires (0-1/20) |
+
+Only two combos are reproducible across all three independent
+environments: **SF8/BW125** (near-zero quiet false positives, reliable
+real-pulse detection — the strongest evidence Pass B has) and
+**SF11/BW500** (consistently the noisiest on quiet, but also reliably
+catches the real pulse). The other eight vary enough between runs
+(e.g. SF11/BW125: 1→8→4, SF12/BW125: 3→2→7) that 20 samples per
+condition isn't enough to pin down their true rates confidently yet.
+
+## Confidence weighting (2026-08-29): `PassBConfidence`, an `energy.csv` column
+
+Shipped as a pure annotation, not a gate: it changes what a `CAD_DETECTED`
+row in `energy.csv` *says about itself* to a human reading it, never what
+gets logged or promoted. Nothing about whether a `Detection` row gets
+created changed — that decision already required an actual decodable
+packet during the bounded receive-on-hit window (`radio_task.cpp`'s
+`passBCadOneCombo()`), which is a much harder bar than a bare CAD hit and
+one noise essentially cannot clear on its own.
+
+`PassBConfidence` (`pass_b_plan.h`) is a 3-value enum — `UNVERIFIED`
+(default), `NOISY`, `STRONG` — populated by `passBConfidenceFor(sf,
+bw_khz_x10)`, a pure lookup against the two combos with reproducible
+cross-run evidence from the pooled 1,200-cycle matrix above:
+SF8/BW125 → `STRONG` (2/60 quiet FP, 20/20 pulse every run), SF11/BW500 →
+`NOISY` (22/60 quiet FP, 19-20/20 pulse every run). Everything else,
+including Pass A's own sf=0/bw=0 rows (no CAD attempted), stays
+`UNVERIFIED` — not "safe," just "not yet reproduced."
+
+Deliberately computed at CSV-format time from fields `EnergyObservation`
+already stores (`sf`, `bw_khz_x10`), not a new struct field — keeps the
+struct at its existing size (still `<=32B`, DESIGN.md §5.2's budget) and
+needs no `radio_task.cpp` change at all. `energy.csv` gained one trailing
+column, `pass_b_confidence` (`"high"`/`"noisy"`/`"unverified"` — appended
+after `radio_status`, same "append not insert" convention `result` itself
+already used so existing files stay readable). Native suite 147/147 (two
+`test_pass_b_plan` cases for the lookup/name mapping, two
+`test_energy_observation` cases for the CSV row); both `cardputer-adv` and
+`cardputer-adv-bench` build clean. `HIGH` was tried first as the enum name
+and collided with Arduino's own `#define HIGH 0x1` macro (same class of
+bug as `LOW`/any other digitalWrite constant) — renamed to `STRONG` before
+it ever reached hardware.
+
 ## Open questions needing your call
 
 Resolved: off_grid field (yes), K=8 bound (yes), proceed with code (yes),
 immediate-vs-deferred timing (immediate, yes), pull and inspect
-`energy.csv` (done, twice — the uncontrolled sample's SF-only hypothesis,
-then the controlled 400-cycle matrix that both confirmed the exact-match
-combo works cleanly and complicated the SF story further). Remaining:
+`energy.csv` (done repeatedly), re-run with randomized/interleaved order
+(done), build + test a shielded quiet control (done, two configurations —
+shielding raised the quiet baseline rather than lowering it), and ship
+per-combo confidence weighting (done — `PassBConfidence`, descriptive
+`energy.csv` column only). Remaining:
 
-1. **Re-run the matrix with randomized or interleaved combo order** to
-   separate "false positives scale with SF" from "ambient RF crept up over
-   the ~18-minute session" — this run's fixed ascending-SF order can't
-   tell those apart, since SF and elapsed time increased together.
-   `scripts/phase9_pass_b_cad_bench.py` would need a shuffled/interleaved
-   schedule option; `BENCH_PASS_B_CAD` itself needs no firmware change.
-2. A genuinely shielded/attenuated quiet control (same standing limitation
-   Phase 8's CAD-rate bench and Phase 9's margin bench both already had)
-   would still be worth it even after (1) — this bench's "quiet" condition
-   is still an open room, not a proven-silent one.
-3. Given the exact-match combo (SF8/BW125) already scored a clean 0/20 →
-   20/20, is a per-combo confidence weighting for the *other* 9 rows worth
-   doing now, or does Pass B ship as-is with the understanding that only
-   some combos carry real evidentiary weight until (1)/(2) resolve which?
+1. A bigger enclosure or RF-absorptive (not just reflective) lining would
+   be needed to actually get a lower-noise control than the open room —
+   the foil box's own reflections of the device's self-generated RF now
+   look like the dominant effect, not ambient room RF. Given three runs
+   have already gone into this and none produced a cleaner baseline than
+   simply testing in the open room, this may not be worth further
+   equipment investment unless the elapsed-time drift question specifically
+   still matters to you.
+2. The other eight combos still have only n=20/condition and haven't
+   earned a confidence tag either way — more bench cycles per combo (or a
+   larger n) would be needed before `NOISY`/`STRONG` could responsibly
+   extend past the two that have it now.

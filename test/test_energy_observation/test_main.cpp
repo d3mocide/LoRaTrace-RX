@@ -117,8 +117,34 @@ void test_energy_observation_csv_with_fix() {
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_STRING(
         "2026-08-28T10:00:00Z,45.500000,-122.600000,1,3,555000,general,energy_peak,"
-        "42,250,878.500,0,0.0,0,0x00,-65.0,-58.0,8,0,0,0",
+        "42,250,878.500,0,0.0,0,0x00,-65.0,-58.0,8,0,0,0,unverified",
         row);
+}
+
+// research/phase9-sweep-pass-b-design.md's "Shielded-box quiet control":
+// only these two combos have earned a non-default confidence tag so far.
+void test_energy_observation_csv_pass_b_confidence_for_high_combo() {
+    EnergyObservation observation;
+    observation.sf = 8;
+    observation.bw_khz_x10 = 1250;
+    observation.result = EnergyObservationResult::CAD_DETECTED;
+
+    char row[256];
+    TEST_ASSERT_TRUE(energyObservationFormatCsv(observation, row, sizeof(row), "", false,
+                                                0.0, 0.0, 0, 1) > 0);
+    TEST_ASSERT_TRUE(strstr(row, ",high") != nullptr);
+}
+
+void test_energy_observation_csv_pass_b_confidence_for_noisy_combo() {
+    EnergyObservation observation;
+    observation.sf = 11;
+    observation.bw_khz_x10 = 5000;
+    observation.result = EnergyObservationResult::CAD_DETECTED;
+
+    char row[256];
+    TEST_ASSERT_TRUE(energyObservationFormatCsv(observation, row, sizeof(row), "", false,
+                                                0.0, 0.0, 0, 1) > 0);
+    TEST_ASSERT_TRUE(strstr(row, ",noisy") != nullptr);
 }
 
 void test_energy_observation_csv_without_fix_is_honest() {
@@ -159,5 +185,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_energy_observation_csv_with_fix);
     RUN_TEST(test_energy_observation_csv_without_fix_is_honest);
     RUN_TEST(test_energy_observation_csv_truncation_is_reported);
+    RUN_TEST(test_energy_observation_csv_pass_b_confidence_for_high_combo);
+    RUN_TEST(test_energy_observation_csv_pass_b_confidence_for_noisy_combo);
     return UNITY_END();
 }

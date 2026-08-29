@@ -10,6 +10,98 @@ here for full history. See ROADMAP.md for phase-by-phase scope and
 src/version.h for the versioning convention (MAJOR.MINOR = phase,
 PATCH = fix with no new phase scope).
 
+- **2026-08-29 — Per-combo Pass B confidence weighting shipped
+  (`PassBConfidence`, `energy.csv`'s new `pass_b_confidence` column).**
+  Direct follow-up to the shielded-box matrix below, whose pooled
+  1,200-cycle data finally gave two combos real statistical weight:
+  SF8/BW125 (2/60 quiet false positives, 20/20 real-pulse detections every
+  run) and SF11/BW500 (22/60 quiet, 19-20/20 pulse every run). Added
+  `PassBConfidence` (`pass_b_plan.h`) — `UNVERIFIED` (default),
+  `NOISY`, `STRONG` — populated by a pure lookup, `passBConfidenceFor(sf,
+  bw_khz_x10)`, against those two combos only; the other eight sourced
+  combos stay `UNVERIFIED` since they still vary too much run-to-run at
+  n=20/condition to trust either way. Deliberately descriptive, not a
+  gate: it changes what a `CAD_DETECTED` row *says about itself* in
+  `energy.csv`, never what gets logged or promoted to a `Detection` — that
+  already requires an actual decoded packet during the bounded
+  receive-on-hit window, a far harder bar than a bare CAD hit that noise
+  essentially cannot clear on its own. Computed at CSV-format time from
+  `EnergyObservation`'s existing `sf`/`bw_khz_x10` fields, so no new
+  struct field and no `radio_task.cpp` change was needed — `energy.csv`
+  just gained one trailing column. Caught and fixed one real build error
+  before it reached hardware: the enum's first candidate name, `HIGH`,
+  collided with Arduino's own `#define HIGH 0x1` (the same digitalWrite
+  constant class of bug as `LOW`) and failed to compile for
+  `cardputer-adv`/`cardputer-adv-bench`; renamed to `STRONG`. Native suite
+  147/147 (4 new cases: 2 lookup/name-mapping tests in
+  `test_pass_b_plan`, 2 CSV-row tests in `test_energy_observation`); both
+  device targets build clean. Not yet exercised against a live sweep on
+  real hardware (both radios were disconnected at the time) — code and
+  native tests confirm correctness, but a real `energy.csv` row showing
+  the new column is still worth a quick look next time the hardware's
+  hooked up. Full detail in `research/phase9-sweep-pass-b-design.md`'s
+  "Confidence weighting" section.
+
+- **2026-08-29 — Shielded-box quiet control tested for Pass B: shielding
+  raised the false-positive baseline instead of lowering it.** Built a
+  foil-wrapped enclosure and verified it against an FM radio (signal lost
+  entirely — real external RF attenuation confirmed). Ran the same
+  400-cycle interleaved matrix two more ways. Both radios sharing one box
+  (`run0076`): quiet false positives rose to 17.5% (35/200) vs. the
+  open-room run's 10.5%, and the exact-match combo SF8/BW125 — a clean
+  0/20 across two independent open-room runs — picked up its first-ever
+  quiet false positive. Cardputer alone with the Heltec outside
+  (`run0080`, after the operator identified and fixed the both-radios
+  confound): 14.5% (29/200), still above the open room. Most likely
+  cause: a small conductive enclosure blocks external RF well but
+  reflects a device's own emissions back into its own receiver instead of
+  letting them dissipate as open air does — trading "no outside noise"
+  for "more of your own noise reflected at you." Pulse detection was not
+  suppressed by the box, unexpectedly: 44% overall, with exact/near-match
+  combos still hitting 20/20 — a hand-wrapped foil enclosure's seams
+  likely leak at LoRa's ~33cm wavelength even though they fully blocked
+  FM's ~3m one. The original elapsed-session-time drift did not replicate
+  cleanly in either shielded run (three different, non-monotonic quartile
+  shapes across open-room/both-shielded/Cardputer-only), weakening
+  confidence it was ever a strong, reproducible effect rather than normal
+  run-to-run noise. Pooled across all three 400-cycle runs (1,200 cycles
+  total, 60 quiet + 60 pulse samples per combo), only two combos are
+  reproducible across all three independent physical setups: SF8/BW125
+  (2/60 quiet, 20/20 pulse every run) and SF11/BW500 (22/60 quiet, 19-20/20
+  pulse every run) — the other eight vary too much run-to-run at
+  20 samples/condition to characterize confidently yet. Full numbers in
+  `research/phase9-sweep-pass-b-design.md`'s "Shielded-box quiet control"
+  section and PROGRESS.md's Phase 9 checklist. No firmware or script
+  changes this round — hardware experiment and analysis only.
+
+- **2026-08-29 — Interleaved-order repeat of the Pass B CAD bench matrix:
+  the block run's SF staircase was mostly a time-ordering artifact, but a
+  smaller genuine elapsed-session drift remains.** Direct follow-up to the
+  prior day's controlled matrix, whose fixed ascending-SF combo order left
+  "false positives scale with SF" and "ambient RF crept up over the
+  ~18-minute session" tangled together. `scripts/phase9_pass_b_cad_bench.py`
+  gained `--order {interleaved,block}` (interleaved now default):
+  `build_schedule()` round-robins all 10 combos each cycle, reshuffled per
+  round, so each combo's 20 quiet + 20 pulse samples spread evenly across
+  the whole session instead of clustering in one time block. Re-ran the
+  full 400-cycle matrix this way (`run0074/energy.csv`, verified row-for-row
+  aligned with the script's own event log — zero mismatches). The
+  exact-match combo (SF8/BW125: 0/20 quiet, 20/20 pulse) and SF11/BW500's
+  high quiet rate (7/20) both replicated almost exactly, meaning those are
+  real per-combo properties, not artifacts of the original run's ordering.
+  But the block run's clean monotonic staircase (quiet counts
+  0,1,0,2,5,3,3,5,7,5, climbing steadily through each SF-ascending block)
+  did not hold up: interleaved counts (0,1,0,1,2,2,1,4,7,3) no longer climb
+  steadily with SF, and the overall quiet false-positive count dropped from
+  31/200 to 21/200 — consistent with the original staircase being mostly a
+  time-ordering artifact rather than a clean SF effect. One thing did NOT
+  resolve: splitting the 200 quiet rows into session-time quartiles (combo
+  now randomized within each) still shows a mild rise, 6%→8%→16%→12%, so
+  some genuine elapsed-session drift (ambient RF, self-heating, or similar)
+  likely remains on top of the now better-isolated per-combo differences.
+  Full numbers in `research/phase9-sweep-pass-b-design.md`'s "Interleaved
+  re-run" section and PROGRESS.md's Phase 9 checklist.
+
 - **2026-08-29 — Probe/Sweep card UI polish, two operator feedback
   rounds on real hardware.** Sweep gained a peak-bin occupancy bitmask
   (tick marks along the frequency bar, sized to match the position

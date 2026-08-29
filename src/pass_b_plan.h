@@ -57,3 +57,35 @@ constexpr uint8_t PASS_B_SF_BW_CANDIDATE_COUNT =
 // timeout, ~24s worst-case total across one Sweep run — revisable once the
 // hardware bench matrix exists.
 constexpr uint16_t PASS_B_MAX_PEAKS_PER_SWEEP = 8;
+
+// Per-combo evidentiary weight, descriptive only -- never gates whether a
+// CAD/Detection row gets logged. Sourced from
+// scripts/phase9_pass_b_cad_bench.py's three independent 400-cycle bench
+// runs (2026-08-29, research/phase9-sweep-pass-b-design.md's "Shielded-box
+// quiet control" section: open-room, both-radios-shielded, Cardputer-only-
+// shielded). Pooled 60 quiet + 60 pulse samples per combo across all
+// three physical setups; only these two combos replicated consistently
+// enough to trust either way -- the other eight varied too much run-to-run
+// at n=20/condition to classify yet, so they stay UNVERIFIED.
+enum class PassBConfidence : uint8_t {
+    UNVERIFIED = 0, // not yet reproduced across independent runs
+    NOISY = 1,      // reliably catches the real signal, but also fires often on nothing
+    STRONG = 2,     // low false-positive rate AND reliable real-signal detection, reproduced 3x
+};
+
+inline const char *passBConfidenceName(PassBConfidence confidence) {
+    switch (confidence) {
+        case PassBConfidence::STRONG: return "high";
+        case PassBConfidence::NOISY: return "noisy";
+        case PassBConfidence::UNVERIFIED:
+        default: return "unverified";
+    }
+}
+
+// bw_khz_x10 matches EnergyObservation's own fixed-point field (bw_khz*10,
+// rounded) so this compares integers, not floats.
+inline PassBConfidence passBConfidenceFor(uint8_t sf, uint16_t bw_khz_x10) {
+    if (sf == 8 && bw_khz_x10 == 1250) return PassBConfidence::STRONG;  // SF8/BW125: 2/60 quiet FP, 20/20 pulse every run
+    if (sf == 11 && bw_khz_x10 == 5000) return PassBConfidence::NOISY; // SF11/BW500: 22/60 quiet FP, 19-20/20 pulse every run
+    return PassBConfidence::UNVERIFIED;
+}

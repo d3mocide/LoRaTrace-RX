@@ -19,10 +19,22 @@ retained) and produces a durable event log to correlate against
 ``energy.csv`` afterward, the same "the harness never treats a serial line
 as the definitive assertion" convention every other Phase 8/9 bench here
 already follows.
+
+``--order interleaved`` (the default) round-robins across all ten combos
+each cycle instead of running combo-by-combo, so each combo's samples are
+spread evenly across the whole session instead of clustered in one time
+block. The first full matrix (2026-08-28, ``research/phase9-sweep-pass-b-design.md``)
+used fixed ascending-SF block order and found quiet-condition false
+positives trending upward across the ~18-minute run -- inseparable from
+"false positives scale with SF" using that data alone. ``--order block``
+reproduces that original layout for comparison; it is not the recommended
+mode for a new run.
 """
 
 import argparse
 import pathlib
+import random
+import secrets
 import sys
 
 import serial
@@ -85,6 +97,24 @@ def run_cycle(card, transmitter, mode, index, name, cycle):
     return terminal
 
 
+def build_schedule(cycles, order, rng):
+    """Return [(combo_index, combo_name, per-combo cycle number), ...] in run order."""
+    schedule = []
+    if order == "block":
+        for index, name in COMBOS:
+            for cycle in range(1, cycles + 1):
+                schedule.append((index, name, cycle))
+    else:
+        per_combo_cycle = {index: 0 for index, _ in COMBOS}
+        for _round in range(cycles):
+            round_order = list(COMBOS)
+            rng.shuffle(round_order)
+            for index, name in round_order:
+                per_combo_cycle[index] += 1
+                schedule.append((index, name, per_combo_cycle[index]))
+    return schedule
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cardputer-port", required=True)
@@ -93,9 +123,19 @@ def main():
     parser.add_argument("--results", required=True)
     parser.add_argument("--quiet-cycles", type=int, default=20)
     parser.add_argument("--pulse-cycles", type=int, default=20)
+    parser.add_argument("--order", choices=("interleaved", "block"), default="interleaved",
+                         help="interleaved (default) round-robins combos each cycle to decorrelate "
+                              "combo/SF from elapsed session time; block reproduces the original "
+                              "combo-by-combo layout for comparison.")
+    parser.add_argument("--seed", type=int, default=None,
+                         help="RNG seed for --order interleaved's per-round shuffle; recorded in "
+                              "the results log regardless, so any run can be reproduced.")
     args = parser.parse_args()
     if not 0 <= args.quiet_cycles <= 100 or not 0 <= args.pulse_cycles <= 100:
         parser.error("cycle counts must be 0..100")
+
+    seed = args.seed if args.seed is not None else secrets.randbits(32)
+    rng = random.Random(seed)
 
     log_path = pathlib.Path(args.log)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,30 +149,39 @@ def main():
                 raise RuntimeError("Pass B CAD bench requires cardputer-adv-bench firmware")
             card.record("BOOT_CONFIRMED " + identity)
             results.write({"event": "boot", "identity": identity,
-                           "quiet_cycles": args.quiet_cycles, "pulse_cycles": args.pulse_cycles})
+                           "quiet_cycles": args.quiet_cycles, "pulse_cycles": args.pulse_cycles,
+                           "order": args.order, "seed": seed})
 
             transmitter = Endpoint("heltec", args.heltec_port, TX_MARKER, log)
             require_ack(transmitter, "HELLO", "-")
             require_ack(transmitter, "CONFIG", "MESH_OREGON")
             require_ack(transmitter, "QUIET", "-")
 
+            quiet_schedule = build_schedule(args.quiet_cycles, args.order, rng)
+            pulse_schedule = build_schedule(args.pulse_cycles, args.order, rng)
+            results.write({"event": "schedule", "order": args.order, "seed": seed,
+                           "quiet_schedule": [list(item) for item in quiet_schedule],
+                           "pulse_schedule": [list(item) for item in pulse_schedule]})
+
+            quiet_ok = {index: 0 for index, _ in COMBOS}
+            for index, name, cycle in quiet_schedule:
+                result = run_cycle(card, transmitter, "quiet", index, name, cycle)
+                result.update({"event": "cycle", "mode": "quiet", "combo_index": index,
+                               "combo_name": name, "cycle": cycle})
+                results.write(result)
+                quiet_ok[index] += 1
+
+            pulse_ok = {index: 0 for index, _ in COMBOS}
+            for index, name, cycle in pulse_schedule:
+                result = run_cycle(card, transmitter, "pulse", index, name, cycle)
+                result.update({"event": "cycle", "mode": "pulse", "combo_index": index,
+                               "combo_name": name, "cycle": cycle})
+                results.write(result)
+                pulse_ok[index] += 1
+
             for index, name in COMBOS:
-                quiet_ok = 0
-                pulse_ok = 0
-                for cycle in range(1, args.quiet_cycles + 1):
-                    result = run_cycle(card, transmitter, "quiet", index, name, cycle)
-                    result.update({"event": "cycle", "mode": "quiet", "combo_index": index,
-                                   "combo_name": name, "cycle": cycle})
-                    results.write(result)
-                    quiet_ok += 1
-                for cycle in range(1, args.pulse_cycles + 1):
-                    result = run_cycle(card, transmitter, "pulse", index, name, cycle)
-                    result.update({"event": "cycle", "mode": "pulse", "combo_index": index,
-                                   "combo_name": name, "cycle": cycle})
-                    results.write(result)
-                    pulse_ok += 1
                 summary = {"event": "combo_complete", "combo_index": index, "combo_name": name,
-                           "quiet_cycles": quiet_ok, "pulse_cycles": pulse_ok}
+                           "quiet_cycles": quiet_ok[index], "pulse_cycles": pulse_ok[index]}
                 results.write(summary)
                 print(summary)
 
