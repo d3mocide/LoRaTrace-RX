@@ -171,9 +171,11 @@ hardware-verified end-to-end (real `energy.csv` peak rows spanning the full
 868–923MHz band, zero queue drops, clean home-restore across repeated
 sweeps), with a known finding that the placeholder noise-floor margin is
 too permissive (65% of bins logged as peaks) and needs real calibration.
-Serial Control (`SWEEP_START`/`SWEEP_CANCEL`/`STATUS`) is also wired and
-hardware-verified. Pass B (CAD at peaks) and a dedicated UI page have not
-started. Phase 10 (Field Analyzer, including bounded radio-owned Scope
+Serial Control (`SWEEP_START`/`SWEEP_CANCEL`/`STATUS`) and a dedicated
+on-device Sweep result card (carousel page, `S`/Enter to trigger, same
+colour/layout convention as Probe's own card) are wired and
+hardware-verified. Pass B (CAD at peaks) has not started. Phase 10 (Field
+Analyzer, including bounded radio-owned Scope
 acquisition) is accepted as planned scope; whether it gates v1.0 remains an
 explicit decision after Phase 9 hardware evidence exists.
 

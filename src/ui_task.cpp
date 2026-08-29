@@ -301,7 +301,8 @@ void uiTask(void *) {
             redraw = true;
         } else if (action == KeyAction::SWEEP) {
             // Same global-shortcut shape as P/Probe — works from any UI
-            // state, no dedicated card to jump to (toast-only feedback).
+            // state. showSweepResults() closes any open menu onto the
+            // Sweep page after an accepted request, same as Probe.
             fireMenuAction(MenuAction::SWEEP_TOGGLE);
             redraw = true;
         } else if (!menu.isOpen()) {
@@ -337,8 +338,11 @@ void uiTask(void *) {
             } else if (action == KeyAction::SELECT && page == UiPage::PROBE) {
                 fireMenuAction(MenuAction::PROBE_TOGGLE);
                 redraw = true;
+            } else if (action == KeyAction::SELECT && page == UiPage::SWEEP) {
+                fireMenuAction(MenuAction::SWEEP_TOGGLE);
+                redraw = true;
             }
-            // Enter only acts on RADIO (Trace) and PROBE (start/cancel).
+            // Enter acts on RADIO (Trace), PROBE, and SWEEP (start/cancel).
             // Elsewhere it remains a no-op; ESC (BACK) opens the menu.
         } else if (action != KeyAction::NONE) {
             // Menu open (root/group/slider) — MenuState owns navigation;
@@ -398,6 +402,11 @@ void uiTask(void *) {
 
 void showProbeResults() {
     jumpToPage(UiPage::PROBE);
+    menu.close();
+}
+
+void showSweepResults() {
+    jumpToPage(UiPage::SWEEP);
     menu.close();
 }
 

@@ -92,3 +92,4 @@ void drawHeader();                      // ui_pages.cpp  — called by ui_task.c
 void drawPage();                        // ui_pages.cpp  — called by ui_task.cpp's fullRedraw()
 void fireMenuAction(MenuAction action); // ui_actions.cpp — called by ui_task.cpp's main loop
 void showProbeResults();                // ui_task.cpp — closes menu onto the Probe page
+void showSweepResults();                // ui_task.cpp — closes menu onto the Sweep page

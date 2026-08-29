@@ -1021,6 +1021,21 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         `SWEEP_CANCEL` sent ~300ms later correctly reported
         `ACK CANCEL_QUEUED` (not `IDLE`) — proving both opcodes route into
         the already-verified radio engine rather than just parsing.
+  - [x] Dedicated Sweep result card in the on-device UI (`drawSweepPage()`,
+        `ui_pages.cpp`), same shape as Probe's own card: `UiPage::SWEEP`
+        added to the carousel (between PROBE and CHANNEL — carousel
+        cycling is generic over `UiPage::COUNT`, so this needed no digit
+        JUMP-key remapping), `S`/Enter-on-card both fire `SWEEP_TOGGLE` and
+        jump to it via a new `showSweepResults()` mirroring
+        `showProbeResults()`. Shows SCANNING/COMPLETE/CANCELLED/FAILED with
+        Probe's same colour convention, bin progress, peaks-logged count,
+        and the current/last-scanned bin's position on a reused
+        `drawFreqBar()` (same truthful-position bar CHANNEL already uses —
+        never a fill/progress bar). "energy only, not LoRa" stays on
+        screen, matching DESIGN.md's rule that a measured peak alone is
+        never LoRa evidence. Hardware-verified 2026-08-28: `S` jumps to a
+        real SCANNING→COMPLETE card with a correct peak count and frequency
+        bar, and SWEEP cycles correctly in the carousel rotation.
   - [ ] Transient Sweep shares Probe's Phase 7-gated 2.5 KB buffer ceiling,
         single-result replacement, and visible `NOT SAVED` behavior
   - [ ] Deterministic bin-to-display-column aggregation covers both endpoints

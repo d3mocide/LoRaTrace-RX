@@ -14,6 +14,7 @@
 
 #include "battery.h"
 #include "detection.h"
+#include "energy_plan.h"
 #include "gps_task.h"
 #include "logger_task.h"
 #include "serial_control.h"
@@ -51,6 +52,7 @@ const char *pageName(UiPage p) {
         case UiPage::GPS: return "GPS";
         case UiPage::SYSTEM: return "SYSTEM";
         case UiPage::PROBE: return "PROBE";
+        case UiPage::SWEEP: return "SWEEP";
         default: return "?";
     }
 }
@@ -328,6 +330,80 @@ void drawFreqBar(int16_t x, int16_t y, int16_t w, float freqMhz) {
     snprintf(hiBuf, sizeof(hiBuf), "%d", (int)HI);
     uiTft->setCursor(x + w - (int16_t)strlen(hiBuf) * 6, y + 6);
     uiTft->print(hiBuf);
+}
+
+// Phase 9 Sweep result card, same layout shape as drawProbePage() above.
+// Reuses drawFreqBar() above to show the current/last scanned bin as a
+// position on the tuned band, same truthful-position convention CHANNEL's
+// own frequency bar already uses — never a fill/progress bar. "energy
+// only, not LoRa" stays on screen deliberately: DESIGN.md's central Sweep
+// rule is that a measured RSSI peak is never by itself evidence of LoRa
+// traffic.
+void drawSweepPage() {
+    const EnergySweepState state = radioEnergySweepState();
+    const uint16_t bin = radioEnergyBinIndex();
+    const uint16_t total = radioEnergyBinCount();
+    const uint16_t peaks = radioEnergyPeakCount();
+
+    uiTft->setTextSize(2);
+    uiTft->setCursor(2, HEADER_H + 8);
+    if (state == EnergySweepState::IDLE) {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print("NO SWEEP YET");
+        uiTft->setTextSize(1);
+        uiTft->setCursor(2, HEADER_H + 34);
+        uiTft->print("S to run Sweep");
+        return;
+    }
+
+    const bool running = state == EnergySweepState::RUNNING;
+    const uint16_t colour = state == EnergySweepState::FAILED
+                                ? COL_BAD
+                                : (running || state == EnergySweepState::CANCELLED ? COL_WARN : COL_GOOD);
+    uiTft->setTextColor(colour, COL_BG);
+    if (running) {
+        uiTft->print("SCANNING");
+    } else if (state == EnergySweepState::COMPLETE) {
+        uiTft->print("COMPLETE");
+    } else if (state == EnergySweepState::CANCELLED) {
+        uiTft->print("CANCELLED");
+    } else {
+        uiTft->print("FAILED");
+    }
+
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 31);
+    if (running) {
+        uiTft->print("watch paused  ");
+        uiTft->print(bin);
+        uiTft->print('/');
+        uiTft->print(total);
+    } else {
+        uiTft->print("bins ");
+        uiTft->print(bin);
+        uiTft->print('/');
+        uiTft->print(total);
+        uiTft->print("  away ");
+        uiTft->print(radioEnergyLastAwayMs());
+        uiTft->print("ms");
+    }
+
+    drawFreqBar(2, HEADER_H + 62, 108, energyBinFrequencyMhz(bin, ENERGY_SWEEP_DEFAULT_STEP));
+
+    char value[10];
+    snprintf(value, sizeof(value), "%u", (unsigned)peaks);
+    statBlock(170, HEADER_H + 6, "peaks", value, peaks == 0 ? COL_DIM : COL_WARN);
+    if (state == EnergySweepState::FAILED) {
+        snprintf(value, sizeof(value), "%d", radioLastError());
+        statBlock(170, HEADER_H + 34, "radio", value, COL_BAD);
+    } else {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(170, HEADER_H + 34);
+        uiTft->print("energy only,");
+        uiTft->setCursor(170, HEADER_H + 43);
+        uiTft->print("not LoRa");
+    }
 }
 
 // Rough estimate, deliberately not the full LoRa airtime spec (skips
@@ -720,6 +796,7 @@ void drawPage() {
             case UiPage::GPS: drawGpsPage(); break;
             case UiPage::SYSTEM: drawSystemPage(); break;
             case UiPage::PROBE: drawProbePage(); break;
+            case UiPage::SWEEP: drawSweepPage(); break;
             default: break;
         }
     }

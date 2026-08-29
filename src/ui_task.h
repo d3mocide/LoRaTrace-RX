@@ -63,6 +63,7 @@
 enum class UiPage : uint8_t {
     RADIO = 0,
     PROBE,
+    SWEEP,
     CHANNEL,
     GPS,
     SYSTEM,
