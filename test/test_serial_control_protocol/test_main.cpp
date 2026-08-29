@@ -52,6 +52,16 @@ void test_bench_cad_opcode_round_trips() {
     TEST_ASSERT_EQUAL_STRING("16", frame.argument);
 }
 
+void test_bench_sweep_margin_opcode_round_trips() {
+    char line[SERIAL_CONTROL_FRAME_MAX];
+    TEST_ASSERT_TRUE(serialControlFormatFrame(line, sizeof(line), 21,
+                                              SerialControlOpcode::BENCH_SWEEP_MARGIN, "150") > 0);
+    SerialControlFrame frame;
+    TEST_ASSERT_TRUE(serialControlParseFrame(line, frame));
+    TEST_ASSERT_EQUAL_INT((int)SerialControlOpcode::BENCH_SWEEP_MARGIN, (int)frame.opcode);
+    TEST_ASSERT_EQUAL_STRING("150", frame.argument);
+}
+
 void test_sweep_opcodes_round_trip() {
     char startLine[SERIAL_CONTROL_FRAME_MAX];
     TEST_ASSERT_TRUE(serialControlFormatFrame(startLine, sizeof(startLine), 19,
@@ -75,6 +85,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_parser_rejects_unsupported_version_and_sequence_overflow);
     RUN_TEST(test_formatter_refuses_space_containing_argument);
     RUN_TEST(test_bench_cad_opcode_round_trips);
+    RUN_TEST(test_bench_sweep_margin_opcode_round_trips);
     RUN_TEST(test_sweep_opcodes_round_trip);
     return UNITY_END();
 }

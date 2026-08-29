@@ -28,6 +28,7 @@ enum class SerialControlOpcode : uint8_t {
     SWEEP_CANCEL,
     BENCH_FAULT,
     BENCH_CAD,
+    BENCH_SWEEP_MARGIN,
     LOW_PROFILE_OFF,
     ACK,
     ERROR,
@@ -63,6 +64,7 @@ inline const char *serialControlOpcodeName(SerialControlOpcode opcode) {
         case SerialControlOpcode::SWEEP_CANCEL: return "SWEEP_CANCEL";
         case SerialControlOpcode::BENCH_FAULT: return "BENCH_FAULT";
         case SerialControlOpcode::BENCH_CAD: return "BENCH_CAD";
+        case SerialControlOpcode::BENCH_SWEEP_MARGIN: return "BENCH_SWEEP_MARGIN";
         case SerialControlOpcode::LOW_PROFILE_OFF: return "LOW_PROFILE_OFF";
         case SerialControlOpcode::ACK: return "ACK";
         case SerialControlOpcode::ERROR: return "ERROR";
@@ -82,6 +84,7 @@ inline SerialControlOpcode serialControlOpcodeFromName(const char *name) {
     if (strcmp(name, "SWEEP_CANCEL") == 0) return SerialControlOpcode::SWEEP_CANCEL;
     if (strcmp(name, "BENCH_FAULT") == 0) return SerialControlOpcode::BENCH_FAULT;
     if (strcmp(name, "BENCH_CAD") == 0) return SerialControlOpcode::BENCH_CAD;
+    if (strcmp(name, "BENCH_SWEEP_MARGIN") == 0) return SerialControlOpcode::BENCH_SWEEP_MARGIN;
     if (strcmp(name, "LOW_PROFILE_OFF") == 0) return SerialControlOpcode::LOW_PROFILE_OFF;
     if (strcmp(name, "ACK") == 0) return SerialControlOpcode::ACK;
     if (strcmp(name, "ERROR") == 0) return SerialControlOpcode::ERROR;

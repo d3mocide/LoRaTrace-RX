@@ -210,6 +210,15 @@ void handleFrame(const SerialControlFrame &frame) {
                 sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
             }
             break;
+        case SerialControlOpcode::BENCH_SWEEP_MARGIN:
+            if (benchSweepMarginConfigure(frame.argument)) {
+                char argument[16] = {};
+                snprintf(argument, sizeof(argument), "MARGIN=%d", (int)benchSweepMarginDbmX10());
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            }
+            break;
         case SerialControlOpcode::LOW_PROFILE_OFF:
             sendFrame(frame.sequence, SerialControlOpcode::ACK, "DISABLED");
             serialControlSetEnabled(false);

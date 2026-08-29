@@ -1004,6 +1004,41 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         above) — DESIGN.md §8.1's "log peaks only" is implemented, but the
         margin constant needs the calibration pass noted above before the
         rate is trustworthy for anything beyond "the pipeline works"
+  - [x] **Margin calibration bench built and run, 2026-08-28/29.** New
+        bench-image-only `BENCH_SWEEP_MARGIN` opcode (`bench_fault.h/.cpp`,
+        mirroring `BENCH_CAD`'s exact production/bench split — production
+        firmware always rejects it with `UNSUPPORTED`) lets
+        `scripts/phase9_sweep_margin_bench.py` sweep the noise-floor margin
+        without a reflash per value. Same standing limitation as Phase 8's
+        own CAD calibration (PROGRESS.md): this bench cannot produce a
+        known-quiet RF control, so this is a real, repeatable room-rate
+        characterization of peak rate vs. margin, not a calibrated false-
+        positive/miss rate. First matrix (1 trial/margin, 5-30dB, real
+        Heltec LongModerate pulses for the "active" condition):
+
+        | margin | quiet peaks/221 | active peaks/221 | delta |
+        |---|---|---|---|
+        | 5.0dB | 173 (78%) | 159 (72%) | -14 |
+        | 10.0dB (current default) | 99 (45%) | 112 (51%) | +13 |
+        | 15.0dB | 54 (24%) | 74 (34%) | +20 |
+        | 20.0dB | 28 (13%) | 40 (18%) | +12 |
+        | 25.0dB | 16 (7%) | 27 (12%) | +11 |
+        | 30.0dB | 4 (2%) | 8 (4%) | +4 |
+
+        Confirms the slice-2 finding concretely: the shipped 10.0dB default
+        sits at ~45-51% peak rate, nowhere near DESIGN.md §8.1's "only
+        peaks, sparse" intent. The negative delta at 5.0dB is a real
+        artifact, not a mechanism failure — at that margin, room-noise
+        variance between two separate quiet/active runs already swamps any
+        signal from the injected pulses, since both conditions sit near
+        saturation. From 10-25dB the delta is consistently positive
+        (+11..+20), which is itself evidence the peak/floor mechanism is
+        correctly responding to real injected RF, not just noise. 30.0dB
+        is the first point that looks like DESIGN.md's actual target
+        regime (sparse quiet baseline, injected signal still clearly
+        visible in relative terms: peak count doubles). A 3-repeat
+        follow-up matrix at 20-40dB is the next step to confirm this isn't
+        a single-sample artifact before changing the shipped default.
   - [ ] 923–928MHz front-end rolloff characterized via an empirical RSSI
         noise-floor sweep, so the UI/docs can be honest about reduced
         sensitivity in that sub-band instead of silently under-reporting

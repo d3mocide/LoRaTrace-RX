@@ -8,6 +8,10 @@ volatile bool armed = false;
 volatile BenchFaultPoint armedPoint = BenchFaultPoint::CAD_WAIT;
 volatile BenchFaultAction armedAction = BenchFaultAction::FAIL;
 volatile unsigned char cadSymbols = 2;
+// Matches energy_observation.h's ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10
+// (100 = 10.0dB) so a bench image that never receives BENCH_SWEEP_MARGIN
+// behaves identically to production.
+volatile int16_t sweepMarginDbmX10 = 100;
 
 bool parsePoint(const char *text, BenchFaultPoint &point) {
     if (strcmp(text, "BEFORE_RETUNE") == 0) point = BenchFaultPoint::BEFORE_RETUNE;
@@ -30,6 +34,22 @@ bool parseCadSymbols(const char *text, unsigned char &value) {
     }
     if (parsed != 1U && parsed != 2U && parsed != 4U && parsed != 8U && parsed != 16U) return false;
     value = (unsigned char)parsed;
+    return true;
+}
+
+// Bounded to [0, 500] tenths of dB (0-50dB) — wide enough to bracket any
+// plausible calibration value, narrow enough that a typo can't silently
+// arm something nonsensical (e.g. a negative margin, which would make
+// every bin a "peak").
+bool parseSweepMargin(const char *text, int16_t &value) {
+    if (text == nullptr || text[0] == '\0') return false;
+    int32_t parsed = 0;
+    for (const char *p = text; *p; ++p) {
+        if (*p < '0' || *p > '9') return false;
+        parsed = parsed * 10 + (int32_t)(*p - '0');
+        if (parsed > 500) return false;
+    }
+    value = (int16_t)parsed;
     return true;
 }
 
@@ -98,5 +118,25 @@ unsigned char benchCadSymbols() {
     return 2;
 #else
     return cadSymbols;
+#endif
+}
+
+bool benchSweepMarginConfigure(const char *argument) {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    (void)argument;
+    return false;
+#else
+    int16_t parsed = 0;
+    if (!parseSweepMargin(argument, parsed)) return false;
+    sweepMarginDbmX10 = parsed;
+    return true;
+#endif
+}
+
+int16_t benchSweepMarginDbmX10() {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    return 100;
+#else
+    return sweepMarginDbmX10;
 #endif
 }

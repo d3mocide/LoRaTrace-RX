@@ -10,6 +10,30 @@ here for full history. See ROADMAP.md for phase-by-phase scope and
 src/version.h for the versioning convention (MAJOR.MINOR = phase,
 PATCH = fix with no new phase scope).
 
+- **2026-08-28/29 — Phase 9 Sweep margin calibration bench built and run.**
+  New bench-image-only `BENCH_SWEEP_MARGIN` opcode
+  (`src/bench_fault.h`/`.cpp`) mirrors `BENCH_CAD`'s exact production/bench
+  split — production firmware always returns the placeholder 10.0dB
+  default and rejects changes. `radio_task.cpp`'s `performEnergySweep()`
+  now reads the margin through `benchSweepMarginDbmX10()` instead of a
+  hardcoded default, so `scripts/phase9_sweep_margin_bench.py` can sweep
+  margin values across repeated Sweeps without a reflash per value, using
+  the Heltec as a known LongModerate injection source for a quiet-vs-active
+  comparison at each margin (same shared `bench_harness.py` transport
+  Phase 8's own scripts use). Same standing limitation already on record
+  for Phase 8's CAD calibration: no known-quiet RF control exists on this
+  bench, so results are a real room-rate characterization, not a
+  calibrated false-positive/miss rate. First matrix (1 trial/margin,
+  5.0-30.0dB) found the shipped 10.0dB default sitting at 45-51% peak
+  rate — confirming Phase 9 slice 2's hardware finding with a controlled,
+  scripted comparison — while 20-25dB delta values (+11 to +20 peaks
+  quiet-vs-active, out of 221 bins) show the mechanism responds correctly
+  to real injected RF rather than pure noise, and 30.0dB is the first
+  point resembling DESIGN.md's "sparse, only real peaks" intent. Full
+  numbers in PROGRESS.md's Phase 9 checklist. Host tests (133/133,
+  including new `BENCH_SWEEP_MARGIN` round-trip coverage) and both the
+  production and `cardputer-adv-bench` builds pass.
+
 - **2026-08-28 — Serial Control firmware-side rename completed.** The
   2026-08-28 diagnostic-policy work renamed the operator-facing feature to
   Serial Control but deliberately kept internal `lowProfile*` C++ symbols,

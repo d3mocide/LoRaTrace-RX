@@ -605,7 +605,8 @@ void performEnergySweep() {
                 const int16_t fixed = energyRssiDbmToFixed(rssi);
                 energyBinStatsAddSample(stats, fixed);
                 if (haveFloor) {
-                    energyBinStatsNoteOccupancy(stats, energyExceedsFloor(fixed, noiseFloor));
+                    energyBinStatsNoteOccupancy(
+                        stats, energyExceedsFloor(fixed, noiseFloor, benchSweepMarginDbmX10()));
                 }
             }
             if (s + 1 < ENERGY_SAMPLES_PER_BIN) vTaskDelay(pdMS_TO_TICKS(ENERGY_SAMPLE_INTERVAL_MS));
@@ -618,8 +619,10 @@ void performEnergySweep() {
             // Decide against the floor as it stood *before* this bin, then
             // fold this bin's average in — so a strong bin can't drag its
             // own floor upward and mask itself (energy_observation.h's own
-            // noted concern).
-            if (energyBinIsPeak(stats, noiseFloor)) {
+            // noted concern). benchSweepMarginDbmX10() is the production
+            // default (100 = 10.0dB) unless the cardputer-adv-bench image
+            // has an operator-armed BENCH_SWEEP_MARGIN override active.
+            if (energyBinIsPeak(stats, noiseFloor, benchSweepMarginDbmX10())) {
                 enqueueEnergyObservation(bin, homeChannel, stats);
             }
             noiseFloor = energyNoiseFloorUpdate(noiseFloor, stats.rssi_avg_dbm_x10);
