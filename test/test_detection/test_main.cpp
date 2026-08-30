@@ -29,8 +29,7 @@ static const uint8_t PKT_UNICAST[] = {0x6A, 0x77, 0xD7, 0x82, 0xF1, 0x92, 0x92, 
                                       0x0B, 0x1F, 0xC6, 0x95};
 
 void test_detection_fits_queue_budget() {
-    // DESIGN.md §1 budgets ~40B/entry on a no-PSRAM part.
-    TEST_ASSERT_TRUE(sizeof(Detection) <= 40);
+    TEST_ASSERT_TRUE(sizeof(Detection) <= 304);
 }
 
 void test_meshtastic_header_fields() {
@@ -92,20 +91,21 @@ void test_csv_row_with_fix() {
     det.freq_mhz = 918.5f;
     det.rssi_dbm = -60.0f;
     det.snr_db = 13.75f;
-    det.raw_len = 26;
+    TEST_ASSERT_TRUE(detectionSetRawPacket(det, PKT_ORIGINAL, sizeof(PKT_ORIGINAL)));
     det.bw_khz_x10 = 1250;
     det.sf = 8;
     det.cr_denom = 5;
     det.profile = (uint8_t)MissionProfile::MESHTASTIC;
     det.rx_millis = 41250;
 
-    char row[256];
+    char row[DETECTION_CSV_MAX_ROW];
     size_t n = detectionFormatCsv(det, row, sizeof(row), "2026-08-23T01:20:00Z", true, 45.5123456,
                                   -122.6789012, 1, 7);
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_STRING(
         "2026-08-23T01:20:00Z,45.512346,-122.678901,1,7,41250,meshtastic,meshtastic,!1bbf065c,"
-        "2c618f2d,7,7,5c,918.500,8,125.0,-60.0,13.75,26,",
+        "2c618f2d,7,7,5c,918.500,8,125.0,-60.0,13.75,26,"
+        "ffffffff5c06bf1b2d8f612ce7f7005c8b7f1cbe425161503e02,",
         row);
 }
 
@@ -223,6 +223,20 @@ void test_csv_truncation_is_reported() {
     TEST_ASSERT_EQUAL_UINT32(0, detectionFormatCsv(det, tiny, sizeof(tiny), "x", false, 0, 0, 0, 1));
 }
 
+void test_raw_packet_length_is_bounded_and_csv_safe() {
+    Detection det = {};
+    det.profile = (uint8_t)MissionProfile::MESHCORE;
+    uint8_t full[DETECTION_RAW_MAX_LEN];
+    memset(full, 0xA5, sizeof(full));
+    TEST_ASSERT_TRUE(detectionSetRawPacket(det, full, sizeof(full)));
+
+    char row[DETECTION_CSV_MAX_ROW];
+    TEST_ASSERT_TRUE(detectionFormatCsv(det, row, sizeof(row), "", false, 0, 0, 0, 1) > 0);
+    TEST_ASSERT_NOT_NULL(strstr(row, ",a5a5a5a5"));
+    TEST_ASSERT_EQUAL_UINT16(DETECTION_RAW_MAX_LEN, det.raw_len);
+    TEST_ASSERT_FALSE(detectionSetRawPacket(det, full, sizeof(full) + 1));
+}
+
 void test_header_column_count_matches_row() {
     Detection det = {};
     det.profile = (uint8_t)MissionProfile::MESHTASTIC;
@@ -262,6 +276,7 @@ int main(int, char **) {
     RUN_TEST(test_csv_row_without_fix_leaves_coords_empty);
     RUN_TEST(test_uptime_anchors_a_detection_heard_before_the_first_fix);
     RUN_TEST(test_csv_truncation_is_reported);
+    RUN_TEST(test_raw_packet_length_is_bounded_and_csv_safe);
     RUN_TEST(test_header_column_count_matches_row);
     RUN_TEST(test_timestamp_formatting);
     return UNITY_END();

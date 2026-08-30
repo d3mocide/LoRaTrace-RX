@@ -78,6 +78,12 @@ void fireMenuAction(MenuAction action) {
             loggerDebugToggle();
             showToast(loggerDebugIsEnabled() ? "Debug ON" : "Debug OFF");
             break;
+        case MenuAction::IDENTITY_CAPTURE_TOGGLE: {
+            const bool next = !radioIdentityCaptureIsEnabled();
+            radioIdentityCaptureSetEnabled(next);
+            showToast(next ? "Identity capture ON" : "Identity capture OFF");
+            break;
+        }
         case MenuAction::SD_RETRY:
             if (loggerSdReady()) {
                 showToast("SD: READY");

@@ -75,6 +75,8 @@ static SessionStats healthySample() {
     s.probe_failures = 0;
     s.probe_recoveries = 2;
     s.probe_last_away_ms = 1900;
+    s.identities_decoded = 11;
+    s.identity_drops = 1;
     return s;
 }
 
@@ -97,7 +99,7 @@ void test_row_with_fix_carries_position_and_counters() {
         "912,17,0,0,"
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7,"
-        "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900",
+        "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1",
         row);
 }
 
@@ -212,7 +214,7 @@ void test_phase7_memory_diagnostics_are_the_last_columns() {
     SessionStats s = healthySample();
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
-    const char *suffix = "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900";
+    const char *suffix = "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }

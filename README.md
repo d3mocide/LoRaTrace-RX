@@ -8,6 +8,8 @@ general LoRa/spectrum exploration.
 
 - **`DESIGN.md`** — hardware, RF parameters, and architecture rationale.
   Read this before making architecture changes.
+- **`LOG_GUIDE.md`** — operator guide to run folders, CSV fields, identity
+  observations, health checks, and privacy-aware export.
 - **`ROADMAP.md`** — build-order phases, MVP-Beta scope, and an honest
   feasibility assessment against this hardware's real limits.
 - **`PROGRESS.md`** — current build status, open questions, decisions log.
@@ -18,37 +20,12 @@ general LoRa/spectrum exploration.
 
 ## Status
 
-**Current version: v0.7.0.** Phases 1-7 are built and hardware-verified —
-Meshtastic War Drive (radio, antenna path, GPS, batched SD logging),
-MeshCore as a second selectable profile, an on-demand WiFi web dashboard,
-and a redesigned on-device menu UI (grouped menu, a live-updating status
-display, brightness control, and a Trace pause/standby battery lever). Phase
-7's device optimization budgets, soak, and WiFi CSV-download fix are complete.
-Phase 8 (`DISCOVERY_SWEEP`,
-non-default-channel scanning) and Phase 9 (`ENERGY_SWEEP`,
-Reticulum/Spectrum) haven't started yet.
-
-- **Phase 1** — radio, antenna path, SD config override, display, and
-  protocol-correct Meshtastic RX, all confirmed on real hardware with heap
-  stable under sustained receive.
-- **Phase 2 (MVP-Beta)** — the task/queue architecture, GPS task, and
-  batched SD logger held up over a genuine multi-hour unattended run
-  (2.5h, every drop/error counter at 0 the whole time).
-- **Phase 3** — an on-demand WiFi access point + web dashboard (off by
-  default; see "Web dashboard" below) for pulling runs and editing channel
-  settings without ejecting the SD card.
-- **Phase 4** — MeshCore as a second, keyboard-switchable profile on the
-  same radio engine.
-- **Phase 5** — the first real on-device keyboard menu, replacing timed
-  hold-gestures.
-- **Phase 6** — a full UI rework: a grouped, nestable menu; live status
-  dots and a toast layer; reorganized status pages; a battery-saving
-  Trace pause/standby; and real PWM-driven backlight brightness control.
-- **Phase 7** — device optimization: heap-fragmentation and all-task stack
-  instrumentation, repeatable hardware baselines, then measured tuning.
-
-See `PROGRESS.md` for the live, phase-by-phase checklist and the
-hardware-verification history behind each item above.
+**Current development version: v0.8.5.** Phases 1-8 are built and
+hardware-verified: RX/GPS/SD logging, on-demand WiFi run download, MeshCore,
+the on-device menu/UI, device memory/soak work, and bounded Probe acquisition.
+Phase 9 (`ENERGY_SWEEP`) is in progress; its Pass-A scan and calibrated noise
+threshold are hardware-verified, while Pass B remains future work. See
+`PROGRESS.md` for the live phase checklist and verification history.
 
 ## Output files
 
@@ -61,6 +38,7 @@ deleted as a unit:
   config.txt          channel override (not a run artifact)
   run0001/
     detections.csv
+    nodes.csv
     session.csv
   run0002/
     ...
@@ -68,19 +46,23 @@ deleted as a unit:
 
 - **`detections.csv`** — one row per received packet: GPS-stamped, with
   RSSI/SNR, RF parameters and whatever routing metadata the protocol
-  exposes in clear. Payloads are encrypted and stay that way; this is a
-  passive receiver, not a decoder.
+  exposes in clear. The full frame is retained as hex for offline analysis;
+  LoRaTrace does not claim a general payload decoder.
 - **`session.csv`** — one health row a minute (packets, drops, worst SD bus
   hold, heap free *and* low-water, GPS state, battery), plus a row marking
   the start. An unattended run is judged on whether it held up, and nobody
   is watching the serial console at hour three — so the run records its own
   vital signs next to its findings.
+- **`nodes.csv`** — supported Meshtastic NodeInfo and MeshCore advertisement
+  identity observations, kept separate because many packets can belong to one
+  node. See `LOG_GUIDE.md` for the exact supported profiles and limits.
 
 Runs are numbered rather than timestamped because the name has to be chosen
 before the GPS knows what time it is, and this board has no verified RTC.
 The wall clock still reaches the card, recorded inside the run once a fix
-lands. Full schemas and the arithmetic for dating a run are in `DESIGN.md`
-§8. The current run number is shown on the RADIO page as `r<N>`.
+lands. `LOG_GUIDE.md` is the operator reference for schemas and analysis;
+`DESIGN.md` §8 explains the design rationale. The current run number is shown
+on the RADIO page as `r<N>`.
 
 ## Build
 
@@ -171,7 +153,7 @@ System menu, never running unattended during a drive unless you turn it
 on) hosts a small embedded web page at `192.168.4.1` once it's up. Three
 tabs: a live status dashboard (the same counters the on-device SYSTEM/
 RADIO pages and serial `[status]` line already expose, plus whether Trace
-is active or paused), a run browser to download `detections.csv`/
+is active or paused), a run browser to download `detections.csv`/`nodes.csv`/
 `session.csv` per run without ejecting the SD card, and a Settings tab with
 one independent panel per profile for editing channel parameters — the
 same `config.txt` the SD card holds, applied on next boot. Measured cost:

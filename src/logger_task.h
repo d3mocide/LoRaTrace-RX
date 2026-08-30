@@ -24,7 +24,7 @@
 // mean packets frequently arrive in pairs milliseconds apart (PROGRESS.md
 // 2026-08-23), so back-to-back RX is the common case, not the rare one.
 //
-// This task writes three files, all inside THIS RUN's own directory —
+// This task writes four files, all inside THIS RUN's own directory —
 // /loratrace/runNNNN/ (run_log.h). One wardrive is one folder, so a drive
 // can be copied, shared or deleted as a unit instead of being carved out of
 // one ever-growing file:
@@ -33,11 +33,13 @@
 //                    unattended run leaves evidence of whether it held up
 //                    instead of only evidence of what it heard
 //   probe.csv      — one bounded CAD observation per Probe candidate
+//   nodes.csv      — decoded MeshTastic node identity observations
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
 #include "energy_observation.h"
+#include "node_identity.h"
 #include "scan_observation.h"
 
 // Starts the task on Core 0. `queue` supplies Detections from the radio
@@ -48,7 +50,7 @@
 // it down and immediately remounting it. Returns false if the task could
 // not be created.
 bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, QueueHandle_t energyQueue,
-                     bool initialSdMounted);
+                     QueueHandle_t identityQueue, bool initialSdMounted);
 
 // True once SD is mounted and the log file is writable. When false the
 // task keeps draining the queue and discarding — a missing card must not
@@ -79,6 +81,8 @@ uint32_t loggerScanRowsWritten();
 uint32_t loggerScanRowsDropped();
 uint32_t loggerEnergyRowsWritten();
 uint32_t loggerEnergyRowsDropped();
+uint32_t loggerIdentityRowsWritten();
+uint32_t loggerIdentityRowsDropped();
 
 // This power-on's run index, or 0 before SD has mounted. Matches the
 // runNNNN directory the logs are being written into.

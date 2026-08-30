@@ -16,8 +16,17 @@
 
 #include "channel_plans.h"
 
-// Radio-side record of one received packet. Field order groups the 4-byte
-// members first so the struct packs tightly without padding holes.
+// SX126x LoRa payloads are at most 255 bytes. Keep the exact over-the-air
+// frame with the Detection until Logger has made it durable; MeshCore
+// framing is not yet verified, so raw capture is more honest than guessing
+// at its header fields.
+constexpr size_t DETECTION_RAW_MAX_LEN = 255;
+// CSV prefix plus two hex characters for every raw byte and the reserved
+// decoded field. Logger uses this bound to keep a complete row together.
+constexpr size_t DETECTION_CSV_MAX_ROW = 768;
+
+// Radio-side record of one received packet. Field order groups the small
+// scalar fields first; raw_packet follows so the queue record stays bounded.
 struct Detection {
     uint32_t rx_millis;  // device uptime at RX (logged as rx_uptime_ms) —
                          // the only time reference for a detection heard
@@ -50,12 +59,20 @@ struct Detection {
     // since Sweep only ever runs under RETICULUM/GENERAL_EXPLORATION and
     // profile-name classification would just print one of those two names.
     bool off_grid;
+    uint8_t raw_packet[DETECTION_RAW_MAX_LEN];
 };
 
-// DESIGN.md §1 budgets ~40B per queue entry. Assert it rather than trust it:
-// this struct is easy to grow thoughtlessly, and on a no-PSRAM part the
-// queue depth times this number is real memory.
-static_assert(sizeof(Detection) <= 40, "Detection exceeds the ~40B queue budget (DESIGN.md §1)");
+// Queue storage is intentionally bounded even though the SD row may be much
+// longer. main.cpp pairs this with a 16-entry queue (~4.8KB), a bounded
+// allocation on this no-PSRAM target.
+static_assert(sizeof(Detection) <= 304, "Detection raw-frame queue budget exceeded");
+
+inline bool detectionSetRawPacket(Detection &det, const uint8_t *packet, size_t len) {
+    if (packet == nullptr || len > DETECTION_RAW_MAX_LEN) return false;
+    memcpy(det.raw_packet, packet, len);
+    det.raw_len = (uint16_t)len;
+    return true;
+}
 
 // --- Meshtastic packet header ------------------------------------------
 //
@@ -71,9 +88,10 @@ static_assert(sizeof(Detection) <= 40, "Detection exceeds the ~40B queue budget 
 // hop_start 7, original/rebroadcast pairs differing only in hop_limit and
 // relay_node) — see CHANGELOG.md.
 //
-// Header metadata only — the payload after these 16 bytes stays encrypted.
-// Reading routing metadata off the air is the point of a wardriving
-// receiver; decryption is not attempted.
+// Header metadata is always available; the payload after these 16 bytes is
+// normally encrypted. The identity path additionally decrypts only
+// Meshtastic's published default public-channel PSK to recognize NodeInfo;
+// it does not try private/custom channel keys.
 //
 // Meshtastic-specific: radio_task.cpp only calls this while HOME_LISTEN is
 // locked to MissionProfile::MESHTASTIC. MeshCore's header layout isn't
@@ -141,7 +159,7 @@ inline const char *missionProfileName(uint8_t profile) {
 constexpr const char *LOG_CSV_HEADER =
     "timestamp_utc,lat,lon,fix_quality,run,rx_uptime_ms,profile,"
     "classification,channel_or_node_id,packet_id,hop_limit,hop_start,"
-    "relay_node,freq_mhz,sf,bw_khz,rssi_dbm,snr_db,raw_len,decoded";
+    "relay_node,freq_mhz,sf,bw_khz,rssi_dbm,snr_db,raw_len,raw_packet_hex,decoded";
 
 // Phase 2 placeholder for DESIGN.md §6 fingerprinting (Phase 8+): with
 // HOME_LISTEN locked to one profile's channel at a time, "what we were
@@ -163,7 +181,7 @@ inline const char *detectionClassification(const Detection &det) {
 inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize,
                                  const char *timestamp_utc, bool has_fix, double lat, double lon,
                                  uint8_t fix_quality, uint16_t run) {
-    if (out == nullptr || outSize == 0) return 0;
+    if (out == nullptr || outSize == 0 || det.raw_len > DETECTION_RAW_MAX_LEN) return 0;
 
     char idbuf[24];
     if (det.node_id != 0) {
@@ -199,7 +217,7 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
     }
 
     int n = snprintf(out, outSize,
-                     "%s,%s,%s,%u,%u,%lu,%s,%s,%s,%s,%u,%u,%s,%.3f,%u,%.1f,%.1f,%.2f,%u,%s",
+                     "%s,%s,%s,%u,%u,%lu,%s,%s,%s,%s,%u,%u,%s,%.3f,%u,%.1f,%.1f,%.2f,%u,",
                      timestamp_utc ? timestamp_utc : "",
                      latbuf, lonbuf,
                      (unsigned)fix_quality,
@@ -229,13 +247,23 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
                      (double)det.bw_khz_x10 / 10.0,
                      (double)det.rssi_dbm,
                      (double)det.snr_db,
-                     (unsigned)det.raw_len,
-                     ""); // `decoded`: nothing is decrypted in Phase 2 (and
-                          // Meshtastic/MeshCore payloads are encrypted) —
-                          // column reserved by DESIGN.md §8, left empty
+                     (unsigned)det.raw_len);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
-    return (size_t)n;
+    size_t used = (size_t)n;
+    static constexpr char HEX_DIGITS[] = "0123456789abcdef";
+    for (uint16_t i = 0; i < det.raw_len; i++) {
+        if (used + 3 > outSize) return 0; // two hex chars, decoded comma, NUL
+        const uint8_t byte = det.raw_packet[i];
+        out[used++] = HEX_DIGITS[byte >> 4];
+        out[used++] = HEX_DIGITS[byte & 0x0F];
+    }
+    // `decoded` stays deliberately empty until a complete payload decoder
+    // is verified. raw_packet_hex is usable for offline protocol work even
+    // when the frame payload is encrypted.
+    out[used++] = ',';
+    out[used] = '\0';
+    return used;
 }
 
 // Formats the GPS fix as ISO-8601 UTC. Writes an empty string when the fix

@@ -786,6 +786,7 @@ const char *menuEntryValue(MenuAction action) {
             return radioActiveProfile() == MissionProfile::MESHCORE ? "ACTIVE" : "";
         case MenuAction::WIFI_TOGGLE: return wifiIsEnabled() ? "ON" : "OFF";
         case MenuAction::DEBUG_TOGGLE: return loggerDebugIsEnabled() ? "ON" : "OFF";
+        case MenuAction::IDENTITY_CAPTURE_TOGGLE: return radioIdentityCaptureIsEnabled() ? "ON" : "OFF";
         case MenuAction::SD_RETRY: return loggerSdReady() ? "READY" : "RETRY";
         case MenuAction::SERIAL_CONTROL_TOGGLE: return serialControlIsEnabled() ? "ON" : "OFF";
         case MenuAction::TRACE_TOGGLE: return radioIsTracePaused() ? "STANDBY" : "ACTIVE";

@@ -22,6 +22,7 @@
 #include "channel_plans.h"
 #include "detection.h"
 #include "energy_observation.h"
+#include "node_identity.h"
 #include "scan_observation.h"
 
 // Starts the SX1262 on `channel`/`profile` and launches the task on Core 1.
@@ -39,7 +40,13 @@
 // receiver has nothing to do.
 bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
                     const ProfileOverrides &overrides, QueueHandle_t queue,
-                    QueueHandle_t scanQueue, QueueHandle_t energyQueue);
+                    QueueHandle_t scanQueue, QueueHandle_t energyQueue,
+                    QueueHandle_t identityQueue);
+
+void radioIdentityCaptureSetEnabled(bool enabled);
+bool radioIdentityCaptureIsEnabled();
+uint32_t radioIdentityDecodeCount();
+uint32_t radioIdentityDropCount();
 
 // Last RadioLib error code from begin()/startReceive() — including a live
 // profile switch's own begin() call, so a failed switch is visible the same

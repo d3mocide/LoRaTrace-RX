@@ -129,6 +129,8 @@ struct SessionStats {
     uint32_t probe_failures = 0;
     uint32_t probe_recoveries = 0;
     uint32_t probe_last_away_ms = 0;
+    uint32_t identities_decoded = 0;
+    uint32_t identity_drops = 0;
 };
 
 // Column order for each run's session.csv. One string so the header row and
@@ -144,7 +146,8 @@ constexpr const char *SESSION_CSV_HEADER =
     "scan_observations,scan_observation_drops,"
     "energy_observations,energy_observation_drops,"
     "probe_runs,probe_cancels,"
-    "probe_timeouts,probe_failures,probe_recoveries,probe_last_away_ms";
+    "probe_timeouts,probe_failures,probe_recoveries,probe_last_away_ms,"
+    "identities_decoded,identity_drops";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
 // detectionFormatTimestamp() the detection rows use, and is empty before
@@ -177,7 +180,7 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,"
-                     "%lu,%lu,%lu,%lu,%lu,%lu",
+                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -222,7 +225,9 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.probe_timeouts,
                      (unsigned long)s.probe_failures,
                      (unsigned long)s.probe_recoveries,
-                     (unsigned long)s.probe_last_away_ms);
+                     (unsigned long)s.probe_last_away_ms,
+                     (unsigned long)s.identities_decoded,
+                     (unsigned long)s.identity_drops);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

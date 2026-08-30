@@ -277,6 +277,7 @@ sync words are verified from upstream firmware and set explicitly in
   config.txt              channel override, not a run artifact
   run0001/
     detections.csv
+    nodes.csv
     session.csv
   run0002/
     ...
@@ -307,7 +308,7 @@ Both files below live inside that run directory.
 
 ### 8.1 `detections.csv` — the mission data
 
-`timestamp_utc, lat, lon, fix_quality, run, rx_uptime_ms, profile, classification, channel_or_node_id, packet_id, hop_limit, hop_start, relay_node, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, raw_len, decoded`
+`timestamp_utc, lat, lon, fix_quality, run, rx_uptime_ms, profile, classification, channel_or_node_id, packet_id, hop_limit, hop_start, relay_node, freq_mhz, sf, bw_khz, rssi_dbm, snr_db, raw_len, raw_packet_hex, decoded`
 
 Grouped left to right by what a reader asks first: when/where (time,
 position, run context) — what kind of thing this is (profile,
@@ -353,9 +354,25 @@ the next scan replaces it, stores neither raw samples nor history, and shows
 `NOT SAVED` throughout. Failure of that Phase 7 memory gate makes SD mandatory
 instead of permitting dynamic or larger allocation.
 
-### 8.2 `session.csv` — the run's own vital signs
+### 8.2 `nodes.csv` — decoded node identities
 
-`timestamp_utc, uptime_s, reason, lat, lon, sats, sats_in_view, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, max_session_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run, gps_max_loop_gap_ms, gps_oversize_drops, heap_largest, heap_free_blocks, heap_allocated_blocks, radio_stack_free, gps_stack_free, ui_stack_free, wifi_stack_free`
+`timestamp_utc, lat, lon, fix_quality, run, rx_uptime_ms, profile, node_id, node_type, long_name, short_name, public_key_hex, raw_len`
+
+This is a separate observation table, not a rewrite of `detections.csv`:
+many packets can belong to one node, while an identity is useful on its own
+and may arrive only occasionally. Identity capture starts enabled and can be
+paused from Diagnostics. Current decoding is deliberately narrow: it records
+Meshtastic `NodeInfo`/`User` messages heard on the public default channel,
+whose published PSK permits local decryption, and MeshCore v1 Node
+Advertisements. A MeshCore advert carries its public key, optional name, and
+node type in the clear; the device records that signed observation but does
+not claim on-device Ed25519 signature verification. Private/custom
+Meshtastic channels remain raw-packet observations until their keys are
+supplied by the operator; this receiver does not attempt to defeat encryption.
+
+### 8.3 `session.csv` — the run's own vital signs
+
+`timestamp_utc, uptime_s, reason, lat, lon, sats, sats_in_view, fix_type, ttff_s, rx, crc_err, queue_drop, bus_miss, rows, row_drop, flushes, max_flush_ms, max_session_ms, sd, bus_contention, nmea, nmea_bad_crc, heap_free, heap_min, batt_mv, logger_stack_free, run, gps_max_loop_gap_ms, gps_oversize_drops, heap_largest, heap_free_blocks, heap_allocated_blocks, radio_stack_free, gps_stack_free, ui_stack_free, wifi_stack_free, scan_observations, scan_observation_drops, energy_observations, energy_observation_drops, probe_runs, probe_cancels, probe_timeouts, probe_failures, probe_recoveries, probe_last_away_ms, identities_decoded, identity_drops`
 
 One row per minute, plus a `reason=boot` row when the card comes up.
 

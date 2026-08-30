@@ -94,12 +94,12 @@ ProfileOverrides channelOverrides;
 ChannelParams activeChannel = CHANNEL_MESHTASTIC_LONGFAST_US;
 DisplaySettings displaySettings;
 
-// Detection queue, Core 1 -> Core 0. 32 entries x 36B = ~1.2KB: deep enough
-// to ride out an SD flush (including the back-to-back original/rebroadcast
-// pairs that Meshtastic flooding produces), small enough to respect the
-// no-PSRAM budget in DESIGN.md §1. Depth is a real tuning knob — watch
+// Detection queue, Core 1 -> Core 0. Each entry includes one bounded raw
+// frame, so 16 entries use roughly 4.8KB. That still rides out normal SD
+// flushes while keeping the no-PSRAM allocation intentional; watch
 // radioQueueDropCount() in the status line before changing it.
-constexpr UBaseType_t DETECTION_QUEUE_DEPTH = 32;
+constexpr UBaseType_t DETECTION_QUEUE_DEPTH = 16;
+constexpr UBaseType_t NODE_IDENTITY_QUEUE_DEPTH = 16;
 constexpr UBaseType_t SCAN_OBSERVATION_QUEUE_DEPTH = 16;
 // A noisy environment can produce far more Sweep peaks per run than
 // Probe's ~9-candidate CAD sweep ever could — a starting choice, not a
@@ -111,6 +111,7 @@ constexpr uint32_t BOOT_CHECKLIST_HOLD_MS = 1000;
 QueueHandle_t detectionQueue = nullptr;
 QueueHandle_t scanObservationQueue = nullptr;
 QueueHandle_t energyObservationQueue = nullptr;
+QueueHandle_t identityQueue = nullptr;
 
 void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
     if (!displayReady) return;
@@ -377,6 +378,10 @@ void setup() {
     if (energyObservationQueue == nullptr) {
         fatal(F("FATAL: could not allocate the energy queue."), F("FATAL: energy queue alloc"));
     }
+    identityQueue = xQueueCreate(NODE_IDENTITY_QUEUE_DEPTH, sizeof(NodeIdentity));
+    if (identityQueue == nullptr) {
+        fatal(F("FATAL: could not allocate the identity queue."), F("FATAL: identity queue alloc"));
+    }
 
     // Consumers before producer: the logger must be draining before the
     // radio starts filling, or the first burst is dropped for no reason.
@@ -390,7 +395,8 @@ void setup() {
         }
     }
 
-    if (!loggerTaskStart(detectionQueue, scanObservationQueue, energyObservationQueue, sdMounted)) {
+    if (!loggerTaskStart(detectionQueue, scanObservationQueue, energyObservationQueue, identityQueue,
+                         sdMounted)) {
         fatal(F("FATAL: logger task failed to start."), F("FATAL: logger task"));
     }
     // No splash line on success: this is RTOS resource allocation, not a
@@ -403,7 +409,7 @@ void setup() {
     // radio_task.cpp holds onto it so a later switch resolves *its*
     // override the same way this boot resolved `bootProfile`'s.
     if (!radioTaskStart(activeChannel, bootProfile, channelOverrides, detectionQueue,
-                        scanObservationQueue, energyObservationQueue)) {
+                        scanObservationQueue, energyObservationQueue, identityQueue)) {
         {
             SerialLock lock(pdMS_TO_TICKS(200));
             if (lock.held()) {
@@ -544,11 +550,14 @@ void loop() {
     char line[384];
     int n = snprintf(line, sizeof(line),
                      "[status] rx=%lu crcerr=%lu qdrop=%lu busmiss=%lu | rows=%lu rowdrop=%lu "
+                     "nodes=%lu nodedrop=%lu "
                      "flushes=%lu maxflush=%lums maxhealth=%lums sd=%s health=%lu run=%u | "
                      "nmea=%lu badcrc=%lu fix=%s | heap=%lu heapmin=%lu",
                      (unsigned long)radioPacketCount(), (unsigned long)radioCrcErrorCount(),
                      (unsigned long)radioQueueDropCount(), (unsigned long)radioBusMissCount(),
                      (unsigned long)loggerRowsWritten(), (unsigned long)loggerRowsDropped(),
+                     (unsigned long)loggerIdentityRowsWritten(),
+                     (unsigned long)(radioIdentityDropCount() + loggerIdentityRowsDropped()),
                      (unsigned long)loggerFlushCount(), (unsigned long)loggerMaxFlushMs(),
                      // Separate from maxflush on purpose: the health writer's
                      // bus holds are instrumentation, and folding them in

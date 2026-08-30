@@ -127,11 +127,12 @@ constexpr MenuItem CONNECTIVITY_GROUP_ITEMS[] = {
 };
 constexpr MenuItem DIAGNOSTICS_GROUP_ITEMS[] = {
     {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Identities", ItemKind::ACTION, MenuAction::IDENTITY_CAPTURE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"SD", ItemKind::ACTION, MenuAction::SD_RETRY, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
 constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
     {"Connectivity", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, CONNECTIVITY_GROUP_ITEMS, 2},
-    {"Diagnostics", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DIAGNOSTICS_GROUP_ITEMS, 2},
+    {"Diagnostics", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DIAGNOSTICS_GROUP_ITEMS, 3},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
 };
 // Trace remains the root-level operating toggle. Probe has no duplicate menu

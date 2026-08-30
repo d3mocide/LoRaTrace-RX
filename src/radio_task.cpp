@@ -9,6 +9,8 @@
 #include "discovery_plan.h"
 #include "energy_plan.h"
 #include "memory_stats.h"
+#include "meshcore_identity.h"
+#include "meshtastic_identity.h"
 #include "pass_b_plan.h"
 #include "spi_bus.h"
 
@@ -19,6 +21,7 @@ SX1262 radio = new Module(PIN_LORA_NSS, PIN_LORA_IRQ, PIN_LORA_RST, PIN_LORA_BUS
 TaskHandle_t radioTaskHandle = nullptr;
 QueueHandle_t detectionQueue = nullptr;
 QueueHandle_t scanObservationQueue = nullptr;
+QueueHandle_t identityQueue = nullptr;
 ChannelParams activeChannel;
 MissionProfile activeProfile = MissionProfile::MESHTASTIC;
 // Per-profile SD/web overrides, copied in once at radioTaskStart() and
@@ -96,6 +99,9 @@ int lastError = RADIOLIB_ERR_NONE;
 volatile uint32_t packetCount = 0;
 volatile uint32_t crcErrorCount = 0;
 volatile uint32_t queueDropCount = 0;
+volatile bool identityCaptureEnabled = true;
+volatile uint32_t identityDecodeCount = 0;
+volatile uint32_t identityDropCount = 0;
 volatile uint32_t busMissCount = 0;
 volatile uint32_t scanObservationCount = 0;
 volatile uint32_t scanObservationDropCount = 0;
@@ -201,7 +207,10 @@ bool readDetectionLocked(const ChannelParams &channel, MissionProfile profile,
     det.freq_mhz = channel.freq_mhz;
     det.rssi_dbm = rssi;
     det.snr_db = snr;
-    det.raw_len = (uint16_t)len;
+    if (!detectionSetRawPacket(det, buf, len)) {
+        readFailed = true;
+        return false;
+    }
     det.bw_khz_x10 = (uint16_t)(channel.bw_khz * 10.0f + 0.5f);
     det.sf = channel.sf;
     det.cr_denom = channel.cr_denom;
@@ -219,6 +228,19 @@ bool readDetectionLocked(const ChannelParams &channel, MissionProfile profile,
 void enqueueDetection(const Detection &det) {
     if (detectionQueue == nullptr) return;
     if (xQueueSend(detectionQueue, &det, 0) != pdTRUE) queueDropCount++;
+}
+
+void enqueueNodeIdentity(const Detection &det) {
+    if (!identityCaptureEnabled || identityQueue == nullptr) return;
+    NodeIdentity identity;
+    const bool decoded = det.profile == (uint8_t)MissionProfile::MESHTASTIC
+        ? meshtasticDecodeDefaultNodeIdentity(det, identity)
+        : det.profile == (uint8_t)MissionProfile::MESHCORE
+            ? meshcoreDecodeAdvertIdentity(det, identity)
+            : false;
+    if (!decoded) return;
+    identityDecodeCount++;
+    if (xQueueSend(identityQueue, &identity, 0) != pdTRUE) identityDropCount++;
 }
 
 void enqueueScanObservation(const DiscoveryCandidate &candidate, uint8_t candidateIndex,
@@ -555,7 +577,7 @@ void performDiscoverySweep() {
         }
 
         ulTaskNotifyTake(pdTRUE, 0);
-        uint8_t buf[256];
+        uint8_t buf[DETECTION_RAW_MAX_LEN];
         Detection detection;
         bool readFailed;
         bool haveDetection = false;
@@ -571,7 +593,10 @@ void performDiscoverySweep() {
             }
         }
         if (failed) break;
-        if (haveDetection) enqueueDetection(detection);
+        if (haveDetection) {
+            enqueueDetection(detection);
+            enqueueNodeIdentity(detection);
+        }
     }
 
     // CAD and RX IRQs share the task notification with profile/pause requests.
@@ -716,7 +741,7 @@ void passBCadOneCombo(uint16_t bin, float freq, const PassBModemParams &combo,
     bool gotPacket = false;
     if (waitForDioUntil(DISCOVERY_RX_WINDOW_MS, energyAbortPending)) {
         ulTaskNotifyTake(pdTRUE, 0);
-        uint8_t buf[256];
+        uint8_t buf[DETECTION_RAW_MAX_LEN];
         Detection detection;
         bool readFailed;
         bool haveDetection = false;
@@ -739,6 +764,7 @@ void passBCadOneCombo(uint16_t bin, float freq, const PassBModemParams &combo,
             // here) -- see detection.h's detectionClassification().
             detection.off_grid = true;
             enqueueDetection(detection);
+            enqueueNodeIdentity(detection);
             passBDetectionCount++;
             gotPacket = true;
         }
@@ -942,7 +968,7 @@ void performEnergySweep() {
 
 void radioTask(void *) {
     memoryStatsRegisterCurrentTask(MemoryTask::RADIO);
-    uint8_t buf[256];
+    uint8_t buf[DETECTION_RAW_MAX_LEN];
     bool paused = false;
 
     for (;;) {
@@ -1063,7 +1089,10 @@ void radioTask(void *) {
             if (readFailed) crcErrorCount++;
         } // bus released here, before any queue work
 
-        if (haveDetection) enqueueDetection(det);
+        if (haveDetection) {
+            enqueueDetection(det);
+            enqueueNodeIdentity(det);
+        }
     }
 }
 
@@ -1071,13 +1100,15 @@ void radioTask(void *) {
 
 bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
                     const ProfileOverrides &overrides, QueueHandle_t queue,
-                    QueueHandle_t scanQueue, QueueHandle_t energyQueue) {
+                    QueueHandle_t scanQueue, QueueHandle_t energyQueue,
+                    QueueHandle_t nodesQueue) {
     activeChannel = channel;
     activeProfile = profile;
     activeOverrides = overrides;
     detectionQueue = queue;
     scanObservationQueue = scanQueue;
     energyObservationQueue = energyQueue;
+    identityQueue = nodesQueue;
 
     // Depth-1 mailbox for radioRequestProfileSwitch(). Created here, not
     // lazily, so a switch request right after boot can't race a
@@ -1131,6 +1162,18 @@ uint32_t radioCrcErrorCount() {
 }
 uint32_t radioQueueDropCount() {
     return queueDropCount;
+}
+void radioIdentityCaptureSetEnabled(bool enabled) {
+    identityCaptureEnabled = enabled;
+}
+bool radioIdentityCaptureIsEnabled() {
+    return identityCaptureEnabled;
+}
+uint32_t radioIdentityDecodeCount() {
+    return identityDecodeCount;
+}
+uint32_t radioIdentityDropCount() {
+    return identityDropCount;
 }
 uint32_t radioBusMissCount() {
     return busMissCount;
