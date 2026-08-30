@@ -66,6 +66,16 @@ QueueHandle_t energySweepQueue = nullptr;
 QueueHandle_t energyObservationQueue = nullptr;
 volatile bool energyActive = false;
 volatile bool energyCancelRequested = false;
+// Repeat-Sweep mode (R key, operator request 2026-08-29; moved off a
+// Ctrl+S chord to its own dedicated key 2026-08-30 — see keyboard.h):
+// re-runs
+// performEnergySweep() back-to-back after each COMPLETE instead of
+// stopping after one bounded pass — "walk around and scan" field use,
+// distinct from the bounded single-shot war-drive check a tap already
+// does. energyRepeatCount is the lap counter the Sweep page displays;
+// reset to 0 each time repeat mode starts (radioRequestEnergySweepRepeat()).
+volatile bool energyRepeatActive = false;
+volatile uint32_t energyRepeatCount = 0;
 volatile uint16_t energyBinIndex = 0;
 volatile uint16_t energyTotalBins = 0;
 volatile EnergySweepState energyState = EnergySweepState::IDLE;
@@ -1002,7 +1012,21 @@ void radioTask(void *) {
 
         bool energyReq;
         if (energySweepQueue != nullptr && xQueueReceive(energySweepQueue, &energyReq, 0) == pdTRUE) {
-            if (energyReq && !paused) performEnergySweep();
+            if (energyReq && !paused) {
+                // Repeat mode (energyRepeatActive): keep re-running the same
+                // bounded sweep back-to-back after each COMPLETE, until
+                // either the operator stops it (radioRequestEnergySweepRepeat()
+                // clears the flag and requests cancellation of whatever's
+                // in flight) or a lap doesn't finish clean (CANCELLED/
+                // FAILED) or Trace gets paused out from under it. A plain
+                // tap (energyRepeatActive already false) runs this loop
+                // exactly once, same as before this feature existed.
+                do {
+                    performEnergySweep();
+                    if (energyRepeatActive) energyRepeatCount++;
+                } while (energyRepeatActive && energyState == EnergySweepState::COMPLETE && !paused);
+                energyRepeatActive = false;
+            }
             continue;
         }
 
@@ -1234,6 +1258,41 @@ bool radioRequestEnergySweep() {
 
 bool radioEnergySweepIsActive() {
     return energyActive;
+}
+
+// R key (operator request, 2026-08-29; moved off a Ctrl+S chord to its own
+// dedicated key 2026-08-30 after real hardware testing showed the TCA8418
+// can drop Ctrl's release event — see keyboard.h): starts/stops a chain of
+// back-to-back Sweeps instead of one bounded run. Shares the exact same
+// start path as a plain tap (radioRequestEnergySweep() above) — this only
+// sets the flag the main loop's repeat do-while (above) checks after each
+// COMPLETE, and only differs from a plain tap in the stop case, where it
+// also clears energyRepeatActive so the loop doesn't start another lap.
+bool radioRequestEnergySweepRepeat() {
+    if (radioTaskHandle == nullptr || energySweepQueue == nullptr) return false;
+    if (energyRepeatActive) {
+        energyRepeatActive = false;
+        if (energyActive) {
+            energyCancelRequested = true;
+            xTaskNotifyGive(radioTaskHandle);
+        }
+        return true;
+    }
+    if (energyActive || tracePaused || discoveryActive) return false;
+    energyRepeatActive = true;
+    energyRepeatCount = 0;
+    const bool start = true;
+    xQueueOverwrite(energySweepQueue, &start);
+    xTaskNotifyGive(radioTaskHandle);
+    return true;
+}
+
+bool radioEnergySweepRepeatIsActive() {
+    return energyRepeatActive;
+}
+
+uint32_t radioEnergySweepRepeatCount() {
+    return energyRepeatCount;
 }
 
 bool radioRequestBenchPassBCadTrigger(uint8_t comboIndex) {

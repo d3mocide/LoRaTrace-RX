@@ -157,6 +157,26 @@ void test_slider_back_returns_to_its_list_not_up_a_level() {
     TEST_ASSERT_EQUAL_UINT8(0, menu.currentIndex()); // still on "Brightness"
 }
 
+void test_slider_select_also_returns_to_its_list() {
+    // Enter should confirm a value, not just ESC out of it (operator
+    // request, 2026-08-29) -- same "one step back" shape as BACK, not a
+    // second, different behavior.
+    MenuState menu(kRoots, kRootCount);
+    menu.open();
+    menu.handle(KeyAction::NEXT);
+    menu.handle(KeyAction::NEXT);
+    menu.handle(KeyAction::SELECT);
+    menu.handle(KeyAction::NEXT);
+    menu.handle(KeyAction::NEXT);
+    menu.handle(KeyAction::SELECT); // Display's list
+    menu.handle(KeyAction::SELECT); // enter Brightness's slider
+    const MenuAction fired = menu.handle(KeyAction::SELECT); // confirm/exit
+    TEST_ASSERT_TRUE(MenuAction::NONE == fired);
+    TEST_ASSERT_FALSE(menu.inSlider());
+    TEST_ASSERT_EQUAL_UINT8(3, menu.depth()); // still Display's list, not System's
+    TEST_ASSERT_EQUAL_UINT8(0, menu.currentIndex()); // still on "Brightness"
+}
+
 void test_idle_timeout_cycle_fires_and_stays_in_list() {
     MenuState menu(kRoots, kRootCount);
     menu.open();
@@ -258,6 +278,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_nested_group_opens_one_level_deeper);
     RUN_TEST(test_slider_reachable_from_nested_group);
     RUN_TEST(test_slider_back_returns_to_its_list_not_up_a_level);
+    RUN_TEST(test_slider_select_also_returns_to_its_list);
     RUN_TEST(test_idle_timeout_cycle_fires_and_stays_in_list);
     RUN_TEST(test_group_next_prev_wrap);
     RUN_TEST(test_select_group_item_fires_its_action_and_stays_in_list);

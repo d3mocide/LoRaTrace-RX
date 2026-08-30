@@ -127,6 +127,24 @@ void fireMenuAction(MenuAction action) {
             }
             break;
         }
+        case MenuAction::SWEEP_REPEAT_TOGGLE: {
+            // R key (operator request, 2026-08-29; moved off a Ctrl+S
+            // chord to its own dedicated key 2026-08-30 after real
+            // hardware testing showed the TCA8418 can drop Ctrl's release
+            // event — see keyboard.h) — "walk around and scan" field mode,
+            // distinct from SWEEP_TOGGLE's bounded single-shot check. Same
+            // non-blocking radio-task-owned shape.
+            const bool stopping = radioEnergySweepRepeatIsActive();
+            if (!stopping && !loggerSdReady()) {
+                showToast("Sweep: SD REQUIRED");
+            } else if (radioRequestEnergySweepRepeat()) {
+                showToast(stopping ? "Sweep: REPEAT OFF" : "Sweep: REPEAT ON");
+                showSweepResults();
+            } else {
+                showToast("Sweep: UNAVAILABLE");
+            }
+            break;
+        }
         case MenuAction::SERIAL_CONTROL_TOGGLE: {
             const bool next = !serialControlIsEnabled();
             serialControlSetEnabled(next);

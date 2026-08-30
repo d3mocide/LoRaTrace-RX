@@ -22,6 +22,7 @@
 #include "display_settings.h"
 #include "keyboard.h"
 #include "serial_control.h"
+#include "serial_lock.h"
 #include "memory_stats.h"
 #include "radio_task.h"
 
@@ -157,6 +158,34 @@ constexpr uint8_t ROOT_COUNT = 3;
 uint32_t rxPulseUntil = 0;
 constexpr uint32_t RX_PULSE_MS = 220;
 
+// Raw key-dump diagnostic, off by default and gated behind Serial Control
+// (KEY_DUMP opcode). Exists because every key constant in keyboard.h was
+// derived on paper and only ever checked by host tests asserting those same
+// constants against themselves. Emits one line per raw FIFO event so a
+// bench pass can settle the map instead of re-deriving it — this is what
+// caught the Ctrl+S modifier chord dropping its own release event on real
+// hardware (2026-08-30), which is why that chord was reverted in favor of
+// a dedicated key (keyboard.h's KEY_RAW_R_PRESS).
+bool keyDumpEnabled = false;
+
+void keyDumpEmit(uint8_t rawEvent) {
+    uint8_t row = 0;
+    uint8_t col = 0;
+    char line[96];
+    if (keyboardPhysicalPosition(keyboardEventKeyNumber(rawEvent), row, col)) {
+        snprintf(line, sizeof(line), "[keydump] raw=0x%02X K=%u %s row=%u col=%u t=%lu",
+                 (unsigned)rawEvent, (unsigned)keyboardEventKeyNumber(rawEvent),
+                 keyboardEventIsRelease(rawEvent) ? "UP" : "DN", (unsigned)row, (unsigned)col,
+                 (unsigned long)millis());
+    } else {
+        snprintf(line, sizeof(line), "[keydump] raw=0x%02X K=%u %s row=? col=? t=%lu",
+                 (unsigned)rawEvent, (unsigned)keyboardEventKeyNumber(rawEvent),
+                 keyboardEventIsRelease(rawEvent) ? "UP" : "DN", (unsigned long)millis());
+    }
+    SerialLock lock(pdMS_TO_TICKS(10));
+    if (lock.held()) serialPrintln(line);
+}
+
 // The level idle-dim actually drives: the lower of a fixed floor and the
 // operator's own active level. Needed since brightness became a slider
 // that can go below the old fixed floor (15%) — without this, an active
@@ -202,14 +231,16 @@ void jumpToPage(UiPage p) {
 }
 
 // Drains the TCA8418 event FIFO and returns the most recently recognized
-// KeyAction this poll (keyboard.h), or NONE. Several actions queued
-// between polls collapse to the last one — acceptable at a 30ms poll
-// interval for sparse, deliberate keypresses.
+// KeyAction this poll (keyboard.h), or NONE. Several actions queued between
+// polls collapse to the last one — acceptable at a 30ms poll interval for
+// sparse, deliberate keypresses.
 KeyAction pollKeyAction() {
     if (!keyboardReady) return KeyAction::NONE;
     KeyAction result = KeyAction::NONE;
     while (keys.available() > 0) {
-        const KeyAction a = keyboardDecodeEvent((uint8_t)keys.getEvent());
+        const uint8_t raw = (uint8_t)keys.getEvent();
+        if (keyDumpEnabled) keyDumpEmit(raw);
+        const KeyAction a = keyboardDecodeEvent(raw);
         if (a != KeyAction::NONE) result = a;
     }
     return result;
@@ -300,7 +331,15 @@ void uiTask(void *) {
             redraw = true;
         }
 
-        // Same async-completion-toast shape as Probe's block above, for Sweep.
+        // Same async-completion-toast shape as Probe's block above, for
+        // Sweep — but suppressed while repeat mode is actively chaining
+        // laps (operator request, 2026-08-29): a toast per lap would be
+        // constant noise for a "walk around and scan" session, and the
+        // Sweep page's own on-screen lap counter already covers it. The
+        // final lap (whatever stopped the chain — operator Ctrl+S, a
+        // failure, Trace pausing) still toasts normally, since
+        // radioEnergySweepRepeatIsActive() has already gone false by the
+        // time the radio task hands control back here.
         const uint32_t energyRuns = radioEnergySweepCount();
         if (energyRuns != lastEnergyRunSeen) {
             lastEnergyRunSeen = energyRuns;
@@ -308,16 +347,18 @@ void uiTask(void *) {
             const bool energyCancelled = radioEnergyCancelCount() != lastEnergyCancelSeen;
             lastEnergyFailureSeen = radioEnergyFailureCount();
             lastEnergyCancelSeen = radioEnergyCancelCount();
-            char energyMsg[48];
-            if (energyFailed) {
-                snprintf(energyMsg, sizeof(energyMsg), "Sweep: FAILED %d", radioLastError());
-            } else if (energyCancelled) {
-                snprintf(energyMsg, sizeof(energyMsg), "Sweep: CANCELLED");
-            } else {
-                snprintf(energyMsg, sizeof(energyMsg), "Sweep: DONE %u peaks in %lums",
-                         (unsigned)radioEnergyPeakCount(), (unsigned long)radioEnergyLastAwayMs());
+            if (!radioEnergySweepRepeatIsActive()) {
+                char energyMsg[48];
+                if (energyFailed) {
+                    snprintf(energyMsg, sizeof(energyMsg), "Sweep: FAILED %d", radioLastError());
+                } else if (energyCancelled) {
+                    snprintf(energyMsg, sizeof(energyMsg), "Sweep: CANCELLED");
+                } else {
+                    snprintf(energyMsg, sizeof(energyMsg), "Sweep: DONE %u peaks in %lums",
+                             (unsigned)radioEnergyPeakCount(), (unsigned long)radioEnergyLastAwayMs());
+                }
+                showToast(energyMsg);
             }
-            showToast(energyMsg);
             sweepTerminalShownAt = millis();
             redraw = true;
         }
@@ -330,9 +371,18 @@ void uiTask(void *) {
             redraw = true;
         } else if (action == KeyAction::SWEEP) {
             // Same global-shortcut shape as P/Probe — works from any UI
-            // state. showSweepResults() closes any open menu onto the
-            // Sweep page after an accepted request, same as Probe.
+            // state.
             fireMenuAction(MenuAction::SWEEP_TOGGLE);
+            redraw = true;
+        } else if (action == KeyAction::SWEEP_REPEAT) {
+            // Repeat-Sweep ("walk around and scan" mode) has its own
+            // dedicated key (R) rather than a Ctrl+S chord (operator
+            // request, 2026-08-29; reverted 2026-08-30 — see keyboard.h's
+            // top-of-file note: real hardware testing with KEY_DUMP showed
+            // the TCA8418 can drop Ctrl's own release event on that chord,
+            // leaving repeat mode stuck on until reboot). A single key has
+            // no release event to lose.
+            fireMenuAction(MenuAction::SWEEP_REPEAT_TOGGLE);
             redraw = true;
         } else if (!menu.isOpen()) {
             // Carousel: page navigation is this file's own concern, not
@@ -379,10 +429,13 @@ void uiTask(void *) {
         } else if (action != KeyAction::NONE) {
             // Menu open (root/group/slider) — MenuState owns navigation;
             // this file only reacts to what fired. Captured before handle()
-            // runs: leaving the Brightness slider (BACK, SLIDER -> ROOT) is
-            // the debounce point for persisting it (see BRIGHTNESS_UP/DOWN
-            // in ui_actions.cpp for why saves don't happen every step).
-            const bool leavingSlider = menu.inSlider() && action == KeyAction::BACK;
+            // runs: leaving the Brightness slider (BACK or SELECT, SLIDER ->
+            // ROOT — ui_menu.h's handleSlider() treats both the same way,
+            // 2026-08-29) is the debounce point for persisting it (see
+            // BRIGHTNESS_UP/DOWN in ui_actions.cpp for why saves don't
+            // happen every step).
+            const bool leavingSlider = menu.inSlider() &&
+                                       (action == KeyAction::BACK || action == KeyAction::SELECT);
             const MenuAction fired = menu.handle(action);
             if (fired != MenuAction::NONE) fireMenuAction(fired);
             if (leavingSlider) {
@@ -517,4 +570,12 @@ bool uiTaskStart(Arduino_GFX *gfx, const DisplaySettings &settings) {
 
 bool uiKeyboardReady() {
     return keyboardReady;
+}
+
+void uiKeyDumpSetEnabled(bool enabled) {
+    keyDumpEnabled = enabled;
+}
+
+bool uiKeyDumpIsEnabled() {
+    return keyDumpEnabled;
 }

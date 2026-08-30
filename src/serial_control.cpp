@@ -10,6 +10,7 @@
 #include "serial_control_protocol.h"
 #include "radio_task.h"
 #include "serial_lock.h"
+#include "ui_task.h"
 #include "version.h"
 
 namespace {
@@ -241,6 +242,19 @@ void handleFrame(const SerialControlFrame &frame) {
             }
             break;
         }
+        case SerialControlOpcode::KEY_DUMP:
+            // Diagnostic only: turns ui_task's raw TCA8418 event echo on or
+            // off. Reads nothing and owns nothing, so it is safe to leave
+            // armed; it is off at boot because the echo is noisy under any
+            // real keyboard use.
+            if (strcmp(frame.argument, "ON") == 0 || strcmp(frame.argument, "OFF") == 0) {
+                const bool on = strcmp(frame.argument, "ON") == 0;
+                uiKeyDumpSetEnabled(on);
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, on ? "ENABLED" : "DISABLED");
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
+            }
+            break;
         case SerialControlOpcode::SD_RETRY:
             // Mirrors ui_actions.cpp's own MenuAction::SD_RETRY handler
             // exactly, so a remote request and the on-device menu item

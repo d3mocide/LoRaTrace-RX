@@ -3,10 +3,15 @@
 // unrelated key on the board fire a menu action. Runs on the host (`pio test
 // -e native`), no hardware needed — see platformio.ini [env:native].
 //
-// The fourteen raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
-// backtick/ESC, six digit-jump keys, P/Probe, and S/Sweep) are the ones
-// keyboard.h derives and cites; this test doesn't re-derive them, it pins
-// them so a future edit can't silently drift off the sourced values.
+// The fifteen raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
+// backtick/ESC, six digit-jump keys, P/Probe, S/Sweep, and R/repeat-Sweep)
+// are the ones keyboard.h derives and cites; this test doesn't re-derive
+// them, it pins them so a future edit can't silently drift off the sourced
+// values. It also round-trips each one through keyboardPhysicalPosition() —
+// pinning a constant against itself is what let the Ctrl+S modifier chord
+// ship green three times before real hardware testing (KEY_DUMP) caught it
+// dropping its own release event and it was reverted in favor of a
+// dedicated key (R) — see keyboard.h's top-of-file note.
 
 #include <unity.h>
 
@@ -68,6 +73,68 @@ void test_s_is_sweep_shortcut() {
     TEST_ASSERT_TRUE(KeyAction::SWEEP == keyboardDecodeEvent(KEY_RAW_S_PRESS));
 }
 
+// R is the repeat-Sweep toggle, a dedicated key rather than a Ctrl+S
+// modifier chord (reverted 2026-08-30 — see keyboard.h's top-of-file note).
+void test_r_is_sweep_repeat_shortcut() {
+    TEST_ASSERT_TRUE(KeyAction::SWEEP_REPEAT == keyboardDecodeEvent(KEY_RAW_R_PRESS));
+}
+
+// --- The derivation itself ---
+//
+// Every constant in keyboard.h was produced by inverting Launcher's
+// mapRawKeyToPhysical() by hand, and this round-trips each one through the
+// forward formula so it's checked against the (row, col) its own comment
+// claims, not just pinned against itself.
+static void assertPosition(uint8_t keyNumber, uint8_t expectRow, uint8_t expectCol) {
+    uint8_t row = 0;
+    uint8_t col = 0;
+    TEST_ASSERT_TRUE(keyboardPhysicalPosition(keyNumber, row, col));
+    TEST_ASSERT_EQUAL_UINT8(expectRow, row);
+    TEST_ASSERT_EQUAL_UINT8(expectCol, col);
+}
+
+void test_every_mapped_key_round_trips_to_its_documented_position() {
+    assertPosition(KEY_RAW_ESC_PRESS, 0, 0);
+    assertPosition(KEY_RAW_1_PRESS, 0, 1);
+    assertPosition(KEY_RAW_2_PRESS, 0, 2);
+    assertPosition(KEY_RAW_3_PRESS, 0, 3);
+    assertPosition(KEY_RAW_4_PRESS, 0, 4);
+    assertPosition(KEY_RAW_5_PRESS, 0, 5);
+    assertPosition(KEY_RAW_6_PRESS, 0, 6);
+    assertPosition(KEY_RAW_R_PRESS, 1, 4);
+    assertPosition(KEY_RAW_P_PRESS, 1, 10);
+    assertPosition(KEY_RAW_S_PRESS, 2, 3);
+    assertPosition(KEY_RAW_SEMICOLON_PRESS, 2, 11);
+    assertPosition(KEY_RAW_ENTER_PRESS, 2, 13);
+    assertPosition(KEY_RAW_COMMA_PRESS, 3, 10);
+    assertPosition(KEY_RAW_PERIOD_PRESS, 3, 11);
+    assertPosition(KEY_RAW_SLASH_PRESS, 3, 12);
+}
+
+// The formula's stated domain (u in 1..8, t <= 6) is the ADV's 7x8 scan
+// range; key numbers outside it are not positions on this keyboard and must
+// be rejected rather than silently producing a plausible-looking (row, col).
+void test_out_of_range_key_numbers_are_rejected() {
+    uint8_t row = 0;
+    uint8_t col = 0;
+    TEST_ASSERT_FALSE(keyboardPhysicalPosition(0, row, col));  // "no event"
+    TEST_ASSERT_FALSE(keyboardPhysicalPosition(9, row, col));  // u = 9
+    TEST_ASSERT_FALSE(keyboardPhysicalPosition(10, row, col)); // u = 0
+    TEST_ASSERT_FALSE(keyboardPhysicalPosition(71, row, col)); // t = 7
+}
+
+// keyboardEventIsRelease()/keyboardEventKeyNumber() back ui_task.cpp's
+// KEY_DUMP diagnostic — pinned directly since nothing else here exercises
+// them (keyboardDecodeEvent() only ever sees full raw bytes, never needs to
+// split them).
+void test_event_release_flag_and_key_number_split_correctly() {
+    TEST_ASSERT_FALSE(keyboardEventIsRelease(KEY_RAW_S_PRESS));
+    TEST_ASSERT_TRUE(keyboardEventIsRelease(KEY_RAW_S_PRESS | KEY_RAW_RELEASE_FLAG));
+    TEST_ASSERT_EQUAL_UINT8(KEY_RAW_S_PRESS, keyboardEventKeyNumber(KEY_RAW_S_PRESS));
+    TEST_ASSERT_EQUAL_UINT8(KEY_RAW_S_PRESS,
+                            keyboardEventKeyNumber(KEY_RAW_S_PRESS | KEY_RAW_RELEASE_FLAG));
+}
+
 // Actions fire on press only. A release event is the press byte + 0x80
 // (Adafruit_TCA8418::getEvent()'s own documented encoding) — must decode to
 // NONE, or releasing any of these keys would silently repeat whatever its
@@ -87,16 +154,16 @@ void test_release_events_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_6_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_P_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_S_PRESS + 0x80));
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_R_PRESS + 0x80));
 }
 
-// The allowlist property that makes covering only 14 of the board's 56 keys
+// The allowlist property that makes covering only 15 of the board's 56 keys
 // safe: everything else must resolve to NONE, not something surprising.
-// These three raw values are 'q' (physical row1,col1 -> K=6), 'a' (row2,
-// col2 -> K=13), and Space (row3,col13 -> K=68) — derived the same way
-// keyboard.h derives its own keys, from mapRawKeyToPhysical()'s formula and
-// RetroBreeze's _key_value_map, picked to span different rows/cols from the
-// keys actually in the allowlist ('7'-'9'/'0', the rest of the digit row
-// the six jump keys don't use — '6' itself moved to the allowlist above).
+// These three raw values are 'q' (physical row1,col1 -> K=6, also
+// independently confirmed by kamrrillo/Cardputer-ADV-Keyboard's own
+// pressed-key capture), 'a' (row2, col2 -> K=13), and Space (row3, col13 ->
+// K=68) — picked to span different rows/cols from the keys actually in the
+// allowlist.
 void test_unrelated_keys_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(6));  // 'q'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(13)); // 'a'
@@ -108,6 +175,11 @@ void test_unrelated_keys_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(41)); // '8'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(45)); // '9'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(51)); // '0'
+    // Row 1 letters adjacent to R (col4) and P (col10) — the boundary most
+    // likely to catch an off-by-one in R's derivation.
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(12)); // 'w' (col2)
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(16)); // 'e' (col3)
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(26)); // 't' (col5)
 }
 
 void test_zero_is_no_event() {
@@ -127,6 +199,10 @@ int main(int, char **) {
     RUN_TEST(test_digits_are_jumps);
     RUN_TEST(test_p_is_probe_shortcut);
     RUN_TEST(test_s_is_sweep_shortcut);
+    RUN_TEST(test_r_is_sweep_repeat_shortcut);
+    RUN_TEST(test_every_mapped_key_round_trips_to_its_documented_position);
+    RUN_TEST(test_out_of_range_key_numbers_are_rejected);
+    RUN_TEST(test_event_release_flag_and_key_number_split_correctly);
     RUN_TEST(test_release_events_are_ignored);
     RUN_TEST(test_unrelated_keys_are_ignored);
     RUN_TEST(test_zero_is_no_event);

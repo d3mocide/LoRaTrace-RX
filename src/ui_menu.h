@@ -50,6 +50,14 @@ enum class MenuAction : uint8_t {
     TRACE_TOGGLE,
     PROBE_TOGGLE,
     SWEEP_TOGGLE,
+    // R key, distinct from S (operator request, 2026-08-29): starts/stops
+    // a chain of back-to-back Sweeps instead of one bounded run. Originally
+    // a Ctrl+S chord; moved to its own dedicated key 2026-08-30 after real
+    // hardware testing showed the TCA8418 can drop Ctrl's release event,
+    // leaving repeat mode stuck on (see keyboard.h). ui_task.cpp decides
+    // which of this or SWEEP_TOGGLE to fire — not something MenuState
+    // itself needs to know about.
+    SWEEP_REPEAT_TOGGLE,
     // Fixed 25/50/75/100 presets replaced by a real slider — UP/DOWN step a
     // live value by 5% instead of jumping between 4 fixed points.
     BRIGHTNESS_UP,
@@ -202,9 +210,13 @@ private:
 
     // No item list to navigate — just a live value the caller owns.
     // NEXT/PREV fire the item's increase/decrease action every press
-    // (ui_task.cpp applies the step and clamps); BACK leaves the slider and
-    // returns to the list it was opened from (same depth, cursor
-    // unchanged) — same "one step back" contract handleList()'s BACK has.
+    // (ui_task.cpp applies the step and clamps); BACK or SELECT both leave
+    // the slider and return to the list it was opened from (same depth,
+    // cursor unchanged) — same "one step back" contract handleList()'s BACK
+    // has. SELECT added 2026-08-29 (operator request: Enter should confirm
+    // a value, not just ESC out of it) — ui_task.cpp's own leavingSlider
+    // check (the SD-write debounce point) was updated alongside this to
+    // recognize both keys, not just BACK.
     MenuAction handleSlider(KeyAction key) {
         const MenuItem &item = currentItem();
         switch (key) {
@@ -213,6 +225,7 @@ private:
             case KeyAction::PREV:
                 return item.sliderDecrease;
             case KeyAction::BACK:
+            case KeyAction::SELECT:
                 inSlider_ = false;
                 break;
             default:

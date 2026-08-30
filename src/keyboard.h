@@ -38,6 +38,22 @@
 //     completing the set. No new KeyAction values needed for the aliases —
 //     see keyboardDecodeEvent() below.
 //
+// **"No Fn chord" survived; "no modifier chord at all" is now the rule,
+// for a different reason.** 2026-08-29: a first repeat-Sweep attempt used
+// hold-duration timing on S alone (tap vs. hold) and didn't work reliably.
+// Tried a real modifier next (Ctrl+S) instead, since Ctrl/Opt/Alt/Fn are
+// physically present on this board and are the normal convention for this
+// kind of shortcut. **2026-08-30, bench-confirmed via KEY_DUMP (below):
+// reverted.** A genuine Ctrl+S chord can drop Ctrl's own *release* event
+// off the TCA8418 FIFO entirely — Ctrl's press itself registered ~200ms
+// behind S's, and no release ever followed, leaving the (now-removed)
+// modifier tracker stuck reading Ctrl-held until the device rebooted, so
+// every later plain S misfired as a chord. That's a real hardware/timing
+// gap below this file, not a decode bug, and no amount of firmware-side
+// batching or self-heal timeout fixes the underlying data loss — it only
+// bounds how long the wrong answer lasts. Repeat-Sweep is bound to a
+// dedicated key (R) instead: see KEY_RAW_R_PRESS below.
+//
 // --- Sourcing, so a future reader doesn't have to re-derive this ---
 //
 // 1. Raw event byte encoding: documented in Adafruit_TCA8418::getEvent()'s
@@ -81,6 +97,16 @@
 //    up/left/down/right — independent confirmation that these are the
 //    intended roles of these five keys' printed keycaps, not a guess about
 //    what the silkscreen shows.
+//
+// 4. Corroboration, added 2026-08-29: kamrrillo/Cardputer-ADV-Keyboard
+//    publishes a keycode map captured by *pressing each key* rather than
+//    derived from step 2's formula. Its data row reads
+//    `q w e r t y u i o p` = 6 12 16 22 26 32 36 42 46 52 across row 1, and
+//    `ctrl opt alt z x c v b n m , . / space` = 4 8 14 18 24 28 34 38 44 48
+//    54 58 64 68 across row 3 — matching this file's independently-derived
+//    Comma (54), Period (58), Slash (64), Q (6, this file's own
+//    "unrelated keys" regression check) and P (52) exactly, and giving R
+//    (22) direct, not just formula, confirmation.
 //
 // Inverting step 2's formula for each (row, col) pair (t = col>>1,
 // topbit = col&1, u = ((topbit<<2)|row)+1, K = t*10+u; checked by plugging
@@ -153,10 +179,52 @@ constexpr uint8_t KEY_RAW_P_PRESS = 52;
 // bench-confirmed KEY_RAW_P_PRESS=52 exactly. Inverting the documented
 // formula (t=col>>1=1, topbit=col&1=1, u=((topbit<<2)|row)+1=7, K=t*10+u=17)
 // gives 17; checked by re-running the forward formula back to (row 2, col 3).
-// Global Sweep shortcut, same shape as P/Probe above. Sourced but **not yet
-// bench-confirmed on real hardware** — same bar as every other newly-added
-// key in this file before its own bench pass.
+// Global bounded single-shot Sweep shortcut. **Bench-confirmed on real
+// hardware, 2026-08-30** (KEY_DUMP capture): K=17, row 2 col 3, exact match.
 constexpr uint8_t KEY_RAW_S_PRESS = 17;
+
+// R: physical (row 1, col 4) per the same `_key_value_map[4][14]` row 1
+// (q w e r t ... — Q already cross-checked at row1,col1=K=6 in this file's
+// "unrelated keys" regression test, P at row1,col10=K=52 above). R sits
+// four letters in: col4. t=col>>1=2, topbit=col&1=0, u=((0<<2)|1)+1=2,
+// K=t*10+u=22; checked by re-running the forward formula back to (row 1,
+// col 4), and independently confirmed against kamrrillo's own pressed-key
+// capture (sourcing note 4 above), which reads K=22 for 'r' directly.
+//
+// Global repeat-Sweep toggle ("walk around and scan" mode) — its own
+// dedicated key, not a modifier chord. Replaces Ctrl+S (2026-08-29 attempt,
+// reverted 2026-08-30): real hardware bench testing with KEY_DUMP showed
+// the TCA8418 can drop Ctrl's own release event on that exact chord,
+// leaving repeat-mode stuck on until reboot. A single key has no release
+// event to lose in the first place.
+constexpr uint8_t KEY_RAW_R_PRESS = 22;
+
+// Adafruit_TCA8418::getEvent() ORs this into the key number on a release.
+constexpr uint8_t KEY_RAW_RELEASE_FLAG = 0x80;
+
+inline bool keyboardEventIsRelease(uint8_t rawEvent) {
+    return (rawEvent & KEY_RAW_RELEASE_FLAG) != 0;
+}
+
+inline uint8_t keyboardEventKeyNumber(uint8_t rawEvent) {
+    return (uint8_t)(rawEvent & (uint8_t)~KEY_RAW_RELEASE_FLAG);
+}
+
+// Step 2's raw-K -> physical (row, col) formula, executable rather than
+// prose so tests can round-trip every constant above against the (row, col)
+// its own comment claims. False for key numbers outside the ADV's 7x8 scan
+// range (u must be 1..8, t 0..6 — the formula's own stated domain). Also
+// what ui_task.cpp's KEY_DUMP diagnostic uses to print a human-readable
+// position alongside each raw event.
+inline bool keyboardPhysicalPosition(uint8_t keyNumber, uint8_t &row, uint8_t &col) {
+    const uint8_t u = (uint8_t)(keyNumber % 10);
+    const uint8_t t = (uint8_t)(keyNumber / 10);
+    if (u < 1 || u > 8 || t > 6) return false;
+    const uint8_t u0 = (uint8_t)(u - 1);
+    row = (uint8_t)(u0 & 0x03);
+    col = (uint8_t)((t << 1) | (u0 >> 2));
+    return true;
+}
 
 enum class KeyAction {
     NONE,
@@ -190,15 +258,18 @@ enum class KeyAction {
     JUMP_5,
     JUMP_6,
     PROBE,
+    // Bounded single-shot Sweep (S).
     SWEEP,
+    // Repeat-Sweep toggle (R) — see KEY_RAW_R_PRESS above.
+    SWEEP_REPEAT,
 };
 
 // Maps one raw TCA8418 event byte to a KeyAction. Deliberately an allowlist:
-// only the fourteen press bytes above resolve to anything — every release
-// event (including these fourteen keys' own) and all other keys on the board
-// return NONE. That's what keeps this safe despite covering only fourteen of
-// the board's 56 keys: there's no "unknown key does something surprising"
-// case, only "known key does its one thing" or "ignored."
+// only the fifteen press bytes above resolve to anything — every release
+// event and all other keys on the board return NONE. That's what keeps
+// this safe despite covering only a small slice of the board's 56 keys:
+// there's no "unknown key does something surprising" case, only "known key
+// does its one thing" or "ignored."
 inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
     switch (rawEvent) {
         case KEY_RAW_COMMA_PRESS: return KeyAction::PREV;
@@ -215,6 +286,7 @@ inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
         case KEY_RAW_6_PRESS: return KeyAction::JUMP_6;
         case KEY_RAW_P_PRESS: return KeyAction::PROBE;
         case KEY_RAW_S_PRESS: return KeyAction::SWEEP;
+        case KEY_RAW_R_PRESS: return KeyAction::SWEEP_REPEAT;
         default: return KeyAction::NONE;
     }
 }

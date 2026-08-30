@@ -1,0 +1,2 @@
+CompileFlags:
+  Compiler: xtensa-esp32s3-elf-g++

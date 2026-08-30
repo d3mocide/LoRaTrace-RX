@@ -113,6 +113,18 @@ uint16_t radioDiscoveryErrorCount();
 // convention as radioRequestDiscoverySweep().
 bool radioRequestEnergySweep();
 bool radioEnergySweepIsActive();
+
+// R key, distinct from S (operator request, 2026-08-29; moved off a Ctrl+S
+// chord to its own dedicated key 2026-08-30 — see keyboard.h): starts/stops
+// a chain of back-to-back Sweeps run one after another until cancelled,
+// instead of one bounded pass — a "walk around and scan" field mode,
+// distinct from the bounded single-shot check a plain tap already does.
+// radioEnergySweepRepeatCount() is the lap counter (resets to 0 each time
+// repeat mode starts), for the Sweep page's own repeat indicator.
+bool radioRequestEnergySweepRepeat();
+bool radioEnergySweepRepeatIsActive();
+uint32_t radioEnergySweepRepeatCount();
+
 uint16_t radioEnergyBinIndex();
 uint16_t radioEnergyBinCount();
 // Peaks logged during the most recent sweep (resets to 0 at the start of

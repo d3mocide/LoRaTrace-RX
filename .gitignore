@@ -13,3 +13,8 @@ hardware-results/private/
 # Python bytecode (e.g. from scripts/build_rev.py)
 __pycache__/
 *.pyc
+
+# clangd/clang-tooling compile database -- machine-specific absolute paths,
+# regenerate with `pio run -e cardputer-adv -t compiledb` when it goes stale
+# (new source file, changed includes/build flags).
+compile_commands.json

@@ -29,9 +29,29 @@ namespace {
 
 // 240x135 at rotation 1. Text size 1 is 6x8px; size 2 is 12x16px.
 constexpr int16_t HEADER_H = 12;
+// The header's status-dot cluster (fillCircle(157,...) below) is the
+// actual nearest obstacle to breadcrumb text, not the battery gauge
+// further right -- leftmost dot edge is real x=155 (157-radius 2), vs.
+// the battery's own clear-rect at x=184. A first fix here (2026-08-29)
+// checked only the battery and still collided with the dots on real
+// hardware. Cursor starts at x=2, so 25 whole size-1 characters (150px)
+// is the real safe budget, clear of x=155. Caught 4 levels deep in the
+// Brightness slider ("MENU > System > Display > Brightness", 36 chars)
+// and also on two 3-deep group lists whose own label is long enough to
+// overrun this alone ("MENU > System > Connectivity", 28 chars; "MENU >
+// System > Diagnostics", 27) -- not just the slider case.
+constexpr size_t HEADER_BREADCRUMB_MAX_CHARS = 25;
 constexpr uint16_t COL_BG = 0x0000;     // black
 constexpr uint16_t COL_FG = 0xFFFF;     // white
-constexpr uint16_t COL_DIM = 0x8410;    // grey
+constexpr uint16_t COL_DIM = 0xBDF7;    // light grey, ~75% brightness -- mid-grey (0x8410, ~51%)
+                                         // was hard to read in direct sunlight (2026-08-29). Two
+                                         // amber revisions followed (hue instead of brightness, to
+                                         // dodge a worry that a brighter grey would look the same
+                                         // as COL_FG's white under glare) but neither read as
+                                         // genuinely "dim" once seen on real hardware -- reverted to
+                                         // grey at operator request; the white-under-glare risk was
+                                         // reasoning, never actually field-tested, so this is that
+                                         // test. Revisit if it turns out to wash out in direct sun.
 constexpr uint16_t COL_GOOD = 0x07E0;   // green
 constexpr uint16_t COL_WARN = 0xFFE0;   // yellow
 constexpr uint16_t COL_BAD = 0xF800;    // red
@@ -82,9 +102,17 @@ void drawBattery() {
     const uint8_t pct = batteryPercentFromMv(mv);
     const uint16_t colour = (pct >= 50) ? COL_GOOD : (pct >= 20 ? COL_WARN : COL_BAD);
 
+    // Right-aligned against the gauge with a fixed 2px gap, not a fixed
+    // left-anchor offset: a fixed cursor at x-30 let "7%"'s left edge sit
+    // wherever three fewer characters happened to land, so the number
+    // visually drifted away from the gauge for low/short values instead of
+    // always hugging it (operator feedback, 2026-08-29). Size-1 glyphs are
+    // a fixed 6px wide, so the width is exact, not a measurement guess.
+    const uint8_t digits = (pct >= 100) ? 3 : (pct >= 10 ? 2 : 1);
+    const int16_t textWidth = (int16_t)((digits + 1) * 6); // +1 for '%'
     uiTft->setTextSize(1);
     uiTft->setTextColor(colour, COL_BG);
-    uiTft->setCursor(x - 30, y);
+    uiTft->setCursor(x - 2 - textWidth, y);
     uiTft->print(pct);
     uiTft->print('%');
 
@@ -400,15 +428,17 @@ void drawSweepOccupancy(int16_t x, int16_t y, int16_t w, uint16_t totalBins) {
 // Phase 9 Sweep result card, same layout shape as drawProbePage() above.
 // Reuses drawFreqBar() above to show the current/last scanned bin as a
 // position on the tuned band, same truthful-position convention CHANNEL's
-// own frequency bar already uses — never a fill/progress bar. "energy
-// only, not LoRa" stays on screen deliberately: DESIGN.md's central Sweep
-// rule is that a measured RSSI peak is never by itself evidence of LoRa
-// traffic.
+// own frequency bar already uses — never a fill/progress bar. The
+// disclaimer line stays on screen deliberately (reworded 2026-08-29,
+// operator request, same meaning as the original "energy only, not
+// LoRa"): DESIGN.md's central Sweep rule is that a measured RSSI peak is
+// never by itself evidence of LoRa traffic.
 void drawSweepPage() {
     const EnergySweepState state = radioEnergySweepState();
     const uint16_t bin = radioEnergyBinIndex();
     const uint16_t total = radioEnergyBinCount();
     const uint16_t peaks = radioEnergyPeakCount();
+    const bool repeating = radioEnergySweepRepeatIsActive();
 
     uiTft->setTextSize(2);
     uiTft->setCursor(2, HEADER_H + 8);
@@ -417,17 +447,24 @@ void drawSweepPage() {
         uiTft->print("NO SWEEP YET");
         uiTft->setTextSize(1);
         uiTft->setCursor(2, HEADER_H + 34);
-        uiTft->print("S to run Sweep");
+        uiTft->print("S: sweep   R: repeat");
         return;
     }
 
     const bool running = state == EnergySweepState::RUNNING;
     // Same IDLE-after-hold reversion as drawProbePage() — the headline
     // word is the only thing that changes; bin/peak data below still
-    // reflects the real last result.
-    const bool holdExpired = !running && sweepTerminalShownAt != 0 &&
+    // reflects the real last result. Repeat mode (R, operator request
+    // 2026-08-29; moved off a Ctrl+S chord to its own key 2026-08-30 — see
+    // keyboard.h) takes priority over all of that: back-to-back laps would
+    // otherwise flicker SCANNING/COMPLETE every single one, which reads as
+    // broken rather than as one continuous ambient scan.
+    const bool holdExpired = !repeating && !running && sweepTerminalShownAt != 0 &&
                              millis() - sweepTerminalShownAt >= RESULT_HOLD_MS;
-    if (holdExpired) {
+    if (repeating) {
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->print("REPEATING");
+    } else if (holdExpired) {
         uiTft->setTextColor(COL_DIM, COL_BG);
         uiTft->print("IDLE");
     } else {
@@ -451,14 +488,13 @@ void drawSweepPage() {
     uiTft->setCursor(2, HEADER_H + 31);
     if (running) {
         uiTft->print("watch paused  ");
-        uiTft->print(bin);
-        uiTft->print('/');
-        uiTft->print(total);
     } else {
         uiTft->print("bins ");
-        uiTft->print(bin);
-        uiTft->print('/');
-        uiTft->print(total);
+    }
+    uiTft->print(bin);
+    uiTft->print('/');
+    uiTft->print(total);
+    if (!running) {
         uiTft->print("  away ");
         uiTft->print(radioEnergyLastAwayMs());
         uiTft->print("ms");
@@ -469,7 +505,7 @@ void drawSweepPage() {
 
     uiTft->setTextColor(COL_DIM, COL_BG);
     uiTft->setCursor(2, HEADER_H + 96);
-    uiTft->print("energy only, not LoRa");
+    uiTft->print("listening to the noise");
 
     char value[10];
     snprintf(value, sizeof(value), "%u", (unsigned)peaks);
@@ -493,6 +529,15 @@ void drawSweepPage() {
             uiTft->setCursor(170, HEADER_H + 34);
             uiTft->print("none found");
         }
+    }
+
+    // Lap counter, bottom of the right column (operator request,
+    // 2026-08-29) — separate from peaks/best-MHz/rssi above it, which
+    // still describe the most recently finished lap, not the chain itself.
+    if (repeating) {
+        char lapValue[10];
+        snprintf(lapValue, sizeof(lapValue), "%lu", (unsigned long)radioEnergySweepRepeatCount());
+        statBlock(170, HEADER_H + 90, "lap", lapValue, COL_WARN);
     }
 }
 
@@ -808,7 +853,10 @@ void drawMenuSlider() {
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
     uiTft->setCursor(2, uiTft->height() - 9);
-    uiTft->print(",/. adjust +/-5%   ` back");
+    // Enter now leaves the slider the same way ` (BACK) does (ui_menu.h's
+    // handleSlider(), 2026-08-29) — hint text updated so it doesn't go
+    // silently out of date the moment a real, working key isn't mentioned.
+    uiTft->print(",/. adjust   Enter/` back");
 }
 
 // Toast overlay — flush-bottom band that slides up from off-panel on show
@@ -845,17 +893,35 @@ void drawHeader() {
     if (menu.isOpen()) {
         uiTft->print("MENU");
         // Breadcrumb, e.g. "MENU > System > Display" — full ancestor chain
-        // since a GROUP can itself open another GROUP. Worst case today
-        // ("MENU > System > Display > Brightness", 36 chars = 216px at
-        // size-1) stays clear of the 240px edge.
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        for (uint8_t i = 0; i < menu.breadcrumbCount(); i++) {
-            uiTft->print(" > ");
-            uiTft->print(menu.breadcrumbLabel(i));
+        // since a GROUP can itself open another GROUP, plus the slider's
+        // own label if one is open. Collected as whole segments (not a
+        // flat string) so a too-long chain can drop entire segments from
+        // the FRONT (oldest ancestor first, prefixed with "...") instead
+        // of slicing into the middle of a label — the current/deepest
+        // segment always survives intact, never a broken word fragment.
+        const char *segments[MenuState::MAX_DEPTH + 1];
+        uint8_t segmentCount = 0;
+        constexpr uint8_t MAX_SEGMENTS = (uint8_t)(sizeof(segments) / sizeof(segments[0]));
+        for (uint8_t i = 0; i < menu.breadcrumbCount() && segmentCount < MAX_SEGMENTS; i++) {
+            segments[segmentCount++] = menu.breadcrumbLabel(i);
         }
-        if (menu.inSlider()) {
+        if (menu.inSlider() && segmentCount < MAX_SEGMENTS) {
+            segments[segmentCount++] = menu.currentItem().label;
+        }
+
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        constexpr size_t MENU_LABEL_CHARS = 4; // strlen("MENU")
+        uint8_t start = 0;
+        for (;;) {
+            size_t total = MENU_LABEL_CHARS + (start > 0 ? 3 : 0); // leading "..."
+            for (uint8_t i = start; i < segmentCount; i++) total += 3 + strlen(segments[i]); // " > label"
+            if (total <= HEADER_BREADCRUMB_MAX_CHARS || start >= segmentCount) break;
+            start++;
+        }
+        if (start > 0) uiTft->print("...");
+        for (uint8_t i = start; i < segmentCount; i++) {
             uiTft->print(" > ");
-            uiTft->print(menu.currentItem().label);
+            uiTft->print(segments[i]);
         }
     } else {
         // Page name only — profile and page position live in the footer

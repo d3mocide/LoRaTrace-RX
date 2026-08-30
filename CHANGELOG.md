@@ -10,6 +10,313 @@ here for full history. See ROADMAP.md for phase-by-phase scope and
 src/version.h for the versioning convention (MAJOR.MINOR = phase,
 PATCH = fix with no new phase scope).
 
+- **2026-08-30 (v0.8.2) — Ctrl+S reverted entirely: repeat-Sweep moved to
+  its own dedicated key (R). The modifier-tracking machinery below
+  (KeyMod, KeyModifierTracker, the bounded self-heal) is gone too.**
+  Direct continuation of the entry below, same investigation, one more
+  hardware session. The KEY_DUMP diagnostic that entry added was pointed
+  at the real device and immediately proved useful: it caught a genuine
+  Ctrl+S chord dropping Ctrl's own release event off the TCA8418 FIFO
+  entirely (Ctrl's press itself registered ~200ms behind S's; no release
+  ever followed). The self-heal bound added in response (`held` cleared
+  automatically if no release arrived within `KEYMOD_MAX_HOLD_MS`) fixed
+  the reproduction but was recognized as a mitigation, not a fix — it
+  bounds how long a lost hardware event corrupts state, it doesn't stop
+  the event getting lost. Operator call: stop trying to make a modifier
+  chord reliable on hardware that has already shown it can drop a
+  release, and use a key with no release-based state to lose in the
+  first place.
+  - `KEY_RAW_R_PRESS = 22` (row 1, col 4) — same row as P (already
+    bench-confirmed), between Q (K=6, this file's pre-existing
+    regression check) and P (K=52); independently confirmed against
+    kamrrillo/Cardputer-ADV-Keyboard's own pressed-key capture, which
+    reads K=22 for 'r' directly, same as the Ctrl/Opt/Alt/Comma/Period/
+    Slash corroboration the prior entry already relied on.
+  - `KeyAction::CTRL_DOWN`/`CTRL_UP` (from the Ctrl+S attempt) and the new
+    `KeyMod`/`KeyModifierTracker`/`KEYMOD_MAX_HOLD_MS` (from this same
+    session's self-heal attempt) are all removed rather than left as
+    unused "ready for the next chord" infrastructure — keeping them would
+    misrepresent a proven-unreliable mechanism as available tooling.
+    `KEY_DUMP` itself stays: it's a generic raw-event diagnostic, not
+    modifier-specific, and is exactly what did the job here.
+  - On-device footer, Sweep-page comments, and `research/ui-panel-set.html`
+    updated from "Ctrl+S" to "R" throughout.
+  - `test_keyboard`: all chord/self-heal tests removed, replaced with a
+    plain `test_r_is_sweep_repeat_shortcut` plus an R entry in the
+    position round-trip and adjacent-key regression checks. 24 → 17 cases
+    (net fewer — the removed machinery had more surface than the key it
+    replaced). Native suite 152/152; `cardputer-adv`/`cardputer-adv-bench`
+    build clean; flashed and operator-confirmed on real hardware: R
+    starts/stops repeat mode, S still does a single bounded sweep.
+  - `scripts/keymap_capture.py` updated to check S/R instead of the five
+    modifiers and the Ctrl+S chord.
+
+- **2026-08-29 — All five modifiers tracked as a bitmask, plus a KEY_DUMP
+  raw-keycode diagnostic: the empirical check this keyboard never had.**
+  Third failure of the Ctrl+S chord on hardware, and the first look at
+  *why* the previous two fixes could ship green: every constant in
+  `keyboard.h` was derived on paper from Launcher's
+  `mapRawKeyToPhysical()`, and `test_keyboard` only ever pinned each
+  constant against itself (`TEST_ASSERT_EQUAL_UINT8(4, KEY_RAW_CTRL_PRESS)`
+  — true by construction, and true even if 4 were the wrong key). Nobody
+  had ever observed a byte off this keyboard.
+  - **Research first.** Surveyed how other projects do Cardputer combos.
+    M5Cardputer's own `Keyboard_Class` and the Rust `cardputer-adv-keyboard`
+    crate both maintain a list of *currently pressed* keys and resolve
+    modifiers from a simultaneous snapshot, never from event ordering;
+    kamrrillo/Cardputer-ADV-Keyboard skips combos entirely. That survey
+    also **confirmed the constants were right all along**: kamrrillo
+    publishes a keycode map captured by pressing each key, and its modifier
+    row (`ctrl opt alt z x c v b n m , . / space` = 4 8 14 18 24 28 34 38
+    44 48 54 58 64 68) matches this project's independently-derived Ctrl=4,
+    Comma=54, Period=58 and Slash=64 exactly. Recorded as sourcing note 4
+    in `keyboard.h`. One theory was checked and discarded: TCA8418 scan
+    order cannot enqueue S (17) before Ctrl (4) under either row- or
+    column-major scan.
+  - **Modifiers generalized.** `KeyAction::CTRL_DOWN`/`CTRL_UP` replaced by
+    a `KeyMod` bitmask over all five physical modifiers (Ctrl/Opt/Alt on
+    row 3, Fn/Shift on row 2) and a `KeyModifierTracker` that owns their
+    held state. Modifiers are no longer KeyActions at all — a bare modifier
+    must do nothing — so `keyboardDecodeEvent()` returns NONE for them.
+    Only Ctrl has a binding today; the other four are decoded so the next
+    chord is a one-line change and so one bench pass can prove all five.
+  - **Batch-scoped, which fixes a hole the previous patch left.**
+    `effective()` reports a modifier held at any point during one FIFO
+    drain, not just one still held at the end. That keeps the 2026-08-29
+    fix below (Ctrl's release landing in the same poll as S's press) while
+    also covering the converse the `sweepWithCtrl` out-param missed: the
+    chord's two halves arriving in different 30ms polls. Scoped per batch,
+    so stale state still cannot leak into a later plain keypress.
+  - **`KEY_DUMP` opcode** (`ON`/`OFF`) echoes one `[keydump]` line per raw
+    TCA8418 FIFO event with raw byte, key number, press/release edge,
+    decoded (row, col) and the held modifier mask. A production opcode, not
+    bench-only — it reads nothing and owns no subsystem — so the shipping
+    image can be diagnosed in the field. Off at boot; noisy under real use.
+    `scripts/keymap_capture.py` drives it as a guided capture: prompts for
+    one key at a time, then for the Ctrl+S chord, and reports what the
+    hardware emitted against what `keyboard.h` claims.
+  - **Tests that can actually fail.** `keyboardPhysicalPosition()` makes
+    Launcher's formula executable instead of prose, and every mapped
+    constant is now round-tripped against the (row, col) its own comment
+    claims — the check that was missing. The four FIFO orderings a Ctrl+S
+    chord can take are each pinned separately. `test_keyboard` 14 → 24
+    cases; native suite 159/159; `cardputer-adv` and
+    `cardputer-adv-bench` both build clean.
+  - **Still unverified on hardware**, and deliberately so: this change's
+    whole point is that paper derivation plus self-referential tests is not
+    evidence. Fn and Shift have no independent confirmation beyond sitting
+    in row 2's arithmetic run. Run `scripts/keymap_capture.py` before
+    trusting any of it.
+  - **Superseded the next day (2026-08-30, see the entry above this one):**
+    running `scripts/keymap_capture.py`'s KEY_DUMP diagnostic against real
+    hardware is exactly what found Ctrl+S dropping Ctrl's own release
+    event, and the whole modifier-chord approach this entry describes —
+    `KeyMod`, `KeyModifierTracker`, `KEYMOD_MAX_HOLD_MS`, and Ctrl+S itself
+    — was removed in favor of a dedicated key (R). Kept here for the
+    investigation history; none of the modifier machinery below still
+    exists in `keyboard.h`.
+
+- **2026-08-29 — Sweep's disclaimer line reworded: "energy only, not LoRa"
+  → "listening to the noise, unconfirmed".** Operator request — the
+  original read as flat/technical. The line isn't decorative: DESIGN.md's
+  Sweep rule is that a measured RSSI peak is never by itself evidence of
+  LoRa traffic, so whatever replaced it had to keep that disclaimer, not
+  just read as flavor text. Picked from a short set of options that kept
+  the "unconfirmed" meaning explicit rather than only implied by mood (a
+  purely poetic line like "listening to the void" was considered and set
+  aside for exactly that reason — evocative, but no longer disambiguates
+  on its own). `cardputer-adv`/`cardputer-adv-bench` build clean; native
+  suite 149/149 (unaffected, plain string literal).
+  `research/ui-panel-set.html` updated to match.
+
+- **2026-08-29 — Ctrl+S read backwards on first real-hardware test: a
+  genuine chord fired a single sweep, a plain S tap fired repeat.** Direct
+  correction to the entry below, same day. Root cause: `pollKeyAction()`
+  drained a whole 30ms poll's worth of TCA8418 events before the caller
+  ever checked `ctrlHeld`, but a natural, quick Ctrl+S press commonly lands
+  Ctrl's own *release* in that same poll, right behind S's press — nobody
+  holds Ctrl noticeably longer than the letter key. By the time the caller
+  read `ctrlHeld`, it had already flipped back to false, so a real chord
+  read as a plain tap; conversely, `ctrlHeld` left dangling true from an
+  earlier such chord (whose release hadn't yet been processed at the
+  point a later plain S was evaluated) made that later tap misread as a
+  chord. Fixed by capturing whether Ctrl was held at the *exact instant*
+  S's own press event is processed, inside `pollKeyAction()`'s own drain
+  loop, via a new `sweepWithCtrl` out-param — not derived from `ctrlHeld`'s
+  value at any point after the poll finishes draining. Native suite
+  149/149 (unaffected — this logic isn't host-tested, consistent with the
+  rest of `ui_task.cpp`); both `cardputer-adv`/`cardputer-adv-bench` build
+  clean. Not yet re-verified on real hardware — next flash should confirm.
+
+- **2026-08-29 — Hold-S didn't work reliably on real hardware; replaced
+  with Ctrl+S, and the project's "no modifier keys" rule dropped with it.**
+  Direct correction to the entry below, same day, after the operator
+  tested the hold-duration trigger in the field. Real physical modifiers
+  (Ctrl/Opt/Alt/Fn) exist on this keyboard and are the normal convention
+  for this kind of shortcut, so `keyboard.h`'s standing "no Fn chord" rule
+  — sound advice when the alternative was avoidable complexity, not
+  sound once the avoidance itself stopped working — no longer holds;
+  Ctrl is the first modifier tracked, added if/when something else needs
+  one, not preemptively. Sourced Ctrl's physical position the same way
+  every other key in this file has been (RetroBreeze's
+  `_key_value_map[4][14]`, fetched fresh since the earlier local clone was
+  gone): row 3, col 0 — `{CTL}{OPT}{ALT}{'z'}...` — giving raw K=4 via this
+  file's own formula, cross-checked against two already-confirmed keys
+  (ESC row0/col0→K=1, S row2/col3→K=17) before trusting it. Removed the
+  hold-duration machinery entirely: `KEY_RAW_S_RELEASE`/
+  `KeyAction::SWEEP_RELEASE`, `SWEEP_HOLD_MS`, and the
+  press-then-wait-then-resolve state machine in `ui_task.cpp`. Added
+  `KEY_RAW_CTRL_PRESS`/`RELEASE` and `KeyAction::CTRL_DOWN`/`CTRL_UP`
+  instead; `ui_task.cpp` now tracks a plain `ctrlHeld` boolean (updated as
+  `pollKeyAction()` drains the FIFO in event order, so a same-poll
+  Ctrl-then-S sequence still sees Ctrl already down) and fires
+  `SWEEP_REPEAT_TOGGLE` immediately on Ctrl+S, `SWEEP_TOGGLE` on plain S —
+  both on press, no waiting, no timing thresholds to get wrong. The repeat
+  mechanism itself (`radio_task`'s `energyRepeatActive`/lap loop, the
+  `REPEATING` headline, the suppressed per-lap toast) is unchanged, since
+  none of that depended on how the mode gets triggered. Also moved the lap
+  counter (operator request) from the second line to its own stat block at
+  the bottom of the Sweep page's right column, separate from
+  peaks/best-MHz/rssi above it. Updated `test_keyboard`
+  (`test_ctrl_press_and_release_are_recognized` replaces the reverted
+  `test_s_release_is_recognized`). Native suite 149/149; both
+  `cardputer-adv`/`cardputer-adv-bench` build clean.
+  `research/ui-panel-set.html` updated throughout (key map, Sweep plate,
+  REPEATING screen's lap position).
+
+- **2026-08-29 — Hold-S starts/stops repeat-Sweep mode: back-to-back laps
+  until cancelled, with an on-screen lap counter.** Requested from real
+  field use: a war-drive check wants one bounded Sweep, but walking around
+  scanning an area wants the radio to just keep sweeping without a manual
+  re-press every time. Fn+S was the operator's first idea, ruled out
+  directly — `keyboard.h` has stated since Phase 5 that this project
+  tracks no Fn modifier at all, so that would mean new input architecture,
+  not a wiring change. Landed on hold-S instead (same tap-vs-hold shape
+  already used on the Heltec sibling firmware's own button), which needed
+  a capability this file didn't have: distinguishing S's release event
+  from every other key's (still ignored). Added `KEY_RAW_S_RELEASE`/
+  `KeyAction::SWEEP_RELEASE` (`keyboard.h`) and a new `pollKeyAction()`
+  out-param (`ui_task.cpp`) so a quick tap's press and release can't
+  collapse into just the release within one poll, the way this file's
+  existing "keep only the last action" logic would otherwise do to them.
+  `ui_task.cpp` now resolves tap (release before 1.5s: fires the existing
+  `SWEEP_TOGGLE`) vs. hold (1.5s crossed while still held: fires a new
+  `SWEEP_REPEAT_TOGGLE`) from real press/release timestamps. `radio_task`
+  gained `energyRepeatActive`/`energyRepeatCount` and
+  `radioRequestEnergySweepRepeat()`: the main loop's sweep dequeue now
+  loops `performEnergySweep()` back-to-back after each `COMPLETE` while
+  repeat is engaged, stopping on operator cancel, a non-clean lap
+  (CANCELLED/FAILED), or Trace pausing. Sweep's page shows a `REPEATING`
+  headline (replacing the SCANNING/COMPLETE flicker a raw per-lap view
+  would otherwise show) and `lap N` in place of `away Nms`; the per-lap
+  completion toast is suppressed too (the on-screen counter already covers
+  it) — only the lap that actually ends the chain still toasts. New tests:
+  `test_s_release_is_recognized` (`test_keyboard`). Native suite 149/149;
+  both `cardputer-adv`/`cardputer-adv-bench` build clean.
+  `research/ui-panel-set.html` updated with a REPEATING screen and the
+  tap/hold key-map entries.
+
+- **2026-08-29 — Breadcrumb truncation fix corrected: the status dots were
+  the real obstacle, not the battery gauge; truncation now drops whole
+  segments instead of slicing mid-word.** Direct correction to the entry
+  below, same day: that first fix computed its safe-width budget against
+  `drawBattery()`'s clear-rect (real x=184) and still collided on real
+  hardware, because the header's status-dot cluster sits closer (leftmost
+  dot edge, real x=155) — the true nearest obstacle. Recomputed
+  `HEADER_BREADCRUMB_MAX_CHARS` to 25 (was 30). Also found the first fix's
+  character-count truncation could slice into the middle of a label, and
+  that two 3-deep group lists ("System > Connectivity", "System >
+  Diagnostics") overrun the budget on their own label length alone, not
+  just the 4-deep slider case. Rewrote `drawHeader()`'s breadcrumb assembly
+  to collect ancestor labels (plus the slider's own label, if open) as
+  discrete segments, then drop whole segments from the front — oldest
+  ancestor first, prefixed with "..." — until it fits, so the deepest
+  segment always survives intact (e.g. `MENU...> Connectivity`, never a
+  broken fragment). Native suite 148/148 (unaffected — `ui_pages.cpp`
+  drawing isn't host-tested, consistent with the rest of this file); both
+  `cardputer-adv`/`cardputer-adv-bench` build clean.
+  `research/ui-panel-set.html`'s callout updated to match.
+
+- **2026-08-29 — Menu breadcrumb truncation fix (real hardware collision,
+  4 levels deep); Enter now also confirms/exits the Brightness slider.**
+  Grey COL_DIM confirmed good on real hardware (see entry below). Same
+  session surfaced a real header collision: at the menu's one 4-deep path
+  (System > Display > Brightness), the printed breadcrumb ("MENU > System
+  > Display > Brightness", 36 chars = 216px) overran the battery gauge's
+  own clear-rect, which actually starts at real x=184 — not the panel's
+  240px right edge, which an earlier comment in `drawHeader()` had
+  mistakenly checked against instead. Fixed by building the breadcrumb
+  into a buffer first and truncating from the *front* with a leading
+  "..." past a real, derived 30-character budget (`HEADER_BREADCRUMB_MAX_CHARS`)
+  — keeps the current location visible (what you're doing right now
+  matters more than how you got there), not the shallow root. Separately,
+  the operator asked whether Enter could also confirm the slider instead
+  of requiring ESC — added `KeyAction::SELECT` as a second way to leave a
+  SLIDER row (`ui_menu.h`'s `handleSlider()`), and updated `ui_task.cpp`'s
+  `leavingSlider` check (the SD-write debounce point) to recognize both
+  keys, not just BACK, so a value confirmed with Enter actually persists.
+  Slider footer hint text updated to mention Enter so it doesn't silently
+  go stale next to a real, working key. New test coverage:
+  `test_slider_select_also_returns_to_its_list` (`test_ui_menu`). Native
+  suite 148/148; both `cardputer-adv` and `cardputer-adv-bench` build
+  clean. `research/ui-panel-set.html` updated to match (slider hint text,
+  a header-anatomy callout explaining the truncation rule — not
+  reproducible in the mockup's own wider canvas/font metrics, since the
+  real collision is a 240px-width fact, not a layout-proportions one).
+
+- **2026-08-29 — `COL_DIM` settled back on grey after two amber revisions;
+  battery percentage right-aligned against the gauge instead of drifting
+  with digit count.** Direct continuation of the same day's amber change
+  below, now with real hardware in hand. First flash showed the
+  full-saturation amber (`0xFD20`) reading nearly as bright as `COL_WARN`'s
+  yellow — measured luminance ~174 vs. the original grey's ~131, so the
+  same brightness that made it survive sunlight also made it visually
+  compete with everything, including `COL_FG`'s white. A muted amber
+  (`0xC444`, luminance ~144) toned that down but still didn't suit on
+  operator taste. Reverted to `0xBDF7` — the ~75% light grey tried and
+  reasoned away earlier the same day on a worry (glare-compressed contrast
+  vs. white) that was never actually field-tested; this is that test.
+  Separately, real-hardware photos also surfaced a genuine layout bug in
+  `drawBattery()`: the percentage was left-anchored at a fixed offset
+  (`x - 30`), so shorter values ("7%") drifted away from the gauge while
+  longer ones ("100%") sat tight — the number's on-screen position wasn't
+  actually about the battery at all, just an artifact of digit count.
+  Fixed to right-align against the gauge with a constant 2px gap, computed
+  from the fixed-width bitmap font's known 6px/glyph size (no string-width
+  measurement needed). Both fixes verified: `cardputer-adv` builds clean,
+  native suite 147/147 (unaffected — pure rendering, no test coverage
+  either way, consistent with the rest of this file's colour table).
+  `research/ui-panel-set.html`'s mockup updated to match both. Also
+  generated `compile_commands.json` (`pio run -e cardputer-adv -t
+  compiledb`, gitignored — machine-specific absolute paths) and added a
+  portable `.clangd` pointing at the real xtensa-esp32s3-elf-g++ driver,
+  to quiet clangd/clang-tooling false positives on Arduino/RadioLib/
+  FreeRTOS symbols seen throughout this session's edits (`ESP`, `millis`,
+  `HEX`, `pdMS_TO_TICKS`, RadioLib CAD constants) — not confirmed to fully
+  resolve them in every environment, since it depends on whether the
+  editor's tooling actually honors project-level clangd config.
+
+- **2026-08-29 — Dim-label UI color changed from mid-grey to amber for
+  outdoor readability.** Flagged ahead of the Cardputer's first live field
+  war drive: `COL_DIM` (`ui_pages.cpp`, used for every secondary/dim label
+  across the on-device menu and result cards) was a true 50%-brightness
+  grey (`0x8410`), which washes out toward indistinguishable from the
+  black background under direct sunlight glare on the ST7789V2 panel. A
+  lighter grey/silver (`0xBDF7`) was tried first, then rejected on operator
+  review: glare compresses the brightness range a display can actually be
+  told apart in, so a bright-enough-to-survive-glare grey risks looking
+  the same as `COL_FG`'s white under those exact conditions — the fix
+  needed to separate dim from white by hue, not brightness. Settled on
+  amber (`0xFD20`) after the operator ruled out blue/cyan on style
+  grounds — clear of `COL_WARN`'s pure yellow (`0xFFE0`) and `COL_BAD`'s
+  pure red (`0xF800`), and amber has a long history as the go-to color for
+  outdoor/direct-sunlight instrument legibility (VFDs, aviation/marine
+  panels). Not yet field-verified in actual daylight — the operator will
+  flash and confirm on the war drive itself. `cardputer-adv` builds clean;
+  no test coverage exists for this constant (pure rendering, not
+  host-tested) and none was added, consistent with the rest of
+  `ui_pages.cpp`'s color table.
+
 - **2026-08-29 — Per-combo Pass B confidence weighting shipped
   (`PassBConfidence`, `energy.csv`'s new `pass_b_confidence` column).**
   Direct follow-up to the shielded-box matrix below, whose pooled

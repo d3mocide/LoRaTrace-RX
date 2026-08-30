@@ -83,3 +83,12 @@ bool uiTaskStart(Arduino_GFX *gfx, const DisplaySettings &settings);
 // back to auto-advancing pages on a timer, so the device stays useful
 // rather than stuck on one page.
 bool uiKeyboardReady();
+
+// Raw keyboard event dump, off by default and toggled over Serial Control
+// (KEY_DUMP). Emits one `[keydump]` line per TCA8418 FIFO event with its raw
+// byte, key number, press/release edge, and decoded (row, col) — the
+// empirical check keyboard.h's paper-derived constants never had. This is
+// what caught the Ctrl+S modifier chord dropping its own release event on
+// real hardware (2026-08-30), leading to that chord's removal.
+void uiKeyDumpSetEnabled(bool enabled);
+bool uiKeyDumpIsEnabled();

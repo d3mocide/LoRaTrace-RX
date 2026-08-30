@@ -1,0 +1,1105 @@
+<title>LoRaTrace RX Panel Set</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --paper: #eef1ec;
+    --paper-raised: #e4e8e0;
+    --ink: #16201c;
+    --ink-soft: color-mix(in srgb, var(--ink) 62%, var(--paper));
+    --ink-faint: color-mix(in srgb, var(--ink) 38%, var(--paper));
+    --line: #c7ccc1;
+    --line-strong: #a7ad9d;
+    --amber: #a8721a;
+    --sage: #3d7a57;
+    --sage-wash: color-mix(in srgb, var(--sage) 12%, var(--paper));
+    --red: #b23b2e;
+    --shadow: rgba(22, 32, 28, 0.10);
+
+    --font-display: 'Barlow Condensed', 'Oswald', sans-serif;
+    --font-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'Consolas', monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14181a;
+      --paper-raised: #1b2020;
+      --ink: #e7eae3;
+      --ink-soft: color-mix(in srgb, var(--ink) 62%, var(--paper));
+      --ink-faint: color-mix(in srgb, var(--ink) 38%, var(--paper));
+      --line: #2b322d;
+      --line-strong: #3b443c;
+      --amber: #e3b04d;
+      --sage: #6cbb90;
+      --sage-wash: color-mix(in srgb, var(--sage) 10%, var(--paper));
+      --red: #d97264;
+      --shadow: rgba(0, 0, 0, 0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14181a;
+    --paper-raised: #1b2020;
+    --ink: #e7eae3;
+    --ink-soft: color-mix(in srgb, var(--ink) 62%, var(--paper));
+    --ink-faint: color-mix(in srgb, var(--ink) 38%, var(--paper));
+    --line: #2b322d;
+    --line-strong: #3b443c;
+    --amber: #e3b04d;
+    --sage: #6cbb90;
+    --sage-wash: color-mix(in srgb, var(--sage) 10%, var(--paper));
+    --red: #d97264;
+    --shadow: rgba(0, 0, 0, 0.35);
+  }
+
+  /* Real device colours -- RGB565 values quantized from src/ui_pages.cpp /
+     src/main.cpp. Fixed, not theme tokens: these represent hardware truth
+     (what the ST7789V2 panel actually displays), not document styling, so
+     they hold constant regardless of the viewer's light/dark preference. */
+  :root {
+    --scr-bg: #000000;
+    --scr-fg: #ffffff;
+    --scr-dim: #bdbebd;   /* COL_DIM 0xBDF7, light grey (~75%) -- two amber revisions tried and
+                             reverted same day (2026-08-29); back to grey, brighter than the
+                             original ~51% that washed out in direct sun */
+    --scr-good: #00ff00;  /* COL_GOOD 0x07E0 */
+    --scr-warn: #ffff00;  /* COL_WARN 0xFFE0 */
+    --scr-bad: #ff0000;   /* COL_BAD 0xF800 */
+    --scr-splash-green: #4aa273;  /* SPLASH_GREEN, pre-quantization hex */
+    --scr-splash-amber: #deb221;  /* SPLASH_AMBER, pre-quantization hex */
+    --scr-splash-green-dim: #2d5940;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.55;
+  }
+
+  ::selection { background: var(--sage); color: var(--paper); }
+
+  a { color: var(--sage); }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--sage);
+    outline-offset: 2px;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    text-wrap: balance;
+    margin: 0;
+    color: var(--ink);
+  }
+
+  .eyebrow {
+    font-family: var(--font-display);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 12.5px;
+    color: var(--amber);
+  }
+
+  p { margin: 0; max-width: 62ch; }
+  .prose p + p { margin-top: 0.85em; }
+
+  code, .mono { font-family: var(--font-mono); }
+
+  /* --- Page shell: fixed index rail + main column ---------------------- */
+
+  .shell {
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+    gap: 0;
+    max-width: 1180px;
+    margin: 0 auto;
+    align-items: start;
+  }
+
+  .rail {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 28px 20px 28px 28px;
+    border-right: 1px solid var(--line);
+  }
+  .rail-mark {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .rail-mark .dot { color: var(--sage); }
+  .rail-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 21px;
+    letter-spacing: 0.01em;
+  }
+  .rail-sub {
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    font-family: var(--font-mono);
+    margin-top: 2px;
+    margin-bottom: 24px;
+  }
+  .rail nav { display: flex; flex-direction: column; }
+  .rail nav a {
+    text-decoration: none;
+    color: var(--ink-soft);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    padding: 5px 0;
+    border-left: 2px solid transparent;
+    padding-left: 10px;
+    margin-left: -1px;
+  }
+  .rail nav a:hover, .rail nav a:focus-visible { color: var(--ink); border-left-color: var(--amber); }
+  .rail nav .group-label {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin: 18px 0 4px;
+  }
+  .rail nav .group-label:first-child { margin-top: 0; }
+
+  main { padding: 44px clamp(20px, 4vw, 56px) 96px; min-width: 0; }
+
+  /* --- Cold open --------------------------------------------------------- */
+
+  .cold-open { max-width: 74ch; margin-bottom: 40px; }
+  .cold-open h1 { font-size: clamp(30px, 4vw, 42px); margin: 6px 0 16px; }
+  .spec-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .spec-strip b { color: var(--ink); font-weight: 600; }
+
+  /* --- Plate: a bordered sheet with corner fiducials --------------------- */
+
+  .plate {
+    position: relative;
+    margin: 0 0 40px;
+    padding: 26px clamp(18px, 3vw, 34px) 30px;
+    border: 1px solid var(--line);
+    background: var(--paper-raised);
+    scroll-margin-top: 20px;
+  }
+  .plate::before, .plate::after,
+  .plate .fid-br, .plate .fid-bl {
+    content: "";
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border: 1.5px solid var(--line-strong);
+  }
+  .plate::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+  .plate::after { top: -1px; right: -1px; border-left: none; border-bottom: none; }
+  .plate .fid-bl { bottom: -1px; left: -1px; border-right: none; border-top: none; }
+  .plate .fid-br { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+  .plate-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .plate-num {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+  }
+  .plate-title { font-size: 24px; }
+  .plate-note {
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    max-width: 62ch;
+    margin-bottom: 20px;
+  }
+  .plate-note code { background: var(--sage-wash); padding: 0 4px; border-radius: 2px; }
+
+  .plate-body { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .screens-row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+
+  /* --- Device screen component -------------------------------------------
+     Real panel: 240x135px, rotation 1, RGB565, Adafruit-GFX bitmap font
+     (6x8 cell at size 1, 12x16 at size 2). Rendered here at 2.2x
+     (528x297) with IBM Plex Mono standing in for the fixed bitmap font --
+     legible and faithful to layout/colour, not a pixel-exact emulator.
+     Every absolute position below is (real ui_pages.cpp coordinate) x 2.2,
+     recomputed and checked against the source a second time after the
+     first pass shipped with several unscaled/guessed offsets. */
+
+  .screen-frame { overflow-x: auto; max-width: 100%; }
+  .replay-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: transparent;
+    color: var(--sage);
+    border: 1px solid var(--sage);
+    padding: 5px 12px;
+    cursor: pointer;
+  }
+  .replay-btn:hover { background: var(--sage-wash); }
+  @media (prefers-reduced-motion: reduce) {
+    .replay-btn { display: none; }
+  }
+  .screen-cap {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    margin-top: 9px;
+    max-width: 528px;
+  }
+  .device {
+    display: inline-block;
+    padding: 13px;
+    background: #2a2620;
+    border-radius: 13px;
+    box-shadow: 0 6px 18px var(--shadow);
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .device { background: #d8d3c6; } }
+  :root[data-theme="dark"] .device { background: #d8d3c6; }
+
+  .screen {
+    position: relative;
+    width: 528px;
+    height: 297px;
+    background: var(--scr-bg);
+    overflow: hidden;
+    font-family: var(--font-mono);
+    color: var(--scr-fg);
+  }
+  /* Real cells are 6x8px (size 1) / 12x16px (size 2); at this component's
+     2.2x scale that's 17.6px / 35.2px tall -- font-size tracks that
+     directly (line-height:1, no extra leading) rather than a value chosen
+     by eye, which is what shipped in the first pass. */
+  .screen .t1 { position: absolute; font-size: 16px; line-height: 1; white-space: pre; letter-spacing: 0.2px; }
+  .screen .t2 { position: absolute; font-size: 32px; line-height: 1; font-weight: 600; white-space: pre; }
+  .fg { color: var(--scr-fg); }
+  .dim { color: var(--scr-dim); }
+  .good { color: var(--scr-good); }
+  .warn { color: var(--scr-warn); }
+  .bad { color: var(--scr-bad); }
+
+  .scr-hdr-rule { position: absolute; left: 0; top: 26px; width: 100%; height: 1px; background: var(--scr-dim); opacity: 0.55; }
+  .scr-dot { position: absolute; width: 9px; height: 9px; border-radius: 50%; top: 9px; }
+  .scr-batt { position: absolute; top: 4px; right: 9px; width: 48px; height: 20px; border: 1.5px solid; border-radius: 1px; }
+  /* Real device: fillRect(x+w, y+2, 2, h-4) inside a 9px-tall gauge --
+     2px gap above, 2px gap below, genuinely centered. At 2.2x that's
+     top:4px height:11px inside the 20px gauge (previously top:8/height:12,
+     which pinned it flush to the bottom instead of centering it). */
+  .scr-batt-nub { position: absolute; top: 4px; width: 4px; height: 11px; }
+  .scr-footer { position: absolute; left: 0; bottom: 20px; width: 100%; padding: 0 5px; display: flex; justify-content: space-between; font-size: 12px; color: var(--scr-dim); }
+
+  /* Menu row -- real row pitch is 24px (HEADER_H+10+i*24), 20px-tall
+     highlight inset y-3; at 2.2x that's a 52.8px pitch, 44px-tall row. */
+  .m-row {
+    position: absolute; left: 0; width: 100%; height: 44px;
+    display: flex; align-items: center; padding: 0 9px;
+    font-family: var(--font-mono); font-size: 20px; font-weight: 600;
+  }
+  .m-row.sel { background: var(--scr-fg); color: var(--scr-bg); }
+  .m-row.unsel { color: var(--scr-fg); }
+  .m-row .val { color: inherit; opacity: 0.75; margin-left: 6px; }
+
+  /* Frequency bar + occupancy */
+  .freqbar-track { position: absolute; height: 1px; background: var(--scr-dim); }
+  .freqbar-mark { position: absolute; width: 7px; height: 15px; background: var(--scr-good); }
+  .freqbar-tick { position: absolute; width: 2px; height: 15px; background: var(--scr-warn); }
+
+  /* Toast */
+  .scr-toast {
+    position: absolute; left: 0; width: 100%; height: 35px;
+    background: var(--scr-fg); color: var(--scr-bg);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 9px; font-size: 12px; font-weight: 600;
+  }
+  .scr-toast .bar { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--scr-dim); }
+
+  /* --- State-chip strip (compact alt-state reference) -------------------- */
+  .chip-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    border: 1px solid var(--line);
+    padding: 7px 11px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--paper);
+  }
+  .chip .swatch { width: 9px; height: 9px; border-radius: 50%; }
+  .chip .cap { color: var(--ink-faint); font-size: 11px; }
+
+  /* --- Annotation callouts (header anatomy / menu tree) ------------------ */
+  .callout-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 240px;
+    font-size: 14px;
+  }
+  .callout-list li { display: flex; gap: 10px; align-items: baseline; }
+  .callout-list .tag {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--paper);
+    background: var(--ink-soft);
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+  .callout-list b { font-weight: 600; }
+  .callout-list span.detail { color: var(--ink-soft); }
+
+  /* --- Palette swatches --------------------------------------------------- */
+  .swatch-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 14px;
+    width: 100%;
+  }
+  .swatch {
+    border: 1px solid var(--line);
+    background: var(--paper);
+  }
+  .swatch .fill { height: 46px; }
+  .swatch .meta { padding: 10px 12px 12px; }
+  .swatch .name { font-family: var(--font-display); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 14px; }
+  .swatch .hex { font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+  .swatch .use { font-size: 13px; color: var(--ink-soft); margin-top: 6px; }
+
+  /* --- Menu tree diagram --------------------------------------------------- */
+  .tree { font-family: var(--font-mono); font-size: 13.5px; }
+  .tree ul { list-style: none; margin: 4px 0 0 18px; padding: 0; border-left: 1px solid var(--line); }
+  .tree li { position: relative; padding: 5px 0 5px 18px; }
+  .tree li::before {
+    content: ""; position: absolute; left: 0; top: 17px; width: 14px; height: 1px; background: var(--line);
+  }
+  .tree > ul { margin-left: 0; border-left: none; }
+  .tree .node { font-weight: 600; }
+  .tree .action::after { content: " — action"; color: var(--ink-faint); font-weight: 400; }
+  .tree .group::after { content: " — group"; color: var(--amber); font-weight: 400; }
+  .tree .slider::after { content: " — slider"; color: var(--sage); font-weight: 400; }
+
+  /* --- Key reference table ------------------------------------------------ */
+  table.keys { border-collapse: collapse; width: 100%; font-size: 14px; }
+  table.keys th {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 12px;
+    text-align: left;
+    color: var(--ink-soft);
+    padding: 8px 14px 8px 0;
+    border-bottom: 1px solid var(--line-strong);
+  }
+  table.keys td {
+    padding: 10px 14px 10px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table.keys .keycap {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    background: var(--sage-wash);
+    padding: 2px 7px;
+    white-space: nowrap;
+    display: inline-block;
+  }
+  table.keys td.note { color: var(--ink-soft); font-size: 13px; }
+
+  /* --- Constraints list ---------------------------------------------------- */
+  .constraints { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; }
+  .constraints .item { padding-left: 16px; border-left: 2px solid var(--amber); }
+  .constraints .item h3 { font-size: 14.5px; text-transform: none; letter-spacing: 0; font-family: var(--font-body); font-weight: 600; margin-bottom: 4px; }
+  .constraints .item p { font-size: 13.5px; color: var(--ink-soft); }
+
+  footer.doc-footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--ink-faint);
+    font-family: var(--font-mono);
+  }
+
+  /* --- Motion: boot mark arcs + toast slide, both restrained, both gated -- */
+  @media (prefers-reduced-motion: no-preference) {
+    .arc { animation: arc-settle 2.1s ease-out 1 forwards; }
+    .arc.a1 { animation-delay: 0.05s; }
+    .arc.a2 { animation-delay: 0.35s; }
+    .arc.a3 { animation-delay: 0.65s; }
+    @keyframes arc-settle {
+      0% { stroke: var(--scr-splash-amber); }
+      55% { stroke: var(--scr-splash-amber); }
+      100% { stroke: var(--scr-splash-green); }
+    }
+    .toast-demo { animation: toast-cycle 5s ease-in-out infinite; }
+    @keyframes toast-cycle {
+      0% { transform: translateY(35px); }
+      8% { transform: translateY(0); }
+      78% { transform: translateY(0); }
+      92% { transform: translateY(35px); }
+      100% { transform: translateY(35px); }
+    }
+    .toast-bar-demo { animation: toast-bar 5s linear infinite; }
+    @keyframes toast-bar {
+      0% { width: 0; opacity: 0; }
+      8% { width: 100%; opacity: 1; }
+      78% { width: 0%; opacity: 1; }
+      100% { width: 0%; opacity: 0; }
+    }
+  }
+  .arc { stroke: var(--scr-splash-green); }
+
+  @media (max-width: 880px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 20px 20px 18px; }
+    .rail nav { flex-direction: row; flex-wrap: wrap; gap: 2px 14px; }
+    .rail nav .group-label { width: 100%; margin: 10px 0 2px; }
+    main { padding: 32px 18px 72px; }
+  }
+</style>
+
+<div class="shell">
+  <aside class="rail">
+    <div class="rail-mark"><span class="dot">●</span><span class="rail-title">LoRaTrace RX</span></div>
+    <div class="rail-sub">on-device UI &mdash; panel set</div>
+    <nav>
+      <a href="#open">Overview</a>
+      <a href="#boot">Boot sequence</a>
+      <a href="#palette">Palette &amp; type</a>
+      <a href="#header">Header anatomy</a>
+      <div class="group-label">Carousel — 6 pages</div>
+      <a href="#radio">1 · Radio</a>
+      <a href="#probe">2 · Probe</a>
+      <a href="#sweep">3 · Sweep</a>
+      <a href="#channel">4 · Channel</a>
+      <a href="#gps">5 · GPS</a>
+      <a href="#system">6 · System</a>
+      <div class="group-label">Menu system</div>
+      <a href="#menu-root">Root &amp; groups</a>
+      <a href="#menu-slider">Brightness slider</a>
+      <div class="group-label">Overlays &amp; input</div>
+      <a href="#toast">Toast overlay</a>
+      <a href="#keys">Key map</a>
+      <a href="#constraints">Constraints</a>
+    </nav>
+  </aside>
+
+  <main>
+    <section class="cold-open" id="open">
+      <div class="eyebrow">Field instrument — reference plate set</div>
+      <h1>On-device UI, screen by screen</h1>
+      <div class="prose">
+        <p>LoRaTrace RX is an RX-only LoRa wardriving instrument: a Cardputer-Adv (ESP32-S3) paired with an M5Stack Cap LoRa-1262 (SX1262), read entirely from its own 240&times;135 panel in the field — no phone, no laptop. Every screen below is the current, shipped state of that panel: the six-page status carousel, the grouped settings menu, the boot mark, and the toast layer, reproduced at 2.2&times; scale with real sample data and the panel's actual RGB565 colour values.</p>
+        <p>Built for a design pass: what's here is what exists today, warts included — not a proposal. Notes on each plate call out real hardware limits worth knowing before redrawing anything.</p>
+      </div>
+      <div class="spec-strip">
+        <span><b>240&times;135px</b> · ST7789V2 IPS</span>
+        <span><b>RGB565</b> · no alpha blending</span>
+        <span><b>6&times;8 / 12&times;16</b> fixed bitmap font, 2 sizes only</span>
+        <span><b>TCA8418</b> keyboard, 4 keys + digit jumps</span>
+        <span><b>Core 0</b> render loop, must not block</span>
+      </div>
+    </section>
+
+    <section class="plate" id="boot">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div>
+          <div class="plate-num">Plate 00</div>
+          <h2 class="plate-title">Boot mark</h2>
+        </div>
+      </div>
+      <p class="plate-note">One-shot animated splash, own draw path (not <code>ui_task</code>'s redraw loop) — an L-shaped trace resolves into an anchor point, three arcs sweep amber&nbsp;&rarr;&nbsp;green in sequence, then the wordmark, version, and a signal-trace flourish settle in before the boot checklist prints beneath. Shown here at its final resting frame; the three arcs replay their amber-to-green settle once on load.</p>
+      <div class="plate-body">
+        <div class="screen-frame">
+          <div class="device"><div class="screen" aria-label="Boot splash, settled state" id="boot-screen">
+            <svg style="position:absolute;left:0;top:0" width="528" height="297" viewBox="0 0 528 297">
+              <polyline points="13,286 31,238 31,70 66,62" fill="none" stroke="var(--scr-splash-green)" stroke-width="2"></polyline>
+              <circle cx="66" cy="62" r="2.5" fill="var(--scr-splash-green)"></circle>
+              <path class="arc a1" d="M 80.1 48.1 A 19.8 19.8 0 0 1 80.2 75.8" fill="none" stroke-width="4.4" stroke-linecap="round"></path>
+              <path class="arc a2" d="M 89.5 38.8 A 33 33 0 0 1 89.7 85.0" fill="none" stroke-width="4.4" stroke-linecap="round"></path>
+              <path class="arc a3" d="M 98.8 29.5 A 46.2 46.2 0 0 1 99.2 94.2" fill="none" stroke-width="4.4" stroke-linecap="round"></path>
+            </svg>
+            <div class="t2 fg" style="left:130px;top:44px">LoRaTrace <span style="color:var(--scr-splash-green)">RX</span></div>
+            <div class="t1" style="left:130px;top:84px;color:var(--scr-splash-green)">v0.8.1</div>
+            <div class="t1 fg" style="left:86px;top:145px">IO expander: OK</div>
+            <div class="t1 fg" style="left:86px;top:167px">SD: OK</div>
+            <div class="t1 fg" style="left:86px;top:189px">Radio: OK</div>
+            <svg style="position:absolute;left:86px;top:222px" width="420" height="58" viewBox="0 0 420 58">
+              <polyline points="0,24 35,16 70,28 105,6 140,34 175,14 210,26 245,4 280,32 315,10 350,24 385,14 420,26" fill="none" stroke="var(--scr-splash-green)" stroke-width="1.5"></polyline>
+              <line x1="0" y1="57" x2="420" y2="57" stroke="var(--scr-splash-green-dim)" stroke-width="1"></line>
+            </svg>
+          </div></div>
+          <div class="screen-cap">
+            Fixed sequence: L-path draw (90ms/segment) &rarr; anchor dot &rarr; 3 arcs, amber hold 140&ndash;200ms then lock green &rarr; wordmark + version &rarr; 7-frame signal trace (110ms/frame) &rarr; boot checklist. Holds 1000ms after the checklist completes, then hands the panel to the carousel. The boot log deliberately aligns under the innermost arc's edge (x&thinsp;=&thinsp;39, real px), not under the wordmark (x&thinsp;=&thinsp;59) &mdash; an operator call recorded directly in <code>main.cpp</code>'s <code>MARK_LOG_X</code> comment, not a mockup slip.
+            <button type="button" id="boot-replay" class="replay-btn">&#9654; Replay</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="plate" id="palette">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Plate 01</div><h2 class="plate-title">Palette &amp; type</h2></div>
+      </div>
+      <p class="plate-note">Six colours, total, across the whole running UI — RGB565 has no alpha, so every state is a hard colour swap, never a tint or a fade. <code>COL_DIM</code> went through four revisions in one day (2026-08-29): the original mid-grey (~51% brightness) washed out under direct sunlight on a field war drive; a lighter grey (~75%) was reasoned away next, on a worry — never actually tested — that it would read the same as white under glare; a full-saturation amber fixed the sunlight problem but, seen on real hardware, was nearly as bright as the warn colour and stopped reading as "dim" at all; a muted amber toned that down but still didn't suit on taste. Landed back on the ~75% grey that was never actually field-tested the first time around — worth a real look in direct sun before the hue question gets reopened.</p>
+      <div class="swatch-grid">
+        <div class="swatch"><div class="fill" style="background:#000"></div><div class="meta"><div class="name">Col_bg</div><div class="hex">0x0000 &middot; #000000</div><div class="use">Panel background, every page.</div></div></div>
+        <div class="swatch"><div class="fill" style="background:#fff"></div><div class="meta"><div class="name">Col_fg</div><div class="hex">0xFFFF &middot; #FFFFFF</div><div class="use">Primary values &mdash; the numbers an operator reads first.</div></div></div>
+        <div class="swatch"><div class="fill" style="background:#bdbebd"></div><div class="meta"><div class="name">Col_dim <span style="color:var(--amber)">&middot; revised</span></div><div class="hex">0xBDF7 &middot; #BDBEBD</div><div class="use">Secondary labels, rules, footer. Light grey (~75%) as of 2026-08-29, after two same-day amber revisions (#FFA600 too loud, a muted #C58A21 still didn't suit) were both reverted on operator taste.</div></div></div>
+        <div class="swatch"><div class="fill" style="background:#00ff00"></div><div class="meta"><div class="name">Col_good</div><div class="hex">0x07E0 &middot; #00FF00</div><div class="use">Healthy / active / fix acquired / zero drops.</div></div></div>
+        <div class="swatch"><div class="fill" style="background:#ffff00"></div><div class="meta"><div class="name">Col_warn</div><div class="hex">0xFFE0 &middot; #FFFF00</div><div class="use">Running / cancelled / peaks found / low battery.</div></div></div>
+        <div class="swatch"><div class="fill" style="background:#ff0000"></div><div class="meta"><div class="name">Col_bad</div><div class="hex">0xF800 &middot; #FF0000</div><div class="use">Failed / SD down / drops &gt; 0 / critical heap.</div></div></div>
+        <div class="swatch"><div class="fill" style="background:#4aa273"></div><div class="meta"><div class="name">Splash_green</div><div class="hex">0x4D0E &middot; #4AA273</div><div class="use">Boot mark only &mdash; deliberately distinct from Col_good.</div></div></div>
+        <div class="swatch"><div class="fill" style="background:#deb221"></div><div class="meta"><div class="name">Splash_amber</div><div class="hex">0xDD84 &middot; #DEB221</div><div class="use">Boot mark's arc-acquire moment only.</div></div></div>
+      </div>
+      <p class="plate-note" style="margin-top:18px;margin-bottom:0">On-device type is a fixed Adafruit-GFX bitmap font, two sizes only: 6&times;8px cells (size&nbsp;1, most labels/body) and 12&times;16px cells (size&nbsp;2, hero numbers and headline words) &mdash; no italics, no weights, no third size. <span class="mono">IBM Plex Mono</span> stands in for it on these plates as a legible, same-proportions substitute.</p>
+    </section>
+
+    <section class="plate" id="header">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Plate 02</div><h2 class="plate-title">Header anatomy</h2></div>
+      </div>
+      <p class="plate-note">Drawn identically on every page — 12px band, present whether the carousel or the menu is open. The three status dots are always live, regardless of which page is showing, so heap/GPS/RX health is never more than a glance away.</p>
+      <div class="plate-body">
+        <div class="screen-frame">
+          <div class="device"><div class="screen" style="height:75px" aria-label="Header, carousel mode">
+            <div class="t1 fg" style="left:4px;top:4px">RADIO</div>
+            <div class="scr-batt" style="border-color:var(--scr-good);color:var(--scr-good)">
+              <div class="scr-batt-nub" style="right:-4px;background:var(--scr-good)"></div>
+              <div style="position:absolute;left:1px;top:1px;bottom:1px;width:70%;background:var(--scr-good)"></div>
+            </div>
+            <div class="t1 good" style="right:61px;top:4px">82%</div>
+            <div class="scr-dot" style="left:341px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:361px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:381px;background:var(--scr-dim);opacity:0.5"></div>
+            <div class="scr-hdr-rule"></div>
+          </div></div>
+          <div class="screen-cap">Carousel mode: page name, left.</div>
+        </div>
+        <div class="screen-frame">
+          <div class="device"><div class="screen" style="height:75px" aria-label="Header, menu breadcrumb">
+            <div class="t1 fg" style="left:4px;top:4px">MENU<span class="dim"> &gt; System &gt; Display &gt; Brightness</span></div>
+            <div class="scr-batt" style="border-color:var(--scr-warn);color:var(--scr-warn)">
+              <div class="scr-batt-nub" style="right:-4px;background:var(--scr-warn)"></div>
+              <div style="position:absolute;left:1px;top:1px;bottom:1px;width:32%;background:var(--scr-warn)"></div>
+            </div>
+            <div class="t1 warn" style="right:61px;top:4px">34%</div>
+            <div class="scr-dot" style="left:341px;background:var(--scr-bad)"></div>
+            <div class="scr-dot" style="left:361px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:381px;background:var(--scr-dim);opacity:0.5"></div>
+            <div class="scr-hdr-rule"></div>
+          </div></div>
+          <div class="screen-cap">Menu mode: full ancestor breadcrumb, dim, appended after &ldquo;MENU&rdquo;.</div>
+        </div>
+        <ul class="callout-list">
+          <li><span class="tag">name</span> Page name (carousel) or <b>MENU</b> + full breadcrumb chain, since a group can open another group. Two real collisions caught on hardware 2026-08-29: the status dots (closer than the battery gauge — real x=155) got clobbered both 4 levels deep in the Brightness slider and on two 3-deep group lists ("System &gt; Connectivity"/"Diagnostics") whose own label alone is long enough to overrun a 25-character budget. Fixed by dropping whole breadcrumb <em>segments</em> from the front (never mid-word) once that budget's exceeded — e.g. "MENU...&gt; Connectivity", not a sliced fragment. Not reproduced in this mockup's own wider canvas/font metrics; the real collision only shows up at the actual 240px width.</li>
+          <li><span class="tag">batt</span> Battery gauge: outline + fill + percentage, colour-tiered green&nbsp;&ge;50% / amber&nbsp;20&ndash;49% / red&nbsp;&lt;20%. Shows <span class="mono">bat ?</span> (dim) when the ADC reading is implausible rather than a fake 0%.</li>
+          <li><span class="tag">dots</span> Three status dots, always visible: <b>GPS fix</b> (green fix / amber sats-in-view / red none), <b>heap health</b> (green &lt;80% used / amber 80&ndash;90% / red &gt;90%, no-PSRAM 512K budget), <b>RX pulse</b> (flashes green ~220ms on any detection, otherwise dim).</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="plate" id="radio">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Plate 1 / 6 &middot; key <span class="mono">1</span></div><h2 class="plate-title">Radio</h2></div>
+      </div>
+      <p class="plate-note">The default landing page &mdash; live packet counters, always running unless explicitly paused. The bottom band (flush/max-flush) exists to judge whether the SD write-batch size needs retuning under real traffic, not for a quick glance.</p>
+      <div class="plate-body">
+        <div class="screen-frame">
+          <div class="device"><div class="screen" aria-label="Radio page, watching">
+            <div class="t1 fg" style="left:4px;top:4px">RADIO</div>
+            <div class="scr-batt" style="border-color:var(--scr-good);color:var(--scr-good)"><div class="scr-batt-nub" style="right:-4px;background:var(--scr-good)"></div><div style="position:absolute;left:1px;top:1px;bottom:1px;width:70%;background:var(--scr-good)"></div></div>
+            <div class="t1 good" style="right:61px;top:4px">82%</div>
+            <div class="scr-dot" style="left:341px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:361px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:381px;background:var(--scr-good)"></div>
+            <div class="scr-hdr-rule"></div>
+
+            <div class="t2 fg" style="left:4px;top:40px">rx 142</div>
+            <div class="t2 fg" style="left:4px;top:84px">log 138</div>
+            <div style="position:absolute;left:4px;top:77px;width:58px;height:2px;background:var(--scr-good)"></div>
+            <div class="t2 good" style="left:4px;top:128px">drop 0</div>
+
+            <div class="t1 dim" style="left:374px;top:40px">crc</div>
+            <div class="t1 fg" style="left:374px;top:60px">2</div>
+            <div class="t1 dim" style="left:374px;top:88px">miss</div>
+            <div class="t1 fg" style="left:374px;top:108px">0</div>
+            <div class="t1 dim" style="left:374px;top:136px">sd</div>
+            <div class="t1 fg" style="left:374px;top:156px">ok</div>
+            <div class="t1 dim" style="left:374px;top:185px">run</div>
+            <div class="t1 fg" style="left:374px;top:205px">r0080</div>
+
+            <div class="t1 dim" style="left:4px;top:233px">flush 46  max 812ms</div>
+            <div class="scr-footer"><span>Meshtastic</span><span>1/6</span></div>
+          </div></div>
+          <div class="screen-cap">Live watching, zero drops. A short green flash under &ldquo;log&rdquo; marks a detection heard in the last 220ms.</div>
+        </div>
+      </div>
+      <div class="chip-row">
+        <div class="chip"><span class="swatch" style="background:var(--scr-warn)"></span>STANDBY <span class="cap">— Trace paused from the menu; counters freeze, headline reads STANDBY</span></div>
+        <div class="chip"><span class="swatch" style="background:var(--scr-warn)"></span>PROBE 4/9 <span class="cap">— a Probe run is using the radio; &ldquo;WATCH PAUSED&rdquo; banner shows beneath</span></div>
+      </div>
+    </section>
+
+    <section class="plate" id="probe">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Plate 2 / 6 &middot; key <span class="mono">2</span> &middot; shortcut <span class="mono">P</span></div><h2 class="plate-title">Probe</h2></div>
+      </div>
+      <p class="plate-note">Phase 8's bounded CAD sweep across a small, sourced candidate table. A plain-English headline (&ldquo;N/M channels active&rdquo;) leads; the raw hit/free/timeout/err breakdown stays underneath as a reference line, kept after early feedback that the clean version alone felt too sparse.</p>
+      <div class="plate-body">
+        <div class="screen-frame">
+          <div class="device"><div class="screen" aria-label="Probe page, complete">
+            <div class="t1 fg" style="left:4px;top:4px">PROBE</div>
+            <div class="scr-batt" style="border-color:var(--scr-good);color:var(--scr-good)"><div class="scr-batt-nub" style="right:-4px;background:var(--scr-good)"></div><div style="position:absolute;left:1px;top:1px;bottom:1px;width:70%;background:var(--scr-good)"></div></div>
+            <div class="t1 good" style="right:61px;top:4px">82%</div>
+            <div class="scr-dot" style="left:341px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:361px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:381px;background:var(--scr-dim);opacity:0.5"></div>
+            <div class="scr-hdr-rule"></div>
+
+            <div class="t2 good" style="left:4px;top:44px">COMPLETE</div>
+            <div class="t1 fg" style="left:4px;top:95px">targets 9/9  away 340ms</div>
+            <div class="t1 warn" style="left:4px;top:130px">3/9 channels active</div>
+            <div class="t1 fg" style="left:4px;top:156px">LongModerate, ShortFast, Current</div>
+            <div class="t1 dim" style="left:4px;top:211px">hits 3  free 5  timeout 1  err 0</div>
+            <div class="scr-footer"><span>Meshtastic</span><span>2/6</span></div>
+          </div></div>
+          <div class="screen-cap">Complete, 3 of 9 sourced candidates answered. Named candidates come from the same table Probe actually CAD-tests, keyed by upstream preset slot.</div>
+        </div>
+      </div>
+      <div class="chip-row">
+        <div class="chip"><span class="swatch" style="background:var(--scr-dim)"></span>NO PROBE YET <span class="cap">— idle, never run this boot: &ldquo;P / Enter to run Probe&rdquo;</span></div>
+        <div class="chip"><span class="swatch" style="background:var(--scr-warn)"></span>SCANNING <span class="cap">— running: &ldquo;watch paused N/M&rdquo;, nothing else until a hit lands</span></div>
+        <div class="chip"><span class="swatch" style="background:var(--scr-warn)"></span>CANCELLED <span class="cap">— operator-aborted mid-run</span></div>
+        <div class="chip"><span class="swatch" style="background:var(--scr-bad)"></span>FAILED <span class="cap">— radio error shown as its own stat block</span></div>
+        <div class="chip"><span class="swatch" style="background:var(--scr-dim)"></span>IDLE <span class="cap">— headline dims 1s after any terminal result; everything below stays the real last run</span></div>
+      </div>
+    </section>
+
+    <section class="plate" id="sweep">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Plate 3 / 6 &middot; key <span class="mono">3</span> &middot; shortcut <span class="mono">S</span> / <span class="mono">R</span></div><h2 class="plate-title">Sweep</h2></div>
+      </div>
+      <p class="plate-note">Phase 9's two-pass energy sweep, 868&ndash;923MHz. The frequency track is a <em>position</em> marker, not a fill/progress bar (frequency isn't a quantity being used up) &mdash; the same convention Channel's own bar uses. Warn-coloured ticks mark bins that cleared the peak threshold. &ldquo;Listening to the noise, unconfirmed&rdquo; (reworded 2026-08-29, same meaning as the original &ldquo;energy only, not LoRa&rdquo;) is deliberate: a measured RSSI peak alone is never treated as LoRa evidence on this screen. <b>R</b> starts repeat mode instead of one bounded pass (operator request, 2026-08-29) &mdash; back-to-back laps until R again cancels, for walking around scanning an area rather than a single war-drive check. A first attempt timed a hold on S alone and didn't work reliably on real hardware; a Ctrl+S modifier chord replaced it next, then that too was reverted (2026-08-30) after real hardware testing showed the TCA8418 can drop Ctrl's own release event, leaving repeat mode stuck on until reboot &mdash; R is a dedicated key with no release event to lose. The headline replaces the usual SCANNING/COMPLETE flicker so a continuous chain reads as one ambient scan, not a broken loop; the per-lap completion toast is suppressed too, for the same reason. The lap counter lives at the bottom of the right column, apart from peaks/best-MHz/rssi above it.</p>
+      <div class="plate-body">
+        <div class="screens-row">
+          <div class="screen-frame">
+            <div class="device"><div class="screen" aria-label="Sweep page, complete">
+              <div class="t1 fg" style="left:4px;top:4px">SWEEP</div>
+              <div class="scr-batt" style="border-color:var(--scr-good);color:var(--scr-good)"><div class="scr-batt-nub" style="right:-4px;background:var(--scr-good)"></div><div style="position:absolute;left:1px;top:1px;bottom:1px;width:70%;background:var(--scr-good)"></div></div>
+              <div class="t1 good" style="right:61px;top:4px">82%</div>
+              <div class="scr-dot" style="left:341px;background:var(--scr-good)"></div>
+              <div class="scr-dot" style="left:361px;background:var(--scr-good)"></div>
+              <div class="scr-dot" style="left:381px;background:var(--scr-dim);opacity:0.5"></div>
+              <div class="scr-hdr-rule"></div>
+
+              <div class="t2 good" style="left:4px;top:44px">COMPLETE</div>
+              <div class="t1 fg" style="left:4px;top:95px">bins 221/221  away 512ms</div>
+
+              <div class="freqbar-track" style="left:4px;top:163px;width:238px"></div>
+              <div class="freqbar-mark" style="left:217px;top:156px"></div>
+              <div class="freqbar-tick" style="left:21px;top:156px"></div>
+              <div class="freqbar-tick" style="left:97px;top:156px"></div>
+              <div class="freqbar-tick" style="left:160px;top:156px"></div>
+              <div class="freqbar-tick" style="left:214px;top:156px"></div>
+              <div class="t1 dim" style="left:4px;top:176px">868</div>
+              <div class="t1 dim" style="left:202px;top:176px">923</div>
+
+              <div class="t1 dim" style="left:4px;top:238px">listening to the noise, unconfirmed</div>
+
+              <div class="t1 dim" style="left:374px;top:40px">peaks</div>
+              <div class="t1 warn" style="left:374px;top:60px">4</div>
+              <div class="t1 dim" style="left:374px;top:101px">best MHz</div>
+              <div class="t1 warn" style="left:374px;top:121px">918.5</div>
+              <div class="t1 dim" style="left:374px;top:163px">rssi</div>
+              <div class="t1 fg" style="left:374px;top:183px">-62dB</div>
+              <div class="scr-footer"><span>Meshtastic</span><span>3/6</span></div>
+            </div></div>
+            <div class="screen-cap">Complete (single tap), 4 peaks across the band; the strongest sits at 918.5MHz, &minus;62dB &mdash; a callout, not just a bare count.</div>
+          </div>
+          <div class="screen-frame">
+            <div class="device"><div class="screen" aria-label="Sweep page, repeating">
+              <div class="t1 fg" style="left:4px;top:4px">SWEEP</div>
+              <div class="scr-batt" style="border-color:var(--scr-good);color:var(--scr-good)"><div class="scr-batt-nub" style="right:-4px;background:var(--scr-good)"></div><div style="position:absolute;left:1px;top:1px;bottom:1px;width:70%;background:var(--scr-good)"></div></div>
+              <div class="t1 good" style="right:61px;top:4px">82%</div>
+              <div class="scr-dot" style="left:341px;background:var(--scr-good)"></div>
+              <div class="scr-dot" style="left:361px;background:var(--scr-good)"></div>
+              <div class="scr-dot" style="left:381px;background:var(--scr-good)"></div>
+              <div class="scr-hdr-rule"></div>
+
+              <div class="t2 warn" style="left:4px;top:44px">REPEATING</div>
+              <div class="t1 fg" style="left:4px;top:95px">watch paused  164/221</div>
+
+              <div class="freqbar-track" style="left:4px;top:163px;width:238px"></div>
+              <div class="freqbar-mark" style="left:163px;top:156px"></div>
+              <div class="freqbar-tick" style="left:21px;top:156px"></div>
+              <div class="freqbar-tick" style="left:97px;top:156px"></div>
+              <div class="freqbar-tick" style="left:160px;top:156px"></div>
+              <div class="t1 dim" style="left:4px;top:176px">868</div>
+              <div class="t1 dim" style="left:202px;top:176px">923</div>
+
+              <div class="t1 dim" style="left:4px;top:238px">listening to the noise, unconfirmed</div>
+
+              <div class="t1 dim" style="left:374px;top:40px">peaks</div>
+              <div class="t1 warn" style="left:374px;top:60px">3</div>
+              <div class="t1 dim" style="left:374px;top:101px">best MHz</div>
+              <div class="t1 warn" style="left:374px;top:121px">901.2</div>
+              <div class="t1 dim" style="left:374px;top:163px">rssi</div>
+              <div class="t1 fg" style="left:374px;top:183px">-71dB</div>
+              <div class="t1 dim" style="left:374px;top:224px">lap</div>
+              <div class="t1 warn" style="left:374px;top:244px">12</div>
+              <div class="scr-footer"><span>Meshtastic</span><span>3/6</span></div>
+            </div></div>
+            <div class="screen-cap">12 laps in, still going &mdash; headline and the lap counter (bottom of the right column) are the only things that change from a normal scan; peaks/best-MHz/rssi above it still reflect the most recently finished lap. R again stops the chain.</div>
+          </div>
+        </div>
+      </div>
+      <div class="chip-row">
+        <div class="chip"><span class="swatch" style="background:var(--scr-dim)"></span>NO SWEEP YET <span class="cap">— idle, never run this boot: &ldquo;S: sweep&nbsp;&nbsp;&nbsp;R: repeat&rdquo;</span></div>
+        <div class="chip"><span class="swatch" style="background:var(--scr-warn)"></span>SCANNING <span class="cap">— running (single tap): &ldquo;watch paused bin/total&rdquo;</span></div>
+        <div class="chip"><span class="swatch" style="background:var(--scr-warn)"></span>REPEATING <span class="cap">— R engaged: lap counter at bottom of right column, no per-lap toast</span></div>
+        <div class="chip"><span class="swatch" style="background:var(--scr-warn)"></span>CANCELLED</div>
+        <div class="chip"><span class="swatch" style="background:var(--scr-bad)"></span>FAILED <span class="cap">— radio error stat block replaces best-MHz/rssi</span></div>
+        <div class="chip"><span class="swatch" style="background:var(--scr-dim)"></span>IDLE <span class="cap">— same 1s headline-dim convention as Probe</span></div>
+      </div>
+    </section>
+
+    <section class="plate" id="channel">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Plate 4 / 6 &middot; key <span class="mono">4</span></div><h2 class="plate-title">Channel</h2></div>
+      </div>
+      <p class="plate-note">Read-only confirmation that a profile switch actually retuned the radio, rather than trusting the header text alone &mdash; the on-device answer to &ldquo;is it really listening on the frequency I think it is.&rdquo;</p>
+      <div class="plate-body">
+        <div class="screen-frame">
+          <div class="device"><div class="screen" aria-label="Channel page">
+            <div class="t1 fg" style="left:4px;top:4px">CHANNEL</div>
+            <div class="scr-batt" style="border-color:var(--scr-good);color:var(--scr-good)"><div class="scr-batt-nub" style="right:-4px;background:var(--scr-good)"></div><div style="position:absolute;left:1px;top:1px;bottom:1px;width:70%;background:var(--scr-good)"></div></div>
+            <div class="t1 good" style="right:61px;top:4px">82%</div>
+            <div class="scr-dot" style="left:341px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:361px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:381px;background:var(--scr-dim);opacity:0.5"></div>
+            <div class="scr-hdr-rule"></div>
+
+            <div class="t2 fg" style="left:4px;top:40px">918.500 MHz</div>
+            <div class="t2 fg" style="left:4px;top:97px">SF8 BW125.0</div>
+
+            <div class="freqbar-track" style="left:4px;top:163px;width:238px"></div>
+            <div class="freqbar-mark" style="left:217px;top:156px"></div>
+            <div class="t1 dim" style="left:4px;top:176px">868</div>
+            <div class="t1 dim" style="left:202px;top:176px">923</div>
+
+            <div class="t1 dim" style="left:4px;top:233px">CR4/5  sync 0x2B</div>
+
+            <div class="t1 dim" style="left:374px;top:40px">mode</div>
+            <div class="t1 fg" style="left:374px;top:60px">Watch</div>
+            <div class="t1 dim" style="left:374px;top:101px">airtime</div>
+            <div class="t1 fg" style="left:374px;top:121px">~52ms</div>
+            <div class="scr-footer"><span>Meshtastic</span><span>4/6</span></div>
+          </div></div>
+          <div class="screen-cap">Meshtastic LongModerate tuple. Airtime is a rough ~36-symbol estimate for at-a-glance config comparison, not the full LoRa airtime spec.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="plate" id="gps">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Plate 5 / 6 &middot; key <span class="mono">5</span></div><h2 class="plate-title">GPS</h2></div>
+      </div>
+      <p class="plate-note">Two genuinely different layouts, not one page with a blank state &mdash; before a fix, satellites-<em>in-view</em> is the number that matters (proves the antenna sees sky at all); after a fix, satellites-<em>used</em> and position take over.</p>
+      <div class="plate-body">
+        <div class="screens-row">
+          <div class="screen-frame">
+            <div class="device"><div class="screen" aria-label="GPS page, 3D fix">
+              <div class="t1 fg" style="left:4px;top:4px">GPS</div>
+              <div class="scr-batt" style="border-color:var(--scr-good);color:var(--scr-good)"><div class="scr-batt-nub" style="right:-4px;background:var(--scr-good)"></div><div style="position:absolute;left:1px;top:1px;bottom:1px;width:70%;background:var(--scr-good)"></div></div>
+              <div class="t1 good" style="right:61px;top:4px">82%</div>
+              <div class="scr-dot" style="left:341px;background:var(--scr-good)"></div>
+              <div class="scr-dot" style="left:361px;background:var(--scr-good)"></div>
+              <div class="scr-dot" style="left:381px;background:var(--scr-dim);opacity:0.5"></div>
+              <div class="scr-hdr-rule"></div>
+
+              <div class="t2 good" style="left:4px;top:40px">3D FIX</div>
+              <div class="t2 fg" style="left:4px;top:88px">45.52345</div>
+              <div class="t2 fg" style="left:4px;top:132px">-122.67891</div>
+
+              <div class="t1 dim" style="left:374px;top:40px">sats</div>
+              <div class="t1 fg" style="left:374px;top:60px">11</div>
+              <div class="t1 dim" style="left:374px;top:88px">qual</div>
+              <div class="t1 fg" style="left:374px;top:108px">1</div>
+
+              <div style="position:absolute;left:374px;top:154px;width:26px;height:31px;background:var(--scr-good)"></div>
+              <div style="position:absolute;left:409px;top:166px;width:26px;height:19px;background:var(--scr-good)"></div>
+              <div style="position:absolute;left:444px;top:176px;width:26px;height:9px;background:var(--scr-good)"></div>
+              <div class="t1 dim" style="left:374px;top:191px">GP</div><div class="t1 dim" style="left:409px;top:191px">GL</div><div class="t1 dim" style="left:444px;top:191px">GA</div>
+
+              <div class="t1 dim" style="left:4px;top:185px">2026-08-29T15:20:52Z</div>
+              <div class="scr-footer"><span>Meshtastic</span><span>5/6</span></div>
+            </div></div>
+            <div class="screen-cap">Fix acquired: position + satellites-used + per-constellation bars.</div>
+          </div>
+          <div class="screen-frame">
+            <div class="device"><div class="screen" aria-label="GPS page, no fix">
+              <div class="t1 fg" style="left:4px;top:4px">GPS</div>
+              <div class="scr-batt" style="border-color:var(--scr-good);color:var(--scr-good)"><div class="scr-batt-nub" style="right:-4px;background:var(--scr-good)"></div><div style="position:absolute;left:1px;top:1px;bottom:1px;width:70%;background:var(--scr-good)"></div></div>
+              <div class="t1 good" style="right:61px;top:4px">82%</div>
+              <div class="scr-dot" style="left:341px;background:var(--scr-warn)"></div>
+              <div class="scr-dot" style="left:361px;background:var(--scr-good)"></div>
+              <div class="scr-dot" style="left:381px;background:var(--scr-dim);opacity:0.5"></div>
+              <div class="scr-hdr-rule"></div>
+
+              <div class="t2 warn" style="left:4px;top:40px">NO FIX</div>
+              <div class="t2 fg" style="left:4px;top:92px">view 6</div>
+              <div class="t1 dim" style="left:4px;top:141px">acquiring, keep still</div>
+              <div class="t1 dim" style="left:4px;top:185px">nmea 412 crc 0</div>
+              <div class="scr-footer"><span>Meshtastic</span><span>5/6</span></div>
+            </div></div>
+            <div class="screen-cap">No fix yet, but sky visible (6 in view) &mdash; distinct from a dead/disconnected antenna, which would read 0.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="plate" id="system">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Plate 6 / 6 &middot; key <span class="mono">6</span></div><h2 class="plate-title">System</h2></div>
+      </div>
+      <p class="plate-note">Uptime, heap health (text + bar, same 80%/90% colour tiers as the header's own heap dot), a 2&times;2 stat grid, then a low-priority footer band &mdash; keyboard presence, session-log row count (confirms health rows are actually being written before a multi-hour drive), firmware version.</p>
+      <div class="plate-body">
+        <div class="screen-frame">
+          <div class="device"><div class="screen" aria-label="System page">
+            <div class="t1 fg" style="left:4px;top:4px">SYSTEM</div>
+            <div class="scr-batt" style="border-color:var(--scr-good);color:var(--scr-good)"><div class="scr-batt-nub" style="right:-4px;background:var(--scr-good)"></div><div style="position:absolute;left:1px;top:1px;bottom:1px;width:70%;background:var(--scr-good)"></div></div>
+            <div class="t1 good" style="right:61px;top:4px">82%</div>
+            <div class="scr-dot" style="left:341px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:361px;background:var(--scr-good)"></div>
+            <div class="scr-dot" style="left:381px;background:var(--scr-dim);opacity:0.5"></div>
+            <div class="scr-hdr-rule"></div>
+
+            <div class="t2 fg" style="left:4px;top:40px">42 min</div>
+            <div class="t2 good" style="left:4px;top:88px">276k heap</div>
+            <div style="position:absolute;left:4px;top:132px;width:238px;height:18px;border:1.5px solid var(--scr-good)"></div>
+            <div style="position:absolute;left:6px;top:134px;width:65px;height:14px;background:var(--scr-good)"></div>
+
+            <div class="t1 dim" style="left:299px;top:40px">min heap</div>
+            <div class="t1 fg" style="left:299px;top:60px">251k</div>
+            <div class="t1 dim" style="left:451px;top:40px">batt</div>
+            <div class="t1 fg" style="left:451px;top:60px">3.98V</div>
+            <div class="t1 dim" style="left:299px;top:106px">bus</div>
+            <div class="t1 fg" style="left:299px;top:126px">0</div>
+            <div class="t1 dim" style="left:451px;top:106px">wifi</div>
+            <div class="t1 dim" style="left:451px;top:126px">OFF</div>
+
+            <div class="t1 dim" style="left:4px;top:172px">keys tca8418  health 84</div>
+            <div class="t1 dim" style="left:4px;top:198px">v0.8.1</div>
+            <div class="scr-footer"><span>Meshtastic</span><span>6/6</span></div>
+          </div></div>
+          <div class="screen-cap">42 minutes up, heap comfortably healthy. WiFi off (dim); reads &ldquo;ON 2&rdquo; in green with a live client count when the AP is enabled from the menu.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="plate" id="menu-root">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Menu 1</div><h2 class="plate-title">Root &amp; groups</h2></div>
+      </div>
+      <p class="plate-note">Opened/closed with the same key (backtick/ESC) from anywhere in the carousel. Recursive, arbitrary-depth navigation (bounded at 4 levels) &mdash; every row, at any depth, is the same shape: an action fires immediately, a group opens its own nested list, a slider steps a live value. Selection inverts foreground/background on the full row width.</p>
+      <div class="plate-body">
+        <div class="screens-row">
+          <div class="screen-frame">
+            <div class="device"><div class="screen" aria-label="Root menu">
+              <div class="t1 fg" style="left:4px;top:4px">MENU</div>
+              <div class="scr-hdr-rule"></div>
+              <div class="m-row sel" style="top:42px">Trace<span class="val">: ACTIVE</span></div>
+              <div class="m-row unsel" style="top:95px">Profile</div>
+              <div class="m-row unsel" style="top:147px">System</div>
+              <div class="t1 dim" style="left:4px;bottom:20px">,/. move   Enter select   ` back</div>
+            </div></div>
+            <div class="screen-cap">Root: Trace (toggle), Profile &amp; System (groups).</div>
+          </div>
+          <div class="screen-frame">
+            <div class="device"><div class="screen" aria-label="System group menu">
+              <div class="t1 fg" style="left:4px;top:4px">MENU<span class="dim"> &gt; System</span></div>
+              <div class="scr-hdr-rule"></div>
+              <div class="m-row unsel" style="top:42px">Connectivity</div>
+              <div class="m-row sel" style="top:95px">Diagnostics</div>
+              <div class="m-row unsel" style="top:147px">Display</div>
+              <div class="t1 dim" style="left:4px;bottom:20px">,/. move   Enter select   ` back</div>
+            </div></div>
+            <div class="screen-cap">System &rarr; three sub-groups, split apart 2026-08-28 once a flat 5-row list collided with the footer hint.</div>
+          </div>
+        </div>
+        <div class="tree" style="margin-top:22px;min-width:280px">
+          <ul>
+            <li><span class="node action">Trace</span></li>
+            <li><span class="node group">Profile</span>
+              <ul>
+                <li><span class="node action">Meshtastic</span></li>
+                <li><span class="node action">MeshCore</span></li>
+              </ul>
+            </li>
+            <li><span class="node group">System</span>
+              <ul>
+                <li><span class="node group">Connectivity</span>
+                  <ul><li><span class="node action">WiFi</span></li><li><span class="node action">Serial Control</span></li></ul>
+                </li>
+                <li><span class="node group">Diagnostics</span>
+                  <ul><li><span class="node action">Debug</span></li><li><span class="node action">SD</span></li></ul>
+                </li>
+                <li><span class="node group">Display</span>
+                  <ul><li><span class="node slider">Brightness</span></li><li><span class="node action">Idle dim</span></li></ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="plate" id="menu-slider">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Menu 2</div><h2 class="plate-title">Brightness slider</h2></div>
+      </div>
+      <p class="plate-note">The one slider row today. Applies live on every keypress (backlight changes as you hold), but only writes to SD once, on exiting back to the list &mdash; the same debounce point a &ldquo;confirm&rdquo; button would give a form. Enter and backtick/ESC both exit the slider identically as of 2026-08-29 (operator request: Enter should confirm a value, not just ESC out of it) &mdash; the SD-write debounce fires on either key now, not just BACK.</p>
+      <div class="plate-body">
+        <div class="screen-frame">
+          <div class="device"><div class="screen" aria-label="Brightness slider">
+            <div class="t1 fg" style="left:4px;top:4px">MENU<span class="dim"> &gt; System &gt; Display &gt; Brightness</span></div>
+            <div class="scr-hdr-rule"></div>
+            <div class="t2 fg" style="left:4px;top:48px">75%</div>
+            <div style="position:absolute;left:4px;top:114px;width:440px;height:31px;border:1.5px solid var(--scr-good)"></div>
+            <div style="position:absolute;left:6px;top:116px;width:319px;height:27px;background:var(--scr-good)"></div>
+            <div class="t1 dim" style="left:4px;bottom:20px">,/. adjust   Enter/` back</div>
+          </div></div>
+          <div class="screen-cap">Outline + proportional fill, same visual language as the heap bar and Sweep/Channel's frequency track.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="plate" id="toast">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Overlay</div><h2 class="plate-title">Toast</h2></div>
+      </div>
+      <p class="plate-note">A brief inverted-colour band, sliding up from off-panel over 150ms and shrinking a countdown bar along its own bottom edge &mdash; feedback for an action not tied to a highlighted row (a toggle fired right before backing out of the menu). Drawn last, over whatever page or menu is showing; the demo below loops for illustration only, real toasts fire once per action.</p>
+      <div class="plate-body">
+        <div class="screen-frame">
+          <div class="device"><div class="screen" aria-label="Toast overlay demo">
+            <div class="t1 fg" style="left:4px;top:4px">RADIO</div>
+            <div class="scr-hdr-rule"></div>
+            <div class="t2 fg" style="left:4px;top:40px">rx 142</div>
+            <div class="t2 fg" style="left:4px;top:84px">log 138</div>
+            <div class="t2 good" style="left:4px;top:128px">drop 0</div>
+            <div class="scr-toast toast-demo" style="bottom:0"><span>Trace: STANDBY</span><div class="toast-bar-demo bar"></div></div>
+          </div></div>
+          <div class="screen-cap">Shown here mid-cycle: &ldquo;Trace: STANDBY&rdquo; fires when Trace is paused from the menu. Other real toast copy: <span class="mono">Profile: MeshCore</span>, <span class="mono">WiFi ON: LoRaTrace-7850</span>, <span class="mono">Probe: START</span>, <span class="mono">SD retry queued</span>.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="plate" id="keys">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Input</div><h2 class="plate-title">Key map</h2></div>
+      </div>
+      <p class="plate-note">Fifteen raw press bytes recognized in total, out of the TCA8418's full 56-key &times; press/release space &mdash; a deliberate allowlist decode, not a general keymap: every other event resolves to a no-op rather than doing something unintended. A Ctrl+S modifier chord was tried for Repeat Sweep (2026-08-29) and reverted (2026-08-30) after real hardware testing (this project's own KEY_DUMP diagnostic) showed the TCA8418 can drop Ctrl's own release event, leaving repeat mode stuck on until reboot &mdash; Repeat Sweep now uses a dedicated key (R) instead.</p>
+      <table class="keys">
+        <thead><tr><th>Key(s)</th><th>Action</th><th>Where</th></tr></thead>
+        <tbody>
+          <tr><td><span class="keycap">,</span> <span class="keycap">;</span></td><td>Previous</td><td class="note">Page back (carousel) / move selection up (menu). Two physical keys — the printed Fn-arrow diamond's &ldquo;up&rdquo; is wired as a plain-press alias.</td></tr>
+          <tr><td><span class="keycap">.</span> <span class="keycap">/</span></td><td>Next</td><td class="note">Page forward (carousel) / move selection down (menu). Same two-keys-one-action pattern.</td></tr>
+          <tr><td><span class="keycap">Enter</span></td><td>Select</td><td class="note">Activates the highlighted menu row. In the carousel: toggles Trace on Radio, starts/cancels Probe on Probe. No-op elsewhere.</td></tr>
+          <tr><td><span class="keycap">&#96; / ESC</span></td><td>Back</td><td class="note">Opens the menu from the carousel, or peels back exactly one level inside it. Same key both directions.</td></tr>
+          <tr><td><span class="keycap">1</span>&ndash;<span class="keycap">6</span></td><td>Jump to page</td><td class="note">Direct carousel jump: 1 Radio &middot; 2 Probe &middot; 3 Sweep &middot; 4 Channel &middot; 5 GPS &middot; 6 System. Carousel only.</td></tr>
+          <tr><td><span class="keycap">P</span></td><td>Probe</td><td class="note">Global shortcut &mdash; starts/cancels Probe from any screen, not just the Probe page.</td></tr>
+          <tr><td><span class="keycap">S</span></td><td>Sweep</td><td class="note">Global shortcut, same shape as Probe's — one bounded pass.</td></tr>
+          <tr><td><span class="keycap">R</span></td><td>Repeat Sweep</td><td class="note">Starts/stops a chain of back-to-back Sweeps until cancelled (2026-08-29). Replaced a first attempt that timed a hold on S alone (didn't work reliably), then a Ctrl+S modifier chord (reverted 2026-08-30 after real hardware testing showed the TCA8418 can drop Ctrl's release event, leaving repeat mode stuck on). A dedicated key has no release event to lose.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="plate" id="constraints">
+      <span class="fid-bl"></span><span class="fid-br"></span>
+      <div class="plate-head">
+        <div><div class="plate-num">Read before redesigning</div><h2 class="plate-title">Hardware constraints</h2></div>
+      </div>
+      <div class="constraints">
+        <div class="item"><h3>No alpha blending</h3><p>RGB565, no per-pixel alpha. Every visual transition is a hard colour swap or a staged reveal &mdash; no fades, no translucency, no drop shadows.</p></div>
+        <div class="item"><h3>Two font sizes, one face</h3><p>Fixed 6&times;8 / 12&times;16 bitmap cells. No weights, no italics, no arbitrary sizing &mdash; hierarchy comes from size, colour, and position only.</p></div>
+        <div class="item"><h3>240&times;135, fixed, no scroll</h3><p>Everything on a page must fit in one frame; there is no scrolling concept anywhere in this UI.</p></div>
+        <div class="item"><h3>No PSRAM</h3><p>ESP32-S3FN8, ~512KB total SRAM. The off-screen canvas buffer and every allocation compete for the same small budget &mdash; this is why the heap dot/bar exist at all.</p></div>
+        <div class="item"><h3>Core 0, must not block</h3><p>The render loop shares Core 0 with GPS/logger/WiFi tasks and must never block on SD or radio I/O &mdash; redraws are bounded and periodic, not per-frame free-running.</p></div>
+        <div class="item"><h3>Truthful visualization only</h3><p>Sweep's occupancy ticks are a stored threshold-filtered fact, deliberately not a live spectrum/waterfall &mdash; a house rule against implying more precision than the data has.</p></div>
+      </div>
+    </section>
+
+    <footer class="doc-footer">
+      LoRaTrace RX v0.8.1 &middot; on-device UI reference, generated from <span class="mono">src/ui_pages.cpp</span>, <span class="mono">src/ui_task.cpp</span>, <span class="mono">src/ui_menu.h</span>, <span class="mono">src/keyboard.h</span>, <span class="mono">src/main.cpp</span> &middot; not a proposal
+    </footer>
+  </main>
+</div>
+
+<script>
+  // Boot-mark replay: restarts the arc-settle CSS animation on the three
+  // <path class="arc"> elements. Hidden entirely under prefers-reduced-motion
+  // (see .replay-btn's own media query), so this only ever runs when the
+  // animation itself is allowed to play.
+  (function () {
+    var btn = document.getElementById('boot-replay');
+    var screen = document.getElementById('boot-screen');
+    if (!btn || !screen) return;
+    btn.addEventListener('click', function () {
+      var arcs = screen.querySelectorAll('.arc');
+      arcs.forEach(function (el) { el.style.animation = 'none'; });
+      // Force a reflow between removing and restoring the animation --
+      // without this the browser coalesces the two style writes and the
+      // animation never actually restarts.
+      void screen.offsetHeight;
+      arcs.forEach(function (el) { el.style.animation = ''; });
+    });
+  })();
+</script>
