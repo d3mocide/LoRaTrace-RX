@@ -5,7 +5,7 @@
 // a silent, confusing failure:
 //
 //   1. Enables the RF antenna switch. Without it the radio hears nothing
-//      regardless of firmware correctness (DESIGN.md §1).
+//      regardless of firmware correctness (docs/DESIGN.md §1).
 //   2. **Powers the GPS module.** M5Stack's own Arduino example for this
 //      Cap drives expander pin 0 high with the comment that it enables GPS
 //      power, and the LoRa868 Cap (no GPS) omits the call entirely.

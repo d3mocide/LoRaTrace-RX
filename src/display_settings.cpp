@@ -35,7 +35,7 @@ bool applyDisplayConfigLine(const String &rawLine, DisplaySettings &settings) {
 
     if (key == "brightness_pct") {
         long v = val.toInt();
-        if (v < BRIGHTNESS_MIN || v > BRIGHTNESS_MAX) return false;
+        if (v < BRIGHTNESS_MIN || v > BRIGHTNESS_MAX || v % 5 != 0) return false;
         settings.brightness_pct = (uint8_t)v;
         return true;
     }
@@ -101,6 +101,7 @@ bool loadDisplaySettingsFromSD(DisplaySettings &settings) {
 
 bool writeDisplaySettingsToSD(const DisplaySettings &settings) {
     if (settings.brightness_pct < BRIGHTNESS_MIN || settings.brightness_pct > BRIGHTNESS_MAX ||
+        settings.brightness_pct % 5 != 0 ||
         settings.idle_timeout_index > IDLE_TIMEOUT_INDEX_MAX) {
         return false;
     }

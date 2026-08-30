@@ -9,7 +9,7 @@
 #include "serial_lock.h"
 #include "spi_bus.h"
 
-// DESIGN.md §1: module front end tuned 868-923MHz, 923-928 still in US ISM
+// docs/DESIGN.md §1: module front end tuned 868-923MHz, 923-928 still in US ISM
 // but reduced sensitivity — accept up to 928, RadioLib/the radio itself
 // will reject anything the SX1262 truly can't do. Not file-static: wifi_task
 // validates against these same bounds before ever writing to SD, so there is

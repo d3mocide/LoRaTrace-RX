@@ -2,8 +2,8 @@
 // LoRaTrace RX — the detection record that crosses cores, plus the pure
 // helpers that fill and format it.
 //
-// Sole payload of the Core 1 -> Core 0 FreeRTOS queue (DESIGN.md §2).
-// Deliberately small and GPS-free: DESIGN.md §1 budgets ~40B/entry and
+// Sole payload of the Core 1 -> Core 0 FreeRTOS queue (docs/DESIGN.md §2).
+// Deliberately small and GPS-free: docs/DESIGN.md §1 budgets ~40B/entry and
 // names SD (not RAM) as the datastore; §2 makes the *logger* responsible
 // for stamping the GPS fix at dequeue time, keeping the radio task away
 // from the GPS mutex — it must never block on anything another task owns.
@@ -53,7 +53,7 @@ struct Detection {
     // Set only by Sweep's Pass B (radio_task.cpp), never by Watch/Probe: a
     // CAD hit at an arbitrary Pass-A peak bin, not a known curated channel.
     // detectionClassification() below reads this before falling back to the
-    // active mission profile's name — DESIGN.md §7.2's own rule ("a CAD hit
+    // active mission profile's name — docs/DESIGN.md §7.2's own rule ("a CAD hit
     // away from a known Meshtastic/MeshCore channel is labeled unknown LoRa
     // candidate, not Reticulum") would otherwise be silently violated,
     // since Sweep only ever runs under RETICULUM/GENERAL_EXPLORATION and
@@ -86,7 +86,7 @@ inline bool detectionSetRawPacket(Detection &det, const uint8_t *packet, size_t 
 // (RadioLibInterface). Confirmed empirically 2026-08-23 against live
 // traffic (broadcast frames: to == 0xFFFFFFFF, consistent channel hash,
 // hop_start 7, original/rebroadcast pairs differing only in hop_limit and
-// relay_node) — see CHANGELOG.md.
+// relay_node) — see docs/history/CHANGELOG.md.
 //
 // Header metadata is always available; the payload after these 16 bytes is
 // normally encrypted. The identity path additionally decrypts only
@@ -146,7 +146,7 @@ inline const char *missionProfileName(uint8_t profile) {
     }
 }
 
-// DESIGN.md §8 column order, one string so the header row and row writer
+// docs/DESIGN.md §8 column order, one string so the header row and row writer
 // can't drift apart. Grouped left to right by what a reader asks first:
 // when/where, what kind of thing, who sent it and how it got here
 // (node id + its packet_id/hop_limit/hop_start/relay_node siblings, kept
@@ -161,7 +161,7 @@ constexpr const char *LOG_CSV_HEADER =
     "classification,channel_or_node_id,packet_id,hop_limit,hop_start,"
     "relay_node,freq_mhz,sf,bw_khz,rssi_dbm,snr_db,raw_len,raw_packet_hex,decoded";
 
-// Phase 2 placeholder for DESIGN.md §6 fingerprinting (Phase 8+): with
+// Phase 2 placeholder for docs/DESIGN.md §6 fingerprinting (Phase 8+): with
 // HOME_LISTEN locked to one profile's channel at a time, "what we were
 // listening for" is the only honest classification available. Real
 // post-hoc classification (needs Phases 8/9's sweep data) replaces this
@@ -171,7 +171,7 @@ inline const char *detectionClassification(const Detection &det) {
     return missionProfileName(det.profile);
 }
 
-// Renders one CSV row per DESIGN.md §8 into `out`. `fix_*` come from the
+// Renders one CSV row per docs/DESIGN.md §8 into `out`. `fix_*` come from the
 // logger's GPS stamp; pass has_fix=false when no usable fix was available,
 // which writes empty lat/lon rather than 0,0 (Null Island is a real place
 // and would silently corrupt a track).

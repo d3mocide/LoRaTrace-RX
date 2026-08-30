@@ -12,16 +12,21 @@ source of truth — if the two ever disagree, CLAUDE.md wins and this file
 should be fixed to match, not the other way around.
 
 Also relevant, referenced from CLAUDE.md:
-- [DESIGN.md](DESIGN.md) — the "why" behind RF/architecture decisions.
-- [ROADMAP.md](ROADMAP.md) — phase-by-phase build order and scope.
-- [PROGRESS.md](PROGRESS.md) — current status, checklist, open questions.
-- [CHANGELOG.md](CHANGELOG.md) — full session-by-session decisions log.
+- [docs/STATUS.md](docs/STATUS.md) — current status, what's
+  hardware-verified, and what's still open.
+- [docs/DESIGN.md](docs/DESIGN.md) — the "why" behind RF/architecture
+  decisions.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — phase-by-phase build order and
+  scope.
+- [CHANGELOG.md](CHANGELOG.md) — short, ongoing changelog; full
+  pre-2026-08-29 session-by-session decisions log is archived at
+  [docs/history/CHANGELOG.md](docs/history/CHANGELOG.md).
 - [SECURITY.md](SECURITY.md) — known attack surface and how to report issues.
-- [HARDWARE_TESTING.md](HARDWARE_TESTING.md) — repeatable bench matrix and
-  Phase 7 memory acceptance rules.
+- [docs/HARDWARE_TESTING.md](docs/HARDWARE_TESTING.md) — repeatable bench
+  matrix and Phase 7 memory acceptance rules.
 
-**Don't read PROGRESS.md or CHANGELOG.md end-to-end by default.** They're
-reference/history, not required context for every task — CLAUDE.md's own
-Status section already gives the current-state summary. Search
-CHANGELOG.md for the specific date/version/topic you need instead of
-reading it front to back; it's a rolling log, not a briefing document.
+**Don't read `docs/history/PROGRESS.md` or `docs/history/CHANGELOG.md`
+end-to-end by default.** They're a frozen pre-2026-08-29 development log,
+not required context for every task — `docs/STATUS.md` already gives the
+current-state summary. Search them for the specific date/version/topic you
+need instead of reading front to back.

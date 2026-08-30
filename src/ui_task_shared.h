@@ -10,7 +10,7 @@
 // without duplicating it three ways or reaching around through ui_task.h.
 //
 // Split out of a single ~1265-line ui_task.cpp (2026-08-25 cleanup pass,
-// PROGRESS.md/CLAUDE.md) into three files by concern — drawing
+// docs/history/CHANGELOG.md/CLAUDE.md) into three files by concern — drawing
 // (ui_pages.cpp), menu-action business logic (ui_actions.cpp), and task
 // lifecycle/input/main loop (ui_task.cpp, which also owns every symbol
 // declared `extern` below) — no behavior change intended, only file

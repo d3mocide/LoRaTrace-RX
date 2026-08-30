@@ -2,14 +2,14 @@
 // LoRaTrace RX — arbitration for the SPI bus shared by the SX1262 and the
 // microSD card.
 //
-// Why this exists at all: board_pins.h / DESIGN.md §7 established that the
+// Why this exists at all: board_pins.h / docs/DESIGN.md §7 established that the
 // radio and the SD card are on the *same physical wires* (SCK G40, MOSI
-// G14, MISO G39), distinguished only by chip select. DESIGN.md §2 puts the
+// G14, MISO G39), distinguished only by chip select. docs/DESIGN.md §2 puts the
 // radio on Core 1 and the logger on Core 0, which stops the radio task's
 // *code* from blocking on SD — but two devices on one bus still cannot
 // transact simultaneously no matter which core issues them. That electrical
 // fact is what this mutex covers, and it was flagged as an open question in
-// PROGRESS.md before Phase 2 started.
+// docs/history/PROGRESS.md before Phase 2 started.
 //
 // A FreeRTOS *mutex* specifically, not a binary semaphore: mutexes carry
 // priority inheritance, so when the low-priority logger holds the bus and
@@ -35,7 +35,7 @@
 // read) reaches for the same pair.
 //
 // The display is deliberately NOT on this bus: it has its own host (HSPI)
-// with disjoint pins, which is what DESIGN.md §1's isolation rule is about.
+// with disjoint pins, which is what docs/DESIGN.md §1's isolation rule is about.
 SPIClass &sharedSpi();
 
 // Creates the mutex and begins the SPI peripheral on the shared pins. Call

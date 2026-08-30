@@ -8,7 +8,7 @@
 
 # Real-device captures may contain precise GPS locations. Keep the raw
 # evidence locally while committing only redacted aggregate summaries.
-hardware-results/private/
+docs/hardware-results/private/
 
 # Python bytecode (e.g. from scripts/build_rev.py)
 __pycache__/

@@ -5,8 +5,9 @@
 RX-only LoRa wardriving firmware for a Cardputer-Adv (ESP32-S3) + M5Stack Cap
 LoRa-1262 (SX1262). Four mission profiles: Meshtastic War Drive, MeshCore War
 Drive, Reticulum War Drive, General LoRa Exploration. GPS-tags detections to
-SD. Full rationale and RF parameters live in `DESIGN.md` — read it before
-making architecture changes, don't re-derive decisions already made there.
+SD. Full rationale and RF parameters live in `docs/DESIGN.md` — read it
+before making architecture changes, don't re-derive decisions already made
+there.
 
 ## Hardware assumptions
 
@@ -28,8 +29,8 @@ here depends on that choice except the specific API calls.
 ## Proposed layout
 
 `[x]` created, `[ ]` proposed but deferred until its build-order phase
-(DESIGN.md §9) — see ROADMAP.md/PROGRESS.md for why the task/queue files
-aren't scaffolded yet.
+(docs/DESIGN.md §9) — see docs/ROADMAP.md/docs/STATUS.md for why the
+task/queue files aren't scaffolded yet.
 
 ```
 src/
@@ -37,26 +38,26 @@ src/
   [x] radio_task.cpp / .h        # HOME_LISTEN, owns SX1262, Core 1, never blocks
   [x] gps_task.cpp / .h          # NMEA parse, last-fix mutex, Core 0
   [x] logger_task.cpp / .h       # dequeue, GPS-stamp, batched SD writes, Core 0
-  [x] ui_task.cpp / .h           # lifecycle + input decode + main loop; arrived phase 2, not phase 6 as originally proposed — operator asked for field-readable status before a multi-hour run without a tethered laptop (see PROGRESS.md decisions log)
-  [x] ui_pages.cpp               # status-page + menu/toast drawing, split out of ui_task.cpp (2026-08-25 cleanup pass, not a phase item — see PROGRESS.md decisions log)
+  [x] ui_task.cpp / .h           # lifecycle + input decode + main loop; arrived phase 2, not phase 6 as originally proposed — operator asked for field-readable status before a multi-hour run without a tethered laptop (see docs/history/CHANGELOG.md)
+  [x] ui_pages.cpp               # status-page + menu/toast drawing, split out of ui_task.cpp (2026-08-25 cleanup pass, not a phase item — see docs/history/CHANGELOG.md)
   [x] ui_actions.cpp             # menu-action business logic (radio/wifi/backlight/SD calls a fired menu row makes), split out of ui_task.cpp same pass
   [x] ui_task_shared.h           # private, non-public state/helpers shared only across the three files above — not part of ui_task.h's own two-function API
-  [x] keyboard.h                 # TCA8418 raw-event -> KeyAction decode for 4 keys, pure/host-testable (phase 5; not in original proposal, see PROGRESS.md decisions log)
-  [x] ui_menu.h                  # grouped root/group menu state machine, pure/host-testable (phase 6; not in original proposal, see PROGRESS.md decisions log)
-  [x] ui_labels.h                # BRAND.md on-device label lookups, pure/host-testable (phase 6; not in original proposal, see PROGRESS.md decisions log)
-  [x] wifi_task.cpp / .h         # WiFi AP + web UI, off until toggled (phase 3; not in original proposal, see PROGRESS.md decisions log)
+  [x] keyboard.h                 # TCA8418 raw-event -> KeyAction decode for 4 keys, pure/host-testable (phase 5; not in original proposal, see docs/history/CHANGELOG.md)
+  [x] ui_menu.h                  # grouped root/group menu state machine, pure/host-testable (phase 6; not in original proposal, see docs/history/CHANGELOG.md)
+  [x] ui_labels.h                # docs/BRAND.md on-device label lookups, pure/host-testable (phase 6; not in original proposal, see docs/history/CHANGELOG.md)
+  [x] wifi_task.cpp / .h         # WiFi AP + web UI, off until toggled (phase 3; not in original proposal, see docs/history/CHANGELOG.md)
   [x] web_assets.h               # embedded single-page web UI (phase 3)
-  [x] channel_plans.h            # per-profile RF param tables (see DESIGN.md §3)
-  [x] board_pins.h               # pin map + IO-expander register constants (not in original proposal, see PROGRESS.md decisions log)
+  [x] channel_plans.h            # per-profile RF param tables (see docs/DESIGN.md §3)
+  [x] board_pins.h               # pin map + IO-expander register constants (not in original proposal, see docs/history/CHANGELOG.md)
   [x] version.h                  # FIRMWARE_VERSION, single source for boot banner + release tags
-  [x] config.h / .cpp            # boot-time SD channel-config override + runtime write-back for wifi_task's settings page (not in original proposal, see PROGRESS.md decisions log)
+  [x] config.h / .cpp            # boot-time SD channel-config override + runtime write-back for wifi_task's settings page (not in original proposal, see docs/history/CHANGELOG.md)
   [ ] fingerprint.h              # post-hoc protocol classification (§6, phase 8+)
   --- added during phase 2, not in the original proposal ---
   [x] detection.h                # the ~36B queue record + Meshtastic header parse + §8 CSV
   [x] nmea.h                     # NMEA primitives (field split, checksum, coord conversion)
   [x] gps_parse.h                # GpsFix + gpsApplySentence(), pure so it's host-testable
   [x] spi_bus.h / .cpp           # mutex + SPIClass for the bus SD and the SX1262 SHARE
-  [x] serial_lock.h / .cpp       # mutex guarding cross-core Serial writes (not in original proposal, see PROGRESS.md decisions log)
+  [x] serial_lock.h / .cpp       # mutex guarding cross-core Serial writes (not in original proposal, see docs/history/CHANGELOG.md)
   [x] serial_control.h / .cpp    # operator-gated bounded USB control; no radio ownership (Phase 8 support; renamed from low_profile.*/LowProfile*, 2026-08-28 — NVS namespace/key and wire opcode names deliberately kept for host/device compatibility, see serial_control_protocol.h)
   [x] serial_control_protocol.h  # fixed line/CRC command grammar, host-testable (Phase 8 support)
   [x] io_expander.h / .cpp       # PI4IOE5V6408 P0: antenna switch AND GPS power
@@ -88,11 +89,17 @@ test/
 sd-template/loratrace/
   [x] config.txt                 # copy-to-SD-card example for the channel config override
 [x] platformio.ini
-[x] DESIGN.md
-[x] ROADMAP.md
-[x] HARDWARE_TESTING.md
-[x] PROGRESS.md
-[x] CHANGELOG.md
+docs/
+  [x] README.md                  # docs index — what lives where
+  [x] STATUS.md                  # current version, hardware-verified state, open items
+  [x] DESIGN.md
+  [x] ROADMAP.md
+  [x] LOG_GUIDE.md
+  [x] HARDWARE_TESTING.md
+  [x] BRAND.md
+  [x] history/PROGRESS.md        # frozen pre-2026-08-29 status doc, unedited
+  [x] history/CHANGELOG.md       # frozen pre-2026-08-29 session log, unedited
+[x] CHANGELOG.md                 # short, terse, ongoing — points at docs/history/ for the rest
 [x] SECURITY.md
 [x] AGENTS.md
 ```
@@ -110,8 +117,8 @@ sd-template/loratrace/
   separate constants anyway; they mean different things and only coincide
   today. Note the sync word is an RX *filter*: a wrong value means hearing
   nothing from the target protocol while still hearing unrelated traffic
-  that matches — that exact bug cost several bench sessions (PROGRESS.md
-  2026-08-23).
+  that matches — that exact bug cost several bench sessions
+  (docs/history/PROGRESS.md 2026-08-23).
 - **Don't assume MeshCore's encryption mirrors Meshtastic's default-PSK
   model** — it doesn't necessarily; MeshCore's own docs warn against this.
 - No large heap buffers. Detection struct is small (~40B); flush to SD
@@ -119,13 +126,14 @@ sd-template/loratrace/
 - **New operator-facing behavior gets an on-device menu toggle**, not just
   a web-UI-only setting or a silent default. Established 2026-08-25 after
   Phase 5's menu grew a third item (verbose debug) the same day it
-  shipped, with no framework change to absorb it — see PROGRESS.md's
-  Decisions log and ROADMAP.md's Phase 6 (UI architecture redesign).
+  shipped, with no framework change to absorb it — see
+  docs/history/CHANGELOG.md and docs/ROADMAP.md's Phase 6 (UI architecture
+  redesign).
   Doesn't apply to one-shot boot-time config (channel overrides,
   `config.txt`) — this is about anything that changes runtime behavior
   while the device is already running.
 - **Bump `src/version.h` when a phase lands.** `MAJOR.MINOR` tracks the
-  build-order phase (ROADMAP.md Versioning: v0.1.x = phase 1, v0.2.x =
+  build-order phase (docs/ROADMAP.md Versioning: v0.1.x = phase 1, v0.2.x =
   phase 2, ...), `PATCH` for fixes adding no phase scope. It is bumped by
   hand on purpose — it asserts "this phase is reached", and a number that
   auto-increments every build asserts nothing. `release.yml` now fails a
@@ -138,59 +146,27 @@ sd-template/loratrace/
   the fact/value/gotcha and, if needed, a one-line reason or citation
   (source repo/file, date, measured number). Don't retell an entire
   debugging session, restate what the next line already shows, or repeat
-  a story that already lives in DESIGN.md/CHANGELOG.md — cite it instead
-  (`see DESIGN.md §3`), don't re-paste it. Established 2026-08-25 after
-  `board_pins.h`/`channel_plans.h`/`main.cpp` were found running
-  62-72% comment lines, most of it narrative history duplicating
+  a story that already lives in docs/DESIGN.md/CHANGELOG.md — cite it
+  instead (`see docs/DESIGN.md §3`), don't re-paste it. Established
+  2026-08-25 after `board_pins.h`/`channel_plans.h`/`main.cpp` were found
+  running 62-72% comment lines, most of it narrative history duplicating
   CHANGELOG.md — trimmed that session; don't reproduce it going forward.
   Test before writing one: if you deleted this comment, could a reader get
-  the same fact by checking DESIGN.md/CHANGELOG.md instead of re-deriving
-  it from scratch? If yes, that's a pointer, not a paragraph.
+  the same fact by checking docs/DESIGN.md/CHANGELOG.md instead of
+  re-deriving it from scratch? If yes, that's a pointer, not a paragraph.
 
 ## Status
 
-**v0.8.0** (current, `src/version.h`). Phases 0-8 complete and
-hardware-verified: radio bring-up (Phase 1), the task/queue architecture +
-GPS + SD logging that makes up MVP-Beta (Phase 2), the WiFi AP + web
-command center (Phase 3), the MeshCore profile and live profile switch
-(Phase 4), the on-device menu UI (Phase 5), and the UI architecture
-redesign — grouped menu, toast layer, canvas-based rendering to fix
-real-hardware flicker/tearing, animated boot-mark splash, real PWM
-backlight control, and persistence for display settings and last-active
-profile (Phase 6), plus measured Phase 7 heap/stack budgets, soak, and the
-validated CSV-download watchdog fix. The strict same-build repetition
-criterion was explicitly waived for this cycle and is recorded in
-PROGRESS.md. Phase 8 is complete with a source-backed fixed candidate plan,
-bounded radio acquisition, nominal/fault/contention stress, durable CSV
-output, and a real packet-bearing Meshtastic interoperability run. The
-statistical CAD false/miss matrix remains an explicit post-Phase-8 lab
-follow-up because the available bench cannot provide a known-quiet RF
-control. Transient mode is post-Phase-8 scope. Phase 9
-(`ENERGY_SWEEP`) is in progress: its Pass-A acquisition engine is
-hardware-verified end-to-end (real `energy.csv` peak rows spanning the full
-868–923MHz band, zero queue drops, clean home-restore across repeated
-sweeps). Serial Control (`SWEEP_START`/`SWEEP_CANCEL`/`STATUS`) and a
-dedicated on-device Sweep result card (carousel page, `S`/Enter to
-trigger, same colour/layout convention as Probe's own card) are wired and
-hardware-verified. The noise-floor margin is now calibrated: a bench-run
-matrix (`scripts/phase9_sweep_margin_bench.py`, `BENCH_SWEEP_MARGIN`
-opcode) found the shipped 10.0dB placeholder measuring 45-51% of bins as
-peaks, moved the default to a measured 35.0dB (`energy_observation.h`),
-and re-verified 0/221 peaks across three consecutive production-firmware
-sweeps — the same real-hardware check caught a literal in
-`bench_fault.cpp` that had kept the old default active on the actual
-runtime path after the constant alone was changed. Pass B (CAD at peaks)
-has not started. Phase 10 (Field
-Analyzer, including bounded radio-owned Scope
-acquisition) is accepted as planned scope; whether it gates v1.0 remains an
-explicit decision after Phase 9 hardware evidence exists.
+See [docs/STATUS.md](docs/STATUS.md) for the current version, what's
+hardware-verified, and what's still open — the single current-state doc,
+kept instead of duplicating status prose here. Build order is
+`docs/DESIGN.md` §9; `docs/ROADMAP.md` has the phase-by-phase scope.
 
-**Don't read PROGRESS.md or CHANGELOG.md end-to-end by default** — they're
-reference/history, not required context for every task. For what's true
-*right now*, see PROGRESS.md's Current status section and Build-order
-checklist. For why something is the way it is, or the full story behind a
-specific fix/version, grep CHANGELOG.md for the date/version/topic you
-need rather than reading it front to back.
+**Don't read `docs/history/PROGRESS.md` or `docs/history/CHANGELOG.md`
+end-to-end by default** — they're a frozen pre-2026-08-29 development log,
+not required context for every task. Grep them for a specific date/topic
+instead of reading front to back; root `CHANGELOG.md` covers what's
+changed since.
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
@@ -202,12 +178,6 @@ Three hard-won rules from Phases 1–2, worth not relearning:
   `hop_limit`/`hop_start`/`relay_node` in `detections.csv` (added after
   run0007) prove it either way; don't assume duplicate-detection without
   checking those first.
-
-Build order is DESIGN.md §9. See PROGRESS.md for the live build checklist
-and ROADMAP.md for phase-by-phase scope. The session-by-session decisions
-log itself (what every "see PROGRESS.md's Decisions log" reference above
-points to) moved to CHANGELOG.md on 2026-08-25 — PROGRESS.md now only
-holds current status, the checklist, open questions, and next steps.
 
 ## Related context
 

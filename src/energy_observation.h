@@ -13,7 +13,7 @@
 
 // --- Pass A working aggregate (radio task, per bin, RAM only) ----------
 //
-// Streaming stats only — DESIGN.md §7.3/§8.1: never accumulate raw
+// Streaming stats only — docs/DESIGN.md §7.3/§8.1: never accumulate raw
 // samples. rssi_peak_dbm_x10 defaults to this sentinel (not 0, a real
 // plausible strong-signal reading) so the first real sample always wins
 // the running max — same "fail toward an impossible value, not a
@@ -32,11 +32,11 @@ struct EnergyBinStats {
     uint8_t occupied_count = 0; // samples that cleared the floor threshold
     uint8_t flags = 0;
 };
-// DESIGN.md §7.3: "roughly 8 bytes... less than 1.8KB for the current
+// docs/DESIGN.md §7.3: "roughly 8 bytes... less than 1.8KB for the current
 // sweep" (224 bins x 8B = 1,792B). Load-bearing for that claim, not a
 // loose ceiling.
 static_assert(sizeof(EnergyBinStats) <= 8,
-              "EnergyBinStats exceeds the Phase 9 ~8B/bin budget (DESIGN.md §7.3)");
+              "EnergyBinStats exceeds the Phase 9 ~8B/bin budget (docs/DESIGN.md §7.3)");
 
 // Incremental mean + running max. Integer arithmetic only, no float drift.
 inline void energyBinStatsAddSample(EnergyBinStats &stats, int16_t rssi_dbm_x10) {
@@ -67,7 +67,7 @@ inline void energyBinStatsNoteOccupancy(EnergyBinStats &stats, bool occupied) {
 // pre-C++20 implementation-defined negative right-shift entirely — this
 // runs in the radio task's polling loop, not DIO1's ISR, so CLAUDE.md's
 // ISR constraint doesn't apply. Divisor 8 => an ~8-sample time constant;
-// DESIGN.md §7.3's own real quiet-band/injected-signal calibration sets
+// docs/DESIGN.md §7.3's own real quiet-band/injected-signal calibration sets
 // the final number — this is a compiling, host-testable placeholder.
 constexpr int16_t ENERGY_NOISE_FLOOR_EMA_DIVISOR = 8;
 
@@ -82,9 +82,9 @@ constexpr int16_t energyNoiseFloorUpdate(int16_t floor_dbm_x10, int16_t sample_d
 
 // Calibrated 2026-08-29 against real hardware (Cardputer + Heltec V4R8
 // LongModerate injection, scripts/phase9_sweep_margin_bench.py,
-// PROGRESS.md/CHANGELOG.md for the full matrix). The original 10.0dB
+// docs/history/PROGRESS.md/docs/history/CHANGELOG.md for the full matrix). The original 10.0dB
 // placeholder measured 45-51% of bins as "peaks" in a quiet room — nowhere
-// near DESIGN.md §8.1's "only peaks, sparse" intent. A 3-repeat matrix at
+// near docs/DESIGN.md §8.1's "only peaks, sparse" intent. A 3-repeat matrix at
 // 20-40dB found 35.0dB the first point with a genuine zero false-trigger
 // rate (0/3 quiet repeats, 221 bins each) while still registering the
 // injected signal more often than the only other zero-false-positive
@@ -100,7 +100,7 @@ constexpr bool energyExceedsFloor(int16_t value_dbm_x10, int16_t floor_dbm_x10,
     return value_dbm_x10 >= (int16_t)(floor_dbm_x10 + margin_dbm_x10);
 }
 
-// DESIGN.md §8.1: "don't dump every sweep point, only peaks." Uses the
+// docs/DESIGN.md §8.1: "don't dump every sweep point, only peaks." Uses the
 // bin's *peak* (not average): a short burst inside a mostly-quiet dwell
 // window must not be smoothed away by its own quieter samples — peak is
 // always >= average, so this is strictly more sensitive than an
@@ -149,7 +149,7 @@ inline const char *energyObservationResultName(EnergyObservationResult result) {
     }
 }
 
-// Field order: DESIGN.md §5.2's Identity/Tuning/Result/Context groups map
+// Field order: docs/DESIGN.md §5.2's Identity/Tuning/Result/Context groups map
 // as: Identity = rx_millis, profile, bin_index (run id + GPS fix stay CSV
 // format params, not struct fields — same as ScanObservation, keeping the
 // radio task GPS-free); Tuning = freq_mhz, bin_step_khz,

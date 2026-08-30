@@ -1,6 +1,6 @@
 #pragma once
 // LoRaTrace RX — menu state machine (Phase 6: UI architecture redesign,
-// ROADMAP.md; generalized to real nesting 2026-08-25).
+// docs/ROADMAP.md; generalized to real nesting 2026-08-25).
 //
 // Pure logic, no Arduino/display dependency — same "decode/state machine
 // separate from drawing and hardware" split as keyboard.h/gps_parse.h, so
@@ -11,7 +11,7 @@
 // inside it, never more") — replacing Phase 5's flat, fixed-size menu,
 // which shipped scoped to exactly two items and had already grown a third
 // (verbose debug) the same bench day with no framework change to absorb it
-// (PROGRESS.md's 2026-08-25 Decisions log). That two-level cap held for the
+// (docs/history/CHANGELOG.md, 2026-08-25). That two-level cap held for the
 // rest of Phase 6 until the operator asked to move Brightness/idle-dim
 // under a "System > Display > ..." grouping — a real third level, not
 // something a special case for one screen was worth building around given
@@ -35,7 +35,7 @@
 // What a menu row does when activated.
 //
 // SELECT_MESHTASTIC/SELECT_MESHCORE replace the single PROFILE_SWITCH this
-// enum used to carry (2026-08-25, BRAND.md's Interface Naming section):
+// enum used to carry (2026-08-25, docs/BRAND.md's Interface Naming section):
 // "Profile" is a GROUP row, not a two-way cycle-on-Enter, so picking a
 // profile is two distinct direct selections inside it rather than one
 // action that always means "whichever one isn't active."

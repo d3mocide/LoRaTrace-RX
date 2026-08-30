@@ -1,7 +1,7 @@
 #pragma once
 // LoRaTrace RX — radio task (Core 1, highest priority).
 //
-// Owns the SX1262 exclusively and implements HOME_LISTEN from DESIGN.md §5:
+// Owns the SX1262 exclusively and implements HOME_LISTEN from docs/DESIGN.md §5:
 // continuous RX locked to the active profile's channel; on a valid packet,
 // push a Detection into the queue and stay locked. Phase 4 adds the other
 // half of §5's state machine text — "operator-selected... mutually
@@ -9,7 +9,7 @@
 // DISCOVERY_SWEEP is implemented as the radio-owned bounded Probe path below.
 // ENERGY_SWEEP remains Phase 9 and is deliberately absent here.
 //
-// The one hard rule (DESIGN.md §2, CLAUDE.md): this task never touches SD
+// The one hard rule (docs/DESIGN.md §2, CLAUDE.md): this task never touches SD
 // or the display, and never blocks on another task. It reads the packet,
 // re-arms RX, drops a ~36-byte struct in a queue, and goes back to
 // listening. If the queue is full it *drops the detection and counts it*
@@ -34,7 +34,7 @@
 // radioRequestProfileSwitch() resolves each profile's *current* override
 // rather than always falling back to channel_plans.h's hardcoded table
 // (the pre-2026-08-24 bug: switching away from a profile and back silently
-// dropped its override — see PROGRESS.md Decisions log).
+// dropped its override — see docs/history/CHANGELOG.md).
 // Returns false if the radio failed to initialise or the task couldn't be
 // created — callers should treat that as fatal, since a wardriver with no
 // receiver has nothing to do.
@@ -59,7 +59,7 @@ int radioLastError();
 // radioActiveChannel() below.
 MissionProfile radioActiveProfile();
 
-// DESIGN.md §5's operator-selected, mutually-exclusive profile switch:
+// docs/DESIGN.md §5's operator-selected, mutually-exclusive profile switch:
 // Meshtastic and MeshCore never listen at once. Queues a retune to
 // `profile`'s channel table (channel_plans.h) and wakes the radio task to
 // pick it up between packets — never blocks, so it's safe to call from
@@ -110,7 +110,7 @@ uint16_t radioDiscoveryCadDetectedMask();
 uint16_t radioDiscoveryCadTimeoutCount();
 uint16_t radioDiscoveryErrorCount();
 
-// Starts a bounded Pass-A energy sweep (Phase 9, DESIGN.md §5's
+// Starts a bounded Pass-A energy sweep (Phase 9, docs/DESIGN.md §5's
 // `ENERGY_SWEEP`): the radio task retunes across every frequency bin
 // (energy_plan.h), samples RSSI, and logs threshold-filtered peaks to a
 // separate fixed queue/file (energy_observation.h) — never CAD, never a

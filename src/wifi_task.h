@@ -1,13 +1,13 @@
 #pragma once
 // LoRaTrace RX — WiFi AP + on-device web UI (Core 0, lowest priority).
 //
-// ROADMAP.md Phase 3: pull detections.csv/session.csv, view live device
+// docs/ROADMAP.md Phase 3: pull detections.csv/session.csv, view live device
 // status, and edit the LoRa channel config over a browser — without ejecting
 // the SD card. Deliberately the least latency-sensitive task in the system:
 // Core 0, priority 1 (same tier as gps_task/ui_task), strictly below
 // logger_task (2) and radio_task (3), which must always win. See
-// PROGRESS.md for the heap-budget spike this was gated behind before being
-// built (ROADMAP.md previously called WiFi "lowest priority" for exactly
+// docs/history/PROGRESS.md for the heap-budget spike this was gated behind before being
+// built (docs/ROADMAP.md previously called WiFi "lowest priority" for exactly
 // this reason).
 //
 // **Off by default, on-demand only.** The task is created at boot but does
@@ -23,8 +23,8 @@
 // next boot — no attempt to hot-reload the running SX1262 from a different
 // task. See config.h's writeProfileConfigToSD() for why. Per-profile since
 // 2026-08-24: the settings page has one preset panel per mission profile
-// (Meshtastic/MeshCore), each saved independently — see PROGRESS.md
-// Decisions log for why a single shared preset wasn't enough.
+// (Meshtastic/MeshCore), each saved independently — see
+// docs/history/CHANGELOG.md for why a single shared preset wasn't enough.
 
 #include <stddef.h>
 #include <stdint.h>

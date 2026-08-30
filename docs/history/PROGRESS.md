@@ -1278,6 +1278,53 @@ Mirrors `ROADMAP.md` phases / `DESIGN.md` §9.
         fallback checks against the real Meshtastic/MeshCore tables;
         `test_keyboard`: `JUMP_6` coverage). All confirmed on real
         hardware after two feedback rounds.
+  - [x] **Web Command Center acquisition alignment, 2026-08-29.** The
+        on-demand AP's existing Status tab now identifies the firmware,
+        active profile/home channel, and current run, then mirrors the
+        radio-owned Probe and Sweep summaries (state/progress, CAD and peak
+        counts, strongest peak, and Pass-B attempts/promoted packets).
+        The accompanying copy keeps the important boundary explicit: an
+        energy peak is not LoRa evidence. The run browser now also exposes
+        the durable `probe.csv`, `energy.csv`, and `nodes.csv` artifacts;
+        all five CSVs have a stable per-run schema at logger startup. This
+        is deliberately observability/download scope only — it adds no
+        browser acquisition controls or new radio path. Native suite
+        (158 tests), embedded-browser-script syntax, and the production
+        `cardputer-adv` build passed. A follow-up presentation pass now
+        carries the on-device panel's actual black/white/dim/green/yellow/
+        red RGB565 language into the browser: local monospaced type, hard
+        square cards, an inverted selected tab, and the shared GPS/heap/RX
+        header-dot vocabulary. `research/ui-panel-set.html` is the visual
+        source of truth; the web RX dot is a two-second counter-change
+        indication, not a claim to reproduce the panel's 220ms pulse.
+        The Status tab was then consolidated from many equal-weight cards
+        into one run/watch readout, paired Probe/Sweep summaries, and a
+        five-item health strip. It keeps detailed diagnostics in the durable
+        CSVs and does not put precise live coordinates in the high-level
+        browser view. Embedded-browser-script syntax and the production
+        build passed again after this layout pass.
+        Downloads now render each run as a labeled five-file evidence set
+        (Packets, Health, Probe, Energy Sweep, Nodes) instead of a flat
+        link row; the inactive profile badge uses `:empty` and is absent,
+        rather than an empty green outline. Embedded-browser-script syntax
+        and the production build passed again after this presentation pass.
+        Pending hardware acceptance: enable the AP during a real Probe and
+        Sweep, confirm the new presentation/two-second status view and all
+        five downloads, then compare the normal drop/bus/heap counters
+        against the AP-off baseline.
+        The final Settings pass replaces the long row list with four compact
+        groups: persisted Display settings (brightness and idle dim, applied
+        on next boot), live Node identity capture and verbose serial-debug
+        toggles, and the two independent channel presets. Display writes use
+        the existing `/loratrace/display.txt` format and retain UI-task
+        ownership of the live backlight/timer; capture/debug use the same
+        state and serial side effects as their on-device menu actions.
+        Browser settings deliberately exclude radio acquisition/tuning,
+        profile switching, Wi-Fi, SD recovery, and serial-access policy.
+        The new endpoints validate their small integer domains strictly;
+        native suite (158 tests), embedded-browser-script syntax, diff check,
+        and production build passed. The same AP-on hardware exercise remains
+        pending for the Settings values and their reboot/live boundaries.
   - [ ] Transient Sweep shares Probe's Phase 7-gated 2.5 KB buffer ceiling,
         single-result replacement, and visible `NOT SAVED` behavior
   - [ ] Deterministic bin-to-display-column aggregation covers both endpoints

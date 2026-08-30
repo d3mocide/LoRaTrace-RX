@@ -283,7 +283,7 @@ bool discoveryAbortPending() {
 }
 
 // A threshold-filtered peak only — Pass A never enqueues a non-peak bin
-// (DESIGN.md §8.1: "don't dump every sweep point, only peaks"). `wifi_on`
+// (docs/DESIGN.md §8.1: "don't dump every sweep point, only peaks"). `wifi_on`
 // is hardcoded false: a real WiFi-state getter is a later slice's concern
 // (this task has no WiFi dependency today and shouldn't grow one just to
 // answer this field).
@@ -319,7 +319,7 @@ void enqueueEnergyObservation(uint16_t binIndex, const ChannelParams &channel,
 // phase9-sweep-pass-b-design.md). Unlike enqueueEnergyObservation() this
 // logs every attempt, not peaks only -- a bounded, sparse-by-construction
 // set (PASS_B_MAX_PEAKS_PER_SWEEP x PASS_B_SF_BW_CANDIDATE_COUNT per
-// sweep), so the "log peaks only" storage argument (DESIGN.md §8.1) that
+// sweep), so the "log peaks only" storage argument (docs/DESIGN.md §8.1) that
 // motivates Pass A's own filtering doesn't apply here. rssi fields stay
 // 0: Pass B doesn't re-measure RSSI, only CAD/receive outcomes at a bin
 // Pass A already measured.
@@ -759,7 +759,7 @@ void passBCadOneCombo(uint16_t bin, float freq, const PassBModemParams &combo,
         }
         if (haveDetection) {
             // Never Meshtastic/MeshCore attribution: an off-grid hit is
-            // "unknown LoRa candidate" per DESIGN.md §7.2, regardless
+            // "unknown LoRa candidate" per docs/DESIGN.md §7.2, regardless
             // of activeProfile (always RETICULUM/GENERAL_EXPLORATION
             // here) -- see detection.h's detectionClassification().
             detection.off_grid = true;
@@ -809,7 +809,7 @@ void performBenchPassBCadTrigger(uint8_t comboIndex) {
     benchPassBCadActive = false;
 }
 
-// DESIGN.md §7.2's two-pass acquisition: Pass A is the bounded RSSI sweep
+// docs/DESIGN.md §7.2's two-pass acquisition: Pass A is the bounded RSSI sweep
 // across every frequency bin below, threshold-filtered peaks logged to
 // energy.csv; Pass B (passBCadAtBin() above) runs inline the moment Pass A
 // flags a bin as a peak, up to PASS_B_MAX_PEAKS_PER_SWEEP peaks per run.
@@ -995,7 +995,7 @@ void radioTask(void *) {
             SpiBusLock lock(BUS_WAIT);
             if (lock.held()) {
                 // Reconfiguring the modem abandons anything mid-flight on
-                // the old channel — accepted cost of DESIGN.md §5's
+                // the old channel — accepted cost of docs/DESIGN.md §5's
                 // "mutually exclusive": a switch means the operator no
                 // longer wants the old profile.
                 lastError = radio.begin(swreq.channel.freq_mhz, swreq.channel.bw_khz,
@@ -1272,7 +1272,7 @@ bool radioRequestDiscoverySweep() {
         xTaskNotifyGive(radioTaskHandle);
         return true;
     }
-    // Mutually exclusive with Sweep (DESIGN.md §5) — neither can preempt
+    // Mutually exclusive with Sweep (docs/DESIGN.md §5) — neither can preempt
     // the other; see radioRequestEnergySweep()'s matching guard.
     if (tracePaused || energyActive) return false;
     const bool start = true;

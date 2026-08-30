@@ -1,7 +1,7 @@
 #pragma once
 // LoRaTrace RX — pin map and IO-expander register constants.
-// Pin assignments are transcribed from DESIGN.md §1 (source of truth). If
-// any change, update DESIGN.md first, then this file — don't let them drift.
+// Pin assignments are transcribed from docs/DESIGN.md §1 (source of truth). If
+// any change, update docs/DESIGN.md first, then this file — don't let them drift.
 
 #include <cstdint>
 
@@ -16,7 +16,7 @@ constexpr int8_t PIN_LORA_BUSY = 6;
 constexpr int8_t PIN_LORA_RST  = 3;
 
 // PI4IOE5V6408 IO expander — antenna-path switch, boot-init only. The
-// radio hears nothing until P0 is driven high once at boot (DESIGN.md §1).
+// radio hears nothing until P0 is driven high once at boot (docs/DESIGN.md §1).
 constexpr int8_t PIN_IOEXP_SDA = 8;
 constexpr int8_t PIN_IOEXP_SCL = 9;
 
@@ -37,7 +37,7 @@ constexpr uint8_t IOEXP_REG_INPUT_STATUS = 0x0F; // read-only input levels
 
 constexpr uint8_t IOEXP_ANT_SWITCH_BIT = 0; // P0 — antenna path enable
 
-// GPS — NMEA over UART. DESIGN.md calls the chip "AT6668"; M5Stack's own
+// GPS — NMEA over UART. docs/DESIGN.md calls the chip "AT6668"; M5Stack's own
 // docs say "ATGM336H" — naming discrepancy only, doesn't affect these pins.
 //
 // M5Stack's docs table and its own tutorial code disagree on RX/TX
@@ -66,7 +66,7 @@ constexpr int8_t PIN_GPS_TX_ALT = 15;
 // SPI pin table): SD is CS=G12/SCK=G40/MOSI=G14/MISO=G39, SX1262 is
 // NSS=G5 on the identical SCK/MOSI/MISO — one shared bus via chip-select,
 // because the microSD interface shares pins with the EXT/Cap connector the
-// LoRa Cap plugs into. Resolves DESIGN.md §7's "SPI or SDMMC?" in favor of
+// LoRa Cap plugs into. Resolves docs/DESIGN.md §7's "SPI or SDMMC?" in favor of
 // SPI, shared.
 //
 // Implication: SD and radio SPI can't truly run concurrently regardless of

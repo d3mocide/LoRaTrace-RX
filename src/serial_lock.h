@@ -7,7 +7,7 @@
 // USB-CDC on this board) has no internal lock protecting concurrent writes
 // from different cores.
 //
-// The 2026-08-23 fix for garbled output (PROGRESS.md) collapsed each
+// The 2026-08-23 fix for garbled output (docs/history/CHANGELOG.md) collapsed each
 // message to one buffer + one Serial call, on the theory that a single
 // call is "far more likely to be atomic" than several. A 2026-08-24
 // hardware session proved that theory insufficient under real contention:

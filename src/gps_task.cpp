@@ -21,7 +21,7 @@ volatile uint32_t sentenceCount = 0;
 volatile uint32_t checksumErrors = 0;
 // Longest gap between two passes of gpsTask()'s drain loop. A direct,
 // mechanism-level measurement for the nmea_bad_crc investigation
-// (PROGRESS.md): this task is lowest priority on Core 0 (deliberately —
+// (docs/history/PROGRESS.md): this task is lowest priority on Core 0 (deliberately —
 // see gpsTaskStart()), so a busy logger holding the CPU while it writes to
 // SD is the leading theory for where bytes get lost. If this stays small
 // even while flushes are happening, that theory is wrong and the noise is
@@ -161,7 +161,7 @@ bool gpsTaskStart() {
         if (fixMutex == nullptr) return false;
     }
 
-    // Core 0 per DESIGN.md §2; Core 1 is reserved for the radio task alone.
+    // Core 0 per docs/DESIGN.md §2; Core 1 is reserved for the radio task alone.
     // Priority 1: this is the least latency-sensitive of the three tasks —
     // a fix is only sampled once per detection, and GPS updates at 1Hz.
     BaseType_t ok = xTaskCreatePinnedToCore(gpsTask, "gps", 3072, nullptr, 1, nullptr, 0);

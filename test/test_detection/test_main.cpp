@@ -2,7 +2,7 @@
 // bug would silently corrupt the log rather than crash.
 //
 // The Meshtastic fixtures below are REAL packets captured on hardware
-// 2026-08-23 (PROGRESS.md), not synthetic bytes. That matters: they encode
+// 2026-08-23 (docs/history/PROGRESS.md), not synthetic bytes. That matters: they encode
 // the original-vs-rebroadcast pairing that confused early bench testing, so
 // a regression in header parsing shows up here as a concrete wrong answer
 // about real traffic.
@@ -147,7 +147,7 @@ void test_uptime_anchors_a_detection_heard_before_the_first_fix() {
 
 // Phase 4: radio_task.cpp deliberately never calls
 // detectionApplyMeshtasticHeader() for a MeshCore detection (its header
-// layout isn't verified — DESIGN.md §7, detection.h's comment above). This
+// layout isn't verified — docs/DESIGN.md §7, detection.h's comment above). This
 // pins the CSV-visible consequence of that: the profile/classification
 // columns say "meshcore", and the id columns stay empty — not "!00000000",
 // which would misread as a real, all-zero node id.
@@ -173,7 +173,7 @@ void test_meshcore_csv_row_has_no_header_fields() {
 }
 
 // Phase 9 Pass B: a CAD hit at an arbitrary Sweep peak bin must never read
-// as the active mission profile's name in the CSV (DESIGN.md §7.2 — "not
+// as the active mission profile's name in the CSV (docs/DESIGN.md §7.2 — "not
 // Reticulum... protocol attribution requires evidence the radio layer
 // cannot provide"). Sweep only ever runs under RETICULUM/
 // GENERAL_EXPLORATION, so this is the exact case that would otherwise

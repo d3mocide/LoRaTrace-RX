@@ -42,7 +42,7 @@ struct GpsFix {
     // before a fix exists: `satellites` (used) stays 0 until a fix lands,
     // so it can't say whether a cold start is progressing. Zero in view
     // across every constellation means sky/antenna; some in view without a
-    // fix just means "wait longer" (learned 2026-08-23, see CHANGELOG.md).
+    // fix just means "wait longer" (learned 2026-08-23, see docs/history/CHANGELOG.md).
     GpsTalkerSats talkers[GPS_MAX_TALKERS] = {};
     uint8_t talker_count = 0;
     uint8_t sats_in_view = 0; // sum across constellations

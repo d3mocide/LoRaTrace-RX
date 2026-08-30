@@ -22,7 +22,7 @@ heap under the Phase 2/3 workloads, but Phase 6 later added a ~32KB indexed
 display canvas on top of WiFi's measured ~55–56KB cost. Phase 7 therefore
 measures current free heap, lifetime minimum, largest allocatable block,
 fragmentation block counts, and every task's stack high-water mark before
-adding another radio mode; see `HARDWARE_TESTING.md`. **microSD is the
+adding another radio mode; see `docs/HARDWARE_TESTING.md`. **microSD is the
 datastore. RAM is a relay buffer, not a log.** Keep the in-RAM detection queue
 small (ring buffer, ~40B/entry) and flush to SD promptly rather than
 accumulating.
@@ -35,7 +35,7 @@ accumulating.
 | PI4IOE5V6408 IO expander | I2C, addr 0x43 | SDA G8, SCL G9 | Boot init only |
 | GPS (ATGM336H) | UART @ 115200 8N1 | RX G13, TX G15 | GPS task |
 | microSD | SPI, same bus as SX1262 (CS G12, shared SCK/MOSI/MISO — §7) | CS G12 | Logger task |
-| ST7789V2 LCD | SPI, own host, isolated from the radio/SD bus above | DC G34, CS G37, SCK G36, MOSI G35, RST G33, BL G38 | UI task (built phase 2, redesigned phase 6 — PROGRESS.md) |
+| ST7789V2 LCD | SPI, own host, isolated from the radio/SD bus above | DC G34, CS G37, SCK G36, MOSI G35, RST G33, BL G38 | UI task (built phase 2, redesigned phase 6 — docs/history/PROGRESS.md) |
 | Keyboard | Cardputer-ADV: TCA8418 I2C controller, addr 0x34, same SDA/SCL (G8/G9) as the IO expander above, different address — not the plain GPIO matrix the base (non-ADV) Cardputer uses | G8/G9 (ADV) | UI task (wired phase 5, §10) |
 
 **Startup requirement:** the antenna path is gated by an IO expander — **P0 on
@@ -152,7 +152,7 @@ one, else the hardcoded default (`channel_plans.h`'s
 `resolvedChannelForProfile()`, config.h) — not just the hardcoded table
 directly. Per-profile since 2026-08-24: an earlier single-override design
 meant switching away from a profile and back silently dropped its override
-and reverted to the hardcoded default; see PROGRESS.md's Decisions log for
+and reverted to the hardcoded default; see docs/history/CHANGELOG.md for
 the full story and `config.h`'s comments for the current schema.
 
 ## 6. Protocol fingerprinting (post-hoc classification)
@@ -217,7 +217,7 @@ sync words are verified from upstream firmware and set explicitly in
       frames decode fine at 8, confirmed on hardware 2026-08-23. Left as-is
       deliberately: continuous RX syncs on whatever preamble arrives, so
       this only bites the duty-cycled/CAD scanning in §4 (`DISCOVERY_SWEEP`,
-      ROADMAP.md Phase 8 after the 2026-08-26 optimization-phase insertion — see ROADMAP.md
+      docs/ROADMAP.md Phase 8 after the 2026-08-26 optimization-phase insertion — see docs/ROADMAP.md
       Versioning; MeshCore's HOME_LISTEN profile landed as phase 4 instead,
       and doesn't touch CAD timing at all). Re-evaluate during that phase
       with a bench test, not before.
@@ -249,7 +249,7 @@ sync words are verified from upstream firmware and set explicitly in
       blocking, but doesn't remove the need for bus-level arbitration
       (e.g. a mutex around the shared SPI peripheral) once both are active
       concurrently — the FreeRTOS queue alone doesn't solve that. Tracked
-      further in PROGRESS.md.
+      further in docs/history/PROGRESS.md.
 - [ ] **CAD `symNum` tuning** — the 2-symbol dwell estimates in the prior
       sketch are ballpark; real false-positive/miss tradeoff needs bench
       testing against Semtech's AN1200.48 guidance.
@@ -265,7 +265,7 @@ sync words are verified from upstream firmware and set explicitly in
       in that repo — device name is literally "M5Stack Cardputer & ADV",
       i.e. one shared display config for both variants), not derived or
       guessed. Not independently bench-verified against this board yet —
-      see PROGRESS.md's boot-status-splash entry and Phase 1 checklist.
+      see docs/history/PROGRESS.md's boot-status-splash entry and Phase 1 checklist.
 
 ## 8. SD log schema
 
@@ -315,7 +315,7 @@ position, run context) — what kind of thing this is (profile,
 classification) — who sent it and how it got here (node id and its
 packet/hop/relay siblings, kept adjacent rather than split across the row)
 — the RF channel — signal quality — payload. Reordered 2026-08-23
-(PROGRESS.md) from the column-addition order the routing-metadata fields
+(docs/history/CHANGELOG.md) from the column-addition order the routing-metadata fields
 originally landed in; **earlier runs' `detections.csv` files use the old
 column order** — check each file's own header before parsing by position,
 especially before concatenating runs from different firmware versions.
@@ -336,7 +336,7 @@ which `hop_limit`/`hop_start`/`relay_node` then tell apart: a
 same-`channel_or_node_id` pair heard seconds apart with a matching
 `packet_id` but a decremented `hop_limit` and a different `relay_node` is a
 genuine direct+relay pair, not a duplicate log entry — confirmed against
-real traffic on the very next run (PROGRESS.md, run0011) after this column
+real traffic on the very next run (docs/history/PROGRESS.md, run0011) after this column
 was added. Empty (not `00000000`) on rows where no header was parsed,
 matching `channel_or_node_id`'s existing convention; `hop_limit`/`hop_start`
 stay numeric either way since 0 is a legitimate value (a packet at its last
@@ -411,7 +411,7 @@ Two fields carry more weight than the rest:
   `heap_largest` and the two block counts distinguish a recovered transient
   allocation from fragmentation, while the four additional `*_stack_free`
   fields extend the logger's existing high-water measurement to every task.
-  See `HARDWARE_TESTING.md` for the workload and acceptance rules.
+  See `docs/HARDWARE_TESTING.md` for the workload and acceptance rules.
 - **`gps_max_loop_gap_ms` and `gps_oversize_drops`, added 2026-08-23**,
   exist to test one specific theory about `nmea_bad_crc` rather than just
   keep restating the symptom. The GPS task is deliberately Core 0's lowest
@@ -424,7 +424,7 @@ Two fields carry more weight than the rest:
   own terminator merges two sentences into one, which overruns the
   96-byte assembly buffer and gets silently discarded without ever
   incrementing `nmea_bad_crc` — so the true corruption rate could be higher
-  than that counter alone reports. See PROGRESS.md's `nmea_bad_crc` watch
+  than that counter alone reports. See docs/history/PROGRESS.md's `nmea_bad_crc` watch
   item for the run that motivated this.
 
 Costs about 180 rows on a three-hour drive: nothing next to the detection
@@ -501,24 +501,24 @@ still self-describing via uptime.
    Drive is functionally complete at this point
 3. WiFi AP + web UI (`wifi_task`) — pull data and edit settings over a
    browser instead of ejecting the SD card. Off by default, on-demand only
-   (ROADMAP.md Phase 3 for the full rationale, including why this moved
+   (docs/ROADMAP.md Phase 3 for the full rationale, including why this moved
    ahead of MeshCore)
 4. Add MeshCore profile (910.525/SF7/BW62.5/CR5) — same engine, new table
 5. On-device menu UI (`ui_task`) — replaces Phase 3/4's timed hold-gestures
    with real keyboard-driven navigation and a settings/mode-toggle menu.
-   Moved ahead of steps 6-9 at the user's request (ROADMAP.md Phase 5 for
+   Moved ahead of steps 6-9 at the user's request (docs/ROADMAP.md Phase 5 for
    the full rationale, same precedent as step 3 moving ahead of MeshCore).
    See §10 for the keyboard-decode sourcing this depends on.
 6. UI architecture redesign — reworks step 5's flat menu into grouped
    categories before steps 8/9 each add to it, plus a toast/notice layer
    and reorganized status pages. Moved ahead of `DISCOVERY_SWEEP` at the
-   user's request (ROADMAP.md Phase 6 for the full rationale, same
+   user's request (docs/ROADMAP.md Phase 6 for the full rationale, same
    restructuring precedent as steps 3 and 5 moving ahead of their
    original slots)
 7. Device optimization — instrument heap fragmentation and every task's
    stack high-water mark, establish the WiFi+canvas combined-load baseline,
-   then optimize only measured costs. `HARDWARE_TESTING.md` is the repeatable
-   bench protocol and ROADMAP.md Phase 7 owns the exit criteria.
+   then optimize only measured costs. `docs/HARDWARE_TESTING.md` is the repeatable
+   bench protocol and docs/ROADMAP.md Phase 7 owns the exit criteria.
 8. `DISCOVERY_SWEEP` with curated candidate lists per profile, weighted by
    MeshMapper-observed frequencies where available — adds entries to step
    6's grouped menu, doesn't reopen UI architecture a second time
@@ -534,7 +534,7 @@ project had left open since Phase 2 (§1's keyboard row, CLAUDE.md's house
 rule against guessing hardware tables): what does a raw TCA8418 event byte
 actually mean on this specific keyboard? Phase 5's UX scope — plain `,`/`.`
 to move, Enter to select, Backspace to go back, no Fn chord, no numeric
-entry (ROADMAP.md Phase 5) — only ever needed four specific keys identified,
+entry (docs/ROADMAP.md Phase 5) — only ever needed four specific keys identified,
 which is what made a fully-sourced answer tractable here instead of needing
 a whole separate research phase. Extended twice since, same Phase, same
 sourcing chain:
@@ -542,7 +542,7 @@ sourcing chain:
   operator isn't limited to stepping through pages one at a time with
   `,`/`.`. **Bench-confirmed 2026-08-24**, all five.
 - The same bench session that confirmed the digits also surfaced two live
-  UX findings, fixed the same day (PROGRESS.md Decisions log): Backspace
+  UX findings, fixed the same day (docs/history/CHANGELOG.md): Backspace
   read as the wrong key for "leave the menu," swapped for the top-left key
   — silkscreened ESC on the Cardputer-ADV even though the TCA8418 reports
   its base character as backtick (RetroBreeze's reference documents this
@@ -591,7 +591,7 @@ comments so an implementer doesn't have to re-derive it. **Bench-confirmed
 2026-08-24:** Comma, Period, and the five digit keys. Backtick/ESC and
 Semicolon/Slash are newer and **not yet bench-verified** — same bar as
 every other sourced-not-measured fact in this section: press each once and
-confirm the firmware recognizes exactly that key, per PROGRESS.md's Phase 5
+confirm the firmware recognizes exactly that key, per docs/history/PROGRESS.md's Phase 5
 checklist.
 
 ## 11. References

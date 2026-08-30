@@ -21,7 +21,7 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
-      # ROADMAP.md's Versioning section previously noted that a
+      # docs/ROADMAP.md's Versioning section previously noted that a
       # tag/version.h mismatch was "a review-time catch, not an automated
       # one". It is automated now: shipping a binary whose boot banner
       # disagrees with its release tag makes every subsequent bug report
@@ -37,7 +37,7 @@ jobs:
             exit 1
           fi
           if [ "$header_version" != "$tag_version" ]; then
-            echo "::error::src/version.h says ${header_version} but the tag is ${GITHUB_REF_NAME}. Bump version.h to match before tagging (ROADMAP.md Versioning)."
+            echo "::error::src/version.h says ${header_version} but the tag is ${GITHUB_REF_NAME}. Bump version.h to match before tagging (docs/ROADMAP.md Versioning)."
             exit 1
           fi
 

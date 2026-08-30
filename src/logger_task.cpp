@@ -184,7 +184,7 @@ bool openLogsLocked(bool remount) {
     // Creating the empty file at boot keeps the run directory schema stable.
     if (!ensureCsvLocked(probePath, SCAN_CSV_HEADER)) return false;
     // Same durability tier as probePath: Sweep is mission output too, and
-    // DESIGN.md requires a durable scan to refuse starting if its output
+    // docs/DESIGN.md requires a durable scan to refuse starting if its output
     // file cannot be opened.
     if (!ensureCsvLocked(energyPath, ENERGY_CSV_HEADER)) return false;
     if (!ensureCsvLocked(nodesPath, NODE_CSV_HEADER)) return false;
@@ -642,7 +642,12 @@ uint32_t loggerIdentityRowsDropped() {
 }
 
 void loggerDebugToggle() {
-    debugVerbose = !debugVerbose;
+    loggerDebugSetEnabled(!debugVerbose);
+}
+
+void loggerDebugSetEnabled(bool enabled) {
+    if (debugVerbose == enabled) return;
+    debugVerbose = enabled;
     if (debugVerbose && !serialControlIsEnabled()) {
         // Column header once on enable, so the CSV-shaped lines that follow
         // are readable rather than a wall of unlabeled commas. One locked
@@ -659,6 +664,7 @@ void loggerDebugToggle() {
         if (lock.held()) serialPrintln("[debug] verbose mode OFF");
     }
 }
+
 bool loggerDebugIsEnabled() {
     return debugVerbose;
 }

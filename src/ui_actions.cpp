@@ -1,6 +1,6 @@
 // LoRaTrace RX — ui_task's menu-action business logic.
 //
-// Split out of ui_task.cpp (2026-08-25 cleanup pass, PROGRESS.md/CLAUDE.md)
+// Split out of ui_task.cpp (2026-08-25 cleanup pass, docs/history/CHANGELOG.md/CLAUDE.md)
 // — this file owns exactly one thing: what actually happens when a menu row
 // fires (radio/WiFi/logger/backlight/SD calls), separate from drawing
 // (ui_pages.cpp) and task lifecycle/input/loop (ui_task.cpp). See

@@ -1,7 +1,7 @@
 // LoRaTrace RX — orchestrator, not a driver: brings up hardware in a fixed
 // order, then hands off to five tasks and gets out of the way. Boots
 // radio_task on Meshtastic; the live switch to/from MeshCore is entirely
-// ui_task's/radio_task's own affair from there (DESIGN.md §5).
+// ui_task's/radio_task's own affair from there (docs/DESIGN.md §5).
 //
 //   Core 1: radio_task   — owns the SX1262, HOME_LISTEN, never blocks
 //   Core 0: gps_task     — NMEA -> last-fix behind a mutex
@@ -86,7 +86,7 @@ constexpr uint16_t SPLASH_AMBER = 0xDD84;
 // Meshtastic LongFast (US) unless overridden by /loratrace/config.txt on
 // SD — see config.h/config.cpp and sd-template/loratrace/config.txt.
 // `channelOverrides` holds BOTH profiles' overrides (per-profile since
-// 2026-08-24, see PROGRESS.md Decisions log); `activeChannel` below is just
+// 2026-08-24, see docs/history/CHANGELOG.md); `activeChannel` below is just
 // the boot profile's resolved value, handed to radioTaskStart() alongside
 // `channelOverrides` itself so a later profile switch can resolve MeshCore's
 // override too, not just Meshtastic's.
@@ -121,17 +121,17 @@ void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
     splashY += SPLASH_LINE_H;
 }
 
-// Boot mark (2026-08-25) — BRAND.md's unbuilt logo concept: an L-shaped
+// Boot mark (2026-08-25) — docs/BRAND.md's unbuilt logo concept: an L-shaped
 // path resolving into three signal arcs. Procedural (drawLine/fillArc,
 // a handful of coordinate constants), not a bitmap. No alpha blending
 // (RGB565 has none) — motion is hard colour swaps and staged reveals.
-// Sourced from the approved preview (see CHANGELOG.md for the mockup
+// Sourced from the approved preview (see docs/history/CHANGELOG.md for the mockup
 // link and full round-by-round history), rescaled to this real budget.
 //
 // **Angle convention:** fillArc() measures 0°=3 o'clock, clockwise — the
 // same convention as HTML canvas, so mockup angles need no conversion.
 // An earlier +90° "conversion" was a bug, not a fix (rotated the mark 90°,
-// see CHANGELOG.md v0.6.6) — removed.
+// see docs/history/CHANGELOG.md v0.6.6) — removed.
 constexpr int16_t MARK_ANCHOR_X = 30;
 constexpr int16_t MARK_ANCHOR_Y = 28;
 // Diagonal-foot path (round 5, the shipped pick over a straight run
@@ -293,7 +293,7 @@ void setup() {
     // GPIO5 (PIN_LORA_NSS) must be driven high before any I2C or SPI access
     // on this board revision, or the SD card intermittently fails to mount
     // (`sdCommand(): crc error`). Confirmed to help on hardware; see
-    // board_pins.h and PROGRESS.md.
+    // board_pins.h and docs/history/PROGRESS.md.
     pinMode(PIN_LORA_NSS, OUTPUT);
     digitalWrite(PIN_LORA_NSS, HIGH);
 
@@ -404,7 +404,7 @@ void setup() {
 
     // Boots on the last profile selected via the menu (defaults to
     // Meshtastic on a first boot / no SD); the other profile is reachable
-    // at runtime via ui_task's menu (DESIGN.md §5, radio_task.h).
+    // at runtime via ui_task's menu (docs/DESIGN.md §5, radio_task.h).
     // `channelOverrides` is passed too, not just `activeChannel` —
     // radio_task.cpp holds onto it so a later switch resolves *its*
     // override the same way this boot resolved `bootProfile`'s.
@@ -458,7 +458,7 @@ void setup() {
             // own footer hint (ui_task.cpp) after the 2026-08-24 rework that
             // moved menu-open off Enter and onto this key.
             Serial.println(F("On-device menu: ,/. to move, ` to open/close, Enter to act "
-                             "-- Trace, profile switch (Meshtastic/MeshCore, DESIGN.md S5), "
+                             "-- Trace, profile switch (Meshtastic/MeshCore, docs/DESIGN.md S5), "
                              "WiFi, and verbose debug logging; P runs Probe anywhere. "
                              "Enter toggles Trace on Radio or Probe on its card."));
             Serial.print(F("Free heap after task start: "));

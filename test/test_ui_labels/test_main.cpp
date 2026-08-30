@@ -1,9 +1,9 @@
-// ui_labels.h maps MissionProfile to BRAND.md's on-device labels. Guards
+// ui_labels.h maps MissionProfile to docs/BRAND.md's on-device labels. Guards
 // the mistakes that matter here: a typo'd label, and two *distinct*
 // profiles colliding on the same string (an operator can't tell them apart
 // on a 240px panel if they read identically) — same "guard against
 // collision" pattern as test_channel_plans' sync-word tests. Revised
-// 2026-08-25 (BRAND.md "Revised again 2026-08-25"): the earlier
+// 2026-08-25 (docs/BRAND.md "Revised again 2026-08-25"): the earlier
 // family/sub-profile split (Mesh Trace + Meshtastic/MeshCore) was walked
 // back the same day in favor of one flat label per profile, so this file
 // is back to a single collision/lookup check, not a two-tier one.

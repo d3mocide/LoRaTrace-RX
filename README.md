@@ -6,26 +6,29 @@ RX-only LoRa/sub-GHz wardriving firmware for the M5Stack Cap LoRa-1262
 logging across four mission profiles: Meshtastic, MeshCore, Reticulum, and
 general LoRa/spectrum exploration.
 
-- **`DESIGN.md`** — hardware, RF parameters, and architecture rationale.
-  Read this before making architecture changes.
-- **`LOG_GUIDE.md`** — operator guide to run folders, CSV fields, identity
-  observations, health checks, and privacy-aware export.
-- **`ROADMAP.md`** — build-order phases, MVP-Beta scope, and an honest
-  feasibility assessment against this hardware's real limits.
-- **`PROGRESS.md`** — current build status, open questions, decisions log.
-- **`HARDWARE_TESTING.md`** — repeatable device-validation matrix and
-  Phase 7 memory acceptance rules.
-- **`BRAND.md`** — naming, tone, and on-device UI copy conventions.
-- **`CLAUDE.md`** — project rules for AI-assisted development on this repo.
+- **[docs/STATUS.md](docs/STATUS.md)** — current build status, what's
+  hardware-verified, and what's still open.
+- **[docs/DESIGN.md](docs/DESIGN.md)** — hardware, RF parameters, and
+  architecture rationale. Read this before making architecture changes.
+- **[docs/LOG_GUIDE.md](docs/LOG_GUIDE.md)** — operator guide to run
+  folders, CSV fields, identity observations, health checks, and
+  privacy-aware export.
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** — build-order phases, MVP-Beta
+  scope, and an honest feasibility assessment against this hardware's real
+  limits.
+- **[docs/HARDWARE_TESTING.md](docs/HARDWARE_TESTING.md)** — repeatable
+  device-validation matrix and Phase 7 memory acceptance rules.
+- **[docs/BRAND.md](docs/BRAND.md)** — naming, tone, and on-device UI copy
+  conventions.
+- **[CLAUDE.md](CLAUDE.md)** — project rules for AI-assisted development
+  on this repo.
+- **[docs/README.md](docs/README.md)** — full documentation index,
+  including archived history and research notes.
 
 ## Status
 
-**Current development version: v0.8.5.** Phases 1-8 are built and
-hardware-verified: RX/GPS/SD logging, on-demand WiFi run download, MeshCore,
-the on-device menu/UI, device memory/soak work, and bounded Probe acquisition.
-Phase 9 (`ENERGY_SWEEP`) is in progress; its Pass-A scan and calibrated noise
-threshold are hardware-verified, while Pass B remains future work. See
-`PROGRESS.md` for the live phase checklist and verification history.
+See [docs/STATUS.md](docs/STATUS.md) for the live phase checklist and
+verification history.
 
 ## Output files
 
@@ -55,13 +58,13 @@ deleted as a unit:
   vital signs next to its findings.
 - **`nodes.csv`** — supported Meshtastic NodeInfo and MeshCore advertisement
   identity observations, kept separate because many packets can belong to one
-  node. See `LOG_GUIDE.md` for the exact supported profiles and limits.
+  node. See `docs/LOG_GUIDE.md` for the exact supported profiles and limits.
 
 Runs are numbered rather than timestamped because the name has to be chosen
 before the GPS knows what time it is, and this board has no verified RTC.
 The wall clock still reaches the card, recorded inside the run once a fix
-lands. `LOG_GUIDE.md` is the operator reference for schemas and analysis;
-`DESIGN.md` §8 explains the design rationale. The current run number is shown
+lands. `docs/LOG_GUIDE.md` is the operator reference for schemas and analysis;
+`docs/DESIGN.md` §8 explains the design rationale. The current run number is shown
 on the RADIO page as `r<N>`.
 
 ## Build
@@ -100,7 +103,8 @@ need to touch USB flashing at all:
    window entirely, enable Launcher's own Settings → "Boot to Launcher"
    toggle; it then always stops at its menu on reset until you turn it
    back off. Not a software hook this firmware implements — see
-   `PROGRESS.md` for how this was confirmed against Launcher's own source.
+   `docs/history/PROGRESS.md` for how this was confirmed against
+   Launcher's own source.
 
 Serial output still works normally over USB while running under Launcher
 — `pio device monitor` to watch the boot banner and any `[RX]`/`[config]`
@@ -158,5 +162,5 @@ is active or paused), a run browser to download `detections.csv`/`nodes.csv`/
 one independent panel per profile for editing channel parameters — the
 same `config.txt` the SD card holds, applied on next boot. Measured cost:
 roughly 55-60KB of heap while the AP is up, with no impact on radio/GPS/SD
-reliability under real traffic — see `PROGRESS.md` for the numbers and
-what's still open there.
+reliability under real traffic — see `docs/history/PROGRESS.md` for the
+measurement session, or `docs/STATUS.md` for what's still open.

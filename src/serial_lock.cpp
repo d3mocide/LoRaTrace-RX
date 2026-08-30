@@ -49,7 +49,7 @@ size_t serialWriteAll(const uint8_t *data, size_t length) {
             // chunks can be acknowledged by the driver yet one whole chunk
             // is occasionally absent at the host under boot/log load.
             // Tried Serial.flush() here instead of delay(1) on 2026-08-28
-            // (PROGRESS.md): no measured improvement against the same
+            // (docs/history/CHANGELOG.md): no measured improvement against the same
             // repro, and it risks blocking the caller — and this whole
             // critical section — for longer if the host isn't draining.
             // Reverted; the driver drops chunks (sometimes the first,
@@ -77,7 +77,7 @@ bool serialPrintln(const char *line) {
     // Skipping the terminator here left a dangling open line on the wire
     // that the following writer's bytes ran directly into, producing a
     // single unparseable hybrid line instead of two separable ones
-    // (PROGRESS.md, 2026-08-28 STATUS-response repro).
+    // (docs/history/CHANGELOG.md, 2026-08-28 STATUS-response repro).
     const bool bodyOk = serialWriteAll((const uint8_t *)line, length) == length;
     static const uint8_t newline[] = {'\r', '\n'};
     const bool newlineOk = serialWriteAll(newline, sizeof(newline)) == sizeof(newline);

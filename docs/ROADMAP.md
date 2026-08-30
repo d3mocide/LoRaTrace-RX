@@ -1,7 +1,7 @@
 # LoRaTrace RX — Roadmap
 
 This roadmap operationalizes the build order already decided in
-`DESIGN.md` §9. It doesn't change any RF or architecture decision — it adds
+`docs/DESIGN.md` §9. It doesn't change any RF or architecture decision — it adds
 scope boundaries, exit criteria, and an honest read on what this specific
 hardware can and can't do, so "MVP-Beta" means something concrete instead
 of a vibe.
@@ -11,7 +11,7 @@ of a vibe.
 The smallest version of this firmware that's actually useful as a field
 tool: **Meshtastic War Drive, end to end.** RX locked to the LongFast (US)
 channel, every detection GPS-stamped and written to SD, running
-unattended on battery. That's DESIGN.md §9 phases 1–2. Everything past
+unattended on battery. That's docs/DESIGN.md §9 phases 1–2. Everything past
 that (MeshCore, discovery sweeps, energy sweep, UI, upload) is real
 project scope, but it's post-MVP-Beta.
 
@@ -37,7 +37,7 @@ assumptions), not a pitch.
 
 **Achievable, but needs deliberate care:**
 - **No PSRAM means ~512KB SRAM total, shared with the RTOS, WiFi stack (if
-  enabled), display driver, and every task's stack.** DESIGN.md's own
+  enabled), display driver, and every task's stack.** docs/DESIGN.md's own
   estimate of 250–380KB free heap is a guess pending `ESP.getFreeHeap()`
   on real hardware — treat every RAM-hungry decision below as provisional
   until that number is in hand.
@@ -49,7 +49,7 @@ assumptions), not a pitch.
   provisional estimate this gate was originally waiting on. Built
   on-demand (off by default, toggled by an operator gesture) specifically
   so its RAM/CPU/RF-noise cost is never present during an actual drive
-  unless asked for — see PROGRESS.md for the spike this was still worth
+  unless asked for — see docs/history/CHANGELOG.md for the spike this was still worth
   gating behind before building the rest of the feature on top of it.
 - **Display:** a naive full framebuffer at 240×135×16bpp is ~65KB — a
   meaningful bite out of a few-hundred-KB heap. Use direct-to-panel
@@ -61,7 +61,7 @@ assumptions), not a pitch.
   build report can't catch. The actual fix was an off-screen
   `Arduino_Canvas_Indexed` framebuffer, just an indexed 1-byte/pixel one
   (~32KB, since this UI only ever uses 6 colours) rather than a full RGB565
-  one (~63KB) — see CHANGELOG.md's v0.6.2 -> v0.6.3 entry for the full
+  one (~63KB) — see docs/history/CHANGELOG.md's v0.6.2 -> v0.6.3 entry for the full
   root-cause and the near-miss (an `SPIClass::beginTransaction()` deadlock)
   ruled out along the way.
 - **`ENERGY_SWEEP` (Reticulum / General Exploration):** a single SX1262
@@ -75,7 +75,7 @@ assumptions), not a pitch.
   around 923MHz; the top of US ISM (923–928MHz) is outside it. This is a
   hardware fact, not fixable in firmware — it specifically dents General
   Exploration's full-band sweep, since every named profile's actual
-  channel already sits inside 868–923 (DESIGN.md §1). Needs an empirical
+  channel already sits inside 868–923 (docs/DESIGN.md §1). Needs an empirical
   RSSI noise-floor sweep once hardware is in hand, then document the
   sensitivity gap rather than pretend it isn't there.
 - **Meshtastic's 104-slot hash space:** Phase 1–2 only lock to the
@@ -86,10 +86,10 @@ assumptions), not a pitch.
   profile" means "default channel," not "all Meshtastic traffic."
 
 **Genuinely open — blocks real functionality, not just polish:**
-- microSD bus (SPI vs SDMMC) on this board revision — DESIGN.md §7,
+- microSD bus (SPI vs SDMMC) on this board revision — docs/DESIGN.md §7,
   unresolved. Blocks finalizing the Logger task's pin/driver choice.
 - Meshtastic's exact sync-word register value, and MeshCore's
-  encryption/PSK model — DESIGN.md §7. Detection (RSSI/SF/BW/timing) works
+  encryption/PSK model — docs/DESIGN.md §7. Detection (RSSI/SF/BW/timing) works
   without these; reliable protocol-level filtering and payload decode
   don't. Don't hardcode a guessed value for either (CLAUDE.md house rule).
 
@@ -99,8 +99,8 @@ assumptions), not a pitch.
 
 ## Phases
 
-Each phase maps 1:1 to DESIGN.md §9. "Blocking unknowns" cross-reference
-DESIGN.md §7 items that must be resolved (or explicitly deferred) before
+Each phase maps 1:1 to docs/DESIGN.md §9. "Blocking unknowns" cross-reference
+docs/DESIGN.md §7 items that must be resolved (or explicitly deferred) before
 the phase can be called done, not just started.
 
 ### Phase 0 — Project scaffold
@@ -115,10 +115,10 @@ hardcoded RX on 906.875MHz/SF11/BW250/CR8, detections printed to Serial.
 **Exit criteria:** a real Meshtastic LongFast (US) packet in the air shows
 up on the serial monitor with plausible RSSI/SNR.
 **Blocking unknowns:** none functionally — but the IO-expander register
-map and SPI host assignment (see PROGRESS.md) are unverified against real
+map and SPI host assignment (see docs/history/PROGRESS.md) are unverified against real
 hardware and are the first suspects if the radio stays silent.
-**Status:** complete, hardware-verified. See PROGRESS.md's Build-order
-checklist for current state and CHANGELOG.md for the full session history.
+**Status:** complete, hardware-verified. See docs/STATUS.md for current
+state and docs/history/CHANGELOG.md for the full session history.
 
 ### Phase 2 — `HOME_LISTEN` + task/queue architecture + GPS + SD (= MVP-Beta)
 **Goal:** the smallest genuinely useful field tool.
@@ -131,15 +131,15 @@ latency, no crash from heap exhaustion over a multi-hour run.
 **Blocking unknowns:** none left. microSD is confirmed on the shared SPI
 bus (arbitrated by `spi_bus.h`), and GPS reached a fix on hardware
 2026-08-23 — the last piece that had never been proven.
-**Status:** see PROGRESS.md's Build-order checklist for current state and
-CHANGELOG.md for the full session history.
+**Status:** see docs/STATUS.md for current state and
+docs/history/CHANGELOG.md for the full session history.
 
 ### Phase 3 — Web Command Center (WiFi AP + web UI)
 **Goal:** get data and control off the device without ejecting the SD card.
 **Deliverable:** `wifi_task` — an on-demand (off by default, operator-
 toggled), WPA2-protected WiFi AP hosting a single embedded web page (no
 LittleFS/SPIFFS, no new `lib_deps` — built-in `WiFi.h`/`WebServer.h` only,
-see PROGRESS.md) with three tabs: a live status dashboard (the same
+see docs/history/PROGRESS.md) with three tabs: a live status dashboard (the same
 counters the Serial `[status]` line and `ui_task`'s pages already expose),
 a run browser to download `detections.csv`/`session.csv` per run, and a
 settings form that writes `/loratrace/config.txt` (`config.h`'s existing
@@ -152,7 +152,7 @@ WIFI status page.
 of Phase 4 at the user's request, prioritizing operator convenience over
 protocol breadth. The one thing worth confirming on real hardware before
 trusting this at length is the heap/counter spike described in
-PROGRESS.md: `ESP.getFreeHeap()` before/after `WiFi.softAP()` with the
+docs/history/PROGRESS.md: `ESP.getFreeHeap()` before/after `WiFi.softAP()` with the
 full Phase 2 task set already running, and `radioCrcErrorCount()`/
 `radioQueueDropCount()`/`radioBusMissCount()` staying at 0 with the AP
 active — the actual go/no-go this phase used to be gated behind, now
@@ -162,14 +162,14 @@ answerable instead of estimated (see the heap numbers above).
 **Deliverable:** same `HOME_LISTEN` engine, MeshCore US-narrow table
 (910.525MHz/SF7/BW62.5/CR5) wired in as a second selectable profile — the
 first phase where "selectable" is real, not aspirational. This is where
-DESIGN.md §5's keyboard-gated profile switch (operator-selected, mutually
+docs/DESIGN.md §5's keyboard-gated profile switch (operator-selected, mutually
 exclusive — Meshtastic and MeshCore never listen at once) actually gets
-built, deliberately deferred from Phase 3 (PROGRESS.md) so it's designed
+built, deliberately deferred from Phase 3 (docs/history/CHANGELOG.md) so it's designed
 and tested against a real second channel table instead of a stub.
 **Blocking unknowns:** none for basic detection; MeshCore's
 encryption/PSK model (§7) still blocks payload decode, not detection.
-**Status:** see PROGRESS.md's Build-order checklist for current state and
-CHANGELOG.md for the full session history.
+**Status:** see docs/STATUS.md for current state and
+docs/history/CHANGELOG.md for the full session history.
 
 ### Phase 5 — On-device menu UI
 **Deliverable:** a real menu on `ui_task`'s display, replacing the timed
@@ -199,13 +199,13 @@ into a small, low-risk slice: only four specific keys need to be identified
 correctly, not the whole QWERTY layout — see `src/keyboard.h` for the full
 sourcing (TCA8418 raw-event encoding, the raw-value-to-physical-position
 formula, and the physical-position-to-character table, each independently
-cited) and DESIGN.md for the citation-level writeup.
+cited) and docs/DESIGN.md for the citation-level writeup.
 
 **Blocking unknowns:** none for the menu/toggle mechanism itself — every
 action it triggers already exists and was already exercised in Phase 3/4.
 The keyboard decode is sourced from three independent references but,
 per this project's own standing rule, not yet bench-verified against real
-hardware (see PROGRESS.md's Phase 5 checklist): press each of the four keys
+hardware (see docs/history/PROGRESS.md's Phase 5 checklist): press each of the four keys
 once and confirm the firmware recognizes exactly that key and no other.
 
 ### Phase 6 — UI architecture redesign
@@ -218,7 +218,7 @@ already in this doc's history. Unlike those two, this isn't new subsystem
 bring-up: it's a scoped rework of `ui_task.cpp`/`.h`, the one file the next
 two phases would otherwise keep bolting onto.
 **Why now, not later:** Phase 5 shipped exactly two menu items by design
-(PROGRESS.md/DESIGN.md §9) and had already grown a third — the verbose
+(docs/history/CHANGELOG.md/docs/DESIGN.md §9) and had already grown a third — the verbose
 serial-debug toggle — by the end of the same day, with no framework change
 and a stale in-code comment (`ui_task.cpp`'s "the menu has exactly two
 items this phase") as the only trace of the drift. `DISCOVERY_SWEEP` would
@@ -247,10 +247,10 @@ on their own row.
   this assumed direct-to-panel partial-window writes, no framebuffer — the
   real hardware bench pass overturned that; see the Hardware feasibility
   section above and this phase's Status note below.)
-- **Adopt BRAND.md's on-device labels** (`Watch`/`Probe`/`Sweep` for
+- **Adopt docs/BRAND.md's on-device labels** (`Watch`/`Probe`/`Sweep` for
   HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP; plain profile names —
   `Meshtastic`/`MeshCore`/`Reticulum`/`Spectrum` — grouped under one
-  "Profile" menu row, not branded per-profile names. BRAND.md's Interface
+  "Profile" menu row, not branded per-profile names. docs/BRAND.md's Interface
   Naming table went through two revisions the same day mid-implementation:
   first a "Mesh Trace" family name over Meshtastic/MeshCore sub-profiles,
   then walked back entirely once it was clear that branding every profile
@@ -260,7 +260,7 @@ on their own row.
   displays. Kept as a separate UI-label layer, not a rename of the
   internal identifiers: `detection.h`'s `missionProfileName()` keeps
   emitting `meshtastic`/`meshcore` into `detections.csv` exactly as every
-  already-logged run expects — DESIGN.md §8's own "don't concatenate runs
+  already-logged run expects — docs/DESIGN.md §8's own "don't concatenate runs
   across a format change without checking the header" rule applies here
   too, and there's no reason to risk it for a cosmetic rename.
 - **Design reference, not a dependency:** M5PORKCHOP was cloned locally
@@ -269,7 +269,7 @@ on their own row.
   organizes a stats/status screen (`src/ui/swine_stats.h`). Its
   gamification layer (XP/levels/achievements, `src/core/xp.h`), the piglet
   mascot/mood system (`src/piglet/`), and its aesthetic and voice are
-  explicitly **not** part of this redesign — BRAND.md's own guardrails
+  explicitly **not** part of this redesign — docs/BRAND.md's own guardrails
   already rule out mascots, gamified framing, and anything outside the
   "field instrument, not a consumer app" positioning. Structure was worth
   learning from; the pig was not coming with it.
@@ -277,22 +277,22 @@ on their own row.
 until built. Whether the ST7789V2's partial-window writes can carry the
 denser block layout above without needing a framebuffer — an assumption to
 confirm during implementation, not before.
-**Status:** see PROGRESS.md's Build-order checklist for current state and
-CHANGELOG.md for the full session history (canvas/framebuffer rework,
+**Status:** see docs/STATUS.md for current state and
+docs/history/CHANGELOG.md for the full session history (canvas/framebuffer rework,
 bugs found/fixed, and the still-open WiFi AP heap/counter re-measurement).
 
 ### Phase 7 — Device optimization
 
 **Status:** complete 2026-08-27 as v0.7.0. Hardware evidence, measured
 budgets, and the operator-approved same-build repetition waiver are recorded
-in PROGRESS.md.
+in docs/history/PROGRESS.md.
 
 **Goal:** turn the current memory assumptions into measured budgets before
 new scan states add load to the no-PSRAM device.
 
 **Deliverable:** internal-heap fragmentation metrics, stack high-water marks
 for all five tasks, lifecycle checkpoints around the display canvas/WiFi/CSV
-downloads, a repeatable real-device matrix (`HARDWARE_TESTING.md`), and
+downloads, a repeatable real-device matrix (`docs/HARDWARE_TESTING.md`), and
 measured optimizations that preserve radio/GPS/SD/UI behavior.
 
 **Epic priority order:**
@@ -312,11 +312,11 @@ measured optimizations that preserve radio/GPS/SD/UI behavior.
    stack budgets for Phases 8/9, explicitly accept or reject the provisional
    2.5 KB transient-scan result buffer, then complete a combined-load soak.
 
-**Exit criteria:** every `HARDWARE_TESTING.md` stage passes on one identified
+**Exit criteria:** every `docs/HARDWARE_TESTING.md` stage passes on one identified
 build; no continuing decline in current free heap or largest block after
 warm-up; `queue_drop`/`row_drop`/`bus_miss` stay 0 under combined load; task
 stack margins satisfy the acceptance rule; final budgets and results are
-recorded in `PROGRESS.md`.
+recorded in `docs/history/PROGRESS.md`.
 
 **Scope guardrail:** Phase 7 does not add Discovery/Energy behavior and does
 not optimize from compile-time RAM percentages alone. One lever changes per
@@ -429,7 +429,7 @@ Two install paths, both real, serving different audiences:
   method through Phases 1–2 while bring-up is still being bench-verified.
 - **SD-drop via [bmorcelli/Launcher](https://github.com/bmorcelli/Launcher)**
   — the preferred *end-user* install method once builds are stable.
-  Matches BRAND.md's "field instrument, not a laptop-tethered tool"
+  Matches docs/BRAND.md's "field instrument, not a laptop-tethered tool"
   positioning: swap firmware without reflashing.
 
 This costs us nothing extra to support. Launcher installs a plain
@@ -457,7 +457,7 @@ combo is "press any key during Launcher's own ~5s post-reset boot window,
 before it auto-chains back into whatever ran last" — or, to remove the
 timing pressure entirely, enable Launcher's own Settings → "Boot to
 Launcher" toggle, which makes it always stop at its menu on reset instead
-of auto-booting the last app. See PROGRESS.md "Open questions — Launcher
+of auto-booting the last app. See docs/history/PROGRESS.md "Open questions — Launcher
 distribution" for the full read of Launcher's boot logic.
 
 **Follows from this:** Launcher owns the flash partition table, not our
@@ -466,13 +466,13 @@ installs. Any state we want to survive a user switching firmwares back
 and forth (settings, last-used profile, calibration data) has to live on
 SD, not in a custom NVS/data partition, since a custom partition isn't
 guaranteed to survive a later Launcher install. This is already
-DESIGN.md's "SD is the datastore" philosophy — see CHANGELOG.md — it just
+docs/DESIGN.md's "SD is the datastore" philosophy — see docs/history/CHANGELOG.md — it just
 now extends to config, not only detection logs.
 
 **Binary size:** no documented hard ceiling was found for how much flash
 Launcher leaves free per app on an 8MB device, especially once Launcher
 itself plus other installed firmwares share the same flash (that's the
-whole point of a multi-firmware launcher — see PROGRESS.md open
+whole point of a multi-firmware launcher — see docs/history/PROGRESS.md open
 questions). Rather than target an arbitrary number like "under 4MB,"
 treat it as an ongoing discipline: keep the binary as lean as the feature
 set allows, and measure the real number instead of assuming one.
@@ -529,7 +529,7 @@ reports can use.
   it can be broken, it reflects whatever's on `main` at that moment, and
   its own release notes point back at the exact commit. Cutting a real
   `vX.Y.Z` tag is a separate, deliberate step for when a phase is actually
-  bench-verified — see PROGRESS.md for current status before trusting
+  bench-verified — see docs/STATUS.md for current status before trusting
   either.
 
 | Version | Corresponds to |
@@ -556,7 +556,7 @@ at the time, not UI.
 Phase 5's own menu against what `DISCOVERY_SWEEP` would add to it surfaced
 that the menu had already grown past its documented two-item scope (a
 third, `Debug`, row landed the same day with no framework change) — see
-CHANGELOG.md for the full session. Rather than let
+docs/history/CHANGELOG.md for the full session. Rather than let
 `DISCOVERY_SWEEP` and `ENERGY_SWEEP` each bolt on their own ad hoc entry, a
 UI architecture redesign now sits at Phase 6, pushing `DISCOVERY_SWEEP` to
 7 and `ENERGY_SWEEP` to 8. `v1.0`'s meaning (all four profiles + UI stable)
@@ -584,7 +584,7 @@ first post-v1.0 phase.
   init GPIO write. Permanent, per CLAUDE.md house rules — not a phase to
   eventually reach.
 - Auto-detecting mission profile. Operator-selected via keyboard, by
-  design (DESIGN.md §5).
+  design (docs/DESIGN.md §5).
 - Full protocol decode/decrypt, payload display, or key handling. LoRaTrace
   remains a metadata-first passive field instrument; safe cleartext radio
   headers are the boundary.

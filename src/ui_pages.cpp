@@ -56,7 +56,7 @@ constexpr uint16_t COL_GOOD = 0x07E0;   // green
 constexpr uint16_t COL_WARN = 0xFFE0;   // yellow
 constexpr uint16_t COL_BAD = 0xF800;    // red
 
-// ~512KB is the ESP32-S3FN8's total SRAM with no PSRAM (DESIGN.md §1) — an
+// ~512KB is the ESP32-S3FN8's total SRAM with no PSRAM (docs/DESIGN.md §1) — an
 // upper bound for context, used by both the heap bar and its colour tiers.
 constexpr uint32_t HEAP_BUDGET_KB = 512;
 
@@ -253,7 +253,7 @@ void drawRadioPage() {
     statBlock(RIGHT_X, HEADER_H + 72, "run", buf);
 
     // Bottom band, full width — flush stats matter for judging whether
-    // BATCH_BUF_SIZE needs retuning (DESIGN.md §8.2), not for a quick
+    // BATCH_BUF_SIZE needs retuning (docs/DESIGN.md §8.2), not for a quick
     // glance, so they sit below both columns rather than competing with
     // either for attention.
     uiTft->setTextSize(1);
@@ -386,7 +386,7 @@ void drawProbePage() {
 
 // Track + marker, not a fill bar — frequency is a *position* within the
 // module's tuned range, not a proportion of something used up. 868-923MHz
-// is the SX1262 front end's actual tuned range (DESIGN.md §1), not the
+// is the SX1262 front end's actual tuned range (docs/DESIGN.md §1), not the
 // full 902-928MHz US ISM band.
 void drawFreqBar(int16_t x, int16_t y, int16_t w, float freqMhz) {
     constexpr float LO = 868.0f, HI = 923.0f;
@@ -431,7 +431,7 @@ void drawSweepOccupancy(int16_t x, int16_t y, int16_t w, uint16_t totalBins) {
 // own frequency bar already uses — never a fill/progress bar. The
 // disclaimer line stays on screen deliberately (reworded 2026-08-29,
 // operator request, same meaning as the original "energy only, not
-// LoRa"): DESIGN.md's central Sweep rule is that a measured RSSI peak is
+// LoRa"): docs/DESIGN.md's central Sweep rule is that a measured RSSI peak is
 // never by itself evidence of LoRa traffic.
 void drawSweepPage() {
     const EnergySweepState state = radioEnergySweepState();
@@ -579,7 +579,7 @@ void drawChannelPage() {
     uiTft->print("  sync 0x");
     uiTft->print(ch.sync_word, HEX);
 
-    // Right column — the radio-mode label (BRAND.md's "Watch" for
+    // Right column — the radio-mode label (docs/BRAND.md's "Watch" for
     // HOME_LISTEN) is the only one of the three mode labels with anything
     // to name until Phases 8/9 add the other two radio states.
     statBlock(170, HEADER_H + 6, "mode", uiModeLabelWatch());
@@ -678,7 +678,7 @@ void drawGpsPage() {
 // Outline + proportional fill, same visual language as drawBattery() —
 // turns "312k heap" into something scannable instead of a number to
 // compare against 512 in your head. ~512KB is the ESP32-S3FN8's total SRAM
-// with no PSRAM (DESIGN.md §1).
+// with no PSRAM (docs/DESIGN.md §1).
 //
 // Fills with USAGE, not remaining free space: a bar that grows as the
 // budget is consumed reads the same direction as the colour tiers above it

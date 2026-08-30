@@ -1,7 +1,8 @@
 # LoRaTrace RX — Hardware Validation
 
-This is the repeatable real-device test protocol. `PROGRESS.md` records
-what passed; this file defines how to test it. Phase 7 uses it to establish
+This is the repeatable real-device test protocol. `docs/STATUS.md` and
+`CHANGELOG.md` record what passed; this file defines how to test it.
+Phase 7 uses it to establish
 memory headroom before discovery and energy scanning add new radio states.
 
 ## Evidence to keep
@@ -130,7 +131,8 @@ Use the final stable measurements to record an explicit accept/reject decision
 for a fixed 2.5 KB transient Probe/Sweep result buffer. Acceptance does not
 permit a second result copy, raw-sample history, or dynamic growth; rejection
 makes SD mandatory for those modes. Preserve the decision and evidence in
-`PROGRESS.md` with the other Phase 8/9 budgets.
+`CHANGELOG.md`, alongside the other Phase 8/9 budgets recorded in
+`docs/history/PROGRESS.md`.
 
 ## Optimization acceptance rules
 
@@ -144,7 +146,7 @@ makes SD mandatory for those modes. Preserve the decision and evidence in
 - Moving a buffer from heap to static RAM is not a memory saving. Count
   total SRAM and runtime behavior, not only the displayed free-heap number.
 - Phase 7 is complete only when the final combined-load and soak results are
-  recorded in `PROGRESS.md` with the tested build revision.
+  recorded in `CHANGELOG.md` with the tested build revision.
 
 ## Device connection
 

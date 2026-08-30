@@ -5,7 +5,7 @@
 
 #include <stdint.h>
 
-// M5Stack's specified Cap LoRa-1262 front end (DESIGN.md §1); the first
+// M5Stack's specified Cap LoRa-1262 front end (docs/DESIGN.md §1); the first
 // named constants for this range — existing raw 868.0f/923.0f literals in
 // discovery_plan.h/channel_plans.h tests stay as-is, out of scope here.
 constexpr float ENERGY_SWEEP_BAND_LO_MHZ = 868.0f;
@@ -60,7 +60,7 @@ inline uint16_t energyBinIndexForFrequencyMhz(float freq_mhz, EnergyBinStep step
 }
 
 static_assert(energyBinCount(EnergyBinStep::KHZ_250) == 221,
-              "250kHz bin count must match DESIGN.md §7.3's worked example");
+              "250kHz bin count must match docs/DESIGN.md §7.3's worked example");
 static_assert(energyBinCount(EnergyBinStep::KHZ_250) <= ENERGY_BIN_RESERVED_COUNT,
               "250kHz bin count exceeds the reserved ceiling");
 static_assert(energyBinCount(EnergyBinStep::KHZ_500) <= ENERGY_BIN_RESERVED_COUNT,

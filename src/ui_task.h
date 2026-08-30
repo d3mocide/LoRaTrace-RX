@@ -12,16 +12,16 @@
 //
 // Phase 5 replaced the old timed hold-gestures with a real menu, using
 // keyboard.h's sourced (partly bench-verified — see its own comments and
-// PROGRESS.md's Phase 5 checklist) decode for twelve specific keys: ',' or
+// docs/history/PROGRESS.md's Phase 5 checklist) decode for twelve specific keys: ',' or
 // ';' / '.' or '/' move (the Fn-arrow diamond's left/up and down/right,
 // both pairs alias the same action), Enter selects, the backtick/ESC key
 // goes back, '1'-'5' jump straight to a numbered carousel page.
 //
-// Phase 6 (ROADMAP.md, UI architecture redesign) replaces Phase 5's flat,
+// Phase 6 (docs/ROADMAP.md, UI architecture redesign) replaces Phase 5's flat,
 // fixed-size menu with a grouped one (ui_menu.h's MenuState) — Phase 5's
 // menu shipped scoped to exactly two toggles and had already grown a third
 // (verbose debug) the same bench day, with no framework change to absorb
-// it (PROGRESS.md 2026-08-25 Decisions log). Same four input keys
+// it (docs/history/CHANGELOG.md, 2026-08-25). Same four input keys
 // throughout, now three levels instead of two:
 //   - **Carousel** (default): ','/';'/'.'/'/' cycle the read-only status
 //     pages below; digits '1'-'5' jump straight to one of them; the
@@ -31,7 +31,7 @@
 //   - **Menu root**: the same move keys move a highlighted root row; Enter
 //     opens a GROUP row's sub-list (Profile and System are groups; Trace is
 //     a direct action — see
-//     ROOT_ITEMS in ui_task.cpp and BRAND.md's Interface Naming section);
+//     ROOT_ITEMS in ui_task.cpp and docs/BRAND.md's Interface Naming section);
 //     the backtick/ESC key closes the menu back to the carousel. Digit
 //     keys are ignored here, same as Phase 5.
 //   - **Menu group** (inside a GROUP row, "Profile" or "System"): the
@@ -43,7 +43,7 @@
 // A toast overlay (ui_task.cpp's showToast()) confirms whatever action just
 // fired, independent of which page/menu level is on screen afterward.
 // Deliberately not a general keymap or text-entry UI — see keyboard.h for
-// why twelve keys are enough for this scope (DESIGN.md/PROGRESS.md Phase 5).
+// why twelve keys are enough for this scope (docs/DESIGN.md/docs/history/PROGRESS.md Phase 5).
 //
 // Owns the ST7789 exclusively once started — main.cpp must stop drawing.
 // The display is on its own SPI host (HSPI) with pins disjoint from the

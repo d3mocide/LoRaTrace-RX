@@ -76,13 +76,14 @@ uint8_t idleTimeoutIndex = 2;
 // Root menu table. "Profile" opens onto the real, technical profile names
 // (Meshtastic/MeshCore; Reticulum/Spectrum join once they have a
 // real Phase-9 sweep profile) instead of cycling one at a time on Enter.
-// Deliberately not branded per-profile (BRAND.md) — these are LoRa presets
+// Deliberately not branded per-profile (docs/BRAND.md) — these are LoRa presets
 // on one sniffer, not sibling products. Plain file scope (external
 // linkage) because ui_pages.cpp's drawMenuList() identity-compares
 // against it directly.
 const MenuItem PROFILE_GROUP_ITEMS[] = {
     {"Meshtastic", ItemKind::ACTION, MenuAction::SELECT_MESHTASTIC, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"MeshCore", ItemKind::ACTION, MenuAction::SELECT_MESHCORE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Node IDs", ItemKind::ACTION, MenuAction::IDENTITY_CAPTURE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
 
 namespace {
@@ -127,12 +128,11 @@ constexpr MenuItem CONNECTIVITY_GROUP_ITEMS[] = {
 };
 constexpr MenuItem DIAGNOSTICS_GROUP_ITEMS[] = {
     {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Identities", ItemKind::ACTION, MenuAction::IDENTITY_CAPTURE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"SD", ItemKind::ACTION, MenuAction::SD_RETRY, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
 constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
     {"Connectivity", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, CONNECTIVITY_GROUP_ITEMS, 2},
-    {"Diagnostics", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DIAGNOSTICS_GROUP_ITEMS, 3},
+    {"Diagnostics", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DIAGNOSTICS_GROUP_ITEMS, 2},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
 };
 // Trace remains the root-level operating toggle. Probe has no duplicate menu
@@ -144,7 +144,7 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
 // their own colon and others not (2026-08-28 operator request).
 constexpr MenuItem ROOT_ITEMS[] = {
     {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 2},
+    {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 3},
     {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 3},
 };
 constexpr uint8_t ROOT_COUNT = 3;

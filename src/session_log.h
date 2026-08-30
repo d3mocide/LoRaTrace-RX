@@ -1,7 +1,7 @@
 #pragma once
 // LoRaTrace RX — the periodic session-health record.
 //
-// Why this file exists: Phase 2's exit criterion (ROADMAP.md) is an
+// Why this file exists: Phase 2's exit criterion (docs/ROADMAP.md) is an
 // *unattended* multi-hour run — "no dropped packets attributable to SD
 // latency, no crash from heap exhaustion." Every number that would settle
 // that claim already exists (radio_task.h and logger_task.h expose them
@@ -65,7 +65,7 @@ struct SessionStats {
     // and lines dropped for overrunning the line-assembly buffer before a
     // terminator arrived. Added 2026-08-23 to test whether nmea_bad_crc
     // tracks CPU starvation (this task is Core 0's lowest priority) or
-    // something else — see PROGRESS.md's nmea_bad_crc watch item.
+    // something else — see docs/history/PROGRESS.md's nmea_bad_crc watch item.
     uint32_t gps_max_loop_gap_ms = 0;
     uint32_t gps_oversize_drops = 0;
 

@@ -1,4 +1,4 @@
-// Guards the one class of mistake DESIGN.md/CLAUDE.md worry about most for
+// Guards the one class of mistake docs/DESIGN.md/CLAUDE.md worry about most for
 // this file: a typo'd RF constant that's wrong but not obviously wrong
 // (e.g. 906.875 -> 960.875, SF11 -> SF1). Runs on the host (`pio test -e
 // native`), no hardware needed — see platformio.ini [env:native].
@@ -8,7 +8,7 @@
 #include "../../src/channel_plans.h"
 
 void test_meshtastic_longfast_in_tuned_band() {
-    // Module front end is tuned 868-923MHz (DESIGN.md §1).
+    // Module front end is tuned 868-923MHz (docs/DESIGN.md §1).
     TEST_ASSERT_TRUE(CHANNEL_MESHTASTIC_LONGFAST_US.freq_mhz >= 868.0f);
     TEST_ASSERT_TRUE(CHANNEL_MESHTASTIC_LONGFAST_US.freq_mhz <= 923.0f);
     TEST_ASSERT_EQUAL_UINT8(11, CHANNEL_MESHTASTIC_LONGFAST_US.sf);
@@ -45,7 +45,7 @@ void test_meshcore_sync_word_matches_upstream() {
 
 // The two protocols must stay distinguishable by sync word — that's what
 // makes a HOME_LISTEN lock on one not silently pick up the other, and it's
-// half of DESIGN.md §6's fingerprinting story.
+// half of docs/DESIGN.md §6's fingerprinting story.
 void test_protocol_sync_words_differ() {
     TEST_ASSERT_NOT_EQUAL_UINT8(SYNC_WORD_MESHTASTIC, SYNC_WORD_MESHCORE);
     // 0x34 is reserved for LoRaWAN per Meshtastic's own source — neither
@@ -95,8 +95,8 @@ void test_meshtastic_and_meshcore_dont_collide() {
     TEST_ASSERT_TRUE(delta > 1.0f);
 }
 
-// resolvedChannelForProfile() (added 2026-08-24, config.h/PROGRESS.md
-// Decisions log): with nothing loaded from SD, both profiles must resolve
+// resolvedChannelForProfile() (added 2026-08-24, config.h/docs/history/CHANGELOG.md):
+// with nothing loaded from SD, both profiles must resolve
 // to exactly the same hardcoded tables channelParamsForProfile() returns —
 // an untouched ProfileOverrides must never itself change behavior.
 void test_resolved_channel_with_no_overrides_matches_hardcoded() {
@@ -120,7 +120,7 @@ void test_resolved_channel_with_no_overrides_matches_hardcoded() {
 void test_resolved_channel_uses_override_when_set() {
     ProfileOverrides overrides;
     overrides.meshtastic_set = true;
-    overrides.meshtastic = {918.5f, 8, 125.0f, 5, 0x2B}; // MeshOregon-style, DESIGN.md/PROGRESS.md
+    overrides.meshtastic = {918.5f, 8, 125.0f, 5, 0x2B}; // MeshOregon-style, docs/DESIGN.md/docs/history/PROGRESS.md
 
     const ChannelParams meshtastic = resolvedChannelForProfile(overrides, MissionProfile::MESHTASTIC);
     TEST_ASSERT_EQUAL_FLOAT(918.5f, meshtastic.freq_mhz);

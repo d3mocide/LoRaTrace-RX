@@ -5,7 +5,7 @@
 // TWO different things live here, deliberately kept separate:
 //
 // 1. FIRMWARE_VERSION — the semantic version, bumped BY HAND. MAJOR.MINOR
-//    tracks the build-order phase reached (ROADMAP.md Versioning); PATCH is
+//    tracks the build-order phase reached (docs/ROADMAP.md Versioning); PATCH is
 //    for fixes that add no phase scope. This is a *statement* that a phase
 //    was reached, so it must not auto-increment — a number that changes on
 //    every build asserts nothing.

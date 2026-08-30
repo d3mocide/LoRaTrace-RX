@@ -7,7 +7,7 @@
 // Build/flash:  pio run -e gps-probe --target upload
 // Return to the real firmware:  pio run -e cardputer-adv --target upload
 //
-// History worth keeping, because it shaped this file (PROGRESS.md
+// History worth keeping, because it shaped this file (docs/history/CHANGELOG.md
 // 2026-08-23): the first version isolated itself from the rest of the boot
 // sequence so its failure mode would be unambiguous — and thereby skipped
 // the IO-expander init, which is what *powers the GPS*. It reported zero

@@ -112,12 +112,12 @@
 // topbit = col&1, u = ((topbit<<2)|row)+1, K = t*10+u; checked by plugging
 // each result back into the forward formula above) gives the raw press-byte
 // constants below. **Bench-confirmed on real hardware, 2026-08-24:** Comma,
-// Period, and all five digit keys (PROGRESS.md Decisions log). Enter was
+// Period, and all five digit keys (docs/history/CHANGELOG.md). Enter was
 // exercised indirectly (reaching the menu at all requires it) but not
 // separately confirmed. Backtick/ESC and Semicolon/Slash are brand new this
 // same session, sourced but **not yet pressed on real hardware** — same bar
 // as everything else in this file before its own bench pass: see
-// PROGRESS.md's Phase 5 checklist.
+// docs/history/PROGRESS.md's Phase 5 checklist.
 
 #include <stdint.h>
 
@@ -243,7 +243,7 @@ enum class KeyAction {
     // Backtick/ESC — open the menu (carousel) / return to the carousel
     // (menu). Same key both opens and closes it, ui_task.cpp picks the
     // direction from current UiMode. Was Backspace-as-BACK-only; see
-    // KEY_RAW_ESC_PRESS above for that first move, and PROGRESS.md's
+    // KEY_RAW_ESC_PRESS above for that first move, and docs/history/PROGRESS.md's
     // 2026-08-24 bench pass for this second one (Enter-to-open felt wrong).
     BACK,
     // '1'-'6' — jump straight to that carousel page (carousel mode only).

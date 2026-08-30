@@ -11,6 +11,7 @@
 
 #include "battery.h"
 #include "config.h"
+#include "display_settings.h"
 #include "gps_task.h"
 #include "logger_task.h"
 #include "memory_stats.h"
@@ -18,6 +19,7 @@
 #include "run_log.h"
 #include "serial_lock.h"
 #include "spi_bus.h"
+#include "version.h"
 #include "web_assets.h"
 
 namespace {
@@ -63,23 +65,55 @@ void handleRoot() {
     server.send_P(200, "text/html", INDEX_HTML);
 }
 
+const char *discoveryStateName(DiscoverySweepState state) {
+    switch (state) {
+        case DiscoverySweepState::RUNNING: return "RUNNING";
+        case DiscoverySweepState::COMPLETE: return "COMPLETE";
+        case DiscoverySweepState::CANCELLED: return "CANCELLED";
+        case DiscoverySweepState::FAILED: return "FAILED";
+        default: return "IDLE";
+    }
+}
+
+const char *energyStateName(EnergySweepState state) {
+    switch (state) {
+        case EnergySweepState::RUNNING: return "RUNNING";
+        case EnergySweepState::COMPLETE: return "COMPLETE";
+        case EnergySweepState::CANCELLED: return "CANCELLED";
+        case EnergySweepState::FAILED: return "FAILED";
+        default: return "IDLE";
+    }
+}
+
 void handleStatus() {
     GpsFix fix = {};
     const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(100));
     const bool positioned = haveFix && fix.has_position;
+    const ChannelParams home = radioActiveChannel();
+    const EnergyStrongestPeak strongest = radioEnergyStrongestPeak();
 
-    char json[512];
+    // The browser only receives radio-owned snapshots. It can observe the
+    // bounded acquisition state, but never retunes or polls the SX1262.
+    char json[1280];
     const int n = snprintf(
         json, sizeof(json),
         "{"
+        "\"firmware_version\":\"%s\",\"profile\":\"%s\",\"home_freq_mhz\":%.3f,"
         "\"rx\":%lu,\"crc_err\":%lu,\"queue_drop\":%lu,\"bus_miss\":%lu,"
         "\"rows\":%lu,\"row_drop\":%lu,\"flushes\":%lu,\"max_flush_ms\":%lu,\"max_session_ms\":%lu,"
         "\"sd_ready\":%s,\"session_rows\":%lu,\"run\":%u,"
         "\"nmea\":%lu,\"nmea_bad_crc\":%lu,"
         "\"has_fix\":%s,\"lat\":%.6f,\"lon\":%.6f,\"sats\":%u,\"sats_in_view\":%u,"
         "\"heap_free\":%lu,\"heap_min\":%lu,\"batt_mv\":%lu,\"wifi_clients\":%u,"
-        "\"trace_paused\":%s"
+        "\"trace_paused\":%s,"
+        "\"probe\":{\"state\":\"%s\",\"index\":%u,\"count\":%u,\"cad_free\":%u,"
+        "\"cad_detected\":%u,\"cad_timeout\":%u,\"errors\":%u},"
+        "\"sweep\":{\"state\":\"%s\",\"repeat_active\":%s,\"repeat_count\":%lu,"
+        "\"bin_index\":%u,\"bin_count\":%u,\"peaks\":%u,\"strongest_valid\":%s,"
+        "\"strongest_freq_mhz\":%.3f,\"strongest_rssi_dbm\":%.1f,"
+        "\"pass_b_attempts\":%lu,\"pass_b_detections\":%lu}"
         "}",
+        FIRMWARE_VERSION, missionProfileName((uint8_t)radioActiveProfile()), (double)home.freq_mhz,
         (unsigned long)radioPacketCount(), (unsigned long)radioCrcErrorCount(),
         (unsigned long)radioQueueDropCount(), (unsigned long)radioBusMissCount(),
         (unsigned long)loggerRowsWritten(), (unsigned long)loggerRowsDropped(),
@@ -90,7 +124,17 @@ void handleStatus() {
         positioned ? "true" : "false", positioned ? fix.lat : 0.0, positioned ? fix.lon : 0.0,
         (unsigned)fix.satellites, (unsigned)fix.sats_in_view, (unsigned long)ESP.getFreeHeap(),
         (unsigned long)ESP.getMinFreeHeap(), (unsigned long)batteryMilliVolts(), (unsigned)wifiClientCount(),
-        radioIsTracePaused() ? "true" : "false");
+        radioIsTracePaused() ? "true" : "false",
+        discoveryStateName(radioDiscoverySweepState()), (unsigned)radioDiscoveryCandidateIndex(),
+        (unsigned)radioDiscoveryCandidateCount(), (unsigned)radioDiscoveryCadFreeCount(),
+        (unsigned)radioDiscoveryCadDetectedCount(), (unsigned)radioDiscoveryCadTimeoutCount(),
+        (unsigned)radioDiscoveryErrorCount(), energyStateName(radioEnergySweepState()),
+        radioEnergySweepRepeatIsActive() ? "true" : "false",
+        (unsigned long)radioEnergySweepRepeatCount(), (unsigned)radioEnergyBinIndex(),
+        (unsigned)radioEnergyBinCount(), (unsigned)radioEnergyPeakCount(),
+        strongest.valid ? "true" : "false", (double)strongest.freq_mhz,
+        (double)strongest.rssi_peak_dbm_x10 / 10.0, (unsigned long)radioPassBAttemptCount(),
+        (unsigned long)radioPassBDetectionCount());
 
     if (n < 0 || (size_t)n >= sizeof(json)) {
         server.send(500, "text/plain", "status too large");
@@ -137,7 +181,7 @@ void handleRuns() {
     server.send(200, "application/json", json);
 }
 
-// Streams `path` (a detections.csv or session.csv inside a run directory)
+// Streams one allowlisted CSV from a run directory.
 // as a chunked download. The SPI bus lock is acquired fresh per chunk and
 // released before the slow part (writing to the TCP socket), mirroring
 // logger_task.cpp's appendToFile() discipline — never hold the bus across
@@ -204,8 +248,7 @@ void streamCsvFile(const char *path, const char *downloadName) {
     memoryStatsLog("csv-download-after");
 }
 
-// Matches "/api/runs/<n>/detections.csv" or ".../session.csv". Hand-parsed
-// Matches "/api/runs/<n>/detections.csv" or ".../session.csv". Hand-parsed
+// Matches "/api/runs/<n>/<known.csv>". Hand-parsed
 // rather than relying on WebServer's path-pattern support, since that's a
 // version-specific feature this codebase's pinned core (2.0.17) shouldn't
 // be assumed to have — and the shape here is small and fixed anyway.
@@ -215,7 +258,9 @@ void handleNotFound() {
         int idx = 0;
         char leaf[32] = {0};
         if (sscanf(uri.c_str(), "/api/runs/%d/%31s", &idx, leaf) == 2 && idx > 0 &&
-            (strcmp(leaf, "detections.csv") == 0 || strcmp(leaf, "session.csv") == 0)) {
+            (strcmp(leaf, "detections.csv") == 0 || strcmp(leaf, "session.csv") == 0 ||
+             strcmp(leaf, "probe.csv") == 0 || strcmp(leaf, "energy.csv") == 0 ||
+             strcmp(leaf, "nodes.csv") == 0)) {
             char path[RUN_PATH_MAX];
             if (runFilePath(path, sizeof(path), CHANNEL_CONFIG_DIR, (uint16_t)idx, leaf) > 0) {
                 char downloadName[48];
@@ -240,6 +285,22 @@ bool parseProfileArg(const String &arg, MissionProfile &profile) {
         return true;
     }
     return false;
+}
+
+// WebServer's String::toInt() intentionally accepts a non-numeric string as
+// zero, which is fine for its existing RF form only because config.cpp does
+// the definitive validation.  The small preference endpoints below need to
+// distinguish a real zero (idle dim off) from malformed input at the HTTP
+// boundary, so parse their finite integer domain strictly here.
+bool parseUint8Arg(const char *name, uint8_t min, uint8_t max, uint8_t &value) {
+    if (!server.hasArg(name)) return false;
+    const String raw = server.arg(name);
+    if (raw.length() == 0) return false;
+    char *end = nullptr;
+    const long parsed = strtol(raw.c_str(), &end, 10);
+    if (end == raw.c_str() || *end != '\0' || parsed < min || parsed > max) return false;
+    value = (uint8_t)parsed;
+    return true;
 }
 
 // Both profiles' currently-resolved values (override if loaded, else
@@ -298,6 +359,80 @@ void handleConfigPost() {
     server.send(200, "application/json", "{\"ok\":true}");
 }
 
+// Display is deliberately a persisted preset, not a live UI-task mutation:
+// the UI task owns the active dim timer/backlight state.  Matching channel
+// preset behavior keeps that ownership intact and makes the reboot boundary
+// clear to the operator.
+void handleDisplayGet() {
+    if (!loggerSdReady()) {
+        server.send(503, "application/json", "{\"ok\":false,\"error\":\"SD unavailable\"}");
+        return;
+    }
+
+    DisplaySettings settings;
+    {
+        SpiBusLock lock(BUS_WAIT);
+        if (!lock.held()) {
+            server.send(503, "application/json", "{\"ok\":false,\"error\":\"SD busy\"}");
+            return;
+        }
+        // This is a boot-time loader and deliberately takes no lock itself;
+        // the panel holds the shared SPI lock across this bounded read.
+        loadDisplaySettingsFromSD(settings);
+    }
+
+    char json[96];
+    snprintf(json, sizeof(json),
+             "{\"brightness_pct\":%u,\"idle_timeout_index\":%u}",
+             (unsigned)settings.brightness_pct, (unsigned)settings.idle_timeout_index);
+    server.send(200, "application/json", json);
+}
+
+void handleDisplayPost() {
+    uint8_t brightness = 0;
+    uint8_t idleIndex = 0;
+    if (!parseUint8Arg("brightness_pct", 5, 100, brightness) || brightness % 5 != 0 ||
+        !parseUint8Arg("idle_timeout_index", 0, 4, idleIndex)) {
+        server.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid display values\"}");
+        return;
+    }
+
+    DisplaySettings settings;
+    settings.brightness_pct = brightness;
+    settings.idle_timeout_index = idleIndex;
+    if (!writeDisplaySettingsToSD(settings)) {
+        server.send(503, "application/json", "{\"ok\":false,\"error\":\"SD unavailable or busy\"}");
+        return;
+    }
+    server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// These are existing on-device menu toggles only: identity capture controls
+// whether decoded node observations reach nodes.csv, and verbose debug
+// changes Core 0 serial diagnostics.  Radio tuning/acquisition, AP control,
+// SD recovery, and serial-access policy stay on the physical device.
+void handleOptionsGet() {
+    char json[80];
+    snprintf(json, sizeof(json), "{\"identity_capture\":%s,\"verbose_debug\":%s}",
+             radioIdentityCaptureIsEnabled() ? "true" : "false",
+             loggerDebugIsEnabled() ? "true" : "false");
+    server.send(200, "application/json", json);
+}
+
+void handleOptionsPost() {
+    uint8_t identity = 0;
+    uint8_t debug = 0;
+    if (!parseUint8Arg("identity_capture", 0, 1, identity) ||
+        !parseUint8Arg("verbose_debug", 0, 1, debug)) {
+        server.send(400, "application/json", "{\"ok\":false,\"error\":\"options must be 0 or 1\"}");
+        return;
+    }
+
+    radioIdentityCaptureSetEnabled(identity != 0);
+    loggerDebugSetEnabled(debug != 0);
+    server.send(200, "application/json", "{\"ok\":true}");
+}
+
 void registerRoutes() {
     // WebServer::stop() closes the listener but deliberately keeps its
     // RequestHandler list.  Registering again on every AP start therefore
@@ -312,6 +447,10 @@ void registerRoutes() {
     server.on("/api/runs", HTTP_GET, handleRuns);
     server.on("/api/config", HTTP_GET, handleConfigGet);
     server.on("/api/config", HTTP_POST, handleConfigPost);
+    server.on("/api/display", HTTP_GET, handleDisplayGet);
+    server.on("/api/display", HTTP_POST, handleDisplayPost);
+    server.on("/api/options", HTTP_GET, handleOptionsGet);
+    server.on("/api/options", HTTP_POST, handleOptionsPost);
     server.onNotFound(handleNotFound);
     routesRegistered = true;
 }

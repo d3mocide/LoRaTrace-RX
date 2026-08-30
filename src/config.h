@@ -13,7 +13,7 @@
 // resolvedChannelForProfile() falls back to the hardcoded default in
 // channel_plans.h rather than hanging or radioing on a garbage frequency.
 //
-// **Per-profile since 2026-08-24** (PROGRESS.md Decisions log): the file
+// **Per-profile since 2026-08-24** (docs/history/CHANGELOG.md): the file
 // holds one override block per profile (`meshtastic_*`/`meshcore_*`
 // key prefixes), not one shared block. The original single-block design
 // meant a Meshtastic override and MeshCore's hardcoded table could never
@@ -30,7 +30,7 @@
 
 #include "channel_plans.h"
 
-// SD path, matching BRAND.md's /loratrace/ namespace convention. See
+// SD path, matching docs/BRAND.md's /loratrace/ namespace convention. See
 // sd-template/loratrace/config.txt for the format, comments, and a
 // working example.
 constexpr const char *CHANNEL_CONFIG_DIR = "/loratrace";
@@ -43,7 +43,7 @@ constexpr const char *CHANNEL_CONFIG_PATH = "/loratrace/config.txt";
 // prior boot — opens it and applies any recognized `meshtastic_*`/
 // `meshcore_*` keys into `overrides`, setting that profile's `_set` flag
 // for each key it actually touched. Out-of-range values (outside the
-// module's 868-928MHz tuned range, SF 5-12, CR 5-8 — DESIGN.md §1/§3) are
+// module's 868-928MHz tuned range, SF 5-12, CR 5-8 — docs/DESIGN.md §1/§3) are
 // rejected field-by-field with a warning rather than applied. `sync_word`
 // accepts hex ("0x2B") or decimal and any value 0x00-0xFF — deliberately
 // unrestricted, since sniffing an unknown protocol is a legitimate reason
@@ -73,7 +73,7 @@ bool channelCrInRange(uint8_t cr);
 // so saving Meshtastic's preset never clobbers a previously-saved MeshCore
 // one (or vice versa). Applied on the *next* boot, not live (radio_task's
 // running SX1262 is never touched here, and a runtime profile switch keeps
-// using whatever was loaded at boot — see PROGRESS.md for why hot-reload
+// using whatever was loaded at boot — see docs/history/CHANGELOG.md for why hot-reload
 // was deliberately deferred). Unlike `loadProfileOverridesFromSD`
 // (boot-time, before any task exists), this runs with the radio/GPS/logger
 // tasks already active, so it acquires spi_bus.h's mutex itself around the

@@ -2,7 +2,7 @@
 // LoRaTrace RX — logger task (Core 0).
 //
 // Dequeues Detections, stamps each with the newest GPS fix, and writes them
-// to SD in batches per DESIGN.md §2/§8. Probe observations are written to a
+// to SD in batches per docs/DESIGN.md §2/§8. Probe observations are written to a
 // separate durable file so CAD-only activity never masquerades as a packet.
 //
 // Batching is the core design decision here, and it's about bus time, not
@@ -21,14 +21,14 @@
 //     unplugged, which is how this device will always be turned off.
 //
 // Live traffic makes this sharper than it looks: Meshtastic rebroadcasts
-// mean packets frequently arrive in pairs milliseconds apart (PROGRESS.md
-// 2026-08-23), so back-to-back RX is the common case, not the rare one.
+// mean packets frequently arrive in pairs milliseconds apart
+// (docs/history/CHANGELOG.md, 2026-08-23), so back-to-back RX is the common case, not the rare one.
 //
 // This task writes four files, all inside THIS RUN's own directory —
 // /loratrace/runNNNN/ (run_log.h). One wardrive is one folder, so a drive
 // can be copied, shared or deleted as a unit instead of being carved out of
 // one ever-growing file:
-//   detections.csv — the mission data, DESIGN.md §8 schema
+//   detections.csv — the mission data, docs/DESIGN.md §8 schema
 //   session.csv    — one health row a minute (session_log.h), so an
 //                    unattended run leaves evidence of whether it held up
 //                    instead of only evidence of what it heard
@@ -99,4 +99,8 @@ uint16_t loggerRunIndex();
 // print from inside its own loop could (CLAUDE.md: radio task must never
 // block on non-radio I/O).
 void loggerDebugToggle();
+// Idempotent counterpart for the authenticated local web panel.  Keeps the
+// menu toggle and web setting on the same Core 0-owned logger state and the
+// same serial header/notice behavior.
+void loggerDebugSetEnabled(bool enabled);
 bool loggerDebugIsEnabled();

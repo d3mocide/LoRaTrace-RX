@@ -2,7 +2,7 @@
 // LoRaTrace RX — GPS task (Core 0).
 //
 // Reads NMEA from UART1 and publishes the newest fix behind a mutex, per
-// DESIGN.md §2 ("GPS Task -> last-fix (mutex)"). All the actual parsing
+// docs/DESIGN.md §2 ("GPS Task -> last-fix (mutex)"). All the actual parsing
 // lives in gps_parse.h as pure functions so it can be tested on the host;
 // this file is only the FreeRTOS/UART wrapper around it.
 //
@@ -31,7 +31,7 @@ uint32_t gpsChecksumErrorCount();
 // Worst-case gap (ms) between two passes of gpsTask()'s drain loop, i.e. the
 // longest this task ever went without a chance to empty the UART ring
 // buffer. Direct evidence for or against the "SD/logger activity starves the
-// GPS task and the ring buffer overflows" hypothesis (PROGRESS.md,
+// GPS task and the ring buffer overflows" hypothesis (docs/history/PROGRESS.md,
 // nmea_bad_crc watch item) — the theory predicts this spikes during SD
 // writes; a checksum-error count alone can't say whether that's the actual
 // mechanism or just correlated with something else.
