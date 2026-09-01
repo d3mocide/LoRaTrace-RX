@@ -151,6 +151,20 @@ void fireMenuAction(MenuAction action) {
             }
             break;
         }
+        case MenuAction::CELL_TOGGLE: {
+            // Same non-blocking radio-task-owned shape as Probe/Sweep above,
+            // including the dedicated results card (Phase 11, 2026-09-01).
+            const bool cancelling = radioCellSweepIsActive();
+            if (!cancelling && !loggerSdReady()) {
+                showToast("Cell: SD REQUIRED");
+            } else if (radioRequestCellSweep()) {
+                showToast(cancelling ? "Cell: CANCEL" : "Cell: START");
+                showCellResults();
+            } else {
+                showToast("Cell: UNAVAILABLE");
+            }
+            break;
+        }
         case MenuAction::SERIAL_CONTROL_TOGGLE: {
             const bool next = !serialControlIsEnabled();
             serialControlSetEnabled(next);

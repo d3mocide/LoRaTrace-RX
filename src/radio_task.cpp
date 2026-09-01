@@ -6,6 +6,7 @@
 
 #include "board_pins.h"
 #include "bench_fault.h"
+#include "cell_plan.h"
 #include "discovery_plan.h"
 #include "energy_plan.h"
 #include "memory_stats.h"
@@ -124,6 +125,29 @@ volatile uint32_t energyLastAwayMs = 0;
 // across sweeps, same convention as the counters above.
 volatile uint32_t passBAttemptCount = 0;
 volatile uint32_t passBDetectionCount = 0;
+
+// Cell mirrors Probe/Sweep's one-slot-mailbox-plus-cancellation-flag
+// shape exactly (see the discovery*/energy* blocks above). Mutual exclusion
+// with Probe and Sweep is enforced in radioRequestCellSweep()/
+// radioRequestDiscoverySweep()/radioRequestEnergySweep(), not here.
+QueueHandle_t cellSweepQueue = nullptr;
+QueueHandle_t cellObservationQueue = nullptr;
+volatile bool cellActive = false;
+volatile bool cellCancelRequested = false;
+volatile uint16_t cellBinIndexState = 0;
+volatile uint16_t cellTotalBins = 0;
+volatile CellSweepState cellState = CellSweepState::IDLE;
+volatile float cellStrongestFreqMhz = 0.0f;
+volatile int16_t cellStrongestRssiDbmX10 = 0;
+volatile bool cellStrongestValid = false;
+
+volatile uint32_t cellObservationCount = 0;
+volatile uint32_t cellObservationDropCount = 0;
+volatile uint32_t cellSweepCount = 0;
+volatile uint32_t cellCancelCount = 0;
+volatile uint32_t cellFailureCount = 0;
+volatile uint32_t cellRecoveryCount = 0;
+volatile uint32_t cellLastAwayMs = 0;
 
 // Bench-only on-demand single-combo CAD trigger (research/
 // phase9-sweep-pass-b-design.md's false-positive-vs-SF bench matrix). One-
@@ -359,6 +383,45 @@ bool energyAbortPending() {
     return false;
 }
 
+bool cellAbortPending() {
+    if (cellCancelRequested) return true;
+    if (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) return true;
+    if (pauseQueue != nullptr && uxQueueMessagesWaiting(pauseQueue) > 0) return true;
+    return false;
+}
+
+// Every bin, not peak-filtered — see cell_observation.h's file header for
+// why Cell doesn't borrow ENERGY_SWEEP's calibrated threshold. 101
+// bins/sweep keeps this an honest, modest CSV rather than a RAM concern.
+void enqueueCellObservation(uint16_t binIndex, const ChannelParams &channel,
+                            const EnergyBinStats &stats, CellObservationResult result,
+                            int16_t radioStatus) {
+    CellObservation observation;
+    observation.rx_millis = millis();
+    observation.freq_mhz = cellBinFrequencyMhz(binIndex);
+    observation.rx_bw_khz_x10 = (uint16_t)(channel.bw_khz * 10.0f + 0.5f);
+    observation.rssi_avg_dbm_x10 = stats.rssi_avg_dbm_x10;
+    observation.rssi_peak_dbm_x10 = stats.rssi_peak_dbm_x10;
+    observation.radio_status = radioStatus;
+    observation.profile = (uint8_t)activeProfile;
+    observation.bin_index = (uint8_t)binIndex;
+    observation.sample_count = stats.sample_count;
+    observation.result = result;
+
+    if (result == CellObservationResult::MEASURED && stats.sample_count > 0 &&
+        (!cellStrongestValid || stats.rssi_peak_dbm_x10 > cellStrongestRssiDbmX10)) {
+        cellStrongestFreqMhz = observation.freq_mhz;
+        cellStrongestRssiDbmX10 = stats.rssi_peak_dbm_x10;
+        cellStrongestValid = true;
+    }
+
+    cellObservationCount++;
+    if (cellObservationQueue == nullptr ||
+        xQueueSend(cellObservationQueue, &observation, 0) != pdTRUE) {
+        cellObservationDropCount++;
+    }
+}
+
 // abortPending defaults to discoveryAbortPending so Probe's two existing
 // call sites are untouched; Pass B (below) passes energyAbortPending
 // explicitly, since a Sweep-cancel request during Pass B's own CAD/RX
@@ -414,7 +477,7 @@ bool restoreHomeListen(const ChannelParams &homeChannel, MissionProfile homeProf
 }
 
 void performDiscoverySweep() {
-    if (discoveryActive) return;
+    if (discoveryActive || cellActive) return;
 
     discoveryActive = true;
     discoveryState = DiscoverySweepState::RUNNING;
@@ -815,7 +878,7 @@ void performBenchPassBCadTrigger(uint8_t comboIndex) {
 // flags a bin as a peak, up to PASS_B_MAX_PEAKS_PER_SWEEP peaks per run.
 // Home is restored on every exit path either way.
 void performEnergySweep() {
-    if (energyActive || discoveryActive) return;
+    if (energyActive || discoveryActive || cellActive) return;
 
     energyActive = true;
     energyState = EnergySweepState::RUNNING;
@@ -966,6 +1029,110 @@ void performEnergySweep() {
     energyActive = false;
 }
 
+// Isolated from performEnergySweep() on purpose (see radio_task.h's
+// radioRequestCellSweep() comment): no shared noise-floor state, no CAD, no
+// packet read attempt. Same bus-lock/abort-pending/home-restore-on-every-
+// exit-path shape as performEnergySweep(), scoped to cell_plan.h's 101-bin
+// 869-894MHz band instead of the full front end.
+void performCellSweep() {
+    if (cellActive || discoveryActive || energyActive) return;
+
+    cellActive = true;
+    cellState = CellSweepState::RUNNING;
+    cellCancelRequested = false;
+    const uint32_t awayStarted = millis();
+    const ChannelParams homeChannel = activeChannel;
+    const MissionProfile homeProfile = activeProfile;
+    const uint16_t totalBins = cellBinCount();
+    cellBinIndexState = 0;
+    cellTotalBins = totalBins;
+    cellStrongestValid = false;
+    bool aborted = false;
+    bool failed = false;
+
+    // A notification may be left by the home RX IRQ that woke the task to
+    // service the Cell request — same reasoning as Probe/Sweep's own
+    // discard.
+    ulTaskNotifyTake(pdTRUE, 0);
+
+    for (uint16_t bin = 0; bin < totalBins; bin++) {
+        if (cellAbortPending()) {
+            aborted = true;
+            break;
+        }
+        cellBinIndexState = bin;
+
+        const float freq = cellBinFrequencyMhz(bin);
+        int beginState;
+        {
+            SpiBusLock lock(BUS_WAIT);
+            if (!lock.held()) {
+                busMissCount++;
+                failed = true;
+                break;
+            }
+            // RSSI-only measurement, not a decode attempt (cell_plan.h's
+            // file header) — reusing the home channel's own SF/BW/CR/sync
+            // keeps this simple; the configured receive bandwidth is
+            // logged per-observation (rx_bw_khz) since it's a real
+            // measurement condition, not a claim about the carrier itself.
+            beginState = radio.begin(freq, homeChannel.bw_khz, homeChannel.sf,
+                                     homeChannel.cr_denom, homeChannel.sync_word);
+            if (beginState == RADIOLIB_ERR_NONE) beginState = radio.startReceive();
+        }
+        if (beginState != RADIOLIB_ERR_NONE) {
+            lastError = beginState;
+            EnergyBinStats emptyStats;
+            enqueueCellObservation(bin, homeChannel, emptyStats, CellObservationResult::RADIO_ERROR,
+                                   (int16_t)beginState);
+            failed = true;
+            break;
+        }
+
+        EnergyBinStats stats;
+        for (uint8_t s = 0; s < ENERGY_SAMPLES_PER_BIN; s++) {
+            float rssi = 0.0f;
+            bool gotSample = false;
+            {
+                SpiBusLock lock(BUS_WAIT);
+                if (lock.held()) {
+                    rssi = radio.getRSSI(false); // instantaneous, not last-packet
+                    gotSample = true;
+                } else {
+                    busMissCount++;
+                }
+            }
+            if (gotSample) energyBinStatsAddSample(stats, energyRssiDbmToFixed(rssi));
+            if (s + 1 < ENERGY_SAMPLES_PER_BIN) vTaskDelay(pdMS_TO_TICKS(ENERGY_SAMPLE_INTERVAL_MS));
+        }
+
+        enqueueCellObservation(bin, homeChannel, stats,
+                               stats.sample_count > 0 ? CellObservationResult::MEASURED
+                                                       : CellObservationResult::RADIO_ERROR,
+                               0);
+        if (aborted || failed) break;
+    }
+
+    const bool requestPending =
+        (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) ||
+        (pauseQueue != nullptr && uxQueueMessagesWaiting(pauseQueue) > 0);
+    ulTaskNotifyTake(pdTRUE, 0);
+    const bool restored = restoreHomeListen(homeChannel, homeProfile);
+    if (requestPending && radioTaskHandle != nullptr) xTaskNotifyGive(radioTaskHandle);
+    if (!restored) failed = true;
+
+    cellSweepCount++;
+    if (aborted || cellCancelRequested) cellCancelCount++;
+    if (failed) cellFailureCount++;
+    if (restored) cellRecoveryCount++;
+    cellLastAwayMs = millis() - awayStarted;
+    cellState = failed ? CellSweepState::FAILED
+                        : (aborted || cellCancelRequested ? CellSweepState::CANCELLED
+                                                           : CellSweepState::COMPLETE);
+    cellCancelRequested = false;
+    cellActive = false;
+}
+
 void radioTask(void *) {
     memoryStatsRegisterCurrentTask(MemoryTask::RADIO);
     uint8_t buf[DETECTION_RAW_MAX_LEN];
@@ -1056,6 +1223,12 @@ void radioTask(void *) {
             continue;
         }
 
+        bool cellReq;
+        if (cellSweepQueue != nullptr && xQueueReceive(cellSweepQueue, &cellReq, 0) == pdTRUE) {
+            if (cellReq && !paused) performCellSweep();
+            continue;
+        }
+
         uint8_t benchPassBCadComboIndex;
         if (benchPassBCadQueue != nullptr &&
             xQueueReceive(benchPassBCadQueue, &benchPassBCadComboIndex, 0) == pdTRUE) {
@@ -1101,7 +1274,7 @@ void radioTask(void *) {
 bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
                     const ProfileOverrides &overrides, QueueHandle_t queue,
                     QueueHandle_t scanQueue, QueueHandle_t energyQueue,
-                    QueueHandle_t nodesQueue) {
+                    QueueHandle_t nodesQueue, QueueHandle_t cellQueue) {
     activeChannel = channel;
     activeProfile = profile;
     activeOverrides = overrides;
@@ -1109,6 +1282,7 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
     scanObservationQueue = scanQueue;
     energyObservationQueue = energyQueue;
     identityQueue = nodesQueue;
+    cellObservationQueue = cellQueue;
 
     // Depth-1 mailbox for radioRequestProfileSwitch(). Created here, not
     // lazily, so a switch request right after boot can't race a
@@ -1124,6 +1298,9 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
 
     energySweepQueue = xQueueCreate(1, sizeof(bool));
     if (energySweepQueue == nullptr) return false;
+
+    cellSweepQueue = xQueueCreate(1, sizeof(bool));
+    if (cellSweepQueue == nullptr) return false;
 
     benchPassBCadQueue = xQueueCreate(1, sizeof(uint8_t));
     if (benchPassBCadQueue == nullptr) return false;
@@ -1272,9 +1449,10 @@ bool radioRequestDiscoverySweep() {
         xTaskNotifyGive(radioTaskHandle);
         return true;
     }
-    // Mutually exclusive with Sweep (docs/DESIGN.md §5) — neither can preempt
-    // the other; see radioRequestEnergySweep()'s matching guard.
-    if (tracePaused || energyActive) return false;
+    // Mutually exclusive with Sweep and Cell (docs/DESIGN.md §5) —
+    // none can preempt another; see radioRequestEnergySweep()'s/
+    // radioRequestCellSweep()'s matching guards.
+    if (tracePaused || energyActive || cellActive) return false;
     const bool start = true;
     xQueueOverwrite(discoveryQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -1292,7 +1470,7 @@ bool radioRequestEnergySweep() {
         xTaskNotifyGive(radioTaskHandle);
         return true;
     }
-    if (tracePaused || discoveryActive) return false;
+    if (tracePaused || discoveryActive || cellActive) return false;
     const bool start = true;
     xQueueOverwrite(energySweepQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -1321,7 +1499,7 @@ bool radioRequestEnergySweepRepeat() {
         }
         return true;
     }
-    if (energyActive || tracePaused || discoveryActive) return false;
+    if (energyActive || tracePaused || discoveryActive || cellActive) return false;
     energyRepeatActive = true;
     energyRepeatCount = 0;
     const bool start = true;
@@ -1415,4 +1593,72 @@ uint32_t radioPassBAttemptCount() {
 
 uint32_t radioPassBDetectionCount() {
     return passBDetectionCount;
+}
+
+bool radioRequestCellSweep() {
+    if (radioTaskHandle == nullptr || cellSweepQueue == nullptr) return false;
+    if (cellActive) {
+        cellCancelRequested = true;
+        xTaskNotifyGive(radioTaskHandle);
+        return true;
+    }
+    // Mutually exclusive with Probe and Sweep — same convention as their
+    // own guards above.
+    if (tracePaused || discoveryActive || energyActive) return false;
+    const bool start = true;
+    xQueueOverwrite(cellSweepQueue, &start);
+    xTaskNotifyGive(radioTaskHandle);
+    return true;
+}
+
+bool radioCellSweepIsActive() {
+    return cellActive;
+}
+
+CellSweepState radioCellSweepState() {
+    return cellState;
+}
+
+uint16_t radioCellBinIndex() {
+    return cellBinIndexState;
+}
+
+uint16_t radioCellBinCount() {
+    return cellTotalBins;
+}
+
+CellStrongestSignal radioCellStrongestSignal() {
+    CellStrongestSignal signal;
+    signal.freq_mhz = cellStrongestFreqMhz;
+    signal.rssi_peak_dbm_x10 = cellStrongestRssiDbmX10;
+    signal.valid = cellStrongestValid;
+    return signal;
+}
+
+uint32_t radioCellObservationCount() {
+    return cellObservationCount;
+}
+
+uint32_t radioCellObservationDropCount() {
+    return cellObservationDropCount;
+}
+
+uint32_t radioCellSweepCount() {
+    return cellSweepCount;
+}
+
+uint32_t radioCellCancelCount() {
+    return cellCancelCount;
+}
+
+uint32_t radioCellFailureCount() {
+    return cellFailureCount;
+}
+
+uint32_t radioCellRecoveryCount() {
+    return cellRecoveryCount;
+}
+
+uint32_t radioCellLastAwayMs() {
+    return cellLastAwayMs;
 }

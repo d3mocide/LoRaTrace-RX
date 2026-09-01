@@ -131,6 +131,17 @@ struct SessionStats {
     uint32_t probe_last_away_ms = 0;
     uint32_t identities_decoded = 0;
     uint32_t identity_drops = 0;
+
+    // Cell totals (869-894MHz RSSI presence sweep, cell_observation.h)
+    // — same cumulative-here-not-per-observation convention as probe_*/
+    // energy_* above.
+    uint32_t cell_observations = 0;
+    uint32_t cell_observation_drops = 0;
+    uint32_t cell_runs = 0;
+    uint32_t cell_cancels = 0;
+    uint32_t cell_failures = 0;
+    uint32_t cell_recoveries = 0;
+    uint32_t cell_last_away_ms = 0;
 };
 
 // Column order for each run's session.csv. One string so the header row and
@@ -147,7 +158,9 @@ constexpr const char *SESSION_CSV_HEADER =
     "energy_observations,energy_observation_drops,"
     "probe_runs,probe_cancels,"
     "probe_timeouts,probe_failures,probe_recoveries,probe_last_away_ms,"
-    "identities_decoded,identity_drops";
+    "identities_decoded,identity_drops,"
+    "cell_observations,cell_observation_drops,cell_runs,cell_cancels,"
+    "cell_failures,cell_recoveries,cell_last_away_ms";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
 // detectionFormatTimestamp() the detection rows use, and is empty before
@@ -180,7 +193,8 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,"
-                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu",
+                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
+                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -227,7 +241,14 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.probe_recoveries,
                      (unsigned long)s.probe_last_away_ms,
                      (unsigned long)s.identities_decoded,
-                     (unsigned long)s.identity_drops);
+                     (unsigned long)s.identity_drops,
+                     (unsigned long)s.cell_observations,
+                     (unsigned long)s.cell_observation_drops,
+                     (unsigned long)s.cell_runs,
+                     (unsigned long)s.cell_cancels,
+                     (unsigned long)s.cell_failures,
+                     (unsigned long)s.cell_recoveries,
+                     (unsigned long)s.cell_last_away_ms);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

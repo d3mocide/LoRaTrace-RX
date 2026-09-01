@@ -24,7 +24,7 @@
 // mean packets frequently arrive in pairs milliseconds apart
 // (docs/history/CHANGELOG.md, 2026-08-23), so back-to-back RX is the common case, not the rare one.
 //
-// This task writes four files, all inside THIS RUN's own directory —
+// This task writes five files, all inside THIS RUN's own directory —
 // /loratrace/runNNNN/ (run_log.h). One wardrive is one folder, so a drive
 // can be copied, shared or deleted as a unit instead of being carved out of
 // one ever-growing file:
@@ -34,23 +34,27 @@
 //                    instead of only evidence of what it heard
 //   probe.csv      — one bounded CAD observation per Probe candidate
 //   nodes.csv      — decoded MeshTastic node identity observations
+//   cell.csv       — one RSSI reading per Cell bin (869-894MHz);
+//                    never a packet, never CAD — see cell_observation.h
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+#include "cell_observation.h"
 #include "energy_observation.h"
 #include "node_identity.h"
 #include "scan_observation.h"
 
 // Starts the task on Core 0. `queue` supplies Detections from the radio
-// task, `scanQueue` supplies fixed CAD observations from Probe, and
-// `energyQueue` supplies fixed energy-peak observations from Sweep.
+// task, `scanQueue` supplies fixed CAD observations from Probe,
+// `energyQueue` supplies fixed energy-peak observations from Sweep, and
+// `cellQueue` supplies fixed cell-band RSSI observations from Cell.
 // `initialSdMounted` is the boot-time config reader's mount result: when it
 // is true, the logger adopts that already-working mount rather than tearing
 // it down and immediately remounting it. Returns false if the task could
 // not be created.
 bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, QueueHandle_t energyQueue,
-                     QueueHandle_t identityQueue, bool initialSdMounted);
+                     QueueHandle_t identityQueue, QueueHandle_t cellQueue, bool initialSdMounted);
 
 // True once SD is mounted and the log file is writable. When false the
 // task keeps draining the queue and discarding — a missing card must not
@@ -83,6 +87,8 @@ uint32_t loggerEnergyRowsWritten();
 uint32_t loggerEnergyRowsDropped();
 uint32_t loggerIdentityRowsWritten();
 uint32_t loggerIdentityRowsDropped();
+uint32_t loggerCellRowsWritten();
+uint32_t loggerCellRowsDropped();
 
 // This power-on's run index, or 0 before SD has mounted. Matches the
 // runNNNN directory the logs are being written into.

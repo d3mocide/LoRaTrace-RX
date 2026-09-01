@@ -98,6 +98,8 @@ constexpr uint8_t IDLE_TIMEOUT_OPTION_COUNT = 5;
 // never-run state, requested after watching the on-device behavior.
 extern uint32_t probeTerminalShownAt;
 extern uint32_t sweepTerminalShownAt;
+// Same idle-reversion cue for Cell's own card (Phase 11, 2026-09-01).
+extern uint32_t cellTerminalShownAt;
 constexpr uint32_t RESULT_HOLD_MS = 8000;
 
 // --- Cross-file entry points ---
@@ -106,3 +108,4 @@ void drawPage();                        // ui_pages.cpp  — called by ui_task.c
 void fireMenuAction(MenuAction action); // ui_actions.cpp — called by ui_task.cpp's main loop
 void showProbeResults();                // ui_task.cpp — closes menu onto the Probe page
 void showSweepResults();                // ui_task.cpp — closes menu onto the Sweep page
+void showCellResults();                 // ui_task.cpp — closes menu onto the Cell page

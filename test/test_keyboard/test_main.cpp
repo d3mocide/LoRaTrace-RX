@@ -3,9 +3,9 @@
 // unrelated key on the board fire a menu action. Runs on the host (`pio test
 // -e native`), no hardware needed — see platformio.ini [env:native].
 //
-// The fifteen raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
-// backtick/ESC, six digit-jump keys, P/Probe, S/Sweep, and R/repeat-Sweep)
-// are the ones keyboard.h derives and cites; this test doesn't re-derive
+// The seventeen raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
+// backtick/ESC, seven digit-jump keys, P/Probe, S/Sweep, R/repeat-Sweep, and
+// C/Cell) are the ones keyboard.h derives and cites; this test doesn't re-derive
 // them, it pins them so a future edit can't silently drift off the sourced
 // values. It also round-trips each one through keyboardPhysicalPosition() —
 // pinning a constant against itself is what let the Ctrl+S modifier chord
@@ -63,6 +63,7 @@ void test_digits_are_jumps() {
     TEST_ASSERT_TRUE(KeyAction::JUMP_4 == keyboardDecodeEvent(KEY_RAW_4_PRESS));
     TEST_ASSERT_TRUE(KeyAction::JUMP_5 == keyboardDecodeEvent(KEY_RAW_5_PRESS));
     TEST_ASSERT_TRUE(KeyAction::JUMP_6 == keyboardDecodeEvent(KEY_RAW_6_PRESS));
+    TEST_ASSERT_TRUE(KeyAction::JUMP_7 == keyboardDecodeEvent(KEY_RAW_7_PRESS));
 }
 
 void test_p_is_probe_shortcut() {
@@ -77,6 +78,12 @@ void test_s_is_sweep_shortcut() {
 // modifier chord (reverted 2026-08-30 — see keyboard.h's top-of-file note).
 void test_r_is_sweep_repeat_shortcut() {
     TEST_ASSERT_TRUE(KeyAction::SWEEP_REPEAT == keyboardDecodeEvent(KEY_RAW_R_PRESS));
+}
+
+// C is the global Cell shortcut (Phase 11, 2026-09-01) — same shape as
+// P/S/R above.
+void test_c_is_cell_shortcut() {
+    TEST_ASSERT_TRUE(KeyAction::CELL == keyboardDecodeEvent(KEY_RAW_C_PRESS));
 }
 
 // --- The derivation itself ---
@@ -101,11 +108,13 @@ void test_every_mapped_key_round_trips_to_its_documented_position() {
     assertPosition(KEY_RAW_4_PRESS, 0, 4);
     assertPosition(KEY_RAW_5_PRESS, 0, 5);
     assertPosition(KEY_RAW_6_PRESS, 0, 6);
+    assertPosition(KEY_RAW_7_PRESS, 0, 7);
     assertPosition(KEY_RAW_R_PRESS, 1, 4);
     assertPosition(KEY_RAW_P_PRESS, 1, 10);
     assertPosition(KEY_RAW_S_PRESS, 2, 3);
     assertPosition(KEY_RAW_SEMICOLON_PRESS, 2, 11);
     assertPosition(KEY_RAW_ENTER_PRESS, 2, 13);
+    assertPosition(KEY_RAW_C_PRESS, 3, 5);
     assertPosition(KEY_RAW_COMMA_PRESS, 3, 10);
     assertPosition(KEY_RAW_PERIOD_PRESS, 3, 11);
     assertPosition(KEY_RAW_SLASH_PRESS, 3, 12);
@@ -152,9 +161,11 @@ void test_release_events_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_4_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_5_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_6_PRESS + 0x80));
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_7_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_P_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_S_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_R_PRESS + 0x80));
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_C_PRESS + 0x80));
 }
 
 // The allowlist property that makes covering only 15 of the board's 56 keys
@@ -168,10 +179,10 @@ void test_unrelated_keys_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(6));  // 'q'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(13)); // 'a'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(68)); // Space
-    // The rest of the digit row, immediately adjacent to '1'-'6' in the
-    // allowlist (row 0, col 7-10) — the boundary most likely to catch an
-    // off-by-one in the jump keys' derivation.
-    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(35)); // '7'
+    // The rest of the digit row, immediately adjacent to '1'-'7' in the
+    // allowlist (row 0, col 8-10; col 7/'7' moved INTO the allowlist as
+    // JUMP_7, Phase 11 — see test_digits_are_jumps()) — the boundary most
+    // likely to catch an off-by-one in the jump keys' derivation.
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(41)); // '8'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(45)); // '9'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(51)); // '0'
@@ -180,6 +191,10 @@ void test_unrelated_keys_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(12)); // 'w' (col2)
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(16)); // 'e' (col3)
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(26)); // 't' (col5)
+    // Row 3 letters adjacent to C (col5) — the boundary most likely to catch
+    // an off-by-one in C's derivation (Phase 11).
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(24)); // 'x' (col4)
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(34)); // 'v' (col6)
 }
 
 void test_zero_is_no_event() {
@@ -200,6 +215,7 @@ int main(int, char **) {
     RUN_TEST(test_p_is_probe_shortcut);
     RUN_TEST(test_s_is_sweep_shortcut);
     RUN_TEST(test_r_is_sweep_repeat_shortcut);
+    RUN_TEST(test_c_is_cell_shortcut);
     RUN_TEST(test_every_mapped_key_round_trips_to_its_documented_position);
     RUN_TEST(test_out_of_range_key_numbers_are_rejected);
     RUN_TEST(test_event_release_flag_and_key_number_split_correctly);

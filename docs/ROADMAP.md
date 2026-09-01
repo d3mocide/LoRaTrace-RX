@@ -420,6 +420,81 @@ minimum-brightness rendering are tested as separate conditions.
 Whether Phase 10 is required for `v1.0.x`, or follows a Phase 9-based v1.0,
 is deliberately decided after Phase 9 hardware evidence exists.
 
+### Phase 11 — Cell (added out of sequence, 2026-09-01)
+
+**Operator label:** Cell — same single-word register as Watch/Probe/Sweep
+(docs/BRAND.md), not a "___ Trace" name. Named "Cell Trace" for its first
+same-day revision; renamed once the operator noticed that collided with the
+product name's own "Trace" and read as a bigger decode claim than the
+feature (RSSI presence only) actually makes.
+
+Not part of the original four-profile plan (docs/DESIGN.md §3/§9) — added at
+the operator's request after real wardriving runs kept picking up energy in
+the 869-894MHz North American Cellular downlink band near cell towers.
+Unlike WiFi's Phase-3 pull-forward or the UI's Phase-5/6 pull-forwards
+(both of which *reordered* the existing sequence), this is *appended* after
+Phase 10 rather than inserted into it — Phase 9/10 keep their numbers and
+their own in-progress status is unaffected.
+
+**Deliberately not a fifth mission profile.** The SX1262 only demodulates
+FSK/GFSK/MSK/LoRa/OOK — it cannot decode GSM/CDMA/LTE, so there is no
+protocol to detect a channel for, and no HOME_LISTEN table to give it. It is
+instead a third bounded, radio-owned action alongside Probe (`DISCOVERY_SWEEP`)
+and Sweep (`ENERGY_SWEEP`): retune across a curated 101-bin, 250kHz grid
+covering 869-894MHz (`cell_plan.h`), sample RSSI at each bin
+(`radio.getRSSI(false)`, the same primitive Sweep's Pass A uses), log every
+bin — not threshold-filtered — to its own `cell.csv` (`cell_observation.h`).
+No CAD is attempted (CAD is a LoRa-preamble correlator; it will never fire on
+a cellular carrier) and no packet read is attempted (there is nothing to
+decode). This keeps the feature honest: it is a coarse RF-presence/strength
+survey ("a strong carrier sits near this frequency, here"), not a cell-tower
+identifier — no cell ID, LAC/TAC, or MCC/MNC is or can be extracted.
+
+**Deliberately isolated from `ENERGY_SWEEP`'s Pass A/B engine**
+(`performEnergySweep()`), not a parameterized reuse of it: Pass A's
+35.0dB noise-floor margin (`energy_observation.h`) was bench-calibrated
+against a LoRa/RF-quiet environment for *sparse* peak detection, not
+continuous cellular-strength carriers — reusing it here would dress up a
+guess as a calibration. `performCellSweep()` (`radio_task.cpp`) is its own
+function; it shares only the generic streaming-RSSI-statistics primitives
+(`EnergyBinStats`/`energyBinStatsAddSample()`/`energyRssiDbmToFixed()`,
+`energy_observation.h`) that Pass A itself uses, not Pass A's acquisition
+loop or its calibrated threshold.
+
+**869-894MHz** is FCC Part 22 Cellular Radiotelephone Service downlink /
+3GPP Band 5 downlink — a regulatory band edge, not a carrier-specific
+channel plan (no individual ARFCN/channel table is hardcoded, consistent
+with CLAUDE.md's house rule against hardcoding unverified RF parameters).
+It sits entirely inside the Cap LoRa-1262's tuned 868-923MHz front end
+(docs/DESIGN.md §1), so unlike General Exploration's 923-928MHz top end,
+there is no front-end rolloff caveat here.
+
+**Operator surface:** same shape as Probe/Sweep, not a menu row (`ui_menu.h`'s
+`CELL_TOGGLE`, same SD-required/start/cancel logic) — a global hotkey (C,
+`keyboard.h`'s `KEY_RAW_C_PRESS`) and a dedicated carousel results card
+(`UiPage::CELL`, `ui_pages.cpp`'s `drawCellPage()`), inserted as carousel
+position 4 and pushing CHANNEL/GPS/SYSTEM's digit-jump keys from 4/5/6 to
+5/6/7 (`keyboard.h`'s `KEY_RAW_7_PRESS`). An earlier same-day revision of
+this feature shipped it as a root-level menu row with no card, before the
+operator asked for the full Probe/Sweep treatment instead — reverted before
+merge, not kept as a parallel entry point. No repeat mode (Sweep's R-key
+equivalent) in this first cut.
+
+**Implementation status:** code + host-native tests (`test_cell_plan`,
+`test_cell_observation`, and `test_session_log`'s extended coverage) landed
+2026-09-01. **Not hardware-verified** — this was implemented in a session
+with no bench access to the physical device. Before trusting it in the
+field: confirm a real cell-band RSSI reading actually rises during a sweep
+near a known tower (vs. floor noise the whole way through), confirm the
+mutual-exclusion guards against Probe/Sweep hold on real hardware, and
+confirm `cell.csv`/`session.csv`'s new columns render correctly. Same
+"exists but not yet proven on glass" status Phase 8 shipped with initially.
+
+**Non-goals, same as the rest of this project:** no GSM/CDMA/LTE decode of
+any kind (impossible on this hardware, not just out of scope), no per-carrier
+or per-channel identification, no claim of tower triangulation from a single
+reading.
+
 ## Distribution
 
 Two install paths, both real, serving different audiences:
@@ -544,6 +619,15 @@ reports can use.
 | v0.8.x | Phase 8 (discovery sweep) |
 | v0.9.x | Phase 9 (energy sweep: Reticulum + General Exploration) |
 | v1.0.x | promotion target after Phase 9; whether Phase 10 is required is decided from Phase 9 hardware evidence |
+
+**Phase 11 (Cell) is a deliberate exception to this table.**
+It landed as a PATCH bump (`v0.8.6`, not `v0.9.x`) because it is not the
+*next* build-order phase — Phase 9 (`ENERGY_SWEEP`) is still in progress, and
+jumping MINOR to 9 (or past it to 11) would misrepresent Phase 9/10 as
+reached when they aren't. If a later phase completes Phase 9/10 first, this
+table's normal MAJOR.MINOR-tracks-phase-reached rule resumes as before; Phase
+11 doesn't get its own `v0.11.x` line unless a future revision of this table
+decides it should.
 
 **Renumbered 2026-08-24** (same restructuring precedent as WiFi's Phase-3
 pull-forward): the on-device UI overhaul moved from a trailing "Phase 7

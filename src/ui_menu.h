@@ -59,6 +59,13 @@ enum class MenuAction : uint8_t {
     // which of this or SWEEP_TOGGLE to fire — not something MenuState
     // itself needs to know about.
     SWEEP_REPEAT_TOGGLE,
+    // Cell: a bounded RSSI-only sweep of the North American Cellular
+    // downlink band (869-894MHz, cell_plan.h) — a third radio-owned bounded
+    // action alongside Probe/Sweep, not a mission profile (radio_task.h's
+    // radioRequestCellSweep() comment has the full reasoning). Same shape
+    // as Probe/Sweep: global hotkey (C), dedicated carousel results card
+    // (UiPage::CELL), no root menu row (ui_task.cpp's ROOT_ITEMS comment).
+    CELL_TOGGLE,
     // Fixed 25/50/75/100 presets replaced by a real slider — UP/DOWN step a
     // live value by 5% instead of jumping between 4 fixed points.
     BRIGHTNESS_UP,

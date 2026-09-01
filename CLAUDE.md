@@ -73,6 +73,9 @@ src/
   --- added during phase 8 foundation, not in the original proposal ---
   [x] discovery_plan.h           # fixed, source-backed candidate tuples
   [x] scan_observation.h         # fixed CAD result record + probe.csv formatter
+  --- added during phase 11, out of sequence (see docs/ROADMAP.md) ---
+  [x] cell_plan.h                # Cell: 869-894MHz cell-band bin math
+  [x] cell_observation.h         # fixed RSSI-reading record + cell.csv formatter
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native
   [x] test_detection/            # queue-record + CSV, fixtures are REAL captured packets
@@ -83,6 +86,8 @@ test/
   [x] test_session_log/          # session.csv row formatting
   [x] test_ui_labels/            # ui_labels.h's uiProfileLabel() lookups (phase 6)
   [x] test_ui_menu/              # ui_menu.h's MenuState, recursive/depth-bounded (phase 6)
+  [x] test_cell_plan/            # cell_plan.h's 869-894MHz bin math (phase 11)
+  [x] test_cell_observation/     # CellObservation + cell.csv formatting (phase 11)
 .github/workflows/
   [x] build.yml                  # pio run + pio test on every push/PR + rolling dev-latest release
   [x] release.yml                # vX.Y.Z tag -> draft GitHub Release with Launcher-ready .bin

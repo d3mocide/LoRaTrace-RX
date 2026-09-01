@@ -155,6 +155,59 @@ meant switching away from a profile and back silently dropped its override
 and reverted to the hardcoded default; see docs/history/CHANGELOG.md for
 the full story and `config.h`'s comments for the current schema.
 
+### 5a. Cell — RSSI presence sweep (Phase 11, added out of sequence)
+
+**Operator label:** Cell — same short, plain, single-word register as
+Watch/Probe/Sweep (docs/BRAND.md), not a "___ Trace" family name (an earlier
+revision of this feature briefly used "Cell Trace"; walked back the same day
+the operator noticed it collided in register with the product name and
+overclaimed a decode the hardware can't do).
+
+Not part of the state machine above and not a fifth mission profile — see
+`docs/ROADMAP.md`'s Phase 11 entry for the full rationale and why it's
+numbered outside this document's §1-§11 sequence rather than renumbering
+them. Summarized here because it's a real radio-task state an operator can
+trigger, and belongs next to `DISCOVERY_SWEEP`/`ENERGY_SWEEP`/
+`SCOPE_ACQUIRE` conceptually even though it landed after Phase 10 in the
+roadmap:
+
+- `CELL_SWEEP` — bounded, radio-owned action requested via
+  `radioRequestCellSweep()` (`radio_task.h`), mutually exclusive with Probe
+  and Sweep. Retunes across a fixed 101-bin, 250kHz grid spanning
+  869-894MHz (`cell_plan.h` — FCC Part 22 Cellular Radiotelephone Service
+  downlink / 3GPP Band 5 downlink, the band the operator observed hits in
+  near cell towers), sampling RSSI at each bin with the SX1262's LoRa
+  front end still configured for the active HOME_LISTEN channel's SF/BW/CR
+  (a measurement condition, logged per-row as `rx_bw_khz`, not a claim
+  about the carrier's own bandwidth). Every bin is logged to `cell.csv`
+  (`cell_observation.h`) — not threshold-filtered to peaks the way
+  `ENERGY_SWEEP`'s Pass A is, since Cell has no bench-calibrated
+  noise-floor margin of its own (reusing Pass A's 35.0dB LoRa-quiet-room
+  figure for continuous cellular-strength carriers would be a guess, not a
+  calibration) and its 101-bin sweep is small enough that logging every bin
+  is still a modest CSV. Snapshots and restores the resolved home
+  configuration on every exit path, same as every other scan state here.
+
+**Operator surface:** same shape as Probe/Sweep, not a menu row — a global
+hotkey (C, `keyboard.h`'s `KEY_RAW_C_PRESS`) and its own dedicated carousel
+results card (`UiPage::CELL`, inserted as position 4, pushing
+CHANNEL/GPS/SYSTEM's digit-jump keys from 4/5/6 to 5/6/7 — see
+`keyboard.h`'s `KEY_RAW_7_PRESS`). No repeat mode (Sweep's R-key
+equivalent) in this first cut.
+
+**Why not a decode:** the SX1262 only demodulates FSK/GFSK/MSK/LoRa/OOK.
+GSM/CDMA/LTE are structurally different modulations (TDMA/OFDMA framing,
+training sequences, channel bandwidths the SX1262 was never built to
+correlate against) that this hardware cannot decode, in principle, not just
+as an unimplemented feature. CAD (`DISCOVERY_SWEEP`'s own detection
+mechanism) is a LoRa-preamble correlator and will never fire on a cellular
+carrier either — that's why `CELL_SWEEP` is RSSI-only with no CAD step, not
+a curated-candidate CAD sweep like Probe's. So `cell.csv` is a coarse
+"is there a strong carrier near this frequency, and how strong, GPS-tagged"
+presence/strength map — never a cell ID, LAC/TAC, MCC/MNC, or any other
+tower-identifying data, because none of that is extractable from an RSSI
+reading regardless of how the firmware processes it.
+
 ## 6. Protocol fingerprinting (post-hoc classification)
 
 Every captured packet — regardless of which profile was active when it hit —

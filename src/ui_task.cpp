@@ -53,6 +53,7 @@ uint32_t toastShownAt = 0;
 // async-completion toast fires.
 uint32_t probeTerminalShownAt = 0;
 uint32_t sweepTerminalShownAt = 0;
+uint32_t cellTerminalShownAt = 0;
 
 // activeBrightnessPercent is the operator's chosen level (5-100) — what
 // idle-dim restores to on the next keypress, not necessarily what the
@@ -142,6 +143,11 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
 // so every toggle-style row (Trace/Profile/WiFi/Debug/...) gets the same
 // "Name: STATE" shape from one place instead of some labels remembering
 // their own colon and others not (2026-08-28 operator request).
+// Trace remains the root-level operating toggle. Probe/Sweep/Cell have no
+// menu row: P/S/C are the global start/cancel shortcuts and their own
+// dedicated cards also expose them through Enter — same "no duplicate entry
+// point" convention for all three (Cell joined this shape Phase 11,
+// 2026-09-01, having briefly had its own root row in an earlier revision).
 constexpr MenuItem ROOT_ITEMS[] = {
     {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 3},
@@ -275,6 +281,9 @@ void uiTask(void *) {
     uint32_t lastEnergyRunSeen = radioEnergySweepCount();
     uint32_t lastEnergyCancelSeen = radioEnergyCancelCount();
     uint32_t lastEnergyFailureSeen = radioEnergyFailureCount();
+    uint32_t lastCellRunSeen = radioCellSweepCount();
+    uint32_t lastCellCancelSeen = radioCellCancelCount();
+    uint32_t lastCellFailureSeen = radioCellFailureCount();
     bool wasAnimating = false;
 
     for (;;) {
@@ -364,6 +373,36 @@ void uiTask(void *) {
             redraw = true;
         }
 
+        // Same async-completion-toast shape as Probe/Sweep above, now that
+        // Cell has its own card (Phase 11): sets cellTerminalShownAt for
+        // drawCellPage()'s IDLE-after-hold reversion, same as
+        // probeTerminalShownAt/sweepTerminalShownAt above.
+        const uint32_t cellRuns = radioCellSweepCount();
+        if (cellRuns != lastCellRunSeen) {
+            lastCellRunSeen = cellRuns;
+            const bool cellFailed = radioCellFailureCount() != lastCellFailureSeen;
+            const bool cellCancelled = radioCellCancelCount() != lastCellCancelSeen;
+            lastCellFailureSeen = radioCellFailureCount();
+            lastCellCancelSeen = radioCellCancelCount();
+            char cellMsg[48];
+            if (cellFailed) {
+                snprintf(cellMsg, sizeof(cellMsg), "Cell: FAILED %d", radioLastError());
+            } else if (cellCancelled) {
+                snprintf(cellMsg, sizeof(cellMsg), "Cell: CANCELLED");
+            } else {
+                const CellStrongestSignal strongest = radioCellStrongestSignal();
+                if (strongest.valid) {
+                    snprintf(cellMsg, sizeof(cellMsg), "Cell: DONE %.1fMHz %.1fdBm",
+                             (double)strongest.freq_mhz, (double)strongest.rssi_peak_dbm_x10 / 10.0);
+                } else {
+                    snprintf(cellMsg, sizeof(cellMsg), "Cell: DONE");
+                }
+            }
+            showToast(cellMsg);
+            cellTerminalShownAt = millis();
+            redraw = true;
+        }
+
         // P is deliberately global rather than card- or menu-scoped: it is
         // the one hard shortcut for the bounded Probe start/cancel action.
         // showProbeResults() closes any open menu after an accepted request.
@@ -384,6 +423,11 @@ void uiTask(void *) {
             // leaving repeat mode stuck on until reboot). A single key has
             // no release event to lose.
             fireMenuAction(MenuAction::SWEEP_REPEAT_TOGGLE);
+            redraw = true;
+        } else if (action == KeyAction::CELL) {
+            // Same global-shortcut shape as P/Probe and S/Sweep above
+            // (Phase 11, 2026-09-01).
+            fireMenuAction(MenuAction::CELL_TOGGLE);
             redraw = true;
         } else if (!menu.isOpen()) {
             // Carousel: page navigation is this file's own concern, not
@@ -407,12 +451,15 @@ void uiTask(void *) {
                 jumpToPage(UiPage::SWEEP);
                 redraw = true;
             } else if (action == KeyAction::JUMP_4) {
-                jumpToPage(UiPage::CHANNEL);
+                jumpToPage(UiPage::CELL);
                 redraw = true;
             } else if (action == KeyAction::JUMP_5) {
-                jumpToPage(UiPage::GPS);
+                jumpToPage(UiPage::CHANNEL);
                 redraw = true;
             } else if (action == KeyAction::JUMP_6) {
+                jumpToPage(UiPage::GPS);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_7) {
                 jumpToPage(UiPage::SYSTEM);
                 redraw = true;
             } else if (action == KeyAction::SELECT && page == UiPage::RADIO) {
@@ -424,9 +471,13 @@ void uiTask(void *) {
             } else if (action == KeyAction::SELECT && page == UiPage::SWEEP) {
                 fireMenuAction(MenuAction::SWEEP_TOGGLE);
                 redraw = true;
+            } else if (action == KeyAction::SELECT && page == UiPage::CELL) {
+                fireMenuAction(MenuAction::CELL_TOGGLE);
+                redraw = true;
             }
-            // Enter acts on RADIO (Trace), PROBE, and SWEEP (start/cancel).
-            // Elsewhere it remains a no-op; ESC (BACK) opens the menu.
+            // Enter acts on RADIO (Trace), PROBE, SWEEP, and CELL
+            // (start/cancel). Elsewhere it remains a no-op; ESC (BACK) opens
+            // the menu.
         } else if (action != KeyAction::NONE) {
             // Menu open (root/group/slider) — MenuState owns navigation;
             // this file only reacts to what fired. Captured before handle()
@@ -493,6 +544,11 @@ void showProbeResults() {
 
 void showSweepResults() {
     jumpToPage(UiPage::SWEEP);
+    menu.close();
+}
+
+void showCellResults() {
+    jumpToPage(UiPage::CELL);
     menu.close();
 }
 

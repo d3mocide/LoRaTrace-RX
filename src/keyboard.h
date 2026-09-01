@@ -167,6 +167,13 @@ constexpr uint8_t KEY_RAW_5_PRESS = 25;
 // value is corroborated by that pre-existing test, not just this file's
 // formula.
 constexpr uint8_t KEY_RAW_6_PRESS = 31;
+// '7': physical (row 0, col 7) -> t=3, u=5 -> K=35. Added when UiPage grew a
+// 7th page (CELL, Phase 11) and the six-digit/six-page mapping broke the
+// same way '6' did for Sweep above; SYSTEM is what loses its slot this time
+// (4/5/6 -> 5/6/7, see ui_task.cpp) and gets it back here. Same row-0 table
+// this file already cites (sourcing note 3 above) as '1'-'6'; not bench-
+// confirmed on real hardware yet (see file header).
+constexpr uint8_t KEY_RAW_7_PRESS = 35;
 
 // P: physical (row 1, col 10) -> t=5, u=2 -> K=52. It is the global Probe
 // shortcut: ui_task.cpp starts/cancels the bounded action from any UI state.
@@ -198,6 +205,19 @@ constexpr uint8_t KEY_RAW_S_PRESS = 17;
 // leaving repeat-mode stuck on until reboot. A single key has no release
 // event to lose in the first place.
 constexpr uint8_t KEY_RAW_R_PRESS = 22;
+
+// C: physical (row 3, col 5) — this file's row-3 list, sourcing note 4
+// above, gives kamrrillo's directly-captured raw K values for the whole
+// bottom row: "ctrl opt alt z x c v b n m , . / space" =
+// "4 8 14 18 24 28 34 38 44 48 54 58 64 68". 'c' is the 6th entry, K=28 —
+// and that same list's comma/period/slash entries (54/58/64) already match
+// this file's own independently-derived, bench-confirmed
+// KEY_RAW_COMMA_PRESS/KEY_RAW_PERIOD_PRESS/KEY_RAW_SLASH_PRESS exactly, so
+// 28 carries the same two-source confidence R did, not a blind guess.
+// Formula cross-check: col=5, t=col>>1=2, topbit=col&1=1,
+// u=((1<<2)|3)+1=8, K=t*10+u=28 — matches. Global Cell shortcut (Phase 11,
+// 2026-09-01); not bench-confirmed on real hardware yet (see file header).
+constexpr uint8_t KEY_RAW_C_PRESS = 28;
 
 // Adafruit_TCA8418::getEvent() ORs this into the key number on a release.
 constexpr uint8_t KEY_RAW_RELEASE_FLAG = 0x80;
@@ -246,26 +266,30 @@ enum class KeyAction {
     // KEY_RAW_ESC_PRESS above for that first move, and docs/history/PROGRESS.md's
     // 2026-08-24 bench pass for this second one (Enter-to-open felt wrong).
     BACK,
-    // '1'-'6' — jump straight to that carousel page (carousel mode only).
-    // 1=RADIO, 2=PROBE, 3=SWEEP, 4=CHANNEL, 5=GPS, 6=SYSTEM. Kept as plain,
-    // separately-named actions rather than one "JUMP + index" action so
-    // this header stays free of any dependency on ui_task.h's UiPage enum
-    // — ui_task.cpp does the index mapping itself.
+    // '1'-'7' — jump straight to that carousel page (carousel mode only).
+    // 1=RADIO, 2=PROBE, 3=SWEEP, 4=CELL, 5=CHANNEL, 6=GPS, 7=SYSTEM (Phase
+    // 11 inserted CELL at 4, pushing CHANNEL/GPS/SYSTEM from 4/5/6 to
+    // 5/6/7). Kept as plain, separately-named actions rather than one
+    // "JUMP + index" action so this header stays free of any dependency on
+    // ui_task.h's UiPage enum — ui_task.cpp does the index mapping itself.
     JUMP_1,
     JUMP_2,
     JUMP_3,
     JUMP_4,
     JUMP_5,
     JUMP_6,
+    JUMP_7,
     PROBE,
     // Bounded single-shot Sweep (S).
     SWEEP,
     // Repeat-Sweep toggle (R) — see KEY_RAW_R_PRESS above.
     SWEEP_REPEAT,
+    // Bounded single-shot Cell scan (C) — see KEY_RAW_C_PRESS above.
+    CELL,
 };
 
 // Maps one raw TCA8418 event byte to a KeyAction. Deliberately an allowlist:
-// only the fifteen press bytes above resolve to anything — every release
+// only the seventeen press bytes above resolve to anything — every release
 // event and all other keys on the board return NONE. That's what keeps
 // this safe despite covering only a small slice of the board's 56 keys:
 // there's no "unknown key does something surprising" case, only "known key
@@ -284,9 +308,11 @@ inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
         case KEY_RAW_4_PRESS: return KeyAction::JUMP_4;
         case KEY_RAW_5_PRESS: return KeyAction::JUMP_5;
         case KEY_RAW_6_PRESS: return KeyAction::JUMP_6;
+        case KEY_RAW_7_PRESS: return KeyAction::JUMP_7;
         case KEY_RAW_P_PRESS: return KeyAction::PROBE;
         case KEY_RAW_S_PRESS: return KeyAction::SWEEP;
         case KEY_RAW_R_PRESS: return KeyAction::SWEEP_REPEAT;
+        case KEY_RAW_C_PRESS: return KeyAction::CELL;
         default: return KeyAction::NONE;
     }
 }

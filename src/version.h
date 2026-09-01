@@ -20,7 +20,12 @@
 //    share one semantic version. Carries a "-dirty" suffix when built from
 //    a modified working tree.
 
-#define FIRMWARE_VERSION "0.8.5"
+// 0.8.6: Cell (869-894MHz RSSI presence sweep) added as a bounded
+// radio-owned action alongside Probe/Sweep — see docs/ROADMAP.md's
+// out-of-sequence "Phase 11" entry for why this is a PATCH bump, not a MINOR
+// one: it is not the next build-order phase (Phase 9/ENERGY_SWEEP is still
+// in progress), so bumping MINOR would misrepresent Phase 9/10 as reached.
+#define FIRMWARE_VERSION "0.8.6"
 
 // Fallback for builds that bypass the PlatformIO extra_script (e.g. the
 // host-native test env, or an IDE indexer). Never seen on a real firmware

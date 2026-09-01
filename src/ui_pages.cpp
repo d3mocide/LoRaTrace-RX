@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "battery.h"
+#include "cell_plan.h"
 #include "detection.h"
 #include "discovery_plan.h"
 #include "energy_plan.h"
@@ -74,6 +75,7 @@ const char *pageName(UiPage p) {
         case UiPage::SYSTEM: return "SYSTEM";
         case UiPage::PROBE: return "PROBE";
         case UiPage::SWEEP: return "SWEEP";
+        case UiPage::CELL: return "CELL";
         default: return "?";
     }
 }
@@ -384,14 +386,16 @@ void drawProbePage() {
     }
 }
 
-// Track + marker, not a fill bar — frequency is a *position* within the
-// module's tuned range, not a proportion of something used up. 868-923MHz
-// is the SX1262 front end's actual tuned range (docs/DESIGN.md §1), not the
-// full 902-928MHz US ISM band.
-void drawFreqBar(int16_t x, int16_t y, int16_t w, float freqMhz) {
-    constexpr float LO = 868.0f, HI = 923.0f;
+// Track + marker, not a fill bar — frequency is a *position* within a band,
+// not a proportion of something used up. Defaults to 868-923MHz, the SX1262
+// front end's actual tuned range (docs/DESIGN.md §1, not the full
+// 902-928MHz US ISM band) for drawChannelPage()/drawSweepPage(); Cell's own
+// card (Phase 11) passes its own, much narrower 869-894MHz band explicitly
+// so the marker actually resolves movement within it instead of being lost
+// in a ~25MHz sliver of the full front end's range.
+void drawFreqBar(int16_t x, int16_t y, int16_t w, float freqMhz, float lo = 868.0f, float hi = 923.0f) {
     uiTft->drawFastHLine(x, y, w, COL_DIM);
-    float frac = (freqMhz - LO) / (HI - LO);
+    float frac = (freqMhz - lo) / (hi - lo);
     if (frac < 0.0f) frac = 0.0f;
     if (frac > 1.0f) frac = 1.0f;
     const int16_t mx = x + (int16_t)((w - 3) * frac);
@@ -399,9 +403,9 @@ void drawFreqBar(int16_t x, int16_t y, int16_t w, float freqMhz) {
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
     uiTft->setCursor(x, y + 6);
-    uiTft->print((int)LO);
+    uiTft->print((int)lo);
     char hiBuf[8];
-    snprintf(hiBuf, sizeof(hiBuf), "%d", (int)HI);
+    snprintf(hiBuf, sizeof(hiBuf), "%d", (int)hi);
     uiTft->setCursor(x + w - (int16_t)strlen(hiBuf) * 6, y + 6);
     uiTft->print(hiBuf);
 }
@@ -538,6 +542,111 @@ void drawSweepPage() {
         char lapValue[10];
         snprintf(lapValue, sizeof(lapValue), "%lu", (unsigned long)radioEnergySweepRepeatCount());
         statBlock(170, HEADER_H + 90, "lap", lapValue, COL_WARN);
+    }
+}
+
+// Phase 11 Cell result card (2026-09-01), same layout shape as
+// drawSweepPage() above — this is the same bounded-bin-sweep pattern, just
+// scoped to cell_plan.h's 101-bin, 869-894MHz band instead of the full
+// front end, and with no CAD/Pass-B step (cell_plan.h's file header: CAD
+// never fires on a cellular carrier, so there is nothing to attempt).
+// drawFreqBar() is called with Cell's own band bounds, not the default
+// 868-923MHz, so the marker resolves position within the actual band being
+// swept instead of a barely-visible sliver of the full front end. The
+// disclaimer line stays on screen deliberately, same reasoning as Sweep's
+// own "listening to the noise" line: docs/DESIGN.md §5a's central rule is
+// that a cell-band RSSI reading is never presented as anything more than
+// presence/strength — no cell ID, no decode, no tower location.
+void drawCellPage() {
+    const CellSweepState state = radioCellSweepState();
+    const uint16_t bin = radioCellBinIndex();
+    const uint16_t total = radioCellBinCount();
+
+    uiTft->setTextSize(2);
+    uiTft->setCursor(2, HEADER_H + 8);
+    if (state == CellSweepState::IDLE) {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print("NO SCAN YET");
+        uiTft->setTextSize(1);
+        uiTft->setCursor(2, HEADER_H + 34);
+        uiTft->print("C / Enter to run Cell");
+        return;
+    }
+
+    const bool running = state == CellSweepState::RUNNING;
+    // Same IDLE-after-hold reversion as drawProbePage()/drawSweepPage() —
+    // only the headline word changes; bin/signal data below still reflects
+    // the real last result.
+    const bool holdExpired = !running && cellTerminalShownAt != 0 &&
+                             millis() - cellTerminalShownAt >= RESULT_HOLD_MS;
+    if (holdExpired) {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print("IDLE");
+    } else {
+        const uint16_t colour = state == CellSweepState::FAILED
+                                    ? COL_BAD
+                                    : (running || state == CellSweepState::CANCELLED ? COL_WARN : COL_GOOD);
+        uiTft->setTextColor(colour, COL_BG);
+        if (running) {
+            uiTft->print("SCANNING");
+        } else if (state == CellSweepState::COMPLETE) {
+            uiTft->print("COMPLETE");
+        } else if (state == CellSweepState::CANCELLED) {
+            uiTft->print("CANCELLED");
+        } else {
+            uiTft->print("FAILED");
+        }
+    }
+
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 31);
+    if (running) {
+        uiTft->print("watch paused  ");
+    } else {
+        uiTft->print("bins ");
+    }
+    uiTft->print(bin);
+    uiTft->print('/');
+    uiTft->print(total);
+    if (!running) {
+        uiTft->print("  away ");
+        uiTft->print(radioCellLastAwayMs());
+        uiTft->print("ms");
+    }
+
+    drawFreqBar(2, HEADER_H + 62, 108, cellBinFrequencyMhz(bin), CELL_SWEEP_BAND_LO_MHZ,
+               CELL_SWEEP_BAND_HI_MHZ);
+
+    // Permanent honesty line, not a one-time disclaimer — this is the
+    // feature's central rule (docs/DESIGN.md §5a), not incidental text.
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 96);
+    uiTft->print("RSSI only - no decode");
+
+    if (state == CellSweepState::FAILED) {
+        char value[10];
+        snprintf(value, sizeof(value), "%d", radioLastError());
+        statBlock(170, HEADER_H + 6, "radio", value, COL_BAD);
+        return;
+    }
+
+    // The single strongest reading this sweep — same "what did we find"
+    // callout shape as Sweep's own strongest-peak block, just without a
+    // peak *count* (Cell logs every bin, not threshold-filtered peaks —
+    // cell_observation.h's file header).
+    const CellStrongestSignal strongest = radioCellStrongestSignal();
+    if (strongest.valid) {
+        char freqBuf[10];
+        snprintf(freqBuf, sizeof(freqBuf), "%.1f", (double)strongest.freq_mhz);
+        statBlock(170, HEADER_H + 6, "best MHz", freqBuf, COL_WARN);
+        char rssiBuf[10];
+        snprintf(rssiBuf, sizeof(rssiBuf), "%ddB", (int)(strongest.rssi_peak_dbm_x10 / 10));
+        statBlock(170, HEADER_H + 34, "rssi", rssiBuf);
+    } else {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(170, HEADER_H + 6);
+        uiTft->print("none found");
     }
 }
 
@@ -957,6 +1066,7 @@ void drawPage() {
             case UiPage::SYSTEM: drawSystemPage(); break;
             case UiPage::PROBE: drawProbePage(); break;
             case UiPage::SWEEP: drawSweepPage(); break;
+            case UiPage::CELL: drawCellPage(); break;
             default: break;
         }
     }
