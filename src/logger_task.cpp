@@ -198,7 +198,7 @@ bool openLogsLocked(bool remount) {
     // file cannot be opened.
     if (!ensureCsvLocked(energyPath, ENERGY_CSV_HEADER)) return false;
     if (!ensureCsvLocked(nodesPath, NODE_CSV_HEADER)) return false;
-    // Same durability tier as probePath/energyPath: Cell Trace is mission
+    // Same durability tier as probePath/energyPath: Cell is mission
     // output too when an operator runs it.
     if (!ensureCsvLocked(cellPath, CELL_CSV_HEADER)) return false;
     return true;
@@ -479,7 +479,7 @@ void appendEnergyObservation(const EnergyObservation &observation) {
     }
 }
 
-// Cell Trace readings are deliberately a separate queue and file, same
+// Cell readings are deliberately a separate queue and file, same
 // reasoning as appendScanObservation()/appendEnergyObservation() above: not
 // a packet, must never change RX/log counters.
 void appendCellObservation(const CellObservation &observation) {
@@ -593,7 +593,7 @@ void loggerTask(void *) {
             if (xQueueReceive(identityQueue, &identity, 0) == pdTRUE) appendNodeIdentity(identity);
         }
 
-        // Cell Trace readings, same non-blocking drain shape as Probe/Sweep
+        // Cell readings, same non-blocking drain shape as Probe/Sweep
         // above — a separate queue and file, never packet detections.
         if (cellObservationQueue != nullptr) {
             CellObservation observation;

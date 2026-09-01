@@ -230,7 +230,7 @@ void test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters() {
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
 
-void test_cell_trace_diagnostics_are_the_last_columns() {
+void test_cell_diagnostics_are_the_last_columns() {
     // Appended after identities_decoded/identity_drops, same append-only
     // convention gps_max_loop_gap_ms/gps_oversize_drops and
     // logger_stack_free established before it.
@@ -275,7 +275,7 @@ int main(int, char **) {
     RUN_TEST(test_logger_stack_headroom_precedes_run);
     RUN_TEST(test_gps_diagnostics_keep_their_append_only_positions);
     RUN_TEST(test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters);
-    RUN_TEST(test_cell_trace_diagnostics_are_the_last_columns);
+    RUN_TEST(test_cell_diagnostics_are_the_last_columns);
     RUN_TEST(test_truncation_is_reported);
     RUN_TEST(test_null_timestamp_is_tolerated);
     return UNITY_END();

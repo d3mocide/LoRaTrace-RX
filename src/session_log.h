@@ -132,7 +132,7 @@ struct SessionStats {
     uint32_t identities_decoded = 0;
     uint32_t identity_drops = 0;
 
-    // Cell Trace totals (869-894MHz RSSI presence sweep, cell_observation.h)
+    // Cell totals (869-894MHz RSSI presence sweep, cell_observation.h)
     // — same cumulative-here-not-per-observation convention as probe_*/
     // energy_* above.
     uint32_t cell_observations = 0;

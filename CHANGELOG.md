@@ -9,12 +9,13 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-01
 
-- Added Cell Trace (`v0.8.6`): a bounded RSSI-only presence sweep of
+- Added Cell (`v0.8.6`): a bounded RSSI-only presence sweep of
   869-894MHz (North American Cellular downlink), operator-requested after
   real wardriving runs picked up energy in that band near cell towers. Not
   a decode of any kind (the SX1262 cannot demodulate GSM/CDMA/LTE) and not
   a fifth mission profile — a third bounded radio-owned action alongside
-  Probe/Sweep, isolated from `ENERGY_SWEEP`'s calibrated Pass A/B engine.
+  Probe/Sweep (own global hotkey C and carousel card, same as those two),
+  isolated from `ENERGY_SWEEP`'s calibrated Pass A/B engine.
   See `docs/ROADMAP.md`'s Phase 11 entry and `docs/DESIGN.md` §5a. Code +
   host-native tests only — not yet hardware-verified (`docs/STATUS.md`).
 

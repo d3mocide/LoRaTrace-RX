@@ -155,7 +155,13 @@ meant switching away from a profile and back silently dropped its override
 and reverted to the hardcoded default; see docs/history/CHANGELOG.md for
 the full story and `config.h`'s comments for the current schema.
 
-### 5a. Cell Trace — RSSI presence sweep (Phase 11, added out of sequence)
+### 5a. Cell — RSSI presence sweep (Phase 11, added out of sequence)
+
+**Operator label:** Cell — same short, plain, single-word register as
+Watch/Probe/Sweep (docs/BRAND.md), not a "___ Trace" family name (an earlier
+revision of this feature briefly used "Cell Trace"; walked back the same day
+the operator noticed it collided in register with the product name and
+overclaimed a decode the hardware can't do).
 
 Not part of the state machine above and not a fifth mission profile — see
 `docs/ROADMAP.md`'s Phase 11 entry for the full rationale and why it's
@@ -175,12 +181,19 @@ roadmap:
   (a measurement condition, logged per-row as `rx_bw_khz`, not a claim
   about the carrier's own bandwidth). Every bin is logged to `cell.csv`
   (`cell_observation.h`) — not threshold-filtered to peaks the way
-  `ENERGY_SWEEP`'s Pass A is, since Cell Trace has no bench-calibrated
+  `ENERGY_SWEEP`'s Pass A is, since Cell has no bench-calibrated
   noise-floor margin of its own (reusing Pass A's 35.0dB LoRa-quiet-room
   figure for continuous cellular-strength carriers would be a guess, not a
   calibration) and its 101-bin sweep is small enough that logging every bin
   is still a modest CSV. Snapshots and restores the resolved home
   configuration on every exit path, same as every other scan state here.
+
+**Operator surface:** same shape as Probe/Sweep, not a menu row — a global
+hotkey (C, `keyboard.h`'s `KEY_RAW_C_PRESS`) and its own dedicated carousel
+results card (`UiPage::CELL`, inserted as position 4, pushing
+CHANNEL/GPS/SYSTEM's digit-jump keys from 4/5/6 to 5/6/7 — see
+`keyboard.h`'s `KEY_RAW_7_PRESS`). No repeat mode (Sweep's R-key
+equivalent) in this first cut.
 
 **Why not a decode:** the SX1262 only demodulates FSK/GFSK/MSK/LoRa/OOK.
 GSM/CDMA/LTE are structurally different modulations (TDMA/OFDMA framing,

@@ -30,7 +30,7 @@
 // `queue` receives Detection structs, `scanQueue` receives fixed CAD
 // observations, `energyQueue` receives fixed energy-peak observations from
 // Sweep, and `cellQueue` receives fixed cell-band RSSI observations from
-// Cell Trace; all four must outlive the task. `overrides`
+// Cell; all four must outlive the task. `overrides`
 // is the per-profile SD/web config main.cpp already loaded (config.h) —
 // copied in and held for the task's lifetime so a later
 // radioRequestProfileSwitch() resolves each profile's *current* override
@@ -194,7 +194,7 @@ uint32_t radioPassBDetectionCount();
 bool radioRequestBenchPassBCadTrigger(uint8_t comboIndex);
 bool radioBenchPassBCadIsActive();
 
-// Cell Trace: a bounded RSSI-only sweep of the North American Cellular
+// Cell: a bounded RSSI-only sweep of the North American Cellular
 // downlink band (869-894MHz, cell_plan.h), added alongside Probe/Sweep as a
 // third radio-owned bounded action rather than a mission profile — see
 // cell_plan.h's file header for why. Deliberately isolated from

@@ -1,8 +1,8 @@
 #pragma once
-// LoRaTrace RX — Cell Trace band-bin math. Pure formula, mirrors
+// LoRaTrace RX — Cell band-bin math. Pure formula, mirrors
 // energy_plan.h's shape exactly, scoped to a different, much narrower band.
 //
-// Cell Trace is NOT a mission profile and NOT a protocol decode: the SX1262
+// Cell is NOT a mission profile and NOT a protocol decode: the SX1262
 // only demodulates FSK/GFSK/MSK/LoRa/OOK, so it cannot decode GSM/CDMA/LTE.
 // This is a bounded RSSI-vs-frequency presence sweep — "is there a strong
 // carrier near this cell channel, and how strong" — reusing the same

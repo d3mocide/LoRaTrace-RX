@@ -34,7 +34,7 @@
 //                    instead of only evidence of what it heard
 //   probe.csv      — one bounded CAD observation per Probe candidate
 //   nodes.csv      — decoded MeshTastic node identity observations
-//   cell.csv       — one RSSI reading per Cell Trace bin (869-894MHz);
+//   cell.csv       — one RSSI reading per Cell bin (869-894MHz);
 //                    never a packet, never CAD — see cell_observation.h
 
 #include <freertos/FreeRTOS.h>
@@ -48,7 +48,7 @@
 // Starts the task on Core 0. `queue` supplies Detections from the radio
 // task, `scanQueue` supplies fixed CAD observations from Probe,
 // `energyQueue` supplies fixed energy-peak observations from Sweep, and
-// `cellQueue` supplies fixed cell-band RSSI observations from Cell Trace.
+// `cellQueue` supplies fixed cell-band RSSI observations from Cell.
 // `initialSdMounted` is the boot-time config reader's mount result: when it
 // is true, the logger adopts that already-working mount rather than tearing
 // it down and immediately remounting it. Returns false if the task could

@@ -74,7 +74,7 @@ src/
   [x] discovery_plan.h           # fixed, source-backed candidate tuples
   [x] scan_observation.h         # fixed CAD result record + probe.csv formatter
   --- added during phase 11, out of sequence (see docs/ROADMAP.md) ---
-  [x] cell_plan.h                # Cell Trace: 869-894MHz cell-band bin math
+  [x] cell_plan.h                # Cell: 869-894MHz cell-band bin math
   [x] cell_observation.h         # fixed RSSI-reading record + cell.csv formatter
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native

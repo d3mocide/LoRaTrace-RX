@@ -106,7 +106,7 @@ constexpr UBaseType_t SCAN_OBSERVATION_QUEUE_DEPTH = 16;
 // Probe's ~9-candidate CAD sweep ever could — a starting choice, not a
 // measured one, same as SCAN_OBSERVATION_QUEUE_DEPTH above.
 constexpr UBaseType_t ENERGY_OBSERVATION_QUEUE_DEPTH = 32;
-// Cell Trace's own bin count (101 at 869-894MHz, cell_plan.h) is small and
+// Cell's own bin count (101 at 869-894MHz, cell_plan.h) is small and
 // every bin is logged (not peak-filtered), so a depth this shallow already
 // covers a full sweep between logger drains — a starting choice, not a
 // measured one, same as the other queue depths here.

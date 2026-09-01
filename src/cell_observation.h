@@ -1,5 +1,5 @@
 #pragma once
-// LoRaTrace RX — Cell Trace queued/logged record (cell.csv).
+// LoRaTrace RX — Cell queued/logged record (cell.csv).
 //
 // Deliberately its own type, not a repurposed EnergyObservation: a cell-band
 // RSSI reading is not an ENERGY_SWEEP peak (it isn't threshold-filtered, and
@@ -56,7 +56,7 @@ struct CellObservation {
     CellObservationResult result = CellObservationResult::RADIO_ERROR;
 };
 static_assert(sizeof(CellObservation) <= 24,
-              "CellObservation exceeds the fixed Cell Trace queue budget");
+              "CellObservation exceeds the fixed Cell queue budget");
 
 constexpr const char *CELL_CSV_HEADER =
     "timestamp_utc,lat,lon,fix_quality,run,rx_uptime_ms,profile,result,"

@@ -60,10 +60,18 @@
 // its own page (Phase 6 UI redesign, 2026-08-25) — folded into SYSTEM as a
 // fourth stat block, since AP-on/off plus client count didn't need a whole
 // carousel slot of its own once SYSTEM had room for a 2x2 grid.
+//
+// CELL inserted after SWEEP (Phase 11, 2026-09-01, operator request) — same
+// "own bounded action gets its own results card" precedent as PROBE/SWEEP,
+// pushing CHANNEL/GPS/SYSTEM's digit-jump keys from 4/5/6 to 5/6/7 (see
+// keyboard.h's KEY_RAW_7_PRESS). Values are unnumbered on purpose so this
+// insertion is the only edit needed here; every downstream digit/JUMP
+// mapping lives in ui_task.cpp/keyboard.h instead.
 enum class UiPage : uint8_t {
     RADIO = 0,
     PROBE,
     SWEEP,
+    CELL,
     CHANNEL,
     GPS,
     SYSTEM,

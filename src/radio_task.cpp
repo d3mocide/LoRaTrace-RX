@@ -126,7 +126,7 @@ volatile uint32_t energyLastAwayMs = 0;
 volatile uint32_t passBAttemptCount = 0;
 volatile uint32_t passBDetectionCount = 0;
 
-// Cell Trace mirrors Probe/Sweep's one-slot-mailbox-plus-cancellation-flag
+// Cell mirrors Probe/Sweep's one-slot-mailbox-plus-cancellation-flag
 // shape exactly (see the discovery*/energy* blocks above). Mutual exclusion
 // with Probe and Sweep is enforced in radioRequestCellSweep()/
 // radioRequestDiscoverySweep()/radioRequestEnergySweep(), not here.
@@ -391,7 +391,7 @@ bool cellAbortPending() {
 }
 
 // Every bin, not peak-filtered — see cell_observation.h's file header for
-// why Cell Trace doesn't borrow ENERGY_SWEEP's calibrated threshold. 101
+// why Cell doesn't borrow ENERGY_SWEEP's calibrated threshold. 101
 // bins/sweep keeps this an honest, modest CSV rather than a RAM concern.
 void enqueueCellObservation(uint16_t binIndex, const ChannelParams &channel,
                             const EnergyBinStats &stats, CellObservationResult result,
@@ -1051,7 +1051,7 @@ void performCellSweep() {
     bool failed = false;
 
     // A notification may be left by the home RX IRQ that woke the task to
-    // service the Cell Trace request — same reasoning as Probe/Sweep's own
+    // service the Cell request — same reasoning as Probe/Sweep's own
     // discard.
     ulTaskNotifyTake(pdTRUE, 0);
 
@@ -1449,7 +1449,7 @@ bool radioRequestDiscoverySweep() {
         xTaskNotifyGive(radioTaskHandle);
         return true;
     }
-    // Mutually exclusive with Sweep and Cell Trace (docs/DESIGN.md §5) —
+    // Mutually exclusive with Sweep and Cell (docs/DESIGN.md §5) —
     // none can preempt another; see radioRequestEnergySweep()'s/
     // radioRequestCellSweep()'s matching guards.
     if (tracePaused || energyActive || cellActive) return false;

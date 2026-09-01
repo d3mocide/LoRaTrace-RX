@@ -420,9 +420,13 @@ minimum-brightness rendering are tested as separate conditions.
 Whether Phase 10 is required for `v1.0.x`, or follows a Phase 9-based v1.0,
 is deliberately decided after Phase 9 hardware evidence exists.
 
-### Phase 11 — Cell Tower Trace (added out of sequence, 2026-09-01)
+### Phase 11 — Cell (added out of sequence, 2026-09-01)
 
-**Operator label:** Cell Trace.
+**Operator label:** Cell — same single-word register as Watch/Probe/Sweep
+(docs/BRAND.md), not a "___ Trace" name. Named "Cell Trace" for its first
+same-day revision; renamed once the operator noticed that collided with the
+product name's own "Trace" and read as a bigger decode claim than the
+feature (RSSI presence only) actually makes.
 
 Not part of the original four-profile plan (docs/DESIGN.md §3/§9) — added at
 the operator's request after real wardriving runs kept picking up energy in
@@ -465,12 +469,16 @@ It sits entirely inside the Cap LoRa-1262's tuned 868-923MHz front end
 (docs/DESIGN.md §1), so unlike General Exploration's 923-928MHz top end,
 there is no front-end rolloff caveat here.
 
-**Operator surface:** a root-level "Cell Trace" menu row (`ui_menu.h`'s
-`CELL_TOGGLE`), same SD-required/start/cancel shape as Probe/Sweep, with an
-async completion toast. No dedicated global hotkey and no dedicated carousel
-result card in this first cut — scoped out to keep the change reviewable;
-Probe/Sweep's dedicated cards (`UiPage::PROBE`/`UiPage::SWEEP`) are the
-template if a result card is wanted later.
+**Operator surface:** same shape as Probe/Sweep, not a menu row (`ui_menu.h`'s
+`CELL_TOGGLE`, same SD-required/start/cancel logic) — a global hotkey (C,
+`keyboard.h`'s `KEY_RAW_C_PRESS`) and a dedicated carousel results card
+(`UiPage::CELL`, `ui_pages.cpp`'s `drawCellPage()`), inserted as carousel
+position 4 and pushing CHANNEL/GPS/SYSTEM's digit-jump keys from 4/5/6 to
+5/6/7 (`keyboard.h`'s `KEY_RAW_7_PRESS`). An earlier same-day revision of
+this feature shipped it as a root-level menu row with no card, before the
+operator asked for the full Probe/Sweep treatment instead — reverted before
+merge, not kept as a parallel entry point. No repeat mode (Sweep's R-key
+equivalent) in this first cut.
 
 **Implementation status:** code + host-native tests (`test_cell_plan`,
 `test_cell_observation`, and `test_session_log`'s extended coverage) landed
@@ -612,7 +620,7 @@ reports can use.
 | v0.9.x | Phase 9 (energy sweep: Reticulum + General Exploration) |
 | v1.0.x | promotion target after Phase 9; whether Phase 10 is required is decided from Phase 9 hardware evidence |
 
-**Phase 11 (Cell Tower Trace) is a deliberate exception to this table.**
+**Phase 11 (Cell) is a deliberate exception to this table.**
 It landed as a PATCH bump (`v0.8.6`, not `v0.9.x`) because it is not the
 *next* build-order phase — Phase 9 (`ENERGY_SWEEP`) is still in progress, and
 jumping MINOR to 9 (or past it to 11) would misrepresent Phase 9/10 as
