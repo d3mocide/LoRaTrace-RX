@@ -6,6 +6,7 @@
 
 #include "battery.h"
 #include "board_pins.h"
+#include "cell_observation.h"
 #include "detection.h"
 #include "energy_observation.h"
 #include "gps_task.h"
@@ -27,6 +28,7 @@ constexpr const char *SESSION_LEAF = "session.csv";
 constexpr const char *PROBE_LEAF = "probe.csv";
 constexpr const char *ENERGY_LEAF = "energy.csv";
 constexpr const char *NODES_LEAF = "nodes.csv";
+constexpr const char *CELL_LEAF = "cell.csv";
 
 // Resolved once, on the first successful mount of this power-on.
 uint16_t runIndex = 0;
@@ -35,6 +37,7 @@ char sessionPath[RUN_PATH_MAX];
 char probePath[RUN_PATH_MAX];
 char energyPath[RUN_PATH_MAX];
 char nodesPath[RUN_PATH_MAX];
+char cellPath[RUN_PATH_MAX];
 
 // ~2KB holds a few complete raw-frame rows. Sized to keep a single flush
 // short (see the header): bigger buffers mean longer bus holds, which is
@@ -62,6 +65,7 @@ QueueHandle_t detectionQueue = nullptr;
 QueueHandle_t scanObservationQueue = nullptr;
 QueueHandle_t energyObservationQueue = nullptr;
 QueueHandle_t identityQueue = nullptr;
+QueueHandle_t cellObservationQueue = nullptr;
 bool sdReady = false;
 bool initialSdMounted = false;
 volatile bool sdRetryRequested = false;
@@ -91,6 +95,9 @@ volatile uint32_t energyRowsWritten = 0;
 volatile uint32_t energyRowsDropped = 0;
 volatile uint32_t identityRowsWritten = 0;
 volatile uint32_t identityRowsDropped = 0;
+volatile uint32_t maxCellMs = 0;
+volatile uint32_t cellRowsWritten = 0;
+volatile uint32_t cellRowsDropped = 0;
 
 // Highest runNNNN index already on the card, or 0 if there are none.
 // Assumes the caller holds the bus and SD is mounted.
@@ -174,6 +181,9 @@ bool openLogsLocked(bool remount) {
         if (runFilePath(nodesPath, sizeof(nodesPath), LOG_DIR, runIndex, NODES_LEAF) == 0) {
             return false;
         }
+        if (runFilePath(cellPath, sizeof(cellPath), LOG_DIR, runIndex, CELL_LEAF) == 0) {
+            return false;
+        }
     }
 
     if (!ensureCsvLocked(detectionsPath, LOG_CSV_HEADER)) return false;
@@ -188,6 +198,9 @@ bool openLogsLocked(bool remount) {
     // file cannot be opened.
     if (!ensureCsvLocked(energyPath, ENERGY_CSV_HEADER)) return false;
     if (!ensureCsvLocked(nodesPath, NODE_CSV_HEADER)) return false;
+    // Same durability tier as probePath/energyPath: Cell Trace is mission
+    // output too when an operator runs it.
+    if (!ensureCsvLocked(cellPath, CELL_CSV_HEADER)) return false;
     return true;
 }
 
@@ -321,6 +334,13 @@ void writeSessionRow(const char *reason) {
     s.energy_observation_drops = radioEnergyObservationDropCount() + loggerEnergyRowsDropped();
     s.identities_decoded = radioIdentityDecodeCount();
     s.identity_drops = radioIdentityDropCount() + loggerIdentityRowsDropped();
+    s.cell_observations = radioCellObservationCount();
+    s.cell_observation_drops = radioCellObservationDropCount() + loggerCellRowsDropped();
+    s.cell_runs = radioCellSweepCount();
+    s.cell_cancels = radioCellCancelCount();
+    s.cell_failures = radioCellFailureCount();
+    s.cell_recoveries = radioCellRecoveryCount();
+    s.cell_last_away_ms = radioCellLastAwayMs();
 
     char timestamp[24];
     detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
@@ -459,6 +479,43 @@ void appendEnergyObservation(const EnergyObservation &observation) {
     }
 }
 
+// Cell Trace readings are deliberately a separate queue and file, same
+// reasoning as appendScanObservation()/appendEnergyObservation() above: not
+// a packet, must never change RX/log counters.
+void appendCellObservation(const CellObservation &observation) {
+    if (!sdReady) {
+        cellRowsDropped++;
+        return;
+    }
+
+    GpsFix fix;
+    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
+    const uint32_t now = millis();
+    const bool fresh = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+
+    char timestamp[24];
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+                             fix.month, fix.day, fix.hour, fix.minute, fix.second);
+
+    char row[256];
+    const size_t n = cellObservationFormatCsv(
+        observation, row, sizeof(row), timestamp, fresh, fix.lat, fix.lon,
+        haveFix ? fix.fix_quality : 0, runIndex);
+    if (n == 0) {
+        cellRowsDropped++;
+        return;
+    }
+    row[n] = '\n';
+
+    const WriteResult result = appendToFile(cellPath, row, n + 1, maxCellMs);
+    if (result == WriteResult::OK) {
+        cellRowsWritten++;
+    } else {
+        cellRowsDropped++;
+        if (result == WriteResult::FILE_ERROR) sdReady = false;
+    }
+}
+
 void appendNodeIdentity(const NodeIdentity &identity) {
     if (!sdReady) {
         identityRowsDropped++;
@@ -536,6 +593,15 @@ void loggerTask(void *) {
             if (xQueueReceive(identityQueue, &identity, 0) == pdTRUE) appendNodeIdentity(identity);
         }
 
+        // Cell Trace readings, same non-blocking drain shape as Probe/Sweep
+        // above — a separate queue and file, never packet detections.
+        if (cellObservationQueue != nullptr) {
+            CellObservation observation;
+            if (xQueueReceive(cellObservationQueue, &observation, 0) == pdTRUE) {
+                appendCellObservation(observation);
+            }
+        }
+
         const uint32_t now = millis();
         if (batchLen >= BATCH_HIGH_WATER || (batchLen > 0 && now - lastFlush >= FLUSH_INTERVAL_MS)) {
             flushBatch();
@@ -573,11 +639,12 @@ void loggerTask(void *) {
 } // namespace
 
 bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, QueueHandle_t energyQueue,
-                     QueueHandle_t nodesQueue, bool mountedAtBoot) {
+                     QueueHandle_t nodesQueue, QueueHandle_t cellQueue, bool mountedAtBoot) {
     detectionQueue = queue;
     scanObservationQueue = scanQueue;
     energyObservationQueue = energyQueue;
     identityQueue = nodesQueue;
+    cellObservationQueue = cellQueue;
     initialSdMounted = mountedAtBoot;
     sdReady = false;
     sdRetryRequested = false;
@@ -639,6 +706,12 @@ uint32_t loggerIdentityRowsWritten() {
 }
 uint32_t loggerIdentityRowsDropped() {
     return identityRowsDropped;
+}
+uint32_t loggerCellRowsWritten() {
+    return cellRowsWritten;
+}
+uint32_t loggerCellRowsDropped() {
+    return cellRowsDropped;
 }
 
 void loggerDebugToggle() {

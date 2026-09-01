@@ -8,10 +8,13 @@ prose that used to be duplicated (and drifting) across `CLAUDE.md`,
 
 ## Current version
 
-**v0.8.5** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
+**v0.8.6** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
 *reached*, not the phase in progress — see ROADMAP.md's Versioning
 section. `v0.8.x` = Phase 8 complete; Phase 9 is underway, so the version
-correctly hasn't moved to `0.9.0` yet.
+correctly hasn't moved to `0.9.0` yet. The PATCH bump is Phase 11 (Cell
+Tower Trace, below) — an out-of-sequence addition, not a fix, but not the
+next build-order phase either; see ROADMAP.md's Versioning section for why
+that's a PATCH bump rather than a MINOR one.
 
 ## What's hardware-verified
 
@@ -43,6 +46,19 @@ Phase 10 (Field Analyzer) is accepted as planned scope; whether it's
 required before `v1.0.x` is an explicit decision deferred until Phase 9
 hardware evidence exists (ROADMAP.md).
 
+**Phase 11 (Cell Tower Trace) — added out of sequence, NOT hardware-verified:**
+a bounded RSSI-only presence sweep of 869-894MHz (North American Cellular
+downlink), operator-requested after real wardriving runs picked up energy
+in that band near cell towers. It is not a decode of any kind — the SX1262
+cannot demodulate GSM/CDMA/LTE — and not a fifth mission profile; see
+`docs/ROADMAP.md`'s Phase 11 entry and `docs/DESIGN.md` §5a for the full
+design and why it's numbered outside the normal phase sequence. Code and
+host-native tests landed 2026-09-01; this was implemented without bench
+access to the physical device, so treat it as unverified until a real
+sweep near a known tower is confirmed on hardware to actually show RSSI
+rising above the floor, and the Probe/Sweep mutual-exclusion guards are
+confirmed to hold.
+
 ## What's still open
 
 - **923-928MHz front-end rolloff** needs an empirical RSSI-floor
@@ -50,6 +66,10 @@ hardware evidence exists (ROADMAP.md).
   that sub-band, rather than silently under-reporting (ROADMAP.md's Phase
   9 blocking unknown).
 - **Pass B** (CAD at energy peaks) design and implementation.
+- **Cell Trace hardware verification** (Phase 11, above) — confirm a real
+  cell-band RSSI reading actually rises near a known tower, confirm the
+  mutual-exclusion guards against Probe/Sweep on real hardware, confirm
+  `cell.csv`/`session.csv`'s new columns render correctly.
 - Phase 9's full exit criteria — timing/home-away duration measurement,
   injected low/mid/high carriers landing in the correct bins, quiet-band
   characterization with WiFi off/on, CAD never promoting energy alone to

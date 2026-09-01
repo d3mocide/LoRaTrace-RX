@@ -151,6 +151,22 @@ void fireMenuAction(MenuAction action) {
             }
             break;
         }
+        case MenuAction::CELL_TOGGLE: {
+            // Same non-blocking radio-task-owned shape as Probe/Sweep above,
+            // minus a dedicated results card — the async toast in
+            // ui_task.cpp's uiTask() loop is the only completion feedback
+            // (ui_menu.h's CELL_TOGGLE comment).
+            const bool cancelling = radioCellSweepIsActive();
+            if (!cancelling && !loggerSdReady()) {
+                showToast("Cell Trace: SD REQUIRED");
+            } else if (radioRequestCellSweep()) {
+                showToast(cancelling ? "Cell Trace: CANCEL" : "Cell Trace: START");
+                menu.close();
+            } else {
+                showToast("Cell Trace: UNAVAILABLE");
+            }
+            break;
+        }
         case MenuAction::SERIAL_CONTROL_TOGGLE: {
             const bool next = !serialControlIsEnabled();
             serialControlSetEnabled(next);

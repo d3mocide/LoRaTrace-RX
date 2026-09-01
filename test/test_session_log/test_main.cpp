@@ -77,6 +77,15 @@ static SessionStats healthySample() {
     s.probe_last_away_ms = 1900;
     s.identities_decoded = 11;
     s.identity_drops = 1;
+    // Distinct nonzero values, same reasoning as the other counter groups
+    // above — catches a swapped-argument bug.
+    s.cell_observations = 9;
+    s.cell_observation_drops = 2;
+    s.cell_runs = 3;
+    s.cell_cancels = 1;
+    s.cell_failures = 0;
+    s.cell_recoveries = 3;
+    s.cell_last_away_ms = 1500;
     return s;
 }
 
@@ -99,7 +108,8 @@ void test_row_with_fix_carries_position_and_counters() {
         "912,17,0,0,"
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7,"
-        "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1",
+        "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,"
+        "9,2,3,1,0,3,1500",
         row);
 }
 
@@ -210,11 +220,24 @@ void test_gps_diagnostics_keep_their_append_only_positions() {
     TEST_ASSERT_NOT_NULL(strstr(row, ",7,143,5,200000,"));
 }
 
-void test_phase7_memory_diagnostics_are_the_last_columns() {
+void test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters() {
     SessionStats s = healthySample();
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
-    const char *suffix = "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1";
+    const char *suffix =
+        "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,9,2,3,1,0,3,1500";
+    TEST_ASSERT_TRUE(n >= strlen(suffix));
+    TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
+}
+
+void test_cell_trace_diagnostics_are_the_last_columns() {
+    // Appended after identities_decoded/identity_drops, same append-only
+    // convention gps_max_loop_gap_ms/gps_oversize_drops and
+    // logger_stack_free established before it.
+    SessionStats s = healthySample();
+    char row[320];
+    size_t n = sessionFormatCsv(s, row, sizeof(row), "");
+    const char *suffix = "9,2,3,1,0,3,1500";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -251,7 +274,8 @@ int main(int, char **) {
     RUN_TEST(test_heap_trough_is_reported_separately_from_the_sample);
     RUN_TEST(test_logger_stack_headroom_precedes_run);
     RUN_TEST(test_gps_diagnostics_keep_their_append_only_positions);
-    RUN_TEST(test_phase7_memory_diagnostics_are_the_last_columns);
+    RUN_TEST(test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters);
+    RUN_TEST(test_cell_trace_diagnostics_are_the_last_columns);
     RUN_TEST(test_truncation_is_reported);
     RUN_TEST(test_null_timestamp_is_tolerated);
     return UNITY_END();

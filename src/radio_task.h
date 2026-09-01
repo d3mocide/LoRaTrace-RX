@@ -19,6 +19,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
+#include "cell_observation.h"
 #include "channel_plans.h"
 #include "detection.h"
 #include "energy_observation.h"
@@ -27,8 +28,9 @@
 
 // Starts the SX1262 on `channel`/`profile` and launches the task on Core 1.
 // `queue` receives Detection structs, `scanQueue` receives fixed CAD
-// observations, and `energyQueue` receives fixed energy-peak observations
-// from Sweep; all three must outlive the task. `overrides`
+// observations, `energyQueue` receives fixed energy-peak observations from
+// Sweep, and `cellQueue` receives fixed cell-band RSSI observations from
+// Cell Trace; all four must outlive the task. `overrides`
 // is the per-profile SD/web config main.cpp already loaded (config.h) —
 // copied in and held for the task's lifetime so a later
 // radioRequestProfileSwitch() resolves each profile's *current* override
@@ -41,7 +43,7 @@
 bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
                     const ProfileOverrides &overrides, QueueHandle_t queue,
                     QueueHandle_t scanQueue, QueueHandle_t energyQueue,
-                    QueueHandle_t identityQueue);
+                    QueueHandle_t identityQueue, QueueHandle_t cellQueue);
 
 void radioIdentityCaptureSetEnabled(bool enabled);
 bool radioIdentityCaptureIsEnabled();
@@ -191,6 +193,51 @@ uint32_t radioPassBDetectionCount();
 // while any radio-owning action (Watch pause aside) is already active.
 bool radioRequestBenchPassBCadTrigger(uint8_t comboIndex);
 bool radioBenchPassBCadIsActive();
+
+// Cell Trace: a bounded RSSI-only sweep of the North American Cellular
+// downlink band (869-894MHz, cell_plan.h), added alongside Probe/Sweep as a
+// third radio-owned bounded action rather than a mission profile — see
+// cell_plan.h's file header for why. Deliberately isolated from
+// performEnergySweep(): it does not read or share ENERGY_SWEEP's calibrated
+// noise-floor/peak-detection state, and it never attempts CAD or a packet
+// read (the SX1262 cannot demodulate GSM/CDMA/LTE, so there is no packet to
+// find). Same one-slot-mailbox, never-blocks, mutually-exclusive-with-
+// Probe/Sweep contract as radioRequestDiscoverySweep()/
+// radioRequestEnergySweep() above. Calling it while active requests
+// cancellation, same convention as those two.
+bool radioRequestCellSweep();
+bool radioCellSweepIsActive();
+
+enum class CellSweepState : uint8_t {
+    IDLE,
+    RUNNING,
+    COMPLETE,
+    CANCELLED,
+    FAILED,
+};
+CellSweepState radioCellSweepState();
+
+uint16_t radioCellBinIndex();
+uint16_t radioCellBinCount();
+
+// The strongest reading observed during the most recent sweep, for a single
+// "most interesting thing found" UI callout — same shape as
+// EnergyStrongestPeak above. `valid` is false until at least one bin has
+// been measured this sweep.
+struct CellStrongestSignal {
+    float freq_mhz = 0.0f;
+    int16_t rssi_peak_dbm_x10 = 0;
+    bool valid = false;
+};
+CellStrongestSignal radioCellStrongestSignal();
+
+uint32_t radioCellObservationCount();
+uint32_t radioCellObservationDropCount();
+uint32_t radioCellSweepCount();
+uint32_t radioCellCancelCount();
+uint32_t radioCellFailureCount();
+uint32_t radioCellRecoveryCount();
+uint32_t radioCellLastAwayMs();
 
 // --- Diagnostics -------------------------------------------------------
 // Exposed because Phase 2's exit criterion is "no dropped packets

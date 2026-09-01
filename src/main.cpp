@@ -30,6 +30,7 @@
 #include "backlight.h"
 #include "battery.h"
 #include "board_pins.h"
+#include "cell_observation.h"
 #include "channel_plans.h"
 #include "config.h"
 #include "detection.h"
@@ -105,6 +106,11 @@ constexpr UBaseType_t SCAN_OBSERVATION_QUEUE_DEPTH = 16;
 // Probe's ~9-candidate CAD sweep ever could — a starting choice, not a
 // measured one, same as SCAN_OBSERVATION_QUEUE_DEPTH above.
 constexpr UBaseType_t ENERGY_OBSERVATION_QUEUE_DEPTH = 32;
+// Cell Trace's own bin count (101 at 869-894MHz, cell_plan.h) is small and
+// every bin is logged (not peak-filtered), so a depth this shallow already
+// covers a full sweep between logger drains — a starting choice, not a
+// measured one, same as the other queue depths here.
+constexpr UBaseType_t CELL_OBSERVATION_QUEUE_DEPTH = 16;
 // How long the completed boot checklist stays on screen before uiTaskStart()
 // takes over the panel with the main status pages.
 constexpr uint32_t BOOT_CHECKLIST_HOLD_MS = 1000;
@@ -112,6 +118,7 @@ QueueHandle_t detectionQueue = nullptr;
 QueueHandle_t scanObservationQueue = nullptr;
 QueueHandle_t energyObservationQueue = nullptr;
 QueueHandle_t identityQueue = nullptr;
+QueueHandle_t cellObservationQueue = nullptr;
 
 void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
     if (!displayReady) return;
@@ -382,6 +389,10 @@ void setup() {
     if (identityQueue == nullptr) {
         fatal(F("FATAL: could not allocate the identity queue."), F("FATAL: identity queue alloc"));
     }
+    cellObservationQueue = xQueueCreate(CELL_OBSERVATION_QUEUE_DEPTH, sizeof(CellObservation));
+    if (cellObservationQueue == nullptr) {
+        fatal(F("FATAL: could not allocate the cell queue."), F("FATAL: cell queue alloc"));
+    }
 
     // Consumers before producer: the logger must be draining before the
     // radio starts filling, or the first burst is dropped for no reason.
@@ -396,7 +407,7 @@ void setup() {
     }
 
     if (!loggerTaskStart(detectionQueue, scanObservationQueue, energyObservationQueue, identityQueue,
-                         sdMounted)) {
+                         cellObservationQueue, sdMounted)) {
         fatal(F("FATAL: logger task failed to start."), F("FATAL: logger task"));
     }
     // No splash line on success: this is RTOS resource allocation, not a
@@ -409,7 +420,8 @@ void setup() {
     // radio_task.cpp holds onto it so a later switch resolves *its*
     // override the same way this boot resolved `bootProfile`'s.
     if (!radioTaskStart(activeChannel, bootProfile, channelOverrides, detectionQueue,
-                        scanObservationQueue, energyObservationQueue, identityQueue)) {
+                        scanObservationQueue, energyObservationQueue, identityQueue,
+                        cellObservationQueue)) {
         {
             SerialLock lock(pdMS_TO_TICKS(200));
             if (lock.held()) {

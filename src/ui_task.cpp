@@ -142,12 +142,18 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
 // so every toggle-style row (Trace/Profile/WiFi/Debug/...) gets the same
 // "Name: STATE" shape from one place instead of some labels remembering
 // their own colon and others not (2026-08-28 operator request).
+// Cell Trace has no dedicated hotkey or carousel card (unlike Probe/Sweep
+// above) — this root row is its only on-device entry point for now, chosen
+// over a card so this first cut doesn't touch UiPage/JUMP key wiring.
+// Satisfies the house rule that new operator-facing behavior gets a menu
+// toggle, not just a web-only setting (CLAUDE.md).
 constexpr MenuItem ROOT_ITEMS[] = {
     {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 3},
+    {"Cell Trace", ItemKind::ACTION, MenuAction::CELL_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 3},
 };
-constexpr uint8_t ROOT_COUNT = 3;
+constexpr uint8_t ROOT_COUNT = 4;
 
 // RX activity pulse: a brief, event-driven flash on the header's third
 // status dot and a matching flash bar on RADIO, replacing an old idle
@@ -275,6 +281,9 @@ void uiTask(void *) {
     uint32_t lastEnergyRunSeen = radioEnergySweepCount();
     uint32_t lastEnergyCancelSeen = radioEnergyCancelCount();
     uint32_t lastEnergyFailureSeen = radioEnergyFailureCount();
+    uint32_t lastCellRunSeen = radioCellSweepCount();
+    uint32_t lastCellCancelSeen = radioCellCancelCount();
+    uint32_t lastCellFailureSeen = radioCellFailureCount();
     bool wasAnimating = false;
 
     for (;;) {
@@ -361,6 +370,34 @@ void uiTask(void *) {
                 showToast(energyMsg);
             }
             sweepTerminalShownAt = millis();
+            redraw = true;
+        }
+
+        // Same async-completion-toast shape as Probe/Sweep above. Cell
+        // Trace has no dedicated result card (ui_menu.h's CELL_TOGGLE
+        // comment), so this toast is the only completion feedback it gets.
+        const uint32_t cellRuns = radioCellSweepCount();
+        if (cellRuns != lastCellRunSeen) {
+            lastCellRunSeen = cellRuns;
+            const bool cellFailed = radioCellFailureCount() != lastCellFailureSeen;
+            const bool cellCancelled = radioCellCancelCount() != lastCellCancelSeen;
+            lastCellFailureSeen = radioCellFailureCount();
+            lastCellCancelSeen = radioCellCancelCount();
+            char cellMsg[48];
+            if (cellFailed) {
+                snprintf(cellMsg, sizeof(cellMsg), "Cell Trace: FAILED %d", radioLastError());
+            } else if (cellCancelled) {
+                snprintf(cellMsg, sizeof(cellMsg), "Cell Trace: CANCELLED");
+            } else {
+                const CellStrongestSignal strongest = radioCellStrongestSignal();
+                if (strongest.valid) {
+                    snprintf(cellMsg, sizeof(cellMsg), "Cell Trace: DONE %.1fMHz %.1fdBm",
+                             (double)strongest.freq_mhz, (double)strongest.rssi_peak_dbm_x10 / 10.0);
+                } else {
+                    snprintf(cellMsg, sizeof(cellMsg), "Cell Trace: DONE");
+                }
+            }
+            showToast(cellMsg);
             redraw = true;
         }
 
