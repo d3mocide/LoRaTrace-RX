@@ -30,6 +30,9 @@ enum class SerialControlOpcode : uint8_t {
     BENCH_CAD,
     BENCH_SWEEP_MARGIN,
     BENCH_PASS_B_CAD,
+    BENCH_SWEEP_FLOOR,
+    BENCH_RSSI_WINDOW,
+    BENCH_RSSI_RESULT,
     KEY_DUMP,
     SD_RETRY,
     LOW_PROFILE_OFF,
@@ -69,6 +72,9 @@ inline const char *serialControlOpcodeName(SerialControlOpcode opcode) {
         case SerialControlOpcode::BENCH_CAD: return "BENCH_CAD";
         case SerialControlOpcode::BENCH_SWEEP_MARGIN: return "BENCH_SWEEP_MARGIN";
         case SerialControlOpcode::BENCH_PASS_B_CAD: return "BENCH_PASS_B_CAD";
+        case SerialControlOpcode::BENCH_SWEEP_FLOOR: return "BENCH_SWEEP_FLOOR";
+        case SerialControlOpcode::BENCH_RSSI_WINDOW: return "BENCH_RSSI_WINDOW";
+        case SerialControlOpcode::BENCH_RSSI_RESULT: return "BENCH_RSSI_RESULT";
         case SerialControlOpcode::KEY_DUMP: return "KEY_DUMP";
         case SerialControlOpcode::SD_RETRY: return "SD_RETRY";
         case SerialControlOpcode::LOW_PROFILE_OFF: return "LOW_PROFILE_OFF";
@@ -92,6 +98,9 @@ inline SerialControlOpcode serialControlOpcodeFromName(const char *name) {
     if (strcmp(name, "BENCH_CAD") == 0) return SerialControlOpcode::BENCH_CAD;
     if (strcmp(name, "BENCH_SWEEP_MARGIN") == 0) return SerialControlOpcode::BENCH_SWEEP_MARGIN;
     if (strcmp(name, "BENCH_PASS_B_CAD") == 0) return SerialControlOpcode::BENCH_PASS_B_CAD;
+    if (strcmp(name, "BENCH_SWEEP_FLOOR") == 0) return SerialControlOpcode::BENCH_SWEEP_FLOOR;
+    if (strcmp(name, "BENCH_RSSI_WINDOW") == 0) return SerialControlOpcode::BENCH_RSSI_WINDOW;
+    if (strcmp(name, "BENCH_RSSI_RESULT") == 0) return SerialControlOpcode::BENCH_RSSI_RESULT;
     if (strcmp(name, "KEY_DUMP") == 0) return SerialControlOpcode::KEY_DUMP;
     if (strcmp(name, "SD_RETRY") == 0) return SerialControlOpcode::SD_RETRY;
     if (strcmp(name, "LOW_PROFILE_OFF") == 0) return SerialControlOpcode::LOW_PROFILE_OFF;
@@ -109,6 +118,20 @@ inline bool serialControlParseSequence(const char *text, uint16_t &value) {
         if (parsed > 65535U) return false;
     }
     value = (uint16_t)parsed;
+    return true;
+}
+
+// Wider counterpart to serialControlParseSequence() above for arguments
+// that don't fit uint16 (e.g. a frequency in kHz, up to ~999999).
+inline bool serialControlParseUint32(const char *text, uint32_t &value) {
+    if (text == nullptr || text[0] == '\0') return false;
+    uint64_t parsed = 0;
+    for (const char *p = text; *p; ++p) {
+        if (*p < '0' || *p > '9') return false;
+        parsed = parsed * 10ULL + (uint64_t)(*p - '0');
+        if (parsed > 0xFFFFFFFFULL) return false;
+    }
+    value = (uint32_t)parsed;
     return true;
 }
 

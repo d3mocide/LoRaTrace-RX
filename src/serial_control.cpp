@@ -95,11 +95,13 @@ void sendStatus(uint16_t sequence) {
     // "cumulative alongside per-run fields" convention R= already uses here.
     // BPC is the bench-only single-combo CAD trigger's own active flag, so
     // the false-positive-vs-SF bench matrix can poll for one request's
-    // completion (1 -> 0) without racing unrelated PBA increments.
+    // completion (1 -> 0) without racing unrelated PBA increments. RW is
+    // the bench-only RSSI window's own active flag, same polling reason
+    // (docs/STATUS.md's 923MHz-edge injected-carrier characterization).
     char argument[160] = {};
     snprintf(argument, sizeof(argument),
              "P=%s;T=%u;B=%s;SD=%u;F=%lu;R=%lu;I=%u;N=%u;C=%u,%u,%u,%u;M=%04X;"
-             "W=%s;WI=%u;WN=%u;WP=%u;PBA=%lu;PBD=%lu;BPC=%u",
+             "W=%s;WI=%u;WN=%u;WP=%u;PBA=%lu;PBD=%lu;BPC=%u;RW=%u",
              profile, radioIsTracePaused() ? 0U : 1U, probe, loggerSdReady() ? 1U : 0U,
              (unsigned long)(channel.freq_mhz * 1000.0f),
              (unsigned long)radioDiscoveryRecoveryCount(),
@@ -113,7 +115,7 @@ void sendStatus(uint16_t sequence) {
              sweep, (unsigned)radioEnergyBinIndex(), (unsigned)radioEnergyBinCount(),
              (unsigned)radioEnergyPeakCount(),
              (unsigned long)radioPassBAttemptCount(), (unsigned long)radioPassBDetectionCount(),
-             radioBenchPassBCadIsActive() ? 1U : 0U);
+             radioBenchPassBCadIsActive() ? 1U : 0U, radioBenchRssiWindowIsActive() ? 1U : 0U);
     sendFrame(sequence, SerialControlOpcode::STATUS, argument);
 }
 
@@ -239,6 +241,45 @@ void handleFrame(const SerialControlFrame &frame) {
                 sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
             } else {
                 sendFrame(frame.sequence, SerialControlOpcode::ACK, "QUEUED");
+            }
+            break;
+        }
+        case SerialControlOpcode::BENCH_SWEEP_FLOOR: {
+            uint16_t bin = 0;
+            int16_t floor = 0;
+            if (!serialControlParseSequence(frame.argument, bin)) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
+            } else if (!benchSweepFloorQuery(bin, floor)) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            } else {
+                char argument[24] = {};
+                snprintf(argument, sizeof(argument), "BIN=%u;FLOOR=%d", (unsigned)bin, (int)floor);
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+            }
+            break;
+        }
+        case SerialControlOpcode::BENCH_RSSI_WINDOW: {
+            uint32_t freqKhz = 0;
+            if (!serialControlParseUint32(frame.argument, freqKhz) ||
+                freqKhz < 860000UL || freqKhz > 930000UL) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
+            } else if (!radioRequestBenchRssiWindow(freqKhz)) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, "QUEUED");
+            }
+            break;
+        }
+        case SerialControlOpcode::BENCH_RSSI_RESULT: {
+            int16_t maxVal = 0, avgVal = 0;
+            uint16_t sampleCount = 0;
+            if (!radioBenchRssiWindowResult(maxVal, avgVal, sampleCount)) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            } else {
+                char argument[48] = {};
+                snprintf(argument, sizeof(argument), "MAX=%d;AVG=%d;N=%u",
+                         (int)maxVal, (int)avgVal, (unsigned)sampleCount);
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
             }
             break;
         }

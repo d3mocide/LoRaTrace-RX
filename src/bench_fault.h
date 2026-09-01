@@ -51,3 +51,26 @@ int16_t benchSweepMarginDbmX10();
 // the two selectors above -- production radio_task.cpp calls this to
 // decide whether to accept the request at all, not just what value to use.
 bool benchPassBCadTriggerAllowed();
+
+// Bench-image-only per-bin noise-floor capture for the 923MHz-edge
+// front-end rolloff characterization (docs/ROADMAP.md's Phase 9 blocking
+// unknown, docs/STATUS.md's "still open" list). Production Pass A already
+// computes each bin's average RSSI (energy_observation.h's EnergyBinStats)
+// but discards it once the peak/no-peak decision is made -- energy.csv
+// only ever persists threshold-filtered peaks, never the raw floor. This
+// keeps the most recent sweep's full per-bin average so a bench harness
+// can read it back one bin at a time after the sweep completes. Production
+// firmware records/resets nothing and every query fails, same
+// production/bench split as the rest of this file.
+void benchSweepFloorReset();
+void benchSweepFloorRecord(uint16_t bin, int16_t rssi_avg_dbm_x10);
+bool benchSweepFloorQuery(uint16_t bin, int16_t &rssi_avg_dbm_x10);
+
+// Bench-image-only gate for parking the radio at an arbitrary frequency and
+// sampling RSSI continuously for a bounded window (radio_task.cpp's
+// performBenchRssiWindow()) -- the 923MHz-edge injected-carrier
+// characterization: a full Sweep's per-bin dwell (tens of ms) is too short
+// to reliably catch an independently-timed transmitter's burst, so this
+// holds still long enough to. Same production/bench split as the rest of
+// this file.
+bool benchRssiWindowTriggerAllowed();

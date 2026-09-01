@@ -95,8 +95,12 @@ class Endpoint:
         # Native USB Serial/JTAG can pause between endpoint chunks. Keep a
         # short read poll and assemble complete newline-delimited frames in
         # software so a partial chunk never blocks command/retry scheduling.
-        self.port = serial.Serial(port=None, baudrate=115200, timeout=0.05)
-        self.port.port = port
+        # serial_for_url (not plain Serial) so `port` can be a local device
+        # path (/dev/ttyACM0) *or* a network URL (socket://host:port,
+        # rfc2217://host:port) for a bridge box sitting next to a
+        # physically-separated transmitter -- same frame/CRC protocol either
+        # way, this is transport only.
+        self.port = serial.serial_for_url(port, baudrate=115200, timeout=0.05, do_not_open=True)
         self.port.dtr = False
         self.port.rts = False
         self.port.open()

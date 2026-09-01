@@ -60,7 +60,59 @@ can't provide a known-quiet RF control.
   still hardcoded to 3 after Region became its 4th row, silently hiding
   the new row — `ui_task.cpp`'s `SYSTEM_GROUP_ITEMS` GROUP entry now
   correctly says 4.
-- **Pass B (CAD at peaks) has not started.**
+- **Pass B (CAD at peaks) is implemented and hardware-verified** (landed
+  `8367b73`/`5dae6ab`, 2026-08-28/29 — this bullet was previously stale and
+  said "has not started"). CAD runs immediately at each Pass-A peak, capped
+  at `PASS_B_MAX_PEAKS_PER_SWEEP` (8) peaks per sweep, across the 10-row
+  sourced SF/BW table in `pass_b_plan.h`. A CAD hit that promotes to a real
+  packet logs as a `Detection` with `off_grid = true`
+  (`detectionClassification()` returns `unknown_lora_candidate`, never a
+  mission-profile name — the DESIGN.md §7.2 requirement that Pass B must
+  not mislabel an off-grid hit as Reticulum). Per-combo confidence
+  (`PassBConfidence`: `STRONG`/`NOISY`/`UNVERIFIED`) is a descriptive
+  `energy.csv` column derived from a pooled 1,200-cycle bench matrix across
+  three physical setups (open room, both radios shielded, Cardputer-only
+  shielded) — only SF8/BW125 (`STRONG`, 2/60 quiet FP, 20/20 real-pulse
+  detection) and SF11/BW500 (`NOISY`, 22/60 quiet FP, 19-20/20 detection)
+  are reproducible enough to carry a confidence tag; the other eight combos
+  stay `UNVERIFIED` pending more bench cycles. Full history, the SF-vs-time
+  confound investigation, and the shielded-box findings are in
+  `docs/research/phase9-sweep-pass-b-design.md`.
+- **923MHz-edge front-end rolloff — closed, no rolloff found (2026-09-01).**
+  ROADMAP.md's blocking unknown is resolved. Two lines of evidence, both
+  real hardware:
+  - **Passive floor pass** (`BENCH_SWEEP_FLOOR`, `scripts/phase9_rolloff_bench.py`):
+    three real GLOBAL-band sweeps compared the mean floor in the top 5MHz
+    near the front end's 923MHz ceiling against the rest of the band —
+    +0.26dB, +0.52dB, -0.06dB, all inside the mid-band's own bin-to-bin
+    spread. No signature, but passive (no transmission), so it couldn't
+    rule out reduced *gain* on a real signal.
+  - **Injected-carrier pass** (`BENCH_RSSI_WINDOW`, `scripts/phase9_edge_carrier_bench.py`):
+    parks the radio at one fixed frequency and samples RSSI continuously
+    for ~2s (a full Sweep's per-bin dwell, tens of ms, is too short to
+    reliably coincide with an independently-timed transmitter's burst — a
+    first attempt using a full Sweep came back a meaningless null result
+    for exactly that reason). With the Heltec and Cardputer on matched
+    915MHz whip antennas and physically separated (desktop/under-desk,
+    ruling out the near-field USB/clock coupling the Pass B shielded-box
+    study already found raises apparent noise between close-together
+    radios), 26 combined trials across two sessions at a mid-band
+    (912.8125MHz, `LONG_MODERATE`) and an edge-band (920.625MHz,
+    `SHORT_SLOW`) sourced candidate: mid-band captured the real signal
+    12/14 tries at -34.7dBm average, edge-band **14/14** at -36.9dBm
+    average — only a 2.3dB gap, and the edge band was if anything *more*
+    reliable, not less. An earlier close-together run showed a much
+    bigger apparent gap (~25dB) that turned out to be a measurement
+    artifact: computing signal "rise" as pulse-RSSI-minus-quiet-RSSI
+    silently absorbs whatever the quiet baseline itself is doing, and the
+    quiet baseline at 920.625MHz measured a real, reproducible ~24dB
+    higher than at 912.8125MHz in this room with nothing transmitting —
+    a genuine RF-environment fact (this is a dense urban area with AMI
+    smart-meter deployments, which commonly use FHSS in the 900-928MHz
+    band, a very plausible source), not a receiver characteristic. The
+    fix was comparing absolute captured-signal strength instead of a
+    delta from a baseline that isn't equal between the two frequencies
+    being compared.
 
 Phase 10 (Field Analyzer) is accepted as planned scope; whether it's
 required before `v1.0.x` is an explicit decision deferred until Phase 9
@@ -115,11 +167,6 @@ the lo/hi labels above or the disclaimer line below.
 
 ## What's still open
 
-- **923-928MHz front-end rolloff** needs an empirical RSSI-floor
-  characterization so the UI can be honest about reduced sensitivity in
-  that sub-band, rather than silently under-reporting (ROADMAP.md's Phase
-  9 blocking unknown).
-- **Pass B** (CAD at energy peaks) design and implementation.
 - **Cell hardware verification** (Phase 11, above) — C key, mutual
   exclusion against Probe/Sweep (both directions), and the carousel card
   are now confirmed on real hardware (2026-09-01). Still open: confirm a
@@ -127,8 +174,14 @@ the lo/hi labels above or the disclaimer line below.
   confirm `cell.csv`/`session.csv`'s new columns write correctly to SD.
 - Phase 9's full exit criteria — timing/home-away duration measurement,
   injected low/mid/high carriers landing in the correct bins, quiet-band
-  characterization with WiFi off/on, CAD never promoting energy alone to
-  LoRa, and a 24-hour repeated-sweep soak — are not all closed yet.
+  characterization with WiFi off/on, and a 24-hour repeated-sweep soak —
+  are not all closed yet. CAD never promoting energy alone to LoRa is
+  satisfied structurally (Pass B's `off_grid` classification, above) but
+  hasn't had a dedicated exit-criteria pass of its own.
+- Pass B's other eight SF/BW combos still have only n=20/condition
+  (`UNVERIFIED`) — more bench cycles would be needed before extending
+  `STRONG`/`NOISY` past the two combos that have it now
+  (`docs/research/phase9-sweep-pass-b-design.md`'s open questions).
 
 `docs/history/PROGRESS.md` has a much older "Open questions" list dating
 back to Phases 1-2 (2026-08-22 through 2026-08-27). Most of those are

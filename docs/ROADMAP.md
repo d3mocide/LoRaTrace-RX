@@ -385,9 +385,12 @@ Each bin retains only bounded streaming statistics. Durable energy peaks use
 a schema that cannot be confused with packet detections. Transient mode uses
 the same Phase 7-gated 2.5 KB ceiling and `NOT SAVED` behavior as Probe.
 
-**Blocking unknowns:** 923–928MHz front-end rolloff should be
-characterized (empirical RSSI floor sweep) so the UI can be honest about
-reduced sensitivity in that sub-band rather than silently under-reporting.
+**Blocking unknowns:** 923–928MHz front-end rolloff — **resolved,
+2026-09-01, no rolloff found.** A passive floor-only pass and a real
+injected-carrier pass (both real hardware, see STATUS.md for the full
+evidence and the bench tooling) agree: a real transmitted signal near the
+923MHz ceiling registers within ~2dB of the same strength as one at
+912.8MHz, and captures at least as reliably. Not a gap in coverage.
 
 **Exit criteria:** timing and home-away duration are measured; injected
 low/mid/high carriers land in the correct bins; quiet-band behavior is

@@ -204,6 +204,20 @@ uint32_t radioPassBDetectionCount();
 bool radioRequestBenchPassBCadTrigger(uint8_t comboIndex);
 bool radioBenchPassBCadIsActive();
 
+// Bench-image-only (bench_fault.h's benchRssiWindowTriggerAllowed()): parks
+// the radio at an arbitrary frequency (freq_khz) and samples RSSI
+// continuously for a bounded window, for the 923MHz-edge injected-carrier
+// characterization (docs/STATUS.md) -- a full Sweep's per-bin dwell (tens
+// of ms) is too short to reliably catch an independently-timed
+// transmitter's burst; this holds still long enough to. Refuses (returns
+// false) outside the bench build, with an out-of-range frequency, or while
+// any radio-owning action is already active. Read the result with
+// radioBenchRssiWindowResult() once radioBenchRssiWindowIsActive() goes
+// false again.
+bool radioRequestBenchRssiWindow(uint32_t freq_khz);
+bool radioBenchRssiWindowIsActive();
+bool radioBenchRssiWindowResult(int16_t &max_dbm_x10, int16_t &avg_dbm_x10, uint16_t &sample_count);
+
 // Cell: a bounded RSSI-only sweep of the North American Cellular
 // downlink band (869-894MHz, cell_plan.h), added alongside Probe/Sweep as a
 // third radio-owned bounded action rather than a mission profile — see

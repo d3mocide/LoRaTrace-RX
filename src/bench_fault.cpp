@@ -21,6 +21,15 @@ volatile unsigned char cadSymbols = 2;
 // the constant edit alone).
 volatile int16_t sweepMarginDbmX10 = ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10;
 
+#if defined(LORATRACE_BENCH_FAULTS)
+// energy_plan.h's own ENERGY_BIN_RESERVED_COUNT -- the same hard ceiling
+// Pass A's bin loop is already bounded by, so this array is sized to hold
+// one full sweep's worth of bins regardless of region/step.
+constexpr uint16_t SWEEP_FLOOR_CAPACITY = 224;
+int16_t sweepFloorDbmX10[SWEEP_FLOOR_CAPACITY];
+bool sweepFloorValid[SWEEP_FLOOR_CAPACITY];
+#endif
+
 bool parsePoint(const char *text, BenchFaultPoint &point) {
     if (strcmp(text, "BEFORE_RETUNE") == 0) point = BenchFaultPoint::BEFORE_RETUNE;
     else if (strcmp(text, "AFTER_RETUNE") == 0) point = BenchFaultPoint::AFTER_RETUNE;
@@ -150,6 +159,43 @@ int16_t benchSweepMarginDbmX10() {
 }
 
 bool benchPassBCadTriggerAllowed() {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    return false;
+#else
+    return true;
+#endif
+}
+
+void benchSweepFloorReset() {
+#if defined(LORATRACE_BENCH_FAULTS)
+    for (uint16_t i = 0; i < SWEEP_FLOOR_CAPACITY; i++) sweepFloorValid[i] = false;
+#endif
+}
+
+void benchSweepFloorRecord(uint16_t bin, int16_t rssi_avg_dbm_x10) {
+#if defined(LORATRACE_BENCH_FAULTS)
+    if (bin >= SWEEP_FLOOR_CAPACITY) return;
+    sweepFloorDbmX10[bin] = rssi_avg_dbm_x10;
+    sweepFloorValid[bin] = true;
+#else
+    (void)bin;
+    (void)rssi_avg_dbm_x10;
+#endif
+}
+
+bool benchSweepFloorQuery(uint16_t bin, int16_t &rssi_avg_dbm_x10) {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    (void)bin;
+    (void)rssi_avg_dbm_x10;
+    return false;
+#else
+    if (bin >= SWEEP_FLOOR_CAPACITY || !sweepFloorValid[bin]) return false;
+    rssi_avg_dbm_x10 = sweepFloorDbmX10[bin];
+    return true;
+#endif
+}
+
+bool benchRssiWindowTriggerAllowed() {
 #if !defined(LORATRACE_BENCH_FAULTS)
     return false;
 #else

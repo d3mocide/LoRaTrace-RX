@@ -173,6 +173,21 @@ volatile bool benchPassBCadActive = false;
 // new frequency.
 constexpr float BENCH_PASS_B_CAD_TEST_FREQ_MHZ = 918.5f;
 
+// Bench-only on-demand park-and-sample RSSI window (docs/STATUS.md's
+// 923MHz-edge injected-carrier characterization). One-slot mailbox holding
+// a target frequency in kHz, same shape as benchPassBCadQueue above.
+QueueHandle_t benchRssiWindowQueue = nullptr;
+volatile bool benchRssiWindowActive = false;
+volatile bool benchRssiWindowHaveResult = false;
+volatile int16_t benchRssiWindowMaxDbmX10 = 0;
+volatile int16_t benchRssiWindowAvgDbmX10 = 0;
+volatile uint16_t benchRssiWindowSampleCount = 0;
+// ~2s window (400 samples * 5ms) -- long enough that a transmitter firing
+// every few hundred ms during it is very likely to have at least one burst
+// land inside, unlike a Sweep bin's own tens-of-ms dwell.
+constexpr uint16_t BENCH_RSSI_WINDOW_SAMPLE_COUNT = 400;
+constexpr uint32_t BENCH_RSSI_WINDOW_SAMPLE_INTERVAL_MS = 5;
+
 // How long the radio task waits for the shared SPI bus. Generous enough to
 // ride out a normal SD flush, short enough that a wedged logger can't take
 // the receiver down with it. On timeout the packet is dropped and RX keeps
@@ -887,6 +902,61 @@ void performBenchPassBCadTrigger(uint8_t comboIndex) {
     benchPassBCadActive = false;
 }
 
+// Bench-only (docs/STATUS.md's 923MHz-edge injected-carrier
+// characterization): parks the radio at freq_khz and samples RSSI
+// continuously for BENCH_RSSI_WINDOW_SAMPLE_COUNT samples, tracking the
+// running max/avg via the same streaming-stats helper Pass A uses
+// (energy_observation.h) -- no raw sample history kept. A full Sweep's
+// per-bin dwell is too brief to reliably coincide with an independently-
+// timed transmitter's short burst; holding still for ~2s fixes that.
+void performBenchRssiWindow(uint32_t freq_khz) {
+    benchRssiWindowActive = true;
+    benchRssiWindowHaveResult = false;
+    const ChannelParams homeChannel = activeChannel;
+    const MissionProfile homeProfile = activeProfile;
+    const float freq = (float)freq_khz / 1000.0f;
+
+    bool tuned = false;
+    {
+        SpiBusLock lock(BUS_WAIT);
+        if (!lock.held()) {
+            busMissCount++;
+        } else {
+            const int beginState = radio.begin(freq, homeChannel.bw_khz, homeChannel.sf,
+                                                homeChannel.cr_denom, homeChannel.sync_word);
+            if (beginState == RADIOLIB_ERR_NONE) {
+                lastError = radio.startReceive();
+                tuned = (lastError == RADIOLIB_ERR_NONE);
+            } else {
+                lastError = beginState;
+            }
+        }
+    }
+
+    if (tuned) {
+        EnergyBinStats stats;
+        for (uint16_t s = 0; s < BENCH_RSSI_WINDOW_SAMPLE_COUNT; s++) {
+            {
+                SpiBusLock lock(BUS_WAIT);
+                if (lock.held()) {
+                    const float rssi = radio.getRSSI(false);
+                    energyBinStatsAddSample(stats, energyRssiDbmToFixed(rssi));
+                } else {
+                    busMissCount++;
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(BENCH_RSSI_WINDOW_SAMPLE_INTERVAL_MS));
+        }
+        benchRssiWindowMaxDbmX10 = stats.rssi_peak_dbm_x10;
+        benchRssiWindowAvgDbmX10 = stats.rssi_avg_dbm_x10;
+        benchRssiWindowSampleCount = stats.sample_count;
+        benchRssiWindowHaveResult = (stats.sample_count > 0);
+    }
+
+    restoreHomeListen(homeChannel, homeProfile);
+    benchRssiWindowActive = false;
+}
+
 // docs/DESIGN.md §7.2's two-pass acquisition: Pass A is the bounded RSSI sweep
 // across every frequency bin below, threshold-filtered peaks logged to
 // energy.csv; Pass B (passBCadAtBin() above) runs inline the moment Pass A
@@ -908,6 +978,7 @@ void performEnergySweep() {
     energyPeakCount = 0;
     for (size_t i = 0; i < sizeof(energyPeakBinMask); i++) energyPeakBinMask[i] = 0;
     energyStrongestValid = false;
+    benchSweepFloorReset();
     bool aborted = false;
     bool failed = false;
     // Rolling noise floor (energy_observation.h): seeded from bin 0's own
@@ -987,6 +1058,12 @@ void performEnergySweep() {
             }
             if (s + 1 < ENERGY_SAMPLES_PER_BIN) vTaskDelay(pdMS_TO_TICKS(ENERGY_SAMPLE_INTERVAL_MS));
         }
+
+        // Bench-only (bench_fault.h): keeps this bin's average even when it
+        // isn't a peak, so a rolloff-characterization harness can read the
+        // raw floor curve back after the sweep -- energy.csv only ever
+        // persists threshold-filtered peaks. No-op on production firmware.
+        benchSweepFloorRecord(bin, stats.rssi_avg_dbm_x10);
 
         if (!haveFloor) {
             noiseFloor = stats.rssi_avg_dbm_x10;
@@ -1264,6 +1341,13 @@ void radioTask(void *) {
             continue;
         }
 
+        uint32_t benchRssiWindowFreqKhz;
+        if (benchRssiWindowQueue != nullptr &&
+            xQueueReceive(benchRssiWindowQueue, &benchRssiWindowFreqKhz, 0) == pdTRUE) {
+            if (!paused) performBenchRssiWindow(benchRssiWindowFreqKhz);
+            continue;
+        }
+
         if (paused) {
             // Nothing else to do while asleep — DIO1 can't fire, and the
             // liveness branch above already skips re-arming.
@@ -1332,6 +1416,9 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
 
     benchPassBCadQueue = xQueueCreate(1, sizeof(uint8_t));
     if (benchPassBCadQueue == nullptr) return false;
+
+    benchRssiWindowQueue = xQueueCreate(1, sizeof(uint32_t));
+    if (benchRssiWindowQueue == nullptr) return false;
 
     {
         SpiBusLock lock(portMAX_DELAY);
@@ -1564,6 +1651,32 @@ bool radioRequestBenchPassBCadTrigger(uint8_t comboIndex) {
 
 bool radioBenchPassBCadIsActive() {
     return benchPassBCadActive;
+}
+
+bool radioRequestBenchRssiWindow(uint32_t freq_khz) {
+    if (!benchRssiWindowTriggerAllowed()) return false;
+    if (radioTaskHandle == nullptr || benchRssiWindowQueue == nullptr) return false;
+    if (freq_khz < 860000UL || freq_khz > 930000UL) return false;
+    if (benchRssiWindowActive || benchPassBCadActive || energyActive || discoveryActive ||
+        cellActive || tracePaused) {
+        return false;
+    }
+    xQueueOverwrite(benchRssiWindowQueue, &freq_khz);
+    xTaskNotifyGive(radioTaskHandle);
+    return true;
+}
+
+bool radioBenchRssiWindowIsActive() {
+    return benchRssiWindowActive;
+}
+
+bool radioBenchRssiWindowResult(int16_t &max_dbm_x10, int16_t &avg_dbm_x10, uint16_t &sample_count) {
+    if (!benchRssiWindowTriggerAllowed()) return false;
+    if (benchRssiWindowActive || !benchRssiWindowHaveResult) return false;
+    max_dbm_x10 = benchRssiWindowMaxDbmX10;
+    avg_dbm_x10 = benchRssiWindowAvgDbmX10;
+    sample_count = benchRssiWindowSampleCount;
+    return true;
 }
 
 uint16_t radioEnergyBinIndex() {
