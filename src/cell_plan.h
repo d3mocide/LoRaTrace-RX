@@ -62,3 +62,25 @@ inline uint16_t cellBinIndexForFrequencyMhz(float freq_mhz) {
 static_assert(cellBinCount() == 101, "869-894MHz at 250kHz must be 101 bins");
 static_assert(cellBinCount() <= CELL_BIN_RESERVED_COUNT,
               "cell sweep bin count exceeds the reserved ceiling");
+
+// North American Cellular A/B channel blocks (47 CFR § 22.905 "Channels
+// for cellular service", eCFR Title 47 Part 22 Subpart H) — the FCC's own
+// downlink sub-band split within 869-894MHz. NOT a carrier-specific
+// table: actual current licensee varies by market and has changed hands
+// repeatedly via spectrum trading since these blocks were first assigned,
+// so this labels the regulatory block only (CLAUDE.md's house rule
+// against hardcoding unverified/unstable RF facts) — never a carrier
+// name.
+struct CellBandBlock {
+    char label;
+    float lo_mhz;
+    float hi_mhz;
+};
+
+constexpr CellBandBlock CELL_BAND_BLOCKS[] = {
+    {'A', 869.0f, 880.0f},
+    {'B', 880.0f, 890.0f},
+    {'A', 890.0f, 891.5f},
+    {'B', 891.5f, 894.0f},
+};
+constexpr uint8_t CELL_BAND_BLOCK_COUNT = 4;

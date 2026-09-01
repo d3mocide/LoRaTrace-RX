@@ -135,6 +135,13 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
     {"Connectivity", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, CONNECTIVITY_GROUP_ITEMS, 2},
     {"Diagnostics", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DIAGNOSTICS_GROUP_ITEMS, 2},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
+    // Cycles Sweep's scanned band (US/Global) — a flat row here rather than
+    // its own nested group, same "2-value cycle" shape as Idle dim, and
+    // System's top-level list was fine at 4 rows before the operator-
+    // requested 5-row split above (see CONNECTIVITY/DIAGNOSTICS_GROUP_ITEMS'
+    // own comment), so this has the same headroom that split was
+    // calibrated against.
+    {"Region", ItemKind::ACTION, MenuAction::REGION_CYCLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
 // Trace remains the root-level operating toggle. Probe has no duplicate menu
 // row: P is the global start/cancel shortcut and the dedicated second card
@@ -151,7 +158,7 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
 constexpr MenuItem ROOT_ITEMS[] = {
     {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 3},
-    {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 3},
+    {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 4},
 };
 constexpr uint8_t ROOT_COUNT = 3;
 
@@ -414,16 +421,6 @@ void uiTask(void *) {
             // state.
             fireMenuAction(MenuAction::SWEEP_TOGGLE);
             redraw = true;
-        } else if (action == KeyAction::SWEEP_REPEAT) {
-            // Repeat-Sweep ("walk around and scan" mode) has its own
-            // dedicated key (R) rather than a Ctrl+S chord (operator
-            // request, 2026-08-29; reverted 2026-08-30 — see keyboard.h's
-            // top-of-file note: real hardware testing with KEY_DUMP showed
-            // the TCA8418 can drop Ctrl's own release event on that chord,
-            // leaving repeat mode stuck on until reboot). A single key has
-            // no release event to lose.
-            fireMenuAction(MenuAction::SWEEP_REPEAT_TOGGLE);
-            redraw = true;
         } else if (action == KeyAction::CELL) {
             // Same global-shortcut shape as P/Probe and S/Sweep above
             // (Phase 11, 2026-09-01).
@@ -474,10 +471,27 @@ void uiTask(void *) {
             } else if (action == KeyAction::SELECT && page == UiPage::CELL) {
                 fireMenuAction(MenuAction::CELL_TOGGLE);
                 redraw = true;
+            } else if (action == KeyAction::REPEAT && page == UiPage::SWEEP) {
+                // Repeat ("walk around and scan" mode) has its own
+                // dedicated key (R) rather than a Ctrl+S chord (operator
+                // request, 2026-08-29; reverted 2026-08-30 — see
+                // keyboard.h's top-of-file note: real hardware testing with
+                // KEY_DUMP showed the TCA8418 can drop Ctrl's own release
+                // event on that chord, leaving repeat mode stuck on until
+                // reboot). A single key has no release event to lose. Page-
+                // gated here rather than a global shortcut like P/S/C above
+                // (operator request, 2026-09-01): R only means something on
+                // the Sweep or Cell card, matching SELECT's own page-gated
+                // shape just above. Probe deliberately has none.
+                fireMenuAction(MenuAction::SWEEP_REPEAT_TOGGLE);
+                redraw = true;
+            } else if (action == KeyAction::REPEAT && page == UiPage::CELL) {
+                fireMenuAction(MenuAction::CELL_REPEAT_TOGGLE);
+                redraw = true;
             }
             // Enter acts on RADIO (Trace), PROBE, SWEEP, and CELL
-            // (start/cancel). Elsewhere it remains a no-op; ESC (BACK) opens
-            // the menu.
+            // (start/cancel); R repeats on SWEEP and CELL only. Elsewhere
+            // both remain a no-op; ESC (BACK) opens the menu.
         } else if (action != KeyAction::NONE) {
             // Menu open (root/group/slider) — MenuState owns navigation;
             // this file only reacts to what fired. Captured before handle()

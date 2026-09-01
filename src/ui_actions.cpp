@@ -18,6 +18,7 @@
 #include "serial_control.h"
 #include "profile_state.h"
 #include "radio_task.h"
+#include "region_settings.h"
 #include "ui_labels.h"
 #include "wifi_task.h"
 
@@ -165,6 +166,21 @@ void fireMenuAction(MenuAction action) {
             }
             break;
         }
+        case MenuAction::CELL_REPEAT_TOGGLE: {
+            // R key, page-gated to the Cell card by ui_task.cpp — same
+            // non-blocking radio-task-owned shape as SWEEP_REPEAT_TOGGLE
+            // above, mirrored exactly.
+            const bool stopping = radioCellSweepRepeatIsActive();
+            if (!stopping && !loggerSdReady()) {
+                showToast("Cell: SD REQUIRED");
+            } else if (radioRequestCellSweepRepeat()) {
+                showToast(stopping ? "Cell: REPEAT OFF" : "Cell: REPEAT ON");
+                showCellResults();
+            } else {
+                showToast("Cell: UNAVAILABLE");
+            }
+            break;
+        }
         case MenuAction::SERIAL_CONTROL_TOGGLE: {
             const bool next = !serialControlIsEnabled();
             serialControlSetEnabled(next);
@@ -207,6 +223,20 @@ void fireMenuAction(MenuAction action) {
             settings.brightness_pct = activeBrightnessPercent;
             settings.idle_timeout_index = idleTimeoutIndex;
             writeDisplaySettingsToSD(settings);
+            break;
+        }
+        case MenuAction::REGION_CYCLE: {
+            // Region lives in radio_task.cpp (mirrors activeChannel/
+            // activeProfile), not local ui_task state — Sweep is the one
+            // that reads it, at the start of each sweep.
+            const Region next =
+                radioEnergySweepRegion() == Region::US ? Region::GLOBAL : Region::US;
+            radioSetEnergySweepRegion(next);
+            snprintf(msg, sizeof(msg), "Region: %s", regionLabel(next));
+            showToast(msg);
+            RegionSettings regionSettings;
+            regionSettings.region = next;
+            writeRegionSettingsToSD(regionSettings);
             break;
         }
         case MenuAction::NONE:

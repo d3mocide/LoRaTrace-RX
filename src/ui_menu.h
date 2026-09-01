@@ -66,6 +66,12 @@ enum class MenuAction : uint8_t {
     // as Probe/Sweep: global hotkey (C), dedicated carousel results card
     // (UiPage::CELL), no root menu row (ui_task.cpp's ROOT_ITEMS comment).
     CELL_TOGGLE,
+    // R key, page-gated to the Cell card (ui_task.cpp decides which of this
+    // or CELL_TOGGLE to fire, same as it does for SWEEP_REPEAT_TOGGLE vs.
+    // SWEEP_TOGGLE above — not something MenuState itself needs to know
+    // about). Probe deliberately has no equivalent (operator decision:
+    // "Repeat only on the Sweeps").
+    CELL_REPEAT_TOGGLE,
     // Fixed 25/50/75/100 presets replaced by a real slider — UP/DOWN step a
     // live value by 5% instead of jumping between 4 fixed points.
     BRIGHTNESS_UP,
@@ -74,6 +80,12 @@ enum class MenuAction : uint8_t {
     // 5min) — same "fires and stays in the list" shape WIFI_TOGGLE/
     // DEBUG_TOGGLE already have, just cycling instead of flipping a bool.
     IDLE_TIMEOUT_CYCLE,
+    // Cycles Sweep's scanned band between US (902-923MHz, 47 CFR § 15.247)
+    // and Global (868-923MHz, the module's full tuned range) — same
+    // "fires and stays in the list" cycling shape as IDLE_TIMEOUT_CYCLE
+    // above. Region is currently Sweep-only; Cell/channel_plans.h
+    // regionalization are separate follow-ups (docs/ROADMAP.md).
+    REGION_CYCLE,
 };
 
 enum class ItemKind : uint8_t { ACTION, GROUP, SLIDER };

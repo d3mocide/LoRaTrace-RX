@@ -394,6 +394,33 @@ low/mid/high carriers land in the correct bins; quiet-band behavior is
 characterized with WiFi off/on; CAD never promotes energy alone to LoRa;
 24 hours of repeated sweeps show bounded memory and reliable recovery.
 
+**Region setting (`v0.8.9`, added and hardware-verified 2026-09-01, out
+of sequence — same "appended, not inserted" convention as Cell below):**
+the full 868-923MHz range Sweep always scanned is the module's hardware
+ceiling, not a legal requirement — nothing legal for unlicensed US
+LoRa-type operation sits below 902MHz (47 CFR § 15.247). System > Region
+(`region_plan.h`, `energy_plan.h`'s `energySweepBandForRegion()`) lets
+Sweep default to 902-923MHz (US) instead of the full range (Global),
+roughly halving scan time for the common case, with Global one menu
+cycle away. Persisted to `/loratrace/region.txt`
+(`region_settings.h`/`.cpp`, mirrors `display_settings.h`/`.cpp`'s
+shape exactly). Confirmed on real hardware: the menu row cycles and
+persists across reboot, and both US and Global sweeps show the correct
+band on the frequency bar with the expected scan duration.
+
+**Follow-ups identified but explicitly out of scope for this change**
+(operator conversation, 2026-09-01) — larger, not scheduled:
+- **Cell regionalization.** Cell's A/B block markers (§5a of
+  `docs/DESIGN.md`) cite 47 CFR § 22.905, an FCC-only structure. A
+  non-US operator has no equivalent band to swap in — Cell would need
+  to stop presenting FCC-specific claims outside the US, not gain a
+  parallel per-region table.
+- **`channel_plans.h` per-region presets.** Meshtastic/MeshCore's
+  hardcoded "US default" channel tables would need real per-region
+  frequency-plan tables (Meshtastic alone ships a dozen-plus regions),
+  each individually sourced per CLAUDE.md's citation house rule — a
+  research project, not a mechanical change.
+
 ### Phase 10 — Field Analyzer (planned; release gate provisional)
 
 **Deliverable:** Meter, truthful frequency waterfall, bounded live Scope,
@@ -477,18 +504,42 @@ position 4 and pushing CHANNEL/GPS/SYSTEM's digit-jump keys from 4/5/6 to
 5/6/7 (`keyboard.h`'s `KEY_RAW_7_PRESS`). An earlier same-day revision of
 this feature shipped it as a root-level menu row with no card, before the
 operator asked for the full Probe/Sweep treatment instead — reverted before
-merge, not kept as a parallel entry point. No repeat mode (Sweep's R-key
-equivalent) in this first cut.
+merge, not kept as a parallel entry point.
+
+**Repeat mode (R), added 2026-09-01:** identical in shape to Sweep's own
+repeat — `radioRequestCellSweepRepeat()` re-runs `performCellSweep()`
+back-to-back until stopped, with a lap counter on the Cell card. This also
+changed Sweep's own R: it was previously a global hotkey (fired from
+anywhere, including with the menu open); R is now page-gated by
+`ui_task.cpp` to the Sweep/Cell cards specifically, matching how Enter
+(`SELECT`) already dispatches per-page. C/S/P remain global. Probe
+deliberately has no repeat mode — operator decision: "Repeat only on the
+Sweeps."
 
 **Implementation status:** code + host-native tests (`test_cell_plan`,
 `test_cell_observation`, and `test_session_log`'s extended coverage) landed
-2026-09-01. **Not hardware-verified** — this was implemented in a session
-with no bench access to the physical device. Before trusting it in the
-field: confirm a real cell-band RSSI reading actually rises during a sweep
-near a known tower (vs. floor noise the whole way through), confirm the
-mutual-exclusion guards against Probe/Sweep hold on real hardware, and
-confirm `cell.csv`/`session.csv`'s new columns render correctly. Same
-"exists but not yet proven on glass" status Phase 8 shipped with initially.
+2026-09-01. Single-shot Cell is now **partially hardware-verified**
+(2026-09-01, `v0.8.6`): the C key runs a scan end-to-end with a real
+MHz/dBm reading and correct home-channel restore, and the mutual-exclusion
+guard against Sweep holds in both directions — see `docs/STATUS.md`. Still
+open: a real cell-band RSSI reading confirmed rising near a known tower
+(vs. floor noise the whole way through), and `cell.csv`/`session.csv`'s new
+columns rendering correctly. Repeat mode (above, `v0.8.7`) is
+**hardware-verified** the same day: Sweep-repeat still works after
+becoming page-gated, Cell-repeat works with a correctly-placed lap
+counter, R is a confirmed no-op on Probe/other pages/menu-open, and mutual
+exclusion holds across a real repeat chain in both directions — see
+`docs/STATUS.md`.
+
+**FCC A/B block markers (`v0.8.8`, added and hardware-verified
+2026-09-01):** the Cell frequency bar now labels the FCC's own downlink
+sub-band split (`cell_plan.h`'s `CELL_BAND_BLOCKS`, cited to 47 CFR
+§ 22.905) — Block A (869-880MHz + 890-891.5MHz) and Block B (880-890MHz +
+891.5-894MHz), rendered as a two-shade tick row under the bar with letter
+labels on the two segments wide enough to hold one. Regulatory block letter
+only — see the "Non-goals" line below for why no carrier name is shown.
+Confirmed on real glass: renders cleanly with no overlap against the
+surrounding lo/hi labels or the disclaimer line.
 
 **Non-goals, same as the rest of this project:** no GSM/CDMA/LTE decode of
 any kind (impossible on this hardware, not just out of scope), no per-carrier

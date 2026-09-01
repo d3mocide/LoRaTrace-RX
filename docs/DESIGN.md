@@ -155,6 +155,19 @@ meant switching away from a profile and back silently dropped its override
 and reverted to the hardcoded default; see docs/history/CHANGELOG.md for
 the full story and `config.h`'s comments for the current schema.
 
+**Region setting, added 2026-09-01:** `ENERGY_SWEEP`'s 868-923MHz range is
+the SX1262 module's full tunable front end, not a regulatory range — in
+the US, nothing legal for unlicensed LoRa-type operation sits below
+902MHz (47 CFR § 15.247's US ISM floor). System > Region (`region_plan.h`'s
+`Region` enum, `energy_plan.h`'s `energySweepBandForRegion()`) lets the
+operator narrow Sweep to 902-923MHz (US, the default) instead of always
+scanning the full 868-923MHz range (Global), persisted to
+`/loratrace/region.txt` (`region_settings.h`, mirrors `display_settings.h`'s
+shape). Region is currently Sweep-only — Cell's FCC-specific A/B block
+markers (§5a below) and `channel_plans.h`'s per-profile frequency tables
+are NOT region-aware yet; both are explicit, larger follow-ups
+(`docs/ROADMAP.md`), not silently assumed to be covered by this setting.
+
 ### 5a. Cell — RSSI presence sweep (Phase 11, added out of sequence)
 
 **Operator label:** Cell — same short, plain, single-word register as
@@ -192,8 +205,24 @@ roadmap:
 hotkey (C, `keyboard.h`'s `KEY_RAW_C_PRESS`) and its own dedicated carousel
 results card (`UiPage::CELL`, inserted as position 4, pushing
 CHANNEL/GPS/SYSTEM's digit-jump keys from 4/5/6 to 5/6/7 — see
-`keyboard.h`'s `KEY_RAW_7_PRESS`). No repeat mode (Sweep's R-key
-equivalent) in this first cut.
+`keyboard.h`'s `KEY_RAW_7_PRESS`). Also has a repeat mode (R,
+`radioRequestCellSweepRepeat()`), added 2026-09-01 identical in shape to
+Sweep's own — back-to-back laps until stopped, with a lap counter on the
+card. Unlike C/S's global hotkeys, R is page-gated by `ui_task.cpp` to the
+Sweep/Cell cards specifically (a no-op elsewhere, including with the menu
+open) rather than firing from anywhere. Probe deliberately has no repeat
+mode — operator decision: "Repeat only on the Sweeps."
+
+**FCC A/B block markers, added 2026-09-01:** the frequency bar labels the
+FCC's own downlink sub-band split within 869-894MHz — Block A (869-880MHz
++ 890-891.5MHz) and Block B (880-890MHz + 891.5-894MHz), cited to 47 CFR
+§ 22.905 "Channels for cellular service" (`cell_plan.h`'s
+`CELL_BAND_BLOCKS`). Deliberately a regulatory-block letter only, never a
+carrier name: A/B blocks were assigned per-market in the 1980s, but decades
+of spectrum trading and mergers mean the actual current licensee varies by
+market and isn't a fixed national fact — showing a carrier name would look
+authoritative and often be wrong, directly against this section's own
+"no cell ID, LAC/TAC, or MCC/MNC" rule above.
 
 **Why not a decode:** the SX1262 only demodulates FSK/GFSK/MSK/LoRa/OOK.
 GSM/CDMA/LTE are structurally different modulations (TDMA/OFDMA framing,

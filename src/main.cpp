@@ -41,6 +41,7 @@
 #include "serial_control.h"
 #include "profile_state.h"
 #include "radio_task.h"
+#include "region_settings.h"
 #include "serial_lock.h"
 #include "spi_bus.h"
 #include "ui_task.h"
@@ -368,6 +369,9 @@ void setup() {
     // Card is already mounted by the call above (or there's no card, in
     // which case this fails safe the same way) — no separate SD.begin().
     loadDisplaySettingsFromSD(displaySettings);
+    RegionSettings regionSettings;
+    loadRegionSettingsFromSD(regionSettings);
+    radioSetEnergySweepRegion(regionSettings.region);
     // A mounted card with no override file is a fine, expected state, not
     // a checklist failure — this is SD.begin()'s own result, not "was a
     // config applied" (that detail is still in serial/the CHANNEL page).

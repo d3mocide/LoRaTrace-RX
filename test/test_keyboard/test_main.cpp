@@ -4,7 +4,7 @@
 // -e native`), no hardware needed — see platformio.ini [env:native].
 //
 // The seventeen raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
-// backtick/ESC, seven digit-jump keys, P/Probe, S/Sweep, R/repeat-Sweep, and
+// backtick/ESC, seven digit-jump keys, P/Probe, S/Sweep, R/repeat, and
 // C/Cell) are the ones keyboard.h derives and cites; this test doesn't re-derive
 // them, it pins them so a future edit can't silently drift off the sourced
 // values. It also round-trips each one through keyboardPhysicalPosition() —
@@ -74,14 +74,17 @@ void test_s_is_sweep_shortcut() {
     TEST_ASSERT_TRUE(KeyAction::SWEEP == keyboardDecodeEvent(KEY_RAW_S_PRESS));
 }
 
-// R is the repeat-Sweep toggle, a dedicated key rather than a Ctrl+S
-// modifier chord (reverted 2026-08-30 — see keyboard.h's top-of-file note).
-void test_r_is_sweep_repeat_shortcut() {
-    TEST_ASSERT_TRUE(KeyAction::SWEEP_REPEAT == keyboardDecodeEvent(KEY_RAW_R_PRESS));
+// R is the repeat toggle, a dedicated key rather than a Ctrl+S modifier
+// chord (reverted 2026-08-30 — see keyboard.h's top-of-file note). This
+// layer only decodes the raw byte to a KeyAction; ui_task.cpp is what gates
+// it to the Sweep/Cell cards, so the mapping here stays page-agnostic.
+void test_r_is_repeat_shortcut() {
+    TEST_ASSERT_TRUE(KeyAction::REPEAT == keyboardDecodeEvent(KEY_RAW_R_PRESS));
 }
 
-// C is the global Cell shortcut (Phase 11, 2026-09-01) — same shape as
-// P/S/R above.
+// C is the global Cell shortcut (Phase 11, 2026-09-01) — same flat
+// key-to-KeyAction shape as P/S/R above (what ui_task.cpp does with each
+// action afterward differs: P/S/C stay global, R is page-gated).
 void test_c_is_cell_shortcut() {
     TEST_ASSERT_TRUE(KeyAction::CELL == keyboardDecodeEvent(KEY_RAW_C_PRESS));
 }
@@ -214,7 +217,7 @@ int main(int, char **) {
     RUN_TEST(test_digits_are_jumps);
     RUN_TEST(test_p_is_probe_shortcut);
     RUN_TEST(test_s_is_sweep_shortcut);
-    RUN_TEST(test_r_is_sweep_repeat_shortcut);
+    RUN_TEST(test_r_is_repeat_shortcut);
     RUN_TEST(test_c_is_cell_shortcut);
     RUN_TEST(test_every_mapped_key_round_trips_to_its_documented_position);
     RUN_TEST(test_out_of_range_key_numbers_are_rejected);

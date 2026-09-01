@@ -443,6 +443,7 @@ void drawSweepPage() {
     const uint16_t total = radioEnergyBinCount();
     const uint16_t peaks = radioEnergyPeakCount();
     const bool repeating = radioEnergySweepRepeatIsActive();
+    const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
 
     uiTft->setTextSize(2);
     uiTft->setCursor(2, HEADER_H + 8);
@@ -504,7 +505,8 @@ void drawSweepPage() {
         uiTft->print("ms");
     }
 
-    drawFreqBar(2, HEADER_H + 62, 108, energyBinFrequencyMhz(bin, ENERGY_SWEEP_DEFAULT_STEP));
+    drawFreqBar(2, HEADER_H + 62, 108, energyBinFrequencyMhz(bin, band, ENERGY_SWEEP_DEFAULT_STEP),
+               band.lo_mhz, band.hi_mhz);
     drawSweepOccupancy(2, HEADER_H + 62, 108, total);
 
     uiTft->setTextColor(COL_DIM, COL_BG);
@@ -557,10 +559,44 @@ void drawSweepPage() {
 // own "listening to the noise" line: docs/DESIGN.md §5a's central rule is
 // that a cell-band RSSI reading is never presented as anything more than
 // presence/strength — no cell ID, no decode, no tower location.
+// FCC A/B block markers under the Cell frequency bar (drawFreqBar()
+// above, called with Cell's own 869-894MHz band) — same thin-tick idiom
+// as drawSweepOccupancy()'s peak marks, positionally aligned so a reader
+// can see which block the current bin sits in. Grayscale only (COL_DIM/
+// COL_FG): colour is already claimed elsewhere on this page (COL_GOOD =
+// position marker, COL_WARN = repeat/caution, COL_BAD = error), and a
+// regulatory block boundary isn't itself good/bad/urgent. cell_plan.h's
+// CELL_BAND_BLOCKS is the FCC's own split (47 CFR § 22.905) — a letter
+// label only, never a carrier name (see that file's citation comment).
+void drawCellBandBlocks(int16_t x, int16_t y, int16_t w) {
+    for (uint8_t i = 0; i < CELL_BAND_BLOCK_COUNT; i++) {
+        const CellBandBlock &block = CELL_BAND_BLOCKS[i];
+        const float loFrac = (block.lo_mhz - CELL_SWEEP_BAND_LO_MHZ) /
+                              (CELL_SWEEP_BAND_HI_MHZ - CELL_SWEEP_BAND_LO_MHZ);
+        const float hiFrac = (block.hi_mhz - CELL_SWEEP_BAND_LO_MHZ) /
+                              (CELL_SWEEP_BAND_HI_MHZ - CELL_SWEEP_BAND_LO_MHZ);
+        const int16_t sx = x + (int16_t)(w * loFrac);
+        int16_t segW = x + (int16_t)(w * hiFrac) - sx;
+        if (segW < 1) segW = 1;
+        const uint16_t colour = (block.label == 'A') ? COL_DIM : COL_FG;
+        uiTft->fillRect(sx, y, segW, 2, colour);
+        // Only the two >=11MHz segments are wide enough to hold a glyph
+        // without crowding; the two ~1.5-2.5MHz segments still get their
+        // tick, just no letter.
+        if (segW >= 8) {
+            uiTft->setTextSize(1);
+            uiTft->setTextColor(colour, COL_BG);
+            uiTft->setCursor(sx, y + 4);
+            uiTft->print(block.label);
+        }
+    }
+}
+
 void drawCellPage() {
     const CellSweepState state = radioCellSweepState();
     const uint16_t bin = radioCellBinIndex();
     const uint16_t total = radioCellBinCount();
+    const bool repeating = radioCellSweepRepeatIsActive();
 
     uiTft->setTextSize(2);
     uiTft->setCursor(2, HEADER_H + 8);
@@ -569,17 +605,22 @@ void drawCellPage() {
         uiTft->print("NO SCAN YET");
         uiTft->setTextSize(1);
         uiTft->setCursor(2, HEADER_H + 34);
-        uiTft->print("C / Enter to run Cell");
+        uiTft->print("C: scan   R: repeat");
         return;
     }
 
     const bool running = state == CellSweepState::RUNNING;
     // Same IDLE-after-hold reversion as drawProbePage()/drawSweepPage() —
     // only the headline word changes; bin/signal data below still reflects
-    // the real last result.
-    const bool holdExpired = !running && cellTerminalShownAt != 0 &&
+    // the real last result. Repeat mode takes priority over that, same
+    // reasoning as drawSweepPage()'s own repeating check: back-to-back laps
+    // would otherwise flicker SCANNING/COMPLETE every single one.
+    const bool holdExpired = !repeating && !running && cellTerminalShownAt != 0 &&
                              millis() - cellTerminalShownAt >= RESULT_HOLD_MS;
-    if (holdExpired) {
+    if (repeating) {
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->print("REPEATING");
+    } else if (holdExpired) {
         uiTft->setTextColor(COL_DIM, COL_BG);
         uiTft->print("IDLE");
     } else {
@@ -617,6 +658,7 @@ void drawCellPage() {
 
     drawFreqBar(2, HEADER_H + 62, 108, cellBinFrequencyMhz(bin), CELL_SWEEP_BAND_LO_MHZ,
                CELL_SWEEP_BAND_HI_MHZ);
+    drawCellBandBlocks(2, HEADER_H + 80, 108);
 
     // Permanent honesty line, not a one-time disclaimer — this is the
     // feature's central rule (docs/DESIGN.md §5a), not incidental text.
@@ -628,25 +670,36 @@ void drawCellPage() {
         char value[10];
         snprintf(value, sizeof(value), "%d", radioLastError());
         statBlock(170, HEADER_H + 6, "radio", value, COL_BAD);
-        return;
+    } else {
+        // The single strongest reading this sweep — same "what did we find"
+        // callout shape as Sweep's own strongest-peak block, just without a
+        // peak *count* (Cell logs every bin, not threshold-filtered peaks —
+        // cell_observation.h's file header).
+        const CellStrongestSignal strongest = radioCellStrongestSignal();
+        if (strongest.valid) {
+            char freqBuf[10];
+            snprintf(freqBuf, sizeof(freqBuf), "%.1f", (double)strongest.freq_mhz);
+            statBlock(170, HEADER_H + 6, "best MHz", freqBuf, COL_WARN);
+            char rssiBuf[10];
+            snprintf(rssiBuf, sizeof(rssiBuf), "%ddB", (int)(strongest.rssi_peak_dbm_x10 / 10));
+            statBlock(170, HEADER_H + 34, "rssi", rssiBuf);
+        } else {
+            uiTft->setTextColor(COL_DIM, COL_BG);
+            uiTft->setCursor(170, HEADER_H + 6);
+            uiTft->print("none found");
+        }
     }
 
-    // The single strongest reading this sweep — same "what did we find"
-    // callout shape as Sweep's own strongest-peak block, just without a
-    // peak *count* (Cell logs every bin, not threshold-filtered peaks —
-    // cell_observation.h's file header).
-    const CellStrongestSignal strongest = radioCellStrongestSignal();
-    if (strongest.valid) {
-        char freqBuf[10];
-        snprintf(freqBuf, sizeof(freqBuf), "%.1f", (double)strongest.freq_mhz);
-        statBlock(170, HEADER_H + 6, "best MHz", freqBuf, COL_WARN);
-        char rssiBuf[10];
-        snprintf(rssiBuf, sizeof(rssiBuf), "%ddB", (int)(strongest.rssi_peak_dbm_x10 / 10));
-        statBlock(170, HEADER_H + 34, "rssi", rssiBuf);
-    } else {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(170, HEADER_H + 6);
-        uiTft->print("none found");
+    // Lap counter, same bottom-right placement convention as Sweep's own
+    // (drawSweepPage() above) — Cell's right column only has two stat
+    // blocks (no "peaks" concept, cell_observation.h's file header), so its
+    // free slot is +62 rather than Sweep's +90. Shown even on a FAILED lap
+    // (the branch above no longer returns early) so a failed lap mid-chain
+    // doesn't hide how many laps ran before it.
+    if (repeating) {
+        char lapValue[10];
+        snprintf(lapValue, sizeof(lapValue), "%lu", (unsigned long)radioCellSweepRepeatCount());
+        statBlock(170, HEADER_H + 62, "lap", lapValue, COL_WARN);
     }
 }
 
@@ -902,6 +955,7 @@ const char *menuEntryValue(MenuAction action) {
         case MenuAction::PROBE_TOGGLE:
             return radioDiscoverySweepIsActive() ? "RUNNING" : "";
         case MenuAction::IDLE_TIMEOUT_CYCLE: return IDLE_TIMEOUT_OPTIONS[idleTimeoutIndex].label;
+        case MenuAction::REGION_CYCLE: return regionLabel(radioEnergySweepRegion());
         // BRIGHTNESS_UP/DOWN aren't ACTION rows, so they never reach here.
         default: return "";
     }

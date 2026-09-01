@@ -24,6 +24,7 @@
 #include "detection.h"
 #include "energy_observation.h"
 #include "node_identity.h"
+#include "region_plan.h"
 #include "scan_observation.h"
 
 // Starts the SX1262 on `channel`/`profile` and launches the task on Core 1.
@@ -134,6 +135,15 @@ bool radioRequestEnergySweepRepeat();
 bool radioEnergySweepRepeatIsActive();
 uint32_t radioEnergySweepRepeatCount();
 
+// The active region constrains Sweep's own band (energy_plan.h's
+// energySweepBandForRegion()) — set once at boot from SD
+// (region_settings.h) and again whenever the operator cycles System >
+// Region, read at the start of each sweep, never mid-sweep. Region is a
+// Sweep-only concept for now (docs/ROADMAP.md tracks Cell/channel_plans.h
+// regionalization as separate follow-ups).
+void radioSetEnergySweepRegion(Region region);
+Region radioEnergySweepRegion();
+
 uint16_t radioEnergyBinIndex();
 uint16_t radioEnergyBinCount();
 // Peaks logged during the most recent sweep (resets to 0 at the start of
@@ -207,6 +217,17 @@ bool radioBenchPassBCadIsActive();
 // cancellation, same convention as those two.
 bool radioRequestCellSweep();
 bool radioCellSweepIsActive();
+
+// R key, page-gated to the Cell card by ui_task.cpp (Probe has no
+// equivalent — operator decision: "Repeat only on the Sweeps"): starts/
+// stops a chain of back-to-back Cell scans run one after another until
+// cancelled, instead of one bounded pass — same "walk around and scan"
+// shape as radioRequestEnergySweepRepeat() above, mirrored exactly.
+// radioCellSweepRepeatCount() is the lap counter (resets to 0 each time
+// repeat mode starts), for the Cell page's own repeat indicator.
+bool radioRequestCellSweepRepeat();
+bool radioCellSweepRepeatIsActive();
+uint32_t radioCellSweepRepeatCount();
 
 enum class CellSweepState : uint8_t {
     IDLE,

@@ -282,8 +282,11 @@ enum class KeyAction {
     PROBE,
     // Bounded single-shot Sweep (S).
     SWEEP,
-    // Repeat-Sweep toggle (R) — see KEY_RAW_R_PRESS above.
-    SWEEP_REPEAT,
+    // Repeat toggle (R) — see KEY_RAW_R_PRESS above. Page-agnostic here;
+    // ui_task.cpp gates it to the Sweep/Cell cards. Probe deliberately has
+    // no repeat equivalent (operator decision: "Repeat only on the
+    // Sweeps").
+    REPEAT,
     // Bounded single-shot Cell scan (C) — see KEY_RAW_C_PRESS above.
     CELL,
 };
@@ -311,7 +314,7 @@ inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
         case KEY_RAW_7_PRESS: return KeyAction::JUMP_7;
         case KEY_RAW_P_PRESS: return KeyAction::PROBE;
         case KEY_RAW_S_PRESS: return KeyAction::SWEEP;
-        case KEY_RAW_R_PRESS: return KeyAction::SWEEP_REPEAT;
+        case KEY_RAW_R_PRESS: return KeyAction::REPEAT;
         case KEY_RAW_C_PRESS: return KeyAction::CELL;
         default: return KeyAction::NONE;
     }

@@ -80,6 +80,11 @@ volatile bool energyCancelRequested = false;
 // reset to 0 each time repeat mode starts (radioRequestEnergySweepRepeat()).
 volatile bool energyRepeatActive = false;
 volatile uint32_t energyRepeatCount = 0;
+// Region constrains Sweep's own band (energySweepBandForRegion(),
+// energy_plan.h) — set once at boot from SD (region_settings.h) and again
+// whenever the operator cycles System > Region, read once at the start of
+// performEnergySweep(), never mid-sweep.
+volatile Region activeEnergySweepRegion = Region::US;
 volatile uint16_t energyBinIndex = 0;
 volatile uint16_t energyTotalBins = 0;
 volatile EnergySweepState energyState = EnergySweepState::IDLE;
@@ -134,6 +139,13 @@ QueueHandle_t cellSweepQueue = nullptr;
 QueueHandle_t cellObservationQueue = nullptr;
 volatile bool cellActive = false;
 volatile bool cellCancelRequested = false;
+// Repeat-Cell mode (R key, page-gated to the Cell card by ui_task.cpp):
+// re-runs performCellSweep() back-to-back after each COMPLETE, same "walk
+// around and scan" shape as energyRepeatActive/energyRepeatCount above,
+// mirrored exactly. Probe has no equivalent (operator decision: "Repeat
+// only on the Sweeps").
+volatile bool cellRepeatActive = false;
+volatile uint32_t cellRepeatCount = 0;
 volatile uint16_t cellBinIndexState = 0;
 volatile uint16_t cellTotalBins = 0;
 volatile CellSweepState cellState = CellSweepState::IDLE;
@@ -315,7 +327,8 @@ void enqueueEnergyObservation(uint16_t binIndex, const ChannelParams &channel,
                               const EnergyBinStats &stats) {
     EnergyObservation observation;
     observation.rx_millis = millis();
-    observation.freq_mhz = energyBinFrequencyMhz(binIndex, ENERGY_SWEEP_DEFAULT_STEP);
+    observation.freq_mhz = energyBinFrequencyMhz(
+        binIndex, energySweepBandForRegion(activeEnergySweepRegion), ENERGY_SWEEP_DEFAULT_STEP);
     observation.bw_khz_x10 = (uint16_t)(channel.bw_khz * 10.0f + 0.5f);
     observation.bin_step_khz = energyBinStepKhz(ENERGY_SWEEP_DEFAULT_STEP);
     observation.rssi_avg_dbm_x10 = stats.rssi_avg_dbm_x10;
@@ -352,7 +365,8 @@ void enqueuePassBObservation(uint16_t binIndex, const PassBModemParams &combo,
                               bool packetMetadataPresent) {
     EnergyObservation observation;
     observation.rx_millis = millis();
-    observation.freq_mhz = energyBinFrequencyMhz(binIndex, ENERGY_SWEEP_DEFAULT_STEP);
+    observation.freq_mhz = energyBinFrequencyMhz(
+        binIndex, energySweepBandForRegion(activeEnergySweepRegion), ENERGY_SWEEP_DEFAULT_STEP);
     observation.bw_khz_x10 = (uint16_t)(combo.bw_khz * 10.0f + 0.5f);
     observation.bin_step_khz = energyBinStepKhz(ENERGY_SWEEP_DEFAULT_STEP);
     observation.rssi_avg_dbm_x10 = 0;
@@ -863,8 +877,9 @@ void performBenchPassBCadTrigger(uint8_t comboIndex) {
         const MissionProfile homeProfile = activeProfile;
         bool aborted = false;
         bool failed = false;
-        const uint16_t bin = energyBinIndexForFrequencyMhz(BENCH_PASS_B_CAD_TEST_FREQ_MHZ,
-                                                           ENERGY_SWEEP_DEFAULT_STEP);
+        const uint16_t bin = energyBinIndexForFrequencyMhz(
+            BENCH_PASS_B_CAD_TEST_FREQ_MHZ, energySweepBandForRegion(activeEnergySweepRegion),
+            ENERGY_SWEEP_DEFAULT_STEP);
         passBCadOneCombo(bin, BENCH_PASS_B_CAD_TEST_FREQ_MHZ, PASS_B_SF_BW_CANDIDATES[comboIndex],
                          aborted, failed);
         restoreHomeListen(homeChannel, homeProfile);
@@ -886,7 +901,8 @@ void performEnergySweep() {
     const uint32_t awayStarted = millis();
     const ChannelParams homeChannel = activeChannel;
     const MissionProfile homeProfile = activeProfile;
-    const uint16_t totalBins = energyBinCount(ENERGY_SWEEP_DEFAULT_STEP);
+    const EnergySweepBand band = energySweepBandForRegion(activeEnergySweepRegion);
+    const uint16_t totalBins = energyBinCount(band, ENERGY_SWEEP_DEFAULT_STEP);
     energyBinIndex = 0;
     energyTotalBins = totalBins;
     energyPeakCount = 0;
@@ -921,7 +937,7 @@ void performEnergySweep() {
             break;
         }
 
-        const float freq = energyBinFrequencyMhz(bin, ENERGY_SWEEP_DEFAULT_STEP);
+        const float freq = energyBinFrequencyMhz(bin, band, ENERGY_SWEEP_DEFAULT_STEP);
         int beginState;
         {
             SpiBusLock lock(BUS_WAIT);
@@ -986,7 +1002,7 @@ void performEnergySweep() {
             if (energyBinIsPeak(stats, noiseFloor, benchSweepMarginDbmX10())) {
                 energyPeakBinMask[bin / 8] |= (uint8_t)(1U << (bin % 8));
                 if (!energyStrongestValid || stats.rssi_peak_dbm_x10 > energyStrongestRssiDbmX10) {
-                    energyStrongestFreqMhz = energyBinFrequencyMhz(bin, ENERGY_SWEEP_DEFAULT_STEP);
+                    energyStrongestFreqMhz = energyBinFrequencyMhz(bin, band, ENERGY_SWEEP_DEFAULT_STEP);
                     energyStrongestRssiDbmX10 = stats.rssi_peak_dbm_x10;
                     energyStrongestValid = true;
                 }
@@ -1225,7 +1241,19 @@ void radioTask(void *) {
 
         bool cellReq;
         if (cellSweepQueue != nullptr && xQueueReceive(cellSweepQueue, &cellReq, 0) == pdTRUE) {
-            if (cellReq && !paused) performCellSweep();
+            if (cellReq && !paused) {
+                // Repeat mode (cellRepeatActive): same back-to-back-laps
+                // shape as energyRepeatActive above — keep re-running the
+                // bounded scan until the operator stops it, a lap doesn't
+                // finish clean, or Trace gets paused out from under it. A
+                // plain tap (cellRepeatActive already false) runs this loop
+                // exactly once.
+                do {
+                    performCellSweep();
+                    if (cellRepeatActive) cellRepeatCount++;
+                } while (cellRepeatActive && cellState == CellSweepState::COMPLETE && !paused);
+                cellRepeatActive = false;
+            }
             continue;
         }
 
@@ -1516,6 +1544,14 @@ uint32_t radioEnergySweepRepeatCount() {
     return energyRepeatCount;
 }
 
+void radioSetEnergySweepRegion(Region region) {
+    activeEnergySweepRegion = region;
+}
+
+Region radioEnergySweepRegion() {
+    return activeEnergySweepRegion;
+}
+
 bool radioRequestBenchPassBCadTrigger(uint8_t comboIndex) {
     if (!benchPassBCadTriggerAllowed()) return false;
     if (radioTaskHandle == nullptr || benchPassBCadQueue == nullptr) return false;
@@ -1613,6 +1649,38 @@ bool radioRequestCellSweep() {
 
 bool radioCellSweepIsActive() {
     return cellActive;
+}
+
+// R key, page-gated to the Cell card by ui_task.cpp: starts/stops a chain
+// of back-to-back Cell scans instead of one bounded run. Exact mirror of
+// radioRequestEnergySweepRepeat() above — shares the same start path as a
+// plain tap (radioRequestCellSweep()), only differs in the stop case, where
+// it also clears cellRepeatActive so the loop doesn't start another lap.
+bool radioRequestCellSweepRepeat() {
+    if (radioTaskHandle == nullptr || cellSweepQueue == nullptr) return false;
+    if (cellRepeatActive) {
+        cellRepeatActive = false;
+        if (cellActive) {
+            cellCancelRequested = true;
+            xTaskNotifyGive(radioTaskHandle);
+        }
+        return true;
+    }
+    if (cellActive || tracePaused || discoveryActive || energyActive) return false;
+    cellRepeatActive = true;
+    cellRepeatCount = 0;
+    const bool start = true;
+    xQueueOverwrite(cellSweepQueue, &start);
+    xTaskNotifyGive(radioTaskHandle);
+    return true;
+}
+
+bool radioCellSweepRepeatIsActive() {
+    return cellRepeatActive;
+}
+
+uint32_t radioCellSweepRepeatCount() {
+    return cellRepeatCount;
 }
 
 CellSweepState radioCellSweepState() {
