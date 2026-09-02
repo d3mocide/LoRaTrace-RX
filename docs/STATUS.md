@@ -159,45 +159,69 @@ can't provide a known-quiet RF control.
     neighbor, never wrong. Sub-100% hit rate is expected (same dwell-vs-
     pulse-timing reality the 923MHz-edge work established), not a
     correctness gap; what mattered was 11/11 correct-bin attribution.
-  - *Endurance soak, scoped to 8 hours.* No cited technical derivation
-    exists anywhere in this project's docs for 24 hours specifically —
-    it's a round-number target in the original design table
+  - *Endurance soak, scoped to 8 hours — found and fixed a real crash
+    bug.* No cited technical derivation exists anywhere in this
+    project's docs for 24 hours specifically — it's a round-number
+    target in the original design table
     (`research/LoRaTrace-Phases-7-10-Design.md`'s hardware matrix), and
     8 hours of back-to-back laps is already several thousand cycles,
     well past where a real leak or stability bug would be expected to
     surface. Documented as a deliberate, reasoned deviation, same
     convention Phase 7's own soak criterion was relaxed under once
     (`docs/history/PROGRESS.md`). `scripts/phase9_soak.py`, production
-    firmware, 4,148 back-to-back US-region laps, WiFi off then on at the
-    4-hour mark (matching the design table's own "Off, then On" row):
-    - **4,143/4,148 laps completed clean** (5 failures, 0.1%, all this
-      project's own already-documented native-USB dropped-response
-      pattern — see `docs/research/phase9-sweep-pass-b-design.md` — not
-      a device fault). Home restored and the connection stayed
-      responsive for the full 8 hours; no crash, hang, or reboot.
-    - **Timing tail, not a correctness break:** median EA 3437ms
-      (matching every short session this project has run), but 147/4,143
-      laps (~3.5%) took 19-24s instead — scattered evenly across the
-      whole 8 hours, not clustered at any one point, every single one
-      still completing and restoring home correctly. Not yet
-      root-caused; a plausible candidate is periodic SD/GPS activity
-      briefly contending for the shared SPI bus (`spi_bus.h`) during
-      those specific bins, but that's a hypothesis, not confirmed.
-    - **WiFi anomaly, unresolved:** switched on cleanly at the 4-hour
-      mark (`[wifi] AP started` logged), ran 258 laps (~30min), then
-      `STATUS`'s `WIFI` field silently reverted to 0 for the remaining
-      3.5 hours — with no corresponding `[wifi] AP stopped` log anywhere,
-      and no code path found in `wifi_task.cpp` that can flip `apActive`
-      without going through that exact log line. Nothing in this session
-      sent a second `WIFI_SET OFF`. Genuinely unexplained; flagged here
-      rather than guessed at.
-    - **"Bounded memory" not yet directly confirmed.** `session.csv`'s
-      own periodic heap/stack samples (`logger_task`'s existing health
-      record) weren't pulled from this run — would need either a WiFi
-      client connection (this soak's own AP anomaly aside) or physical
-      SD access. The indirect signal is strong (EA on normal laps at
-      hour 8 matched hour 0 almost exactly, no drift), but isn't the
-      same as the real heap numbers.
+    firmware, WiFi off then on partway through (matching the design
+    table's own "Off, then On" row).
+
+    **First 8-hour run:** 4,143/4,148 laps completed, 5 failures. This
+    was *initially* written up here as "0.1%, the project's own already-
+    documented native-USB dropped-response pattern, not a device fault"
+    — **that was wrong**, caught only by pulling `session.csv` off the SD
+    card afterward and cross-referencing run-directory boundaries against
+    the soak's own timeline. All 5 "failures" were actually **identical,
+    100%-reproducible hard crashes**:
+    ```
+    Guru Meditation Error: Core 0 panic'ed (Unhandled debug exception).
+    Debug exception reason: Stack canary watchpoint triggered (logger)
+    ```
+    same backtrace every time, `logger_task`'s own stack watermark
+    plunging from 952B free at boot to 84B free before the first one.
+    Each crash triggered a real `RTC_SW_CPU_RST` (software reset) and
+    silently rebooted the device — which also fully explains the
+    previously "unresolved" WiFi anomaly from the same run: WiFi wasn't
+    buggy, the whole device rebooted and came back up in its normal
+    boot-default (off) state, no code-path mystery required. Root cause:
+    `logger_task`'s 5,120-byte stack (`logger_task.cpp`, sized by
+    inspection when added, never load-tested until this soak) was
+    genuinely undersized for `writeSessionRow()`'s frame depth (a
+    ~50-field `SessionStats` struct + a 320-byte row buffer, calling into
+    SD/FatFS from the bottom of it).
+
+    **Fix:** bumped to 8,192 bytes, matching `wifi_task`'s own stack (a
+    comparably deep SD/network call path) rather than guessing at
+    another inspection-based number.
+
+    **3-hour verification re-run, same day:** 1,507 laps, only 1 failure
+    (a genuine isolated dropped response this time, not a crash — the
+    device answered normally again the very next poll), **zero**
+    `Guru Meditation`/`RTC_SW_CPU_RST` events, and WiFi stayed on
+    continuously for 1,007 straight laps after being switched on with
+    no reversion. Covers the timing of the first two original crashes
+    (which hit at 0.34h and 2.81h into the original run) with margin.
+    Not a full 8-hour re-confirmation, but real, clean, contradicting
+    evidence against the bug recurring.
+
+    **Timing tail, separately** (not related to the crash): the first
+    8-hour run also showed 147/4,143 laps (~3.5%) taking 19-24s instead
+    of the ~3.4s median, scattered evenly across the run, every one
+    still completing and restoring home correctly. Not yet root-caused;
+    a plausible candidate is periodic SD/GPS activity briefly contending
+    for the shared SPI bus (`spi_bus.h`), but that's a hypothesis, not
+    confirmed, and wasn't re-checked in the shorter verification run.
+
+    **"Bounded memory" still not directly confirmed** via `session.csv`'s
+    real heap numbers from a long run post-fix — the indirect timing
+    signal is good, but a full-length re-soak with the fix in place
+    would be the complete version of this exit criterion.
 
 Phase 10 (Field Analyzer) is accepted as planned scope; whether it's
 required before `v1.0.x` is an explicit decision deferred until Phase 9

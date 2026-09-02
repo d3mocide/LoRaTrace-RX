@@ -419,24 +419,25 @@ to land inside that window by chance each lap (same timing reality the
 923MHz-edge work already established); what matters is that a hit is
 always at the *right* bin, which held 11/11 times.
 
-8-hour endurance soak (**run**, 2026-09-02, scoped down from 24h — see
-STATUS.md for why) — `scripts/phase9_soak.py`, production firmware,
-4,148 back-to-back US-region laps. 4,143 completed clean (5 failures,
-0.1%, the project's own already-documented native-USB dropped-response
-pattern, not a device fault); home restored and the connection stayed
-responsive for the full 8 hours, no crash or reboot. Two real findings
-the soak was built to surface, neither a correctness break but both
-worth follow-up: (1) a recurring timing tail — 147/4,143 laps (~3.5%)
-took 19-24s instead of the ~3.4s median, scattered across the whole run
-rather than clustered, every one still completing and restoring home
-correctly; (2) WiFi, switched on at the 4-hour mark as planned, silently
-reverted to off around 4.5h with no corresponding "AP stopped" log and
-no code path found that explains it outside an explicit toggle — a real
-anomaly, not yet root-caused. `session.csv`'s own heap/stack trend
-(logger_task's periodic health record) hasn't been pulled from this run
-yet to directly confirm "bounded memory" beyond the strong indirect
-signal (EA timing at hour 8 matched hour 0 almost exactly on the normal
-laps, no drift).
+8-hour endurance soak (**run, crash found and fixed**, 2026-09-02,
+scoped down from 24h — see STATUS.md for why) —
+`scripts/phase9_soak.py`, production firmware. First run: 4,143/4,148
+laps completed; the other 5 were *initially* documented here as
+harmless dropped-response noise, which was wrong — pulling `session.csv`
+off the SD card afterward showed all 5 were the identical
+`Guru Meditation Error... Stack canary watchpoint triggered (logger)`
+crash, `logger_task`'s 5,120-byte stack (sized by inspection, never
+load-tested) genuinely overflowing under sustained operation and
+silently rebooting the device each time — which also fully explains
+that run's "WiFi silently went quiet" finding (the device rebooted, not
+a WiFi bug). Fixed by bumping the stack to 8,192 bytes, matching
+`wifi_task`'s own already-proven size. A 3-hour verification re-run the
+same day, covering the timing of the first two original crashes with
+margin: 1,507 laps, zero crashes, WiFi stayed on for 1,007 straight laps
+with no reversion. See STATUS.md for the full writeup. Not yet a full
+8-hour re-confirmation, and the recurring ~3.5% slow-lap timing tail
+from the first run (19-24s vs the ~3.4s median, unrelated to the crash)
+is still unexplained.
 
 **Region setting (`v0.8.9`, added and hardware-verified 2026-09-01, out
 of sequence — same "appended, not inserted" convention as Cell below):**
