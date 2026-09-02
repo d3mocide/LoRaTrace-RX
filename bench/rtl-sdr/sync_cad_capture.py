@@ -18,9 +18,13 @@ attempt (radio_task.cpp's performBenchPassBCadTrigger()) and starts a
 matching RTL-SDR capture at the same moment, reading back the raw
 CAD_FREE/CAD_DETECTED/CAD_TIMEOUT result via BENCH_PASS_B_CAD_RESULT
 afterward (bench_fault.h) -- previously only visible by pulling energy.csv
-off the SD card. --pulse arms the Heltec during each attempt too, for a
-positive control (does CAD reliably fire when something real is
-transmitting); the default is quiet-only, matching the false-positive
+off the SD card. --pulse arms the Heltec once, at 0ms delay, immediately
+before each CAD trigger -- the same precise sequencing
+scripts/phase9_pass_b_cad_bench.py's own run_cycle established, needed
+because CAD's own scan window is only ~300ms (DISCOVERY_CAD_TIMEOUT_MS),
+far tighter than BENCH_RSSI_WINDOW's ~2s; a periodic pulse train mostly
+misses it. Positive control: does CAD reliably fire when something real
+is transmitting. Default is quiet-only, matching the false-positive
 question this exists to check.
 
 Requires the cardputer-adv-bench image.
@@ -57,37 +61,39 @@ WINDOW_TERMINAL_TIMEOUT_S = 15.0
 STATUS_POLL_INTERVAL_S = 0.1
 
 
-def pulse_loop(transmitter: Endpoint, stop: threading.Event, pulse_interval_s: float, arm_delay_ms: int):
-    while not stop.is_set():
-        try:
-            require_ack(transmitter, 'ARM', str(arm_delay_ms), timeout=2.0)
-        except (RuntimeError, TimeoutError):
-            pass
-        stop.wait(pulse_interval_s)
-
-
 def run_one_attempt(card: Endpoint, transmitter, combo_index: int, sample_rate_hz: float,
-                     sdr_duration_s: float, sdr_gain, nperseg: int,
-                     pulsing: bool, pulse_interval_s: float, arm_delay_ms: int):
+                     sdr_duration_s: float, sdr_gain, nperseg: int, pulsing: bool):
     before = card_status(card)
     if before.get('BPC') == '1':
         raise RuntimeError(f'BENCH_PASS_B_CAD already active before start: {before}')
 
-    require_ack(card, 'BENCH_PASS_B_CAD', str(combo_index))
+    # Start the SDR capture first, in the background, and give its own
+    # SETTLE_SECONDS flush (capture_spectrum.py) a moment to clear before
+    # the timing-sensitive part starts -- CAD's own scan window is only
+    # ~300ms (DISCOVERY_CAD_TIMEOUT_MS), far tighter than BENCH_RSSI_WINDOW's
+    # ~2s, so a background periodic pulse train (this script's first
+    # attempt at --pulse) mostly missed it. scripts/phase9_pass_b_cad_bench.py's
+    # own run_cycle already solved this: arm with 0ms delay immediately
+    # before queueing the CAD trigger, one precisely-sequenced pulse per
+    # attempt, not a loosely-timed periodic one.
+    sdr_result = {}
 
-    stop = threading.Event()
-    pulser = None
+    def _capture():
+        sdr_result['samples'] = capture_iq(CAD_TEST_FREQ_MHZ * 1e6, sample_rate_hz, sdr_duration_s, sdr_gain)
+
+    sdr_thread = threading.Thread(target=_capture, daemon=True)
+    sdr_thread.start()
+    time.sleep(0.3)
+
     if pulsing:
-        pulser = threading.Thread(target=pulse_loop, args=(transmitter, stop, pulse_interval_s, arm_delay_ms),
-                                   daemon=True)
-        pulser.start()
+        require_ack(transmitter, 'ARM', '0')
 
-    try:
-        samples = capture_iq(CAD_TEST_FREQ_MHZ * 1e6, sample_rate_hz, sdr_duration_s, sdr_gain)
-    finally:
-        stop.set()
-        if pulser is not None:
-            pulser.join(timeout=2.0)
+    require_ack(card, 'BENCH_PASS_B_CAD', str(combo_index), timeout=8.0)
+
+    sdr_thread.join(timeout=sdr_duration_s + 10.0)
+    if 'samples' not in sdr_result:
+        raise RuntimeError('SDR capture thread did not finish')
+    samples = sdr_result['samples']
 
     deadline = time.monotonic() + WINDOW_TERMINAL_TIMEOUT_S
     while time.monotonic() < deadline:
@@ -98,17 +104,28 @@ def run_one_attempt(card: Endpoint, transmitter, combo_index: int, sample_rate_h
     else:
         raise TimeoutError('BENCH_PASS_B_CAD did not complete after the SDR capture finished')
 
-    opcode, payload = card.request('BENCH_PASS_B_CAD_RESULT', '-', timeout=3.0)
+    opcode, payload = card.request('BENCH_PASS_B_CAD_RESULT', '-', timeout=8.0)
     if opcode != 'ACK':
         raise RuntimeError(f'BENCH_PASS_B_CAD_RESULT failed: {opcode} {payload}')
     result = payload.split('=', 1)[1] if '=' in payload else payload
 
     freqs, psd_db, freqs_spec, times_spec, sxx_db = analyze(
         samples, sample_rate_hz, CAD_TEST_FREQ_MHZ * 1e6, nperseg)
-    center_idx = int(np.argmin(np.abs(freqs - CAD_TEST_FREQ_MHZ * 1e6)))
+    # psd_db is Welch-averaged over the *whole* capture -- a brief one-shot
+    # packet (a fraction of a second inside a multi-second capture) washes
+    # out to near the noise floor there even when it's clearly visible in
+    # the waterfall. The spectrogram's own max-over-time at the target bin
+    # is closer, but still an underestimate for a real LoRa chirp
+    # specifically: a chirp continuously sweeps frequency across the whole
+    # channel bandwidth, so at any single instant only a fraction of its
+    # power sits at the one exact bin this checks, not the full signal
+    # power a fixed-tone injection would show. Both numbers are directional
+    # telemetry for a quick glance, not the evidence itself -- the saved
+    # PNG waterfall is what actually shows whether a burst was present.
+    spec_bin_idx = int(np.argmin(np.abs(freqs_spec - CAD_TEST_FREQ_MHZ * 1e6)))
     return {
         'result': result,
-        'sdr_peak_db_at_bin': float(psd_db[center_idx]),
+        'sdr_peak_db_at_bin': float(np.max(sxx_db[spec_bin_idx, :])),
         'sdr_peak_db_overall': float(np.max(psd_db)),
         'freqs': freqs, 'psd_db': psd_db,
         'freqs_spec': freqs_spec, 'times_spec': times_spec, 'sxx_db': sxx_db,
@@ -139,8 +156,6 @@ def main():
                               'margin for serial round-trip start latency')
     parser.add_argument('--sdr-gain', default='29.7')
     parser.add_argument('--nperseg', type=int, default=4096)
-    parser.add_argument('--pulse-interval-s', type=float, default=0.2)
-    parser.add_argument('--arm-delay-ms', type=int, default=80)
     parser.add_argument('--out-dir', default='captures')
     parser.add_argument('--results', default=None)
     args = parser.parse_args()
@@ -184,8 +199,7 @@ def main():
                 outcomes = []
                 for i in range(args.repeats):
                     attempt = run_one_attempt(card, transmitter, combo_index, args.sdr_sample_rate_hz,
-                                               args.sdr_duration_s, gain, args.nperseg,
-                                               args.pulse, args.pulse_interval_s, args.arm_delay_ms)
+                                               args.sdr_duration_s, gain, args.nperseg, args.pulse)
                     outcomes.append(attempt['result'])
                     print(f'  [{i}] CAD={attempt["result"]:<12} '
                           f'SDR peak@bin={attempt["sdr_peak_db_at_bin"]:.1f}dB '

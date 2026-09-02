@@ -203,12 +203,42 @@ separate calibration (n=5/combo is far too small to recalibrate the
 `STRONG`/`NOISY` rates themselves, which still rest on the original
 1,200-cycle matrix).
 
+**Positive control, `--pulse` (2026-09-02):** arms the Heltec once at
+0ms delay immediately before each CAD trigger (the same precise
+sequencing `scripts/phase9_pass_b_cad_bench.py`'s own `run_cycle`
+established -- CAD's own scan window is only ~300ms, far tighter than
+`BENCH_RSSI_WINDOW`'s ~2s, so a periodic pulse train mostly misses it;
+that was this script's own first, unsuccessful attempt). All 10 combos,
+`--pulse-candidate MESH_OREGON` (SF8/BW125, the exact match for combo 2),
+n=5 each:
+
+| combo | SF/BW | CAD_DETECTED (pulsing) |
+|---|---|---|
+| 0 | SF7/62.5 | 0/5 |
+| 1 | SF7/250 | 0/5 |
+| 2 | SF8/125 (exact match) | **5/5** |
+| 3 | SF8/250 | 0/5 |
+| 4 | SF9/250 | **5/5** |
+| 5 | SF10/250 | **5/5** |
+| 6 | SF11/125 | 0/5 |
+| 7 | SF11/250 | 0/5 |
+| 8 | SF11/500 | **5/5** |
+| 9 | SF12/125 | 0/5 |
+
+Matches the original bench matrix's own pulse-condition pattern exactly:
+the exact-match combo plus the three whose bandwidth is a superset of
+MESH_OREGON's 125kHz (SF9/250, SF10/250, SF11/500) all detect reliably;
+the rest barely register the real pulse, same as the matrix found.
+Confirmed visually on the saved waterfalls (e.g. combo 2 attempt 0: a
+clear, bright burst at 918.5MHz around t=2.3s) -- though note the
+printed `SDR peak@bin` number understates a real hit for a LoRa chirp
+specifically, since a chirp continuously sweeps frequency across the
+whole channel and only a fraction of its power sits at one exact
+instant/bin; the waterfall PNG is the real evidence, the printed number
+is just a quick directional glance.
+
 ## Where this could go next
 
-- Run `sync_cad_capture.py --pulse` as a positive control (does CAD
-  reliably fire when something real is transmitting, for each combo, not
-  just the two with a confidence tag) -- everything run so far is quiet-
-  only, matching the false-positive question, not detection reliability.
 - LoRa chirp demodulation from raw IQ (`gr-lora-git`/`gr-lora_sdr-git` are
   available in the AUR) -- ground truth for `fingerprint.h`'s still-unbuilt
   post-hoc protocol classification (`CLAUDE.md`'s proposed layout), and a

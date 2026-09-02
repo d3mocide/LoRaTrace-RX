@@ -646,6 +646,20 @@ are consistent with the original 1,200-cycle matrix's own numbers, not a
 contradiction; n=5/combo is far too small to recalibrate `STRONG`/`NOISY`
 themselves, which still rest on that matrix. See `bench/rtl-sdr/README.md`'s
 own "Pass B CAD ground truth" section for the run command and full table.
-Not yet run with a real pulse as a positive control (does CAD reliably
-fire when something real is transmitting) — natural next step for
-question 2 above.
+
+**Positive control, same day:** `sync_cad_capture.py --pulse` arms the
+Heltec once at 0ms delay immediately before each CAD trigger (`run_cycle`'s
+own sequencing above, adapted — a periodic pulse train, this script's
+first attempt, mostly missed CAD's ~300ms window). All 10 combos against
+`MESH_OREGON` (SF8/BW125), n=5 each: combo 2 (exact match) and the three
+combos whose bandwidth is a superset of 125kHz (SF9/250, SF10/250,
+SF11/500 — combos 4, 5, 8) all hit 5/5; everything else 0/5. Matches this
+document's own pulse-condition table above (the "some non-matching combos
+also hit 20/20... plausibly because their bandwidth is a superset of the
+real 125kHz signal" paragraph) exactly, confirmed both by CAD's own
+result and independently by the SDR's waterfall showing a real burst at
+918.5MHz on the positive hits. Between the quiet and pulsing results, CAD
+at this test frequency now has direct, per-combo confirmation in both
+directions — false positives really are nothing, and detections that
+should fire (exact match or wider bandwidth) really do correspond to a
+real signal.
