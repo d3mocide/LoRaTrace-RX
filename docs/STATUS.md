@@ -145,13 +145,22 @@ can't provide a known-quiet RF control.
     moved once, across any attempt. Empirical confirmation, not just the
     code-level guarantee (`off_grid` is only ever set after a real
     decoded packet).
-  - Still open: injected low/mid/high carriers landing in the correct
-    `energy.csv` bin specifically (today's work confirms accurate RSSI at
-    three known frequencies via `sync_capture.py`/`BENCH_RSSI_WINDOW`,
-    but not yet through a real multi-bin `ENERGY_SWEEP` with a
-    known-frequency injection landing at the expected `bin_index`); the
-    24-hour repeated-sweep soak (not started — a genuine multi-hour
-    unattended run, not a bench check).
+  - *Injected low/mid/high carriers land in the correct bins.*
+    `scripts/phase9_bin_accuracy_bench.py` — the dedicated test
+    `research/LoRaTrace-Phases-7-10-Design.md`'s hardware matrix
+    specifies ("Sweep calibration... known signals at low/mid/high
+    bins"), separate from Endurance. Real sourced candidates at the low/
+    mid/high ends of the US region (`LONG_SLOW` 905.3125MHz,
+    `LONG_MODERATE` 912.8125MHz, `SHORT_SLOW` 920.625MHz), each fired
+    repeatedly (0ms-delay ARM, ~10Hz) through a live Sweep's whole
+    duration to beat the ~40ms-per-bin dwell window: 11/24 attempts
+    landed a real elevated `BENCH_SWEEP_FLOOR` reading, and all 11 were
+    at the exact pre-computed bin index for that frequency — never a
+    neighbor, never wrong. Sub-100% hit rate is expected (same dwell-vs-
+    pulse-timing reality the 923MHz-edge work established), not a
+    correctness gap; what mattered was 11/11 correct-bin attribution.
+  - Still open: the 24-hour repeated-sweep soak (not started — a genuine
+    multi-hour unattended run, not a bench check).
 
 Phase 10 (Field Analyzer) is accepted as planned scope; whether it's
 required before `v1.0.x` is an explicit decision deferred until Phase 9
@@ -211,10 +220,10 @@ the lo/hi labels above or the disclaimer line below.
   are now confirmed on real hardware (2026-09-01). Still open: confirm a
   real cell-band RSSI reading actually rises near a known tower, and
   confirm `cell.csv`/`session.csv`'s new columns write correctly to SD.
-- Phase 9's remaining exit criteria: injected low/mid/high carriers
-  landing in the correct `energy.csv` bin specifically, and the 24-hour
-  repeated-sweep soak. The other three (timing/home-away duration, WiFi
-  on/off, CAD-never-promotes-alone) closed 2026-09-02, above.
+- Phase 9's one remaining exit criterion: the 24-hour repeated-sweep
+  soak. The other four (timing/home-away duration, WiFi on/off,
+  CAD-never-promotes-alone, low/mid/high bin accuracy) closed
+  2026-09-02, above.
 - Pass B's other eight SF/BW combos still have only n=20/condition
   (`UNVERIFIED`) — more bench cycles would be needed before extending
   `STRONG`/`NOISY` past the two combos that have it now

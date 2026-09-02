@@ -404,12 +404,24 @@ combo, 5 came back `CAD_DETECTED`, the real-packet-promotion counter
 inspection) that a bare CAD hit never becomes a Detection. See
 `docs/STATUS.md` for the full numbers and how each was measured
 (`WIFI_SET`/`EA` are new Serial Control additions this session).
-Still open: injected low/mid/high carriers land in the correct bins (the
-923MHz-edge work and `sync_capture.py` already confirm accurate RSSI at
-three known frequencies, but not yet framed as "landed in the right
-`energy.csv` bin" specifically); 24 hours of repeated sweeps show bounded
-memory and reliable recovery (not started — a real multi-hour unattended
-run, not a quick bench check).
+Injected low/mid/high carriers land in the correct bins (**done**,
+2026-09-02) — `scripts/phase9_bin_accuracy_bench.py`, the dedicated test
+`research/LoRaTrace-Phases-7-10-Design.md`'s own hardware matrix already
+specified ("Sweep calibration... known signals at low/mid/high bins").
+Real sourced candidates at the low, mid, and high ends of the US region
+(`LONG_SLOW` 905.3125MHz, `LONG_MODERATE` 912.8125MHz, `SHORT_SLOW`
+920.625MHz): 11/24 attempts landed a real elevated reading via
+`BENCH_SWEEP_FLOOR`, and every single hit was at the exact pre-computed
+bin index for that candidate's frequency — never a neighbor, never a
+wrong bin. Sub-100% hit rate is expected and not a correctness problem:
+a live Sweep only dwells ~40ms per bin, so a repeatedly-fired pulse has
+to land inside that window by chance each lap (same timing reality the
+923MHz-edge work already established); what matters is that a hit is
+always at the *right* bin, which held 11/11 times.
+
+Still open: 24 hours of repeated sweeps show bounded memory and reliable
+recovery (not started — a real multi-hour unattended run, not a quick
+bench check).
 
 **Region setting (`v0.8.9`, added and hardware-verified 2026-09-01, out
 of sequence — same "appended, not inserted" convention as Cell below):**
