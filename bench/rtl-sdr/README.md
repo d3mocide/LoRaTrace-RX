@@ -160,30 +160,55 @@ was only visible by pulling `energy.csv` off the SD card). Needs the
 ```bash
 .venv/bin/python sync_cad_capture.py \
   --cardputer-port /dev/ttyACM0 --heltec-port /dev/ttyACM1 \
-  --combo-index 8 --repeats 5 --sdr-gain 29.7   # 8 = SF11/BW500, the NOISY combo
+  --combo-index 0 1 2 3 4 5 6 7 8 9 --repeats 5 --sdr-gain 29.7   # all 10, one session
 ```
 
-First run, quiet condition, combo 8 (SF11/BW500 -- `NOISY`, 22/60 quiet
-false positives in the original `phase9_pass_b_cad_bench.py` matrix): 4/5
-attempts came back `CAD_DETECTED`. The SDR's simultaneous waterfall for
-every one of those was completely flat at 918.5MHz -- no signal, just the
-same ambient noise floor as the quiet baseline. This directly confirms
-what `docs/research/phase9-sweep-pass-b-design.md`'s own bench matrix
-could only infer from aggregate quiet-vs-pulse counts (a false-positive
-rate that scales with SF/symbol-duration, i.e. the radio false-triggering
-on ambient energy at long dwell times, not a real signal): an independent
-receiver watching the exact same moment confirms there was genuinely
-nothing there. `pass_b_plan.h`'s own standing comment -- "SX1262
-CAD-at-arbitrary-bin behavior isn't verified" -- has real, direct
-(not just statistical) evidence behind it for this combo now.
+`--combo-index` takes one or more indices in the same session (opening a
+new serial connection resets the ESP32-S3, so looping combos inside one
+script run avoids a reboot per combo); omit it to run all 10.
+
+All 10 `PASS_B_SF_BW_CANDIDATES` combos, quiet condition, n=5 each
+(2026-09-02):
+
+| combo | SF/BW | confidence (pass_b_plan.h) | CAD_DETECTED |
+|---|---|---|---|
+| 0 | SF7/62.5 | unverified | 0/5 |
+| 1 | SF7/250 | unverified | 0/5 |
+| 2 | SF8/125 | **STRONG** | 0/5 |
+| 3 | SF8/250 | unverified | 0/5 |
+| 4 | SF9/250 | unverified | 0/5 |
+| 5 | SF10/250 | unverified | 1/5 |
+| 6 | SF11/125 | unverified | 0/5 |
+| 7 | SF11/250 | unverified | 0/5 |
+| 8 | SF11/500 | **NOISY** | 4/5 |
+| 9 | SF12/125 | unverified | 1/5 |
+
+Every single `CAD_DETECTED` across all ten combos (6 total instances) had
+the same signature on the SDR's simultaneous waterfall: completely flat
+at 918.5MHz, no signal, same ambient floor as every quiet attempt. This
+directly confirms what `docs/research/phase9-sweep-pass-b-design.md`'s
+own bench matrix could only infer from aggregate quiet-vs-pulse counts
+(a false-positive rate that scales with SF/symbol-duration, i.e. the
+radio false-triggering on ambient energy at long dwell times, not a real
+signal): an independent receiver watching the exact moment confirms there
+was genuinely nothing there, for every combo tested, not just the
+noisiest one. `pass_b_plan.h`'s own standing comment -- "SX1262
+CAD-at-arbitrary-bin behavior isn't verified" -- now has real, direct
+(not just statistical) evidence behind it across the whole table. The
+relative rates here (combo 8 far more prone to false triggering than any
+other, combos 5/9 showing a low but nonzero rate, everything else clean
+at n=5) are consistent with the original matrix's own numbers, not a
+contradiction -- this is corroboration through a different method, not a
+separate calibration (n=5/combo is far too small to recalibrate the
+`STRONG`/`NOISY` rates themselves, which still rest on the original
+1,200-cycle matrix).
 
 ## Where this could go next
 
-- Run `sync_cad_capture.py` across the other 8 unverified combos (only
-  SF8/BW125 `STRONG` and SF11/BW500 `NOISY` have a confidence tag today --
-  `pass_b_plan.h`'s `PassBConfidence`) and with `--pulse` as a positive
-  control, to build toward direct (not just statistical) evidence for all
-  ten, not just one.
+- Run `sync_cad_capture.py --pulse` as a positive control (does CAD
+  reliably fire when something real is transmitting, for each combo, not
+  just the two with a confidence tag) -- everything run so far is quiet-
+  only, matching the false-positive question, not detection reliability.
 - LoRa chirp demodulation from raw IQ (`gr-lora-git`/`gr-lora_sdr-git` are
   available in the AUR) -- ground truth for `fingerprint.h`'s still-unbuilt
   post-hoc protocol classification (`CLAUDE.md`'s proposed layout), and a

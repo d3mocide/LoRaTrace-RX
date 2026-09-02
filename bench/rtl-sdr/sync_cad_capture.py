@@ -120,8 +120,11 @@ def main():
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--cardputer-port', required=True)
     parser.add_argument('--heltec-port', required=True)
-    parser.add_argument('--combo-index', type=int, required=True,
-                         help='row index into PASS_B_SF_BW_CANDIDATES (pass_b_plan.h), 0-9')
+    parser.add_argument('--combo-index', type=int, nargs='+', default=None,
+                         help='row index/indices into PASS_B_SF_BW_CANDIDATES (pass_b_plan.h), '
+                              '0-9. Repeatable/space-separated for more than one in the same '
+                              'session (avoids a device reboot per combo -- opening a new serial '
+                              'connection resets the ESP32-S3). Default: all 10, in order.')
     parser.add_argument('--repeats', type=int, default=5)
     parser.add_argument('--pulse', action='store_true',
                          help='arm the Heltec during each attempt (positive control); '
@@ -142,15 +145,16 @@ def main():
     parser.add_argument('--results', default=None)
     args = parser.parse_args()
 
-    if not 0 <= args.combo_index < len(CANDIDATES):
-        parser.error(f'--combo-index must be 0..{len(CANDIDATES) - 1}')
-    sf, bw_khz = CANDIDATES[args.combo_index]
+    combo_indices = args.combo_index if args.combo_index is not None else list(range(len(CANDIDATES)))
+    for idx in combo_indices:
+        if not 0 <= idx < len(CANDIDATES):
+            parser.error(f'--combo-index values must be 0..{len(CANDIDATES) - 1}, got {idx}')
     gain = 'auto' if args.sdr_gain == 'auto' else float(args.sdr_gain)
 
     out_dir = pathlib.Path(__file__).parent / args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    log_path = out_dir / f'cad-combo{args.combo_index}-{stamp}.serial.log'
+    log_path = out_dir / f'cad-combos-{stamp}.serial.log'
     results = ResultWriter(args.results) if args.results else None
 
     with log_path.open('a', encoding='utf-8') as log:
@@ -171,40 +175,49 @@ def main():
                 require_ack(transmitter, 'QUIET', '-')
                 require_ack(transmitter, 'CONFIG', args.pulse_candidate)
 
-            print(f'combo {args.combo_index}: SF{sf}/BW{bw_khz} @ {CAD_TEST_FREQ_MHZ}MHz, '
-                  f'{"pulsing" if args.pulse else "quiet"}, {args.repeats} attempts')
+            combo_summaries = []
+            for combo_index in combo_indices:
+                sf, bw_khz = CANDIDATES[combo_index]
+                print(f'\ncombo {combo_index}: SF{sf}/BW{bw_khz} @ {CAD_TEST_FREQ_MHZ}MHz, '
+                      f'{"pulsing" if args.pulse else "quiet"}, {args.repeats} attempts')
 
-            outcomes = []
-            for i in range(args.repeats):
-                attempt = run_one_attempt(card, transmitter, args.combo_index, args.sdr_sample_rate_hz,
-                                           args.sdr_duration_s, gain, args.nperseg,
-                                           args.pulse, args.pulse_interval_s, args.arm_delay_ms)
-                outcomes.append(attempt['result'])
-                print(f'  [{i}] CAD={attempt["result"]:<12} '
-                      f'SDR peak@bin={attempt["sdr_peak_db_at_bin"]:.1f}dB '
-                      f'SDR peak overall={attempt["sdr_peak_db_overall"]:.1f}dB')
+                outcomes = []
+                for i in range(args.repeats):
+                    attempt = run_one_attempt(card, transmitter, combo_index, args.sdr_sample_rate_hz,
+                                               args.sdr_duration_s, gain, args.nperseg,
+                                               args.pulse, args.pulse_interval_s, args.arm_delay_ms)
+                    outcomes.append(attempt['result'])
+                    print(f'  [{i}] CAD={attempt["result"]:<12} '
+                          f'SDR peak@bin={attempt["sdr_peak_db_at_bin"]:.1f}dB '
+                          f'SDR peak overall={attempt["sdr_peak_db_overall"]:.1f}dB')
 
-                png_path = out_dir / f'cad-combo{args.combo_index}-{i}-{attempt["result"]}-{stamp}.png'
-                save_plot(png_path, attempt['freqs'], attempt['psd_db'], attempt['freqs_spec'],
-                          attempt['times_spec'], attempt['sxx_db'], CAD_TEST_FREQ_MHZ * 1e6,
-                          title=f'combo{args.combo_index} SF{sf}/BW{bw_khz} attempt {i}: '
-                                f'CAD={attempt["result"]}')
+                    png_path = out_dir / f'cad-combo{combo_index}-{i}-{attempt["result"]}-{stamp}.png'
+                    save_plot(png_path, attempt['freqs'], attempt['psd_db'], attempt['freqs_spec'],
+                              attempt['times_spec'], attempt['sxx_db'], CAD_TEST_FREQ_MHZ * 1e6,
+                              title=f'combo{combo_index} SF{sf}/BW{bw_khz} attempt {i}: '
+                                    f'CAD={attempt["result"]}')
 
+                    if results:
+                        results.write({
+                            'event': 'attempt', 'combo_index': combo_index, 'sf': sf, 'bw_khz': bw_khz,
+                            'pulsing': args.pulse, 'attempt': i, 'cad_result': attempt['result'],
+                            'sdr_peak_db_at_bin': attempt['sdr_peak_db_at_bin'],
+                            'sdr_peak_db_overall': attempt['sdr_peak_db_overall'],
+                        })
+
+                detected = outcomes.count('cad_detected')
+                print(f'  {detected}/{args.repeats} CAD_DETECTED')
+                combo_summaries.append((combo_index, sf, bw_khz, detected, args.repeats))
                 if results:
-                    results.write({
-                        'event': 'attempt', 'combo_index': args.combo_index, 'sf': sf, 'bw_khz': bw_khz,
-                        'pulsing': args.pulse, 'attempt': i, 'cad_result': attempt['result'],
-                        'sdr_peak_db_at_bin': attempt['sdr_peak_db_at_bin'],
-                        'sdr_peak_db_overall': attempt['sdr_peak_db_overall'],
-                    })
+                    results.write({'event': 'combo_summary', 'combo_index': combo_index,
+                                    'detected': detected, 'total': args.repeats, 'outcomes': outcomes})
 
-            detected = outcomes.count('cad_detected')
-            print(f'\n{detected}/{args.repeats} CAD_DETECTED. Check the saved PNGs for those '
-                  f'attempts specifically -- a detected result with a flat, featureless waterfall '
-                  f'at 918.5MHz is a direct, visual confirmation of a false trigger.')
-            if results:
-                results.write({'event': 'summary', 'combo_index': args.combo_index,
-                                'detected': detected, 'total': args.repeats, 'outcomes': outcomes})
+            print(f'\n{"combo":<7} {"SF/BW":<12} {"detected":>10}')
+            for combo_index, sf, bw_khz, detected, total in combo_summaries:
+                print(f'{combo_index:<7} SF{sf}/BW{bw_khz:<8} {detected:>7}/{total}')
+            print('\nCheck the saved PNGs for CAD_DETECTED attempts specifically -- a detected '
+                  'result with a flat, featureless waterfall at 918.5MHz is a direct, visual '
+                  'confirmation of a false trigger.')
         finally:
             if transmitter is not None:
                 require_ack(transmitter, 'QUIET', '-')
