@@ -6,6 +6,7 @@
 
 #include "logger_task.h"
 #include "bench_fault.h"
+#include "wifi_task.h"
 #include "pass_b_plan.h"
 #include "serial_control_protocol.h"
 #include "radio_task.h"
@@ -98,10 +99,17 @@ void sendStatus(uint16_t sequence) {
     // completion (1 -> 0) without racing unrelated PBA increments. RW is
     // the bench-only RSSI window's own active flag, same polling reason
     // (docs/STATUS.md's 923MHz-edge injected-carrier characterization).
-    char argument[160] = {};
+    // WIFI mirrors wifiIsEnabled() (WIFI_SET's own request is async, so a
+    // host script polls this to see the change actually take effect). EA
+    // is the last Sweep's away-from-home duration in ms
+    // (radioEnergyLastAwayMs(), already tracked internally, not
+    // previously exposed) -- Phase 9's own "timing and home-away duration
+    // are measured" exit criterion (ROADMAP.md) needs this outside the
+    // on-device UI/energy.csv.
+    char argument[200] = {};
     snprintf(argument, sizeof(argument),
              "P=%s;T=%u;B=%s;SD=%u;F=%lu;R=%lu;I=%u;N=%u;C=%u,%u,%u,%u;M=%04X;"
-             "W=%s;WI=%u;WN=%u;WP=%u;PBA=%lu;PBD=%lu;BPC=%u;RW=%u",
+             "W=%s;WI=%u;WN=%u;WP=%u;PBA=%lu;PBD=%lu;BPC=%u;RW=%u;WIFI=%u;EA=%lu",
              profile, radioIsTracePaused() ? 0U : 1U, probe, loggerSdReady() ? 1U : 0U,
              (unsigned long)(channel.freq_mhz * 1000.0f),
              (unsigned long)radioDiscoveryRecoveryCount(),
@@ -115,7 +123,8 @@ void sendStatus(uint16_t sequence) {
              sweep, (unsigned)radioEnergyBinIndex(), (unsigned)radioEnergyBinCount(),
              (unsigned)radioEnergyPeakCount(),
              (unsigned long)radioPassBAttemptCount(), (unsigned long)radioPassBDetectionCount(),
-             radioBenchPassBCadIsActive() ? 1U : 0U, radioBenchRssiWindowIsActive() ? 1U : 0U);
+             radioBenchPassBCadIsActive() ? 1U : 0U, radioBenchRssiWindowIsActive() ? 1U : 0U,
+             wifiIsEnabled() ? 1U : 0U, (unsigned long)radioEnergyLastAwayMs());
     sendFrame(sequence, SerialControlOpcode::STATUS, argument);
 }
 
@@ -317,6 +326,22 @@ void handleFrame(const SerialControlFrame &frame) {
                 sendFrame(frame.sequence, SerialControlOpcode::ACK, "QUEUED");
             } else {
                 sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNAVAILABLE");
+            }
+            break;
+        case SerialControlOpcode::WIFI_SET:
+            // Mirrors ui_actions.cpp's own MenuAction::WIFI_TOGGLE handler:
+            // wifiToggle() only flips a *requested* flag, the actual state
+            // change happens later on wifiTask's own Core 0 loop, so this
+            // is fire-and-forget the same way -- poll STATUS's WIFI field
+            // to see when it actually took effect.
+            if (strcmp(frame.argument, "ON") == 0) {
+                if (!wifiIsEnabled()) wifiToggle();
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, "QUEUED_ON");
+            } else if (strcmp(frame.argument, "OFF") == 0) {
+                if (wifiIsEnabled()) wifiToggle();
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, "QUEUED_OFF");
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
             }
             break;
         case SerialControlOpcode::LOW_PROFILE_OFF:

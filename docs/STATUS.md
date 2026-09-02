@@ -113,6 +113,45 @@ can't provide a known-quiet RF control.
     fix was comparing absolute captured-signal strength instead of a
     delta from a baseline that isn't equal between the two frequencies
     being compared.
+- **RTL-SDR ground truth for Pass B's CAD-at-arbitrary-bin question
+  (2026-09-02).** `bench/rtl-sdr/sync_cad_capture.py` triggers
+  `BENCH_PASS_B_CAD` and a synchronized RTL-SDR capture at the same
+  918.5MHz test point, reading the raw result back via a new
+  `BENCH_PASS_B_CAD_RESULT` opcode. All 10 `PASS_B_SF_BW_CANDIDATES`
+  combos, quiet condition, n=5 each: every `CAD_DETECTED` (6 total
+  instances, concentrated in SF11/BW500 as expected) showed a completely
+  flat SDR waterfall at 918.5MHz — direct, not statistical, confirmation
+  of the symbol-duration false-trigger hypothesis
+  (`docs/research/phase9-sweep-pass-b-design.md`). A positive-control
+  pass (`--pulse`, arming the Heltec once at 0ms delay immediately before
+  each trigger — the timing this script's first, unsuccessful attempt
+  got wrong) matched the original bench matrix exactly: the exact-match
+  combo and the three whose bandwidth is a superset of the injected
+  125kHz signal all hit 5/5, confirmed independently on the SDR
+  waterfall; everything else 0/5.
+- **Three more Phase 9 exit criteria closed (2026-09-02):**
+  - *Timing and home-away duration measured.* Three real US-region
+    sweeps: device-measured away time (`EA`, a new `STATUS` field
+    exposing `radioEnergyLastAwayMs()`, previously internal-only)
+    3386-3438ms, home channel correctly restored every time.
+  - *Quiet-band behavior characterized with WiFi off/on.* Three matched
+    off/on pairs (`WIFI_SET`, a new Serial Control opcode mirroring the
+    on-device menu toggle): zero peaks in every sweep regardless, and no
+    meaningful timing difference (EA within ~50ms either way). WiFi does
+    not introduce false Sweep peaks or measurably change sweep duration.
+  - *CAD never promotes energy alone to LoRa.* 10 real `BENCH_PASS_B_CAD`
+    attempts at the noisiest known combo (SF11/BW500): 5 came back
+    `CAD_DETECTED`, and the real-packet-promotion counter (`PBD`) never
+    moved once, across any attempt. Empirical confirmation, not just the
+    code-level guarantee (`off_grid` is only ever set after a real
+    decoded packet).
+  - Still open: injected low/mid/high carriers landing in the correct
+    `energy.csv` bin specifically (today's work confirms accurate RSSI at
+    three known frequencies via `sync_capture.py`/`BENCH_RSSI_WINDOW`,
+    but not yet through a real multi-bin `ENERGY_SWEEP` with a
+    known-frequency injection landing at the expected `bin_index`); the
+    24-hour repeated-sweep soak (not started — a genuine multi-hour
+    unattended run, not a bench check).
 
 Phase 10 (Field Analyzer) is accepted as planned scope; whether it's
 required before `v1.0.x` is an explicit decision deferred until Phase 9
@@ -172,12 +211,10 @@ the lo/hi labels above or the disclaimer line below.
   are now confirmed on real hardware (2026-09-01). Still open: confirm a
   real cell-band RSSI reading actually rises near a known tower, and
   confirm `cell.csv`/`session.csv`'s new columns write correctly to SD.
-- Phase 9's full exit criteria — timing/home-away duration measurement,
-  injected low/mid/high carriers landing in the correct bins, quiet-band
-  characterization with WiFi off/on, and a 24-hour repeated-sweep soak —
-  are not all closed yet. CAD never promoting energy alone to LoRa is
-  satisfied structurally (Pass B's `off_grid` classification, above) but
-  hasn't had a dedicated exit-criteria pass of its own.
+- Phase 9's remaining exit criteria: injected low/mid/high carriers
+  landing in the correct `energy.csv` bin specifically, and the 24-hour
+  repeated-sweep soak. The other three (timing/home-away duration, WiFi
+  on/off, CAD-never-promotes-alone) closed 2026-09-02, above.
 - Pass B's other eight SF/BW combos still have only n=20/condition
   (`UNVERIFIED`) — more bench cycles would be needed before extending
   `STRONG`/`NOISY` past the two combos that have it now

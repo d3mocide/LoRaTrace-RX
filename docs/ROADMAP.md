@@ -392,10 +392,24 @@ evidence and the bench tooling) agree: a real transmitted signal near the
 923MHz ceiling registers within ~2dB of the same strength as one at
 912.8MHz, and captures at least as reliably. Not a gap in coverage.
 
-**Exit criteria:** timing and home-away duration are measured; injected
-low/mid/high carriers land in the correct bins; quiet-band behavior is
-characterized with WiFi off/on; CAD never promotes energy alone to LoRa;
-24 hours of repeated sweeps show bounded memory and reliable recovery.
+**Exit criteria:** timing and home-away duration are measured (**done**,
+2026-09-02) — 3/3 real US-region sweeps: EA (device-measured away time)
+3386-3438ms, home channel restored every time. Quiet-band behavior is
+characterized with WiFi off/on (**done**, 2026-09-02) — 3 matched pairs,
+zero peaks and no meaningful timing difference (EA within ~50ms) whether
+the AP was on or off. CAD never promotes energy alone to LoRa (**done**,
+2026-09-02) — 10 real `BENCH_PASS_B_CAD` attempts at the noisiest known
+combo, 5 came back `CAD_DETECTED`, the real-packet-promotion counter
+(`PBD`) never moved once, confirming empirically (not just by code
+inspection) that a bare CAD hit never becomes a Detection. See
+`docs/STATUS.md` for the full numbers and how each was measured
+(`WIFI_SET`/`EA` are new Serial Control additions this session).
+Still open: injected low/mid/high carriers land in the correct bins (the
+923MHz-edge work and `sync_capture.py` already confirm accurate RSSI at
+three known frequencies, but not yet framed as "landed in the right
+`energy.csv` bin" specifically); 24 hours of repeated sweeps show bounded
+memory and reliable recovery (not started — a real multi-hour unattended
+run, not a quick bench check).
 
 **Region setting (`v0.8.9`, added and hardware-verified 2026-09-01, out
 of sequence — same "appended, not inserted" convention as Cell below):**

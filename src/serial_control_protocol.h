@@ -9,7 +9,15 @@
 #include <stdio.h>
 #include <string.h>
 
-constexpr size_t SERIAL_CONTROL_FRAME_MAX = 160;
+// 160 was tight even before WIFI_SET/EA (2026-09-02): STATUS's own
+// argument alone can realistically approach 155-170 bytes once cumulative
+// counters (PBA/PBD) grow past a few digits during a long-running session
+// (the Phase 9 24-hour soak exit criterion, ROADMAP.md, being the exact
+// case that would hit this) -- serialControlFormatFrame() silently drops
+// the frame (returns 0, nothing sent) rather than truncating, so this
+// would have failed quietly. 256 gives real headroom, not just enough for
+// today's field set.
+constexpr size_t SERIAL_CONTROL_FRAME_MAX = 256;
 
 // Enum value names below are the actual wire opcode strings (via
 // serialControlOpcodeName()/serialControlOpcodeFromName()) and stay stable
@@ -36,6 +44,7 @@ enum class SerialControlOpcode : uint8_t {
     BENCH_PASS_B_CAD_RESULT,
     KEY_DUMP,
     SD_RETRY,
+    WIFI_SET,
     LOW_PROFILE_OFF,
     ACK,
     ERROR,
@@ -79,6 +88,7 @@ inline const char *serialControlOpcodeName(SerialControlOpcode opcode) {
         case SerialControlOpcode::BENCH_PASS_B_CAD_RESULT: return "BENCH_PASS_B_CAD_RESULT";
         case SerialControlOpcode::KEY_DUMP: return "KEY_DUMP";
         case SerialControlOpcode::SD_RETRY: return "SD_RETRY";
+        case SerialControlOpcode::WIFI_SET: return "WIFI_SET";
         case SerialControlOpcode::LOW_PROFILE_OFF: return "LOW_PROFILE_OFF";
         case SerialControlOpcode::ACK: return "ACK";
         case SerialControlOpcode::ERROR: return "ERROR";
@@ -106,6 +116,7 @@ inline SerialControlOpcode serialControlOpcodeFromName(const char *name) {
     if (strcmp(name, "BENCH_PASS_B_CAD_RESULT") == 0) return SerialControlOpcode::BENCH_PASS_B_CAD_RESULT;
     if (strcmp(name, "KEY_DUMP") == 0) return SerialControlOpcode::KEY_DUMP;
     if (strcmp(name, "SD_RETRY") == 0) return SerialControlOpcode::SD_RETRY;
+    if (strcmp(name, "WIFI_SET") == 0) return SerialControlOpcode::WIFI_SET;
     if (strcmp(name, "LOW_PROFILE_OFF") == 0) return SerialControlOpcode::LOW_PROFILE_OFF;
     if (strcmp(name, "ACK") == 0) return SerialControlOpcode::ACK;
     if (strcmp(name, "ERROR") == 0) return SerialControlOpcode::ERROR;
