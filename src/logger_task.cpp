@@ -651,11 +651,21 @@ bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, QueueHandle_t
     // Core 0, priority 2: above GPS (1) so rows drain promptly, below the
     // radio (3) which must always win.
     //
-    // 5120 rather than 4096: the health-row path (GpsFix + SessionStats +
-    // a 320-byte row buffer) is a deeper frame than the detection path and
-    // calls into SD/FatFS from the bottom of it. Cheap margin on ~330KB
-    // free heap; logger_stack_free in session.csv reports the real number.
-    BaseType_t ok = xTaskCreatePinnedToCore(loggerTask, "logger", 5120, nullptr, 2, nullptr, 0);
+    // 8192, not 5120: 5120 was sized by inspection (the health-row path's
+    // frame depth) and looked safe on every bench session run so far, but
+    // an 8-hour endurance soak (2026-09-02, docs/STATUS.md) hit a real,
+    // 100%-reproducible stack-canary panic in this exact task -- 5 crashes
+    // in 8 hours, all the identical fault/backtrace, logger_stack_free's
+    // own watermark plunging from 952B free at boot to 84B free just
+    // before the first one. 8192 matches wifi_task's own stack (a
+    // comparably deep SD/network call path) rather than guessing at a
+    // smaller number from inspection again -- that's exactly how 5120
+    // turned out to be wrong. Cheap margin on ~330KB free heap;
+    // logger_stack_free in session.csv reports the real number going
+    // forward, and should stay reproducibly re-verified before trusting a
+    // smaller value in the future (docs/STATUS.md's own optimization
+    // acceptance rule: measure, don't guess).
+    BaseType_t ok = xTaskCreatePinnedToCore(loggerTask, "logger", 8192, nullptr, 2, nullptr, 0);
     loggerStarted = ok == pdPASS;
     return ok == pdPASS;
 }
