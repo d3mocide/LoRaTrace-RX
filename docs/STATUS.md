@@ -159,8 +159,45 @@ can't provide a known-quiet RF control.
     neighbor, never wrong. Sub-100% hit rate is expected (same dwell-vs-
     pulse-timing reality the 923MHz-edge work established), not a
     correctness gap; what mattered was 11/11 correct-bin attribution.
-  - Still open: the 24-hour repeated-sweep soak (not started — a genuine
-    multi-hour unattended run, not a bench check).
+  - *Endurance soak, scoped to 8 hours.* No cited technical derivation
+    exists anywhere in this project's docs for 24 hours specifically —
+    it's a round-number target in the original design table
+    (`research/LoRaTrace-Phases-7-10-Design.md`'s hardware matrix), and
+    8 hours of back-to-back laps is already several thousand cycles,
+    well past where a real leak or stability bug would be expected to
+    surface. Documented as a deliberate, reasoned deviation, same
+    convention Phase 7's own soak criterion was relaxed under once
+    (`docs/history/PROGRESS.md`). `scripts/phase9_soak.py`, production
+    firmware, 4,148 back-to-back US-region laps, WiFi off then on at the
+    4-hour mark (matching the design table's own "Off, then On" row):
+    - **4,143/4,148 laps completed clean** (5 failures, 0.1%, all this
+      project's own already-documented native-USB dropped-response
+      pattern — see `docs/research/phase9-sweep-pass-b-design.md` — not
+      a device fault). Home restored and the connection stayed
+      responsive for the full 8 hours; no crash, hang, or reboot.
+    - **Timing tail, not a correctness break:** median EA 3437ms
+      (matching every short session this project has run), but 147/4,143
+      laps (~3.5%) took 19-24s instead — scattered evenly across the
+      whole 8 hours, not clustered at any one point, every single one
+      still completing and restoring home correctly. Not yet
+      root-caused; a plausible candidate is periodic SD/GPS activity
+      briefly contending for the shared SPI bus (`spi_bus.h`) during
+      those specific bins, but that's a hypothesis, not confirmed.
+    - **WiFi anomaly, unresolved:** switched on cleanly at the 4-hour
+      mark (`[wifi] AP started` logged), ran 258 laps (~30min), then
+      `STATUS`'s `WIFI` field silently reverted to 0 for the remaining
+      3.5 hours — with no corresponding `[wifi] AP stopped` log anywhere,
+      and no code path found in `wifi_task.cpp` that can flip `apActive`
+      without going through that exact log line. Nothing in this session
+      sent a second `WIFI_SET OFF`. Genuinely unexplained; flagged here
+      rather than guessed at.
+    - **"Bounded memory" not yet directly confirmed.** `session.csv`'s
+      own periodic heap/stack samples (`logger_task`'s existing health
+      record) weren't pulled from this run — would need either a WiFi
+      client connection (this soak's own AP anomaly aside) or physical
+      SD access. The indirect signal is strong (EA on normal laps at
+      hour 8 matched hour 0 almost exactly, no drift), but isn't the
+      same as the real heap numbers.
 
 Phase 10 (Field Analyzer) is accepted as planned scope; whether it's
 required before `v1.0.x` is an explicit decision deferred until Phase 9
@@ -220,10 +257,16 @@ the lo/hi labels above or the disclaimer line below.
   are now confirmed on real hardware (2026-09-01). Still open: confirm a
   real cell-band RSSI reading actually rises near a known tower, and
   confirm `cell.csv`/`session.csv`'s new columns write correctly to SD.
-- Phase 9's one remaining exit criterion: the 24-hour repeated-sweep
-  soak. The other four (timing/home-away duration, WiFi on/off,
-  CAD-never-promotes-alone, low/mid/high bin accuracy) closed
-  2026-09-02, above.
+- Phase 9's endurance soak (scoped to 8h) ran 2026-09-02 with real,
+  useful findings, but two of them are open, unresolved anomalies, not
+  a clean pass: an unexplained recurring timing tail (~3.5% of laps),
+  and WiFi silently going quiet ~30min after being switched on with no
+  corresponding log or known code path. "Bounded memory" itself also
+  hasn't been directly confirmed yet (`session.csv` not yet pulled from
+  this run) — see the Phase 9 section above for the full breakdown. The
+  other four exit criteria (timing/home-away duration, WiFi on/off,
+  CAD-never-promotes-alone, low/mid/high bin accuracy) closed cleanly,
+  2026-09-02.
 - Pass B's other eight SF/BW combos still have only n=20/condition
   (`UNVERIFIED`) — more bench cycles would be needed before extending
   `STRONG`/`NOISY` past the two combos that have it now

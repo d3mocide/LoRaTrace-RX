@@ -419,9 +419,24 @@ to land inside that window by chance each lap (same timing reality the
 923MHz-edge work already established); what matters is that a hit is
 always at the *right* bin, which held 11/11 times.
 
-Still open: 24 hours of repeated sweeps show bounded memory and reliable
-recovery (not started — a real multi-hour unattended run, not a quick
-bench check).
+8-hour endurance soak (**run**, 2026-09-02, scoped down from 24h — see
+STATUS.md for why) — `scripts/phase9_soak.py`, production firmware,
+4,148 back-to-back US-region laps. 4,143 completed clean (5 failures,
+0.1%, the project's own already-documented native-USB dropped-response
+pattern, not a device fault); home restored and the connection stayed
+responsive for the full 8 hours, no crash or reboot. Two real findings
+the soak was built to surface, neither a correctness break but both
+worth follow-up: (1) a recurring timing tail — 147/4,143 laps (~3.5%)
+took 19-24s instead of the ~3.4s median, scattered across the whole run
+rather than clustered, every one still completing and restoring home
+correctly; (2) WiFi, switched on at the 4-hour mark as planned, silently
+reverted to off around 4.5h with no corresponding "AP stopped" log and
+no code path found that explains it outside an explicit toggle — a real
+anomaly, not yet root-caused. `session.csv`'s own heap/stack trend
+(logger_task's periodic health record) hasn't been pulled from this run
+yet to directly confirm "bounded memory" beyond the strong indirect
+signal (EA timing at hour 8 matched hour 0 almost exactly on the normal
+laps, no drift).
 
 **Region setting (`v0.8.9`, added and hardware-verified 2026-09-01, out
 of sequence — same "appended, not inserted" convention as Cell below):**
