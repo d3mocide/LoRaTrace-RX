@@ -147,8 +147,43 @@ that frequency. This independently corroborates the SX1262-based finding
 in `docs/STATUS.md` (no real front-end rolloff, no persistent 920MHz
 noise source) using a completely different instrument.
 
+## Pass B CAD ground truth (2026-09-02)
+
+`sync_cad_capture.py` triggers the Cardputer's bench-only `BENCH_PASS_B_CAD`
+(one CAD attempt at a chosen `PASS_B_SF_BW_CANDIDATES` combo, fixed
+918.5MHz test point) and starts a matching RTL-SDR capture at the same
+moment, reading back the raw result via the new `BENCH_PASS_B_CAD_RESULT`
+opcode (`bench_fault.h`/`.cpp`, `radio_task.cpp` -- previously this result
+was only visible by pulling `energy.csv` off the SD card). Needs the
+`cardputer-adv-bench` image:
+
+```bash
+.venv/bin/python sync_cad_capture.py \
+  --cardputer-port /dev/ttyACM0 --heltec-port /dev/ttyACM1 \
+  --combo-index 8 --repeats 5 --sdr-gain 29.7   # 8 = SF11/BW500, the NOISY combo
+```
+
+First run, quiet condition, combo 8 (SF11/BW500 -- `NOISY`, 22/60 quiet
+false positives in the original `phase9_pass_b_cad_bench.py` matrix): 4/5
+attempts came back `CAD_DETECTED`. The SDR's simultaneous waterfall for
+every one of those was completely flat at 918.5MHz -- no signal, just the
+same ambient noise floor as the quiet baseline. This directly confirms
+what `docs/research/phase9-sweep-pass-b-design.md`'s own bench matrix
+could only infer from aggregate quiet-vs-pulse counts (a false-positive
+rate that scales with SF/symbol-duration, i.e. the radio false-triggering
+on ambient energy at long dwell times, not a real signal): an independent
+receiver watching the exact same moment confirms there was genuinely
+nothing there. `pass_b_plan.h`'s own standing comment -- "SX1262
+CAD-at-arbitrary-bin behavior isn't verified" -- has real, direct
+(not just statistical) evidence behind it for this combo now.
+
 ## Where this could go next
 
+- Run `sync_cad_capture.py` across the other 8 unverified combos (only
+  SF8/BW125 `STRONG` and SF11/BW500 `NOISY` have a confidence tag today --
+  `pass_b_plan.h`'s `PassBConfidence`) and with `--pulse` as a positive
+  control, to build toward direct (not just statistical) evidence for all
+  ten, not just one.
 - LoRa chirp demodulation from raw IQ (`gr-lora-git`/`gr-lora_sdr-git` are
   available in the AUR) -- ground truth for `fingerprint.h`'s still-unbuilt
   post-hoc protocol classification (`CLAUDE.md`'s proposed layout), and a
@@ -162,5 +197,5 @@ noise source) using a completely different instrument.
   compare or a need to watch a long-running capture live -- premature
   before that; the PNG output already covers a single-capture look.
 
-`capture_spectrum.py`, `compare_spectrum.py`, and `sync_capture.py` are
-the first slices.
+`capture_spectrum.py`, `compare_spectrum.py`, `sync_capture.py`, and
+`sync_cad_capture.py` are the first slices.

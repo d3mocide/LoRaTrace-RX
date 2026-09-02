@@ -21,6 +21,9 @@ volatile unsigned char cadSymbols = 2;
 // the constant edit alone).
 volatile int16_t sweepMarginDbmX10 = ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10;
 
+volatile EnergyObservationResult passBCadLastResult = EnergyObservationResult::RADIO_ERROR;
+volatile bool passBCadHaveResult = false;
+
 #if defined(LORATRACE_BENCH_FAULTS)
 // energy_plan.h's own ENERGY_BIN_RESERVED_COUNT -- the same hard ceiling
 // Pass A's bin loop is already bounded by, so this array is sized to hold
@@ -199,6 +202,26 @@ bool benchRssiWindowTriggerAllowed() {
 #if !defined(LORATRACE_BENCH_FAULTS)
     return false;
 #else
+    return true;
+#endif
+}
+
+void benchPassBCadRecordResult(EnergyObservationResult result) {
+#if defined(LORATRACE_BENCH_FAULTS)
+    passBCadLastResult = result;
+    passBCadHaveResult = true;
+#else
+    (void)result;
+#endif
+}
+
+bool benchPassBCadLastResult(EnergyObservationResult &result) {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    (void)result;
+    return false;
+#else
+    if (!passBCadHaveResult) return false;
+    result = passBCadLastResult;
     return true;
 #endif
 }

@@ -403,6 +403,13 @@ void enqueuePassBObservation(uint16_t binIndex, const PassBModemParams &combo,
         xQueueSend(energyObservationQueue, &observation, 0) != pdTRUE) {
         energyObservationDropCount++;
     }
+
+    // Bench-only (bench_fault.h): only for a BENCH_PASS_B_CAD-triggered
+    // attempt, never production Sweep's own Pass B -- benchPassBCadActive
+    // is only ever true inside performBenchPassBCadTrigger()'s call.
+    if (benchPassBCadActive) {
+        benchPassBCadRecordResult(result);
+    }
 }
 
 bool energyAbortPending() {

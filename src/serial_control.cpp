@@ -283,6 +283,17 @@ void handleFrame(const SerialControlFrame &frame) {
             }
             break;
         }
+        case SerialControlOpcode::BENCH_PASS_B_CAD_RESULT: {
+            EnergyObservationResult result;
+            if (!benchPassBCadLastResult(result)) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            } else {
+                char argument[24] = {};
+                snprintf(argument, sizeof(argument), "RESULT=%s", energyObservationResultName(result));
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+            }
+            break;
+        }
         case SerialControlOpcode::KEY_DUMP:
             // Diagnostic only: turns ui_task's raw TCA8418 event echo on or
             // off. Reads nothing and owns nothing, so it is safe to leave

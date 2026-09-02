@@ -616,3 +616,24 @@ per-combo confidence weighting (done — `PassBConfidence`, descriptive
    earned a confidence tag either way — more bench cycles per combo (or a
    larger n) would be needed before `NOISY`/`STRONG` could responsibly
    extend past the two that have it now.
+
+## RTL-SDR ground truth for SF11/BW500's false positives (2026-09-02)
+
+Everything above inferred the SF-driven false-positive story from
+aggregate quiet-vs-pulse counts — real, but never a direct observation of
+what was actually on the air during a specific false `CAD_DETECTED`.
+`bench/rtl-sdr/sync_cad_capture.py` closes that gap: it triggers
+`BENCH_PASS_B_CAD` for one combo and starts a synchronized RTL-SDR capture
+at the same 918.5MHz test point, reading the raw result back via a new
+`BENCH_PASS_B_CAD_RESULT` opcode (`bench_fault.h`/`.cpp`) instead of
+pulling `energy.csv` off the SD card.
+
+Five quiet-condition attempts at combo 8 (SF11/BW500, `NOISY`): 4/5 came
+back `CAD_DETECTED`. The SDR's waterfall for every one of those four was
+completely flat at 918.5MHz — no signal, same ambient floor as the quiet
+baseline attempt. Direct, not statistical, confirmation that this combo's
+false positives really are the radio triggering on nothing, matching the
+symbol-duration hypothesis above. See `bench/rtl-sdr/README.md`'s own
+"Pass B CAD ground truth" section for the run command and full result.
+Not yet run against the other eight combos or with a real pulse as a
+positive control — natural next step for question 2 above.

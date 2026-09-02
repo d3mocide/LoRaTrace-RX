@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include "energy_observation.h"
+
 // Deterministic fault hooks used only by the dedicated cardputer-adv-bench
 // build. Production firmware accepts no operation through this API.
 
@@ -74,3 +76,20 @@ bool benchSweepFloorQuery(uint16_t bin, int16_t &rssi_avg_dbm_x10);
 // holds still long enough to. Same production/bench split as the rest of
 // this file.
 bool benchRssiWindowTriggerAllowed();
+
+// Bench-image-only readback of the most recent BENCH_PASS_B_CAD attempt's
+// raw result (research/phase9-sweep-pass-b-design.md's standing
+// CAD-at-arbitrary-bin ground-truth question). Production Pass B logs
+// every attempt's CAD_FREE/CAD_DETECTED/CAD_TIMEOUT result to energy.csv,
+// but that means pulling the SD card to see it -- this exposes the same
+// result over Serial Control instead, so a host script (e.g. bench/rtl-sdr's
+// sync_cad_capture.py) can correlate one specific attempt against what an
+// independent receiver saw on the air at that exact moment. No RSSI value
+// here -- CAD reports free/detected/timeout, not an amplitude, so
+// EnergyObservation's own rssi_peak_dbm_x10 is always 0 for a Pass B row
+// too. Recorded only for bench-triggered attempts (radio_task.cpp checks
+// benchPassBCadActive before calling benchPassBCadRecordResult), never
+// for production Sweep's own Pass B, so this can't affect or be confused
+// with real Sweep data.
+void benchPassBCadRecordResult(EnergyObservationResult result);
+bool benchPassBCadLastResult(EnergyObservationResult &result);

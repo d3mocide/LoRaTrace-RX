@@ -33,6 +33,7 @@ enum class SerialControlOpcode : uint8_t {
     BENCH_SWEEP_FLOOR,
     BENCH_RSSI_WINDOW,
     BENCH_RSSI_RESULT,
+    BENCH_PASS_B_CAD_RESULT,
     KEY_DUMP,
     SD_RETRY,
     LOW_PROFILE_OFF,
@@ -75,6 +76,7 @@ inline const char *serialControlOpcodeName(SerialControlOpcode opcode) {
         case SerialControlOpcode::BENCH_SWEEP_FLOOR: return "BENCH_SWEEP_FLOOR";
         case SerialControlOpcode::BENCH_RSSI_WINDOW: return "BENCH_RSSI_WINDOW";
         case SerialControlOpcode::BENCH_RSSI_RESULT: return "BENCH_RSSI_RESULT";
+        case SerialControlOpcode::BENCH_PASS_B_CAD_RESULT: return "BENCH_PASS_B_CAD_RESULT";
         case SerialControlOpcode::KEY_DUMP: return "KEY_DUMP";
         case SerialControlOpcode::SD_RETRY: return "SD_RETRY";
         case SerialControlOpcode::LOW_PROFILE_OFF: return "LOW_PROFILE_OFF";
@@ -101,6 +103,7 @@ inline SerialControlOpcode serialControlOpcodeFromName(const char *name) {
     if (strcmp(name, "BENCH_SWEEP_FLOOR") == 0) return SerialControlOpcode::BENCH_SWEEP_FLOOR;
     if (strcmp(name, "BENCH_RSSI_WINDOW") == 0) return SerialControlOpcode::BENCH_RSSI_WINDOW;
     if (strcmp(name, "BENCH_RSSI_RESULT") == 0) return SerialControlOpcode::BENCH_RSSI_RESULT;
+    if (strcmp(name, "BENCH_PASS_B_CAD_RESULT") == 0) return SerialControlOpcode::BENCH_PASS_B_CAD_RESULT;
     if (strcmp(name, "KEY_DUMP") == 0) return SerialControlOpcode::KEY_DUMP;
     if (strcmp(name, "SD_RETRY") == 0) return SerialControlOpcode::SD_RETRY;
     if (strcmp(name, "LOW_PROFILE_OFF") == 0) return SerialControlOpcode::LOW_PROFILE_OFF;
