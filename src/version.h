@@ -20,12 +20,20 @@
 //    share one semantic version. Carries a "-dirty" suffix when built from
 //    a modified working tree.
 
-// 0.8.9: System > Region narrows Sweep's scanned band to 902-923MHz (US,
-// the default) instead of the full 868-923MHz range (Global) -- 47 CFR S
-// 15.247's US ISM floor, region_plan.h/energy_plan.h. Out-of-sequence
-// Phase 9 scope (not Phase 11 this time), so PATCH again, same reasoning
-// as the 0.8.6/0.8.7/0.8.8 bumps below.
-#define FIRMWARE_VERSION "0.8.9"
+// 0.9.0: Phase 9 (ENERGY_SWEEP/"Sweep") reached -- all five ROADMAP.md
+// exit criteria closed 2026-09-03: timing/home-away duration measured;
+// injected low/mid/high carriers confirmed landing in the correct
+// energy.csv bin; quiet-band behavior characterized with WiFi off/on;
+// CAD empirically confirmed never promoting energy alone to a Detection
+// (off_grid only ever set after a real decoded packet); and two full
+// 8-hour endurance soaks (docs/STATUS.md), the first of which caught and
+// the second of which confirmed the fix for a real, 100%-reproducible
+// logger_task stack overflow (5120->8192) plus a proactive radio_task
+// stack margin fix (4096->6144) found the same way from real session.csv
+// data, not guessed at. MINOR, not PATCH, since Phase 9 -- not Phase 11
+// (Cell) -- is what actually landed here; see the 0.8.6-0.8.9 PATCH
+// bumps below for why those stayed PATCH while Phase 9 was still open.
+#define FIRMWARE_VERSION "0.9.0"
 
 // 0.8.8: Cell's frequency bar now labels the FCC's own 869-894MHz A/B
 // channel-block split (47 CFR S 22.905, cell_plan.h's CELL_BAND_BLOCKS) --

@@ -8,34 +8,36 @@ prose that used to be duplicated (and drifting) across `CLAUDE.md`,
 
 ## Current version
 
-**v0.8.9** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
+**v0.9.0** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
 *reached*, not the phase in progress — see ROADMAP.md's Versioning
-section. `v0.8.x` = Phase 8 complete; Phase 9 is underway, so the version
-correctly hasn't moved to `0.9.0` yet. The PATCH bump is Phase 11 (Cell,
-below) — an out-of-sequence addition, not a fix, but not the
-next build-order phase either; see ROADMAP.md's Versioning section for why
-that's a PATCH bump rather than a MINOR one. `v0.8.7` adds Cell's repeat
-mode and page-gates Sweep's own R key (below) — still Phase 11 scope, so
-another PATCH, not a MINOR. `v0.8.8` adds FCC A/B block markers to the
-Cell frequency bar (below) — same reasoning, another PATCH. `v0.8.9` adds
-a Sweep region setting (below, Phase 9 scope this time, not Phase 11) —
-same out-of-sequence-addition reasoning, another PATCH.
+section. Phase 9 (`ENERGY_SWEEP`/"Sweep") reached 2026-09-03: all five
+ROADMAP.md exit criteria closed, including two full 8-hour endurance
+soaks that caught and fixed a real `logger_task` stack overflow and a
+proactive `radio_task` stack margin fix — see "What's hardware-verified"
+below for the full writeup. `v0.8.6`-`v0.8.9` were all PATCH bumps for
+out-of-sequence Phase 9/11 additions landed while Phase 9 itself was
+still open (Cell's repeat mode, FCC A/B block markers, the Sweep region
+setting) — see ROADMAP.md's Versioning section for why those stayed
+PATCH rather than MINOR.
 
 ## What's hardware-verified
 
-Phases 0-8 are complete and hardware-verified: radio bring-up (Phase 1),
+Phases 0-9 are complete and hardware-verified: radio bring-up (Phase 1),
 the task/queue architecture + GPS + SD logging that makes up MVP-Beta
 (Phase 2), the WiFi AP + web command center (Phase 3), the MeshCore
 profile and live profile switch (Phase 4), the on-device menu UI
 (Phase 5), the UI architecture redesign (Phase 6), measured heap/stack
 budgets and soak (Phase 7 — its strict same-build repetition criterion
 was explicitly waived for that cycle, see `docs/history/PROGRESS.md`),
-and bounded radio-owned discovery scanning with a source-backed candidate
-plan (Phase 8, `DISCOVERY_SWEEP` / "Probe"). Phase 8's statistical CAD
-false/miss matrix remains an explicit lab follow-up — the available bench
-can't provide a known-quiet RF control.
+bounded radio-owned discovery scanning with a source-backed candidate
+plan (Phase 8, `DISCOVERY_SWEEP` / "Probe"), and frequency-binned energy
+acquisition with selective Pass-B CAD (Phase 9, `ENERGY_SWEEP` /
+"Sweep", reached 2026-09-03 — full writeup below). Phase 8's statistical
+CAD false/miss matrix remains an explicit lab follow-up — the available
+bench can't provide a known-quiet RF control.
 
-**Phase 9 (`ENERGY_SWEEP` / "Sweep") is in progress:**
+**Phase 9 (`ENERGY_SWEEP` / "Sweep") is complete — all five exit
+criteria closed:**
 - Pass A (frequency-binned energy acquisition across 868-923MHz) is
   hardware-verified end-to-end: real `energy.csv` peak rows spanning the
   full band, zero queue drops, clean home-restore across repeated sweeps.
@@ -210,22 +212,54 @@ can't provide a known-quiet RF control.
     Not a full 8-hour re-confirmation, but real, clean, contradicting
     evidence against the bug recurring.
 
-    **Timing tail, separately** (not related to the crash): the first
-    8-hour run also showed 147/4,143 laps (~3.5%) taking 19-24s instead
-    of the ~3.4s median, scattered evenly across the run, every one
-    still completing and restoring home correctly. Not yet root-caused;
-    a plausible candidate is periodic SD/GPS activity briefly contending
-    for the shared SPI bus (`spi_bus.h`), but that's a hypothesis, not
-    confirmed, and wasn't re-checked in the shorter verification run.
+    **Second full 8-hour run, with the logger fix in place:** 4,353/4,353
+    laps, 0 failures, 0.0%. Zero `Guru Meditation`/`RTC_SW_CPU_RST`
+    events anywhere in the log. One continuous run directory on the SD
+    card (`run0143`) spanning the entire 8 hours confirms no reboot of
+    any kind occurred, not just no crash. WiFi, switched on at the
+    4-hour mark, stayed on for all 2,340 remaining laps with zero
+    reversions.
 
-    **"Bounded memory" still not directly confirmed** via `session.csv`'s
-    real heap numbers from a long run post-fix — the indirect timing
-    signal is good, but a full-length re-soak with the fix in place
-    would be the complete version of this exit criterion.
+    **"Bounded memory" directly confirmed** from `run0143`'s real
+    `session.csv`: `heap_free`/`heap_largest`/`heap_allocated_blocks` all
+    show a clean step function, not a decline — flat for the ~3.7 hours
+    before WiFi turned on, one legitimate ~56KB one-time drop exactly
+    when the AP started (its real allocation cost, matching Phase 7's own
+    "recovered transient allocation, not a leak" distinction), then flat
+    again for the remaining 4+ hours with WiFi running continuously. No
+    drift in either phase.
 
-Phase 10 (Field Analyzer) is accepted as planned scope; whether it's
-required before `v1.0.x` is an explicit decision deferred until Phase 9
-hardware evidence exists (ROADMAP.md).
+    **Timing tail, fully explained, not a bug.** The recurring 19-35s
+    laps (147/4,143 in the first run, a similar count in the second) are
+    100% explained: every single `wp=0` (no peak found) lap took ≤3.5s;
+    every single `wp>0` lap took ≥4.2s, scaling with peak count (`wp=2`
+    laps cluster at 15-35s). This is Pass B correctly doing its
+    documented job — up to 10 SF/BW combos' worth of CAD, plus a bounded
+    2.5s receive-on-hit window per combo that detects, for every real
+    peak Sweep finds — not an anomaly. About 5% of sweeps in this room
+    found something worth investigating; those sweeps take proportionally
+    longer by design.
+
+    **`radio_task` stack margin, found and fixed the same way:** pulling
+    `run0143`'s real numbers (not just logger's) showed `radio_stack_free`
+    settling at a lifetime-minimum of 820B free out of 4,096 allocated
+    (20.0%) within the first two hours and holding flat there for the
+    rest of the run — not a leak, but below this project's own margin
+    rule (25% or 1KB, whichever is larger). `radio_task` is the single
+    most critical task in the system (owns the SX1262, must never
+    block), so this was bumped proactively (4,096 → 6,144, proportionate
+    to logger's own fix) rather than left at a margin already under the
+    house rule just because it hadn't overflowed yet. A focused 2-hour
+    verification run afterward — chosen to cover the ~1.9h mark where the
+    old watermark hit its floor, with margin — came back 1,011/1,011
+    laps, 0 failures, 0 crashes, WiFi stable throughout.
+
+    **All five Phase 9 exit criteria are now closed**, 2026-09-03.
+
+Phase 10 (Field Analyzer) is accepted as planned scope. Whether it's
+required before `v1.0.x` was an explicit decision deferred until Phase 9
+hardware evidence exists (ROADMAP.md) — that evidence exists now
+(above), so this decision is open to make; it hasn't been made yet.
 
 **Phase 11 (Cell) — added out of sequence, PARTIALLY hardware-verified:**
 a bounded RSSI-only presence sweep of 869-894MHz (North American Cellular
@@ -281,16 +315,9 @@ the lo/hi labels above or the disclaimer line below.
   are now confirmed on real hardware (2026-09-01). Still open: confirm a
   real cell-band RSSI reading actually rises near a known tower, and
   confirm `cell.csv`/`session.csv`'s new columns write correctly to SD.
-- Phase 9's endurance soak (scoped to 8h) ran 2026-09-02 with real,
-  useful findings, but two of them are open, unresolved anomalies, not
-  a clean pass: an unexplained recurring timing tail (~3.5% of laps),
-  and WiFi silently going quiet ~30min after being switched on with no
-  corresponding log or known code path. "Bounded memory" itself also
-  hasn't been directly confirmed yet (`session.csv` not yet pulled from
-  this run) — see the Phase 9 section above for the full breakdown. The
-  other four exit criteria (timing/home-away duration, WiFi on/off,
-  CAD-never-promotes-alone, low/mid/high bin accuracy) closed cleanly,
-  2026-09-02.
+- ~~Phase 9's endurance soak~~ — closed 2026-09-03. All five exit
+  criteria are done; see the Phase 9 section above for the full soak
+  writeup (a real crash bug found and fixed along the way).
 - Pass B's other eight SF/BW combos still have only n=20/condition
   (`UNVERIFIED`) — more bench cycles would be needed before extending
   `STRONG`/`NOISY` past the two combos that have it now

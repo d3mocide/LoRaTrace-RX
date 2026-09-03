@@ -419,25 +419,32 @@ to land inside that window by chance each lap (same timing reality the
 923MHz-edge work already established); what matters is that a hit is
 always at the *right* bin, which held 11/11 times.
 
-8-hour endurance soak (**run, crash found and fixed**, 2026-09-02,
-scoped down from 24h — see STATUS.md for why) —
-`scripts/phase9_soak.py`, production firmware. First run: 4,143/4,148
-laps completed; the other 5 were *initially* documented here as
-harmless dropped-response noise, which was wrong — pulling `session.csv`
-off the SD card afterward showed all 5 were the identical
+8-hour endurance soak (**done**, 2026-09-03, scoped down from 24h — see
+STATUS.md for why) — `scripts/phase9_soak.py`, production firmware.
+First run found a real bug: 5 of 4,148 laps failed, initially documented
+here as harmless dropped-response noise, which was wrong — pulling
+`session.csv` off the SD card afterward showed all 5 were the identical
 `Guru Meditation Error... Stack canary watchpoint triggered (logger)`
-crash, `logger_task`'s 5,120-byte stack (sized by inspection, never
-load-tested) genuinely overflowing under sustained operation and
-silently rebooting the device each time — which also fully explains
-that run's "WiFi silently went quiet" finding (the device rebooted, not
-a WiFi bug). Fixed by bumping the stack to 8,192 bytes, matching
-`wifi_task`'s own already-proven size. A 3-hour verification re-run the
-same day, covering the timing of the first two original crashes with
-margin: 1,507 laps, zero crashes, WiFi stayed on for 1,007 straight laps
-with no reversion. See STATUS.md for the full writeup. Not yet a full
-8-hour re-confirmation, and the recurring ~3.5% slow-lap timing tail
-from the first run (19-24s vs the ~3.4s median, unrelated to the crash)
-is still unexplained.
+crash, `logger_task`'s 5,120-byte stack genuinely overflowing under
+sustained operation and silently rebooting the device each time (also
+explaining that run's "WiFi went quiet" finding — the device rebooted,
+not a WiFi bug). Fixed (8,192 bytes). A second full 8-hour run with the
+fix in place: **4,353/4,353 laps, 0 failures, 0 crashes**, one
+continuous run directory on the SD card confirming no reboot of any
+kind. Real `session.csv` heap data from that run confirms bounded
+memory directly: a clean step function (flat, one legitimate one-time
+jump when WiFi switched on, flat again), no drift in either phase. The
+recurring slow-lap timing tail (19-35s vs the ~3.4s median) turned out
+to be fully explained, not a bug: 100% correlated with `wp>0` (Pass B
+correctly running its full CAD sequence on a real Sweep peak). The same
+real data also caught `radio_task`'s own stack margin sitting at 20.0%
+headroom (below the 25%-or-1KB house rule, though never actually
+overflowing) — fixed proactively (4,096 → 6,144) the same way, verified
+clean with a focused 2-hour run covering where the old watermark hit its
+floor. Full writeup in `docs/STATUS.md`.
+
+**All five exit criteria closed. Status: complete, hardware-verified,
+`v0.9.0`.**
 
 **Region setting (`v0.8.9`, added and hardware-verified 2026-09-01, out
 of sequence — same "appended, not inserted" convention as Cell below):**
