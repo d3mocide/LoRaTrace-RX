@@ -34,11 +34,12 @@ not a laptop-tethered tool.
 2. [Version](#version)
 3. [Documentation](#documentation)
 4. [Build](#build)
-5. [Install without flashing (M5Launcher)](#install-without-flashing-m5launcher)
-6. [Configuration](#configuration)
-7. [Output files](#output-files)
-8. [Display and controls](#display-and-controls)
-9. [Web dashboard](#web-dashboard)
+5. [Flash from your browser](#flash-from-your-browser)
+6. [Install without flashing (M5Launcher)](#install-without-flashing-m5launcher)
+7. [Configuration](#configuration)
+8. [Output files](#output-files)
+9. [Display and controls](#display-and-controls)
+10. [Web dashboard](#web-dashboard)
 
 ## Features
 
@@ -63,11 +64,12 @@ not a laptop-tethered tool.
 
 ## Version
 
-No tagged `vX.Y.Z` release has shipped yet — `main` builds a rolling
+No tagged `vX.Y.Z` release has been published yet — `main` builds a
+rolling
 [`dev-latest`](https://github.com/d3mocide/LoRaTrace-RX/releases/tag/dev-latest)
-prerelease on every merge (see [Install](#install-without-flashing-m5launcher)
-below), which is what the **dev-latest** badge above tracks. The firmware's
-own semantic version lives in `src/version.h` and is bumped by hand when a
+prerelease on every merge (see [Install](#flash-from-your-browser) below),
+which is what the **dev-latest** badge above tracks. The firmware's own
+semantic version lives in `src/version.h` and is bumped by hand when a
 build-order phase lands — see
 **[docs/STATUS.md](docs/STATUS.md)** for the current version, what's
 hardware-verified, and what's still open, rather than a number restated
@@ -101,6 +103,19 @@ Unit tests (host-native, no board needed):
 ```sh
 pio test -e native
 ```
+
+## Flash from your browser
+
+[**web-flasher →**](https://d3mocide.github.io/LoRaTrace-RX/) writes the
+firmware straight to the Cardputer-Adv over USB, no PlatformIO or
+M5Burner install required — built on
+[ESP Web Tools](https://esphome.github.io/esp-web-tools/), so it needs a
+desktop build of Chrome, Edge, or Opera (Web Serial isn't available
+elsewhere). Offers both the current dev-latest build and, once one has
+been published, the latest tagged release. This overwrites whatever
+firmware is currently on the device, Launcher included — use the
+SD-drop method below instead if you want to keep other firmwares
+installed side by side.
 
 ## Install without flashing (M5Launcher)
 

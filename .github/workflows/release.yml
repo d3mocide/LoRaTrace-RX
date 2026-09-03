@@ -49,9 +49,22 @@ jobs:
           mkdir -p dist
           cp .pio/build/cardputer-adv/firmware.bin "dist/LoRaTraceRX-${GITHUB_REF_NAME}.bin"
 
+      # bootloader.bin/partitions.bin plus the Arduino core's boot_app0.bin
+      # are the other three pieces a from-scratch flash needs beside the
+      # app image above (see the exact esptool offsets in pages.yml). Only
+      # the app image was ever needed for Launcher/SD-drop installs, which
+      # is why these weren't published before now — the web flasher
+      # (pages.yml) is what actually consumes them.
+      - name: Collect flash parts for the web flasher
+        run: |
+          cp .pio/build/cardputer-adv/bootloader.bin "dist/LoRaTraceRX-${GITHUB_REF_NAME}-bootloader.bin"
+          cp .pio/build/cardputer-adv/partitions.bin "dist/LoRaTraceRX-${GITHUB_REF_NAME}-partitions.bin"
+          boot_app0="$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -n1)"
+          cp "$boot_app0" "dist/LoRaTraceRX-${GITHUB_REF_NAME}-boot_app0.bin"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/LoRaTraceRX-${{ github.ref_name }}.bin
+          files: dist/LoRaTraceRX-${{ github.ref_name }}*.bin
           draft: true
           generate_release_notes: true

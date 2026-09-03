@@ -1,0 +1,96 @@
+name: Deploy web flasher
+
+# Rebuilds and redeploys the GitHub Pages web-flasher site (web-flasher/)
+# whenever there's a new binary to offer:
+#   - `release: released` fires when a release is published (a maintainer
+#     manually publishing a v1.0.0-style draft — see release.yml — or the
+#     first-ever creation of the dev-latest prerelease).
+#   - `workflow_run` on Build catches every later dev-latest *update*: that
+#     release already exists after its first publish, so re-uploading
+#     assets to it is an edit, not a new "released" event.
+# Deliberately does NOT trigger on release.yml's own workflow_run — that
+# would expose a vX.Y.Z build's binaries through the flasher while the
+# release itself is still a draft, defeating the point of drafting it
+# (docs/ROADMAP.md: tagging is "a separate, deliberate step").
+on:
+  release:
+    types: [released]
+  workflow_run:
+    workflows: ["Build"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # `gh release view` with no tag argument resolves to the latest
+      # release that is neither a draft nor a prerelease — exactly "the
+      # current stable build" with no separate version lookup needed. If
+      # none has ever been published, this exits non-zero; that's a real
+      # state (pre-v1.0, or a release just un-published), not an error, so
+      # it's handled rather than failing the job.
+      - name: Look up the latest stable release
+        id: stable
+        run: |
+          if tag="$(gh release view --json tagName -q .tagName -R "$GITHUB_REPOSITORY" 2>/dev/null)"; then
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Compute build timestamp
+        id: ts
+        run: echo "value=$(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+
+      - name: Download dev-latest assets
+        run: gh release download dev-latest -R "$GITHUB_REPOSITORY" -D dev-assets --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Download stable release assets
+        if: steps.stable.outputs.found == 'true'
+        run: gh release download "${{ steps.stable.outputs.tag }}" -R "$GITHUB_REPOSITORY" -D stable-assets --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # Copies binaries into the site instead of pointing the manifest at
+      # GitHub's release-asset URLs: those redirect to
+      # release-assets.githubusercontent.com, which sends no
+      # Access-Control-Allow-Origin — a browser fetch() from the Pages
+      # origin would be CORS-blocked. Same-origin files avoid that.
+      - name: Assemble site
+        run: python3 scripts/build_web_flasher_site.py
+        env:
+          OUT_DIR: site
+          TEMPLATE: web-flasher/index.html
+          REPO_URL: https://github.com/${{ github.repository }}
+          BUILD_TIMESTAMP: ${{ steps.ts.outputs.value }}
+          DEV_DIR: dev-assets
+          STABLE_DIR: stable-assets
+          STABLE_VERSION: ${{ steps.stable.outputs.tag }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -92,6 +92,17 @@ jobs:
           mkdir -p dist
           cp .pio/build/cardputer-adv/firmware.bin dist/LoRaTraceRX-dev.bin
 
+      # Same three extra parts as release.yml's "Collect flash parts" step
+      # — the web flasher (pages.yml) needs bootloader/partitions/boot_app0
+      # in addition to the app image to write a blank device from scratch.
+      - name: Collect flash parts for the web flasher
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          cp .pio/build/cardputer-adv/bootloader.bin dist/LoRaTraceRX-dev-bootloader.bin
+          cp .pio/build/cardputer-adv/partitions.bin dist/LoRaTraceRX-dev-partitions.bin
+          boot_app0="$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -n1)"
+          cp "$boot_app0" dist/LoRaTraceRX-dev-boot_app0.bin
+
       - name: Update rolling dev release
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: softprops/action-gh-release@v2
@@ -108,4 +119,4 @@ jobs:
             Stable download link (always the current main):
             https://github.com/${{ github.repository }}/releases/download/dev-latest/LoRaTraceRX-dev.bin
           prerelease: true
-          files: dist/LoRaTraceRX-dev.bin
+          files: dist/LoRaTraceRX-dev*.bin
