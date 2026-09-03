@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - "v*.*.*"
+  # Lets an already-tagged release be rebuilt manually (Actions tab -> Release
+  # -> Run workflow -> pick the vX.Y.Z tag as the ref) to backfill assets a
+  # workflow change added after that release was first created — e.g. the
+  # bootloader/partitions/boot_app0 parts pages.yml needs, added after v1.0.0
+  # had already shipped with only the app binary. `draft` below is
+  # conditioned on this vs. the tag-push trigger specifically so re-running
+  # it against an already-published release can't silently revert it to
+  # draft.
+  workflow_dispatch:
 
 permissions:
   contents: write # needed to publish the release
@@ -66,5 +75,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/LoRaTraceRX-${{ github.ref_name }}*.bin
-          draft: true
+          draft: ${{ github.event_name != 'workflow_dispatch' }}
           generate_release_notes: true
