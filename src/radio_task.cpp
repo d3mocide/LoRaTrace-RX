@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <RadioLib.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 
 #include "board_pins.h"
@@ -91,8 +92,26 @@ volatile EnergySweepState energyState = EnergySweepState::IDLE;
 volatile uint16_t energyPeakCount = 0;
 // Bit N set if bin N was a peak in the most recent sweep — a UI-facing
 // occupancy sketch, not acquisition state (Pass A never reads this back).
-// 28 bytes covers ENERGY_BIN_RESERVED_COUNT's full 224 bits.
+// 28 bytes covers ENERGY_BIN_RESERVED_COUNT's full 224 bits. Live: reset at
+// the top of performEnergySweep() and filled in bin-by-bin as the scan
+// progresses, so drawSweepOccupancy() (ui_pages.cpp) can render ticks
+// appearing progressively during an active sweep.
 uint8_t energyPeakBinMask[28] = {};
+// A stable copy of the mask above, taken once a sweep finishes (right where
+// energySweepCount++ fires) — analyzer_state.cpp's analyzerNoteSweepComplete()
+// reads this one instead, not the live mask. Necessary because in repeat
+// mode radio_task's own do-while loops straight back into
+// performEnergySweep() for the next lap, whose first line resets the live
+// mask -- with no delay before that reset, logger_task's ~100ms cross-core
+// poll of radioEnergySweepCount() (Core 0) almost always lost that race
+// against Core 1, so every Waterfall row in repeat mode read an
+// already-cleared mask and reported quiet regardless of what Pass A
+// actually found (found live on hardware 2026-09-03: PBA=50 cumulative
+// Pass-B triggers over a repeat run, Waterfall showing nothing the whole
+// time). energy.csv itself was never affected -- enqueueEnergyObservation()
+// pushes each peak to a queue the instant Pass A finds it, mid-sweep,
+// independent of this mask entirely.
+uint8_t energyPeakBinMaskAtComplete[28] = {};
 // The strongest peak observed this sweep, for the UI's single "most
 // interesting thing found" callout — cheap to keep (one float + one
 // int16) precisely because it's a running max, not a per-bin history.
@@ -161,6 +180,27 @@ volatile uint32_t cellFailureCount = 0;
 volatile uint32_t cellRecoveryCount = 0;
 volatile uint32_t cellLastAwayMs = 0;
 
+// Field Analyzer Scope (Phase 10, docs/research/LoRaTrace-Phases-7-10-
+// Design.md §8.2/§8.4): mirrors Cell/Sweep/Probe's one-slot-mailbox-plus-
+// cancellation-flag shape (see the discovery*/energy*/cell* blocks above).
+// Mutual exclusion with Probe/Sweep/Cell is enforced in
+// radioRequestScopeAcquire(), not here. Unlike those three, its result
+// isn't a small POD read after the fact — it's a live-growing ScopeTrace
+// another task reads mid-acquisition (§8.4's "UI copies a snapshot"), so it
+// needs its own mutex — gps_task.cpp's fixMutex/sharedFix shape exactly.
+QueueHandle_t scopeAcquireQueue = nullptr;
+volatile bool scopeActive = false;
+volatile bool scopeCancelRequested = false;
+volatile ScopeAcquireState scopeState = ScopeAcquireState::IDLE;
+SemaphoreHandle_t scopeTraceMutex = nullptr;
+ScopeTrace sharedScopeTrace; // guarded by scopeTraceMutex
+
+volatile uint32_t scopeAcquireCount = 0;
+volatile uint32_t scopeCancelCount = 0;
+volatile uint32_t scopeFailureCount = 0;
+volatile uint32_t scopeRecoveryCount = 0;
+volatile uint32_t scopeLastAwayMs = 0;
+
 // Bench-only on-demand single-combo CAD trigger (research/
 // phase9-sweep-pass-b-design.md's false-positive-vs-SF bench matrix). One-
 // slot mailbox holding a PASS_B_SF_BW_CANDIDATES index, same shape as
@@ -201,6 +241,11 @@ constexpr uint32_t DISCOVERY_RX_WINDOW_MS = 2500;
 // own CAD sweep already established as a reasonable bounded-scan duration.
 constexpr uint8_t ENERGY_SAMPLES_PER_BIN = 4;
 constexpr uint32_t ENERGY_SAMPLE_INTERVAL_MS = 1;
+// One full trace per bounded Scope acquisition: SCOPE_MAX_SAMPLES samples
+// at this spacing is ~4.8s — in the same few-second bounded-scan range
+// Cell/Sweep/Probe already established as reasonable for a field
+// instrument.
+constexpr uint32_t SCOPE_SAMPLE_INTERVAL_MS = 20;
 
 uint8_t discoveryCadSymbolConfig() {
     switch (benchCadSymbols()) {
@@ -426,6 +471,13 @@ bool cellAbortPending() {
     return false;
 }
 
+bool scopeAbortPending() {
+    if (scopeCancelRequested) return true;
+    if (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) return true;
+    if (pauseQueue != nullptr && uxQueueMessagesWaiting(pauseQueue) > 0) return true;
+    return false;
+}
+
 // Every bin, not peak-filtered — see cell_observation.h's file header for
 // why Cell doesn't borrow ENERGY_SWEEP's calibrated threshold. 101
 // bins/sweep keeps this an honest, modest CSV rather than a RAM concern.
@@ -513,7 +565,7 @@ bool restoreHomeListen(const ChannelParams &homeChannel, MissionProfile homeProf
 }
 
 void performDiscoverySweep() {
-    if (discoveryActive || cellActive) return;
+    if (discoveryActive || cellActive || scopeActive) return;
 
     discoveryActive = true;
     discoveryState = DiscoverySweepState::RUNNING;
@@ -970,7 +1022,7 @@ void performBenchRssiWindow(uint32_t freq_khz) {
 // flags a bin as a peak, up to PASS_B_MAX_PEAKS_PER_SWEEP peaks per run.
 // Home is restored on every exit path either way.
 void performEnergySweep() {
-    if (energyActive || discoveryActive || cellActive) return;
+    if (energyActive || discoveryActive || cellActive || scopeActive) return;
 
     energyActive = true;
     energyState = EnergySweepState::RUNNING;
@@ -1117,6 +1169,12 @@ void performEnergySweep() {
     if (requestPending && radioTaskHandle != nullptr) xTaskNotifyGive(radioTaskHandle);
     if (!restored) failed = true;
 
+    // Snapshot before energySweepCount++ becomes visible to logger_task
+    // (Core 0) -- see energyPeakBinMaskAtComplete's own comment above for
+    // why this can't just be the live mask.
+    for (size_t i = 0; i < sizeof(energyPeakBinMask); i++) {
+        energyPeakBinMaskAtComplete[i] = energyPeakBinMask[i];
+    }
     energySweepCount++;
     if (aborted || energyCancelRequested) energyCancelCount++;
     if (failed) energyFailureCount++;
@@ -1135,7 +1193,7 @@ void performEnergySweep() {
 // exit-path shape as performEnergySweep(), scoped to cell_plan.h's 101-bin
 // 869-894MHz band instead of the full front end.
 void performCellSweep() {
-    if (cellActive || discoveryActive || energyActive) return;
+    if (cellActive || discoveryActive || energyActive || scopeActive) return;
 
     cellActive = true;
     cellState = CellSweepState::RUNNING;
@@ -1231,6 +1289,98 @@ void performCellSweep() {
                                                            : CellSweepState::COMPLETE);
     cellCancelRequested = false;
     cellActive = false;
+}
+
+// Field Analyzer's Scope view (docs/research/LoRaTrace-Phases-7-10-
+// Design.md §8.2/§8.4): parks the radio at freq_khz, same way
+// performBenchRssiWindow() does, but pushes every sample into
+// sharedScopeTrace under scopeTraceMutex instead of only keeping a running
+// aggregate — the Scope view needs the actual time series, not a summary.
+// Same bus-lock/abort-pending/home-restore-on-every-exit-path shape as
+// performCellSweep() above.
+void performScopeAcquire(uint32_t freq_khz) {
+    if (scopeActive || discoveryActive || energyActive || cellActive) return;
+
+    scopeActive = true;
+    scopeState = ScopeAcquireState::RUNNING;
+    scopeCancelRequested = false;
+    const uint32_t awayStarted = millis();
+    const ChannelParams homeChannel = activeChannel;
+    const MissionProfile homeProfile = activeProfile;
+    const float freq = (float)freq_khz / 1000.0f;
+    bool failed = false;
+
+    // A notification may be left by the home RX IRQ that woke the task to
+    // service the Scope request — same reasoning as Probe/Sweep/Cell's own
+    // discard.
+    ulTaskNotifyTake(pdTRUE, 0);
+
+    if (xSemaphoreTake(scopeTraceMutex, portMAX_DELAY) == pdTRUE) {
+        scopeTraceReset(sharedScopeTrace, freq, (uint16_t)SCOPE_SAMPLE_INTERVAL_MS, awayStarted);
+        xSemaphoreGive(scopeTraceMutex);
+    }
+
+    bool tuned = false;
+    {
+        SpiBusLock lock(BUS_WAIT);
+        if (!lock.held()) {
+            busMissCount++;
+            failed = true;
+        } else {
+            const int beginState = radio.begin(freq, homeChannel.bw_khz, homeChannel.sf,
+                                                homeChannel.cr_denom, homeChannel.sync_word);
+            if (beginState == RADIOLIB_ERR_NONE) {
+                lastError = radio.startReceive();
+                tuned = (lastError == RADIOLIB_ERR_NONE);
+                failed = !tuned;
+            } else {
+                lastError = beginState;
+                failed = true;
+            }
+        }
+    }
+
+    bool aborted = false;
+    if (tuned) {
+        for (uint16_t s = 0; s < SCOPE_MAX_SAMPLES; s++) {
+            if (scopeAbortPending()) {
+                aborted = true;
+                break;
+            }
+            {
+                SpiBusLock lock(BUS_WAIT);
+                if (lock.held()) {
+                    const float rssi = radio.getRSSI(false); // instantaneous, not last-packet
+                    if (xSemaphoreTake(scopeTraceMutex, BUS_WAIT) == pdTRUE) {
+                        scopeTracePush(sharedScopeTrace, rssi);
+                        xSemaphoreGive(scopeTraceMutex);
+                    }
+                } else {
+                    busMissCount++;
+                }
+            }
+            vTaskDelay(pdMS_TO_TICKS(SCOPE_SAMPLE_INTERVAL_MS));
+        }
+    }
+
+    const bool requestPending =
+        (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) ||
+        (pauseQueue != nullptr && uxQueueMessagesWaiting(pauseQueue) > 0);
+    ulTaskNotifyTake(pdTRUE, 0);
+    const bool restored = restoreHomeListen(homeChannel, homeProfile);
+    if (requestPending && radioTaskHandle != nullptr) xTaskNotifyGive(radioTaskHandle);
+    if (!restored) failed = true;
+
+    scopeAcquireCount++;
+    if (aborted || scopeCancelRequested) scopeCancelCount++;
+    if (failed) scopeFailureCount++;
+    if (restored) scopeRecoveryCount++;
+    scopeLastAwayMs = millis() - awayStarted;
+    scopeState = failed ? ScopeAcquireState::FAILED
+                        : (aborted || scopeCancelRequested ? ScopeAcquireState::CANCELLED
+                                                            : ScopeAcquireState::COMPLETE);
+    scopeCancelRequested = false;
+    scopeActive = false;
 }
 
 void radioTask(void *) {
@@ -1341,6 +1491,17 @@ void radioTask(void *) {
             continue;
         }
 
+        uint32_t scopeReqFreqKhz;
+        if (scopeAcquireQueue != nullptr &&
+            xQueueReceive(scopeAcquireQueue, &scopeReqFreqKhz, 0) == pdTRUE) {
+            // No repeat mode (design doc doesn't call for one, and operator
+            // decision on Cell/Sweep's own repeat was "Repeat only on the
+            // Sweeps") — a UI wanting a continuously-refreshing Scope just
+            // re-requests after each COMPLETE (ui_task.cpp, Stage 3).
+            if (!paused) performScopeAcquire(scopeReqFreqKhz);
+            continue;
+        }
+
         uint8_t benchPassBCadComboIndex;
         if (benchPassBCadQueue != nullptr &&
             xQueueReceive(benchPassBCadQueue, &benchPassBCadComboIndex, 0) == pdTRUE) {
@@ -1420,6 +1581,14 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
 
     cellSweepQueue = xQueueCreate(1, sizeof(bool));
     if (cellSweepQueue == nullptr) return false;
+
+    scopeAcquireQueue = xQueueCreate(1, sizeof(uint32_t));
+    if (scopeAcquireQueue == nullptr) return false;
+
+    if (scopeTraceMutex == nullptr) {
+        scopeTraceMutex = xSemaphoreCreateMutex();
+        if (scopeTraceMutex == nullptr) return false;
+    }
 
     benchPassBCadQueue = xQueueCreate(1, sizeof(uint8_t));
     if (benchPassBCadQueue == nullptr) return false;
@@ -1584,10 +1753,11 @@ bool radioRequestDiscoverySweep() {
         xTaskNotifyGive(radioTaskHandle);
         return true;
     }
-    // Mutually exclusive with Sweep and Cell (docs/DESIGN.md §5) —
+    // Mutually exclusive with Sweep, Cell, and Scope (docs/DESIGN.md §5) —
     // none can preempt another; see radioRequestEnergySweep()'s/
-    // radioRequestCellSweep()'s matching guards.
-    if (tracePaused || energyActive || cellActive) return false;
+    // radioRequestCellSweep()'s/radioRequestScopeAcquire()'s matching
+    // guards.
+    if (tracePaused || energyActive || cellActive || scopeActive) return false;
     const bool start = true;
     xQueueOverwrite(discoveryQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -1605,7 +1775,7 @@ bool radioRequestEnergySweep() {
         xTaskNotifyGive(radioTaskHandle);
         return true;
     }
-    if (tracePaused || discoveryActive || cellActive) return false;
+    if (tracePaused || discoveryActive || cellActive || scopeActive) return false;
     const bool start = true;
     xQueueOverwrite(energySweepQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -1634,7 +1804,7 @@ bool radioRequestEnergySweepRepeat() {
         }
         return true;
     }
-    if (energyActive || tracePaused || discoveryActive || cellActive) return false;
+    if (energyActive || tracePaused || discoveryActive || cellActive || scopeActive) return false;
     energyRepeatActive = true;
     energyRepeatCount = 0;
     const bool start = true;
@@ -1663,7 +1833,9 @@ bool radioRequestBenchPassBCadTrigger(uint8_t comboIndex) {
     if (!benchPassBCadTriggerAllowed()) return false;
     if (radioTaskHandle == nullptr || benchPassBCadQueue == nullptr) return false;
     if (comboIndex >= PASS_B_SF_BW_CANDIDATE_COUNT) return false;
-    if (benchPassBCadActive || energyActive || discoveryActive || tracePaused) return false;
+    if (benchPassBCadActive || energyActive || discoveryActive || tracePaused || scopeActive) {
+        return false;
+    }
     xQueueOverwrite(benchPassBCadQueue, &comboIndex);
     xTaskNotifyGive(radioTaskHandle);
     return true;
@@ -1678,7 +1850,7 @@ bool radioRequestBenchRssiWindow(uint32_t freq_khz) {
     if (radioTaskHandle == nullptr || benchRssiWindowQueue == nullptr) return false;
     if (freq_khz < 860000UL || freq_khz > 930000UL) return false;
     if (benchRssiWindowActive || benchPassBCadActive || energyActive || discoveryActive ||
-        cellActive || tracePaused) {
+        cellActive || tracePaused || scopeActive) {
         return false;
     }
     xQueueOverwrite(benchRssiWindowQueue, &freq_khz);
@@ -1714,6 +1886,11 @@ uint16_t radioEnergyPeakCount() {
 bool radioEnergyPeakBinSet(uint16_t bin) {
     if (bin >= sizeof(energyPeakBinMask) * 8) return false;
     return (energyPeakBinMask[bin / 8] & (uint8_t)(1U << (bin % 8))) != 0;
+}
+
+bool radioEnergyPeakBinSetAtLastComplete(uint16_t bin) {
+    if (bin >= sizeof(energyPeakBinMaskAtComplete) * 8) return false;
+    return (energyPeakBinMaskAtComplete[bin / 8] & (uint8_t)(1U << (bin % 8))) != 0;
 }
 
 EnergyStrongestPeak radioEnergyStrongestPeak() {
@@ -1771,9 +1948,9 @@ bool radioRequestCellSweep() {
         xTaskNotifyGive(radioTaskHandle);
         return true;
     }
-    // Mutually exclusive with Probe and Sweep — same convention as their
-    // own guards above.
-    if (tracePaused || discoveryActive || energyActive) return false;
+    // Mutually exclusive with Probe, Sweep, and Scope — same convention as
+    // their own guards above.
+    if (tracePaused || discoveryActive || energyActive || scopeActive) return false;
     const bool start = true;
     xQueueOverwrite(cellSweepQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -1799,7 +1976,7 @@ bool radioRequestCellSweepRepeat() {
         }
         return true;
     }
-    if (cellActive || tracePaused || discoveryActive || energyActive) return false;
+    if (cellActive || tracePaused || discoveryActive || energyActive || scopeActive) return false;
     cellRepeatActive = true;
     cellRepeatCount = 0;
     const bool start = true;
@@ -1862,4 +2039,55 @@ uint32_t radioCellRecoveryCount() {
 
 uint32_t radioCellLastAwayMs() {
     return cellLastAwayMs;
+}
+
+bool radioRequestScopeAcquire(uint32_t freq_khz) {
+    if (radioTaskHandle == nullptr || scopeAcquireQueue == nullptr) return false;
+    if (scopeActive) {
+        scopeCancelRequested = true;
+        xTaskNotifyGive(radioTaskHandle);
+        return true;
+    }
+    // Mutually exclusive with Probe, Sweep, and Cell — same convention as
+    // their own guards above.
+    if (tracePaused || discoveryActive || energyActive || cellActive) return false;
+    xQueueOverwrite(scopeAcquireQueue, &freq_khz);
+    xTaskNotifyGive(radioTaskHandle);
+    return true;
+}
+
+bool radioScopeAcquireIsActive() {
+    return scopeActive;
+}
+
+ScopeAcquireState radioScopeAcquireState() {
+    return scopeState;
+}
+
+bool radioScopeTraceSnapshot(ScopeTrace &out, TickType_t timeout) {
+    if (scopeTraceMutex == nullptr) return false;
+    if (xSemaphoreTake(scopeTraceMutex, timeout) != pdTRUE) return false;
+    out = sharedScopeTrace;
+    xSemaphoreGive(scopeTraceMutex);
+    return true;
+}
+
+uint32_t radioScopeAcquireCount() {
+    return scopeAcquireCount;
+}
+
+uint32_t radioScopeCancelCount() {
+    return scopeCancelCount;
+}
+
+uint32_t radioScopeFailureCount() {
+    return scopeFailureCount;
+}
+
+uint32_t radioScopeRecoveryCount() {
+    return scopeRecoveryCount;
+}
+
+uint32_t radioScopeLastAwayMs() {
+    return scopeLastAwayMs;
 }

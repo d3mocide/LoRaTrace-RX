@@ -152,6 +152,21 @@ void fireMenuAction(MenuAction action) {
             }
             break;
         }
+        case MenuAction::WATERFALL_SWEEP_REPEAT_TOGGLE: {
+            // Same radioRequestEnergySweepRepeat() call as SWEEP_REPEAT_TOGGLE
+            // above, deliberately without its showSweepResults() — see
+            // ui_menu.h's own comment on this action for why staying on
+            // Waterfall, not jumping to the Sweep card, is the whole point.
+            const bool stopping = radioEnergySweepRepeatIsActive();
+            if (!stopping && !loggerSdReady()) {
+                showToast("Sweep: SD REQUIRED");
+            } else if (radioRequestEnergySweepRepeat()) {
+                showToast(stopping ? "Sweep: REPEAT OFF" : "Sweep: REPEAT ON");
+            } else {
+                showToast("Sweep: UNAVAILABLE");
+            }
+            break;
+        }
         case MenuAction::CELL_TOGGLE: {
             // Same non-blocking radio-task-owned shape as Probe/Sweep above,
             // including the dedicated results card (Phase 11, 2026-09-01).
@@ -223,6 +238,44 @@ void fireMenuAction(MenuAction action) {
             settings.brightness_pct = activeBrightnessPercent;
             settings.idle_timeout_index = idleTimeoutIndex;
             writeDisplaySettingsToSD(settings);
+            break;
+        }
+        case MenuAction::OPEN_PROBE:
+            showProbeResults();
+            break;
+        case MenuAction::OPEN_SWEEP:
+            showSweepResults();
+            break;
+        case MenuAction::OPEN_CELL:
+            showCellResults();
+            break;
+        case MenuAction::OPEN_METER:
+            showMeterPage();
+            break;
+        case MenuAction::OPEN_WATERFALL:
+            showWaterfallPage();
+            break;
+        case MenuAction::OPEN_SCOPE:
+            showScopePage();
+            break;
+        case MenuAction::OPEN_CAPTURES:
+            showCapturesPage();
+            break;
+        case MenuAction::OPEN_NODES:
+            showNodesPage();
+            break;
+        case MenuAction::SCOPE_TOGGLE: {
+            // Same non-blocking radio-task-owned shape as Probe/Sweep/Cell
+            // above, minus their SD-required gate: a capture never writes
+            // to SD, only the in-RAM ScopeTrace (scope_trace.h).
+            const bool cancelling = radioScopeAcquireIsActive();
+            const ChannelParams ch = radioActiveChannel();
+            const uint32_t freqKhz = (uint32_t)(ch.freq_mhz * 1000.0f + 0.5f);
+            if (radioRequestScopeAcquire(freqKhz)) {
+                showToast(cancelling ? "Scope: CANCEL" : "Scope: START");
+            } else {
+                showToast("Scope: UNAVAILABLE");
+            }
             break;
         }
         case MenuAction::REGION_CYCLE: {

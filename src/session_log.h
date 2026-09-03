@@ -142,6 +142,17 @@ struct SessionStats {
     uint32_t cell_failures = 0;
     uint32_t cell_recoveries = 0;
     uint32_t cell_last_away_ms = 0;
+
+    // Phase 10 Field Analyzer's own one memory number (docs/research/
+    // LoRaTrace-Phases-7-10-Design.md §9: "analyzer_static_bytes reported
+    // once per build/run") — total static storage WaterfallHistory/
+    // ScopeTrace/CaptureHistory/NodeRoster commit, against the design
+    // doc's 8,192-byte ceiling (§8.3). A compile-time constant
+    // (analyzer_state.h's ANALYZER_STATIC_BYTES), not something that
+    // varies run to run — reported on every row anyway (cheap) so it
+    // survives a mid-run pull off the card without needing the boot row
+    // specifically.
+    uint32_t analyzer_static_bytes = 0;
 };
 
 // Column order for each run's session.csv. One string so the header row and
@@ -160,7 +171,7 @@ constexpr const char *SESSION_CSV_HEADER =
     "probe_timeouts,probe_failures,probe_recoveries,probe_last_away_ms,"
     "identities_decoded,identity_drops,"
     "cell_observations,cell_observation_drops,cell_runs,cell_cancels,"
-    "cell_failures,cell_recoveries,cell_last_away_ms";
+    "cell_failures,cell_recoveries,cell_last_away_ms,analyzer_static_bytes";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
 // detectionFormatTimestamp() the detection rows use, and is empty before
@@ -194,7 +205,8 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
-                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu",
+                     "%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
+                     "%lu",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -248,7 +260,8 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.cell_cancels,
                      (unsigned long)s.cell_failures,
                      (unsigned long)s.cell_recoveries,
-                     (unsigned long)s.cell_last_away_ms);
+                     (unsigned long)s.cell_last_away_ms,
+                     (unsigned long)s.analyzer_static_bytes);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

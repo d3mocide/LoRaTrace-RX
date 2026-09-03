@@ -67,6 +67,27 @@
 // keyboard.h's KEY_RAW_7_PRESS). Values are unnumbered on purpose so this
 // insertion is the only edit needed here; every downstream digit/JUMP
 // mapping lives in ui_task.cpp/keyboard.h instead.
+// ANALYZE appended after SYSTEM (Phase 10, docs/research/
+// LoRaTrace-Phases-7-10-Design.md §8); TOOLS appended after that (operator
+// request, 2026-09-04: "condense down our UI cards" — apply the same hub
+// pattern to Probe/Sweep/Cell). Neither insertion moved an existing enum
+// value — ui_task.cpp's own main-carousel order is a small explicit
+// MAIN_PAGES[] array now, not enum-value adjacency, specifically so a hub
+// can be added without renumbering anything else here.
+//
+// The *operator-facing* main carousel is six stops: Radio, Tools, Analyze,
+// Channel, GPS, System (JUMP_1..6) — PROBE/SWEEP/CELL and METER/WATERFALL/
+// SCOPE/CAPTURES/NODES are real UiPage values (each still needs its own
+// draw function and footer identity) but are gated behind their hub, same
+// shape for both: not part of the main carousel's own PREV/NEXT loop
+// (ui_task.cpp's nextPage()/prevPage() stop at the hub); reachable by
+// SELECTing a row on the hub (or a direct JUMP_n to a *different* main
+// page, or — Probe/Sweep/Cell only — the P/S/C global hotkeys, unchanged
+// by any of this and still the primary way to trigger them in the field);
+// once inside, PREV/NEXT still page the main carousel (never trapped —
+// this project's own house lesson, see nextPage()'s comment), UP/DOWN
+// cycle the other pages in that same hub, and BACK returns to the hub one
+// level at a time, same convention ui_menu.h's own BACK already uses.
 enum class UiPage : uint8_t {
     RADIO = 0,
     PROBE,
@@ -75,6 +96,13 @@ enum class UiPage : uint8_t {
     CHANNEL,
     GPS,
     SYSTEM,
+    ANALYZE,
+    METER,
+    WATERFALL,
+    SCOPE,
+    CAPTURES,
+    NODES,
+    TOOLS,
     COUNT,
 };
 

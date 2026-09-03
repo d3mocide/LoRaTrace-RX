@@ -3,8 +3,8 @@
 // unrelated key on the board fire a menu action. Runs on the host (`pio test
 // -e native`), no hardware needed — see platformio.ini [env:native].
 //
-// The seventeen raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
-// backtick/ESC, seven digit-jump keys, P/Probe, S/Sweep, R/repeat, and
+// The sixteen raw press bytes here (Enter, Comma/Semicolon, Period/Slash,
+// backtick/ESC, six digit-jump keys, P/Probe, S/Sweep, R/repeat, and
 // C/Cell) are the ones keyboard.h derives and cites; this test doesn't re-derive
 // them, it pins them so a future edit can't silently drift off the sourced
 // values. It also round-trips each one through keyboardPhysicalPosition() —
@@ -21,20 +21,24 @@ void test_comma_is_prev() {
     TEST_ASSERT_TRUE(KeyAction::PREV == keyboardDecodeEvent(KEY_RAW_COMMA_PRESS));
 }
 
-// Semicolon is the Fn-arrow diamond's "up" key, an alias for the same PREV
-// the carousel/menu already use via Comma ("left") — added after bench
-// testing found it didn't do anything, unlike Comma/Period which already
-// worked by virtue of being in the original four.
-void test_semicolon_is_prev() {
-    TEST_ASSERT_TRUE(KeyAction::PREV == keyboardDecodeEvent(KEY_RAW_SEMICOLON_PRESS));
+// Semicolon is the Fn-arrow diamond's "up" key. Originally an alias for
+// PREV (Phase 5); split into its own UP action (2026-09-03) once the
+// Analyze hub needed left/right and up/down to mean different things —
+// see KeyAction::UP's own comment in keyboard.h.
+void test_semicolon_is_up() {
+    TEST_ASSERT_TRUE(KeyAction::UP == keyboardDecodeEvent(KEY_RAW_SEMICOLON_PRESS));
 }
 
-void test_period_is_next() {
-    TEST_ASSERT_TRUE(KeyAction::NEXT == keyboardDecodeEvent(KEY_RAW_PERIOD_PRESS));
+// Period is the Fn-arrow diamond's "down" key — same split as Semicolon
+// above, off of NEXT.
+void test_period_is_down() {
+    TEST_ASSERT_TRUE(KeyAction::DOWN == keyboardDecodeEvent(KEY_RAW_PERIOD_PRESS));
 }
 
-// Slash is the Fn-arrow diamond's "right" key, an alias for the same NEXT
-// Period ("down") already triggers.
+// Slash is the Fn-arrow diamond's "right" key, the same fixed physical
+// pairing with Comma ("left" -> PREV) as NEXT — unlike Period/Semicolon
+// (the "down"/"up" pair), this pairing was never split off (see
+// KeyAction::PREV's comment in keyboard.h for why left/right stayed fixed).
 void test_slash_is_next() {
     TEST_ASSERT_TRUE(KeyAction::NEXT == keyboardDecodeEvent(KEY_RAW_SLASH_PRESS));
 }
@@ -63,7 +67,6 @@ void test_digits_are_jumps() {
     TEST_ASSERT_TRUE(KeyAction::JUMP_4 == keyboardDecodeEvent(KEY_RAW_4_PRESS));
     TEST_ASSERT_TRUE(KeyAction::JUMP_5 == keyboardDecodeEvent(KEY_RAW_5_PRESS));
     TEST_ASSERT_TRUE(KeyAction::JUMP_6 == keyboardDecodeEvent(KEY_RAW_6_PRESS));
-    TEST_ASSERT_TRUE(KeyAction::JUMP_7 == keyboardDecodeEvent(KEY_RAW_7_PRESS));
 }
 
 void test_p_is_probe_shortcut() {
@@ -111,7 +114,6 @@ void test_every_mapped_key_round_trips_to_its_documented_position() {
     assertPosition(KEY_RAW_4_PRESS, 0, 4);
     assertPosition(KEY_RAW_5_PRESS, 0, 5);
     assertPosition(KEY_RAW_6_PRESS, 0, 6);
-    assertPosition(KEY_RAW_7_PRESS, 0, 7);
     assertPosition(KEY_RAW_R_PRESS, 1, 4);
     assertPosition(KEY_RAW_P_PRESS, 1, 10);
     assertPosition(KEY_RAW_S_PRESS, 2, 3);
@@ -164,7 +166,6 @@ void test_release_events_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_4_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_5_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_6_PRESS + 0x80));
-    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_7_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_P_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_S_PRESS + 0x80));
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(KEY_RAW_R_PRESS + 0x80));
@@ -182,10 +183,14 @@ void test_unrelated_keys_are_ignored() {
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(6));  // 'q'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(13)); // 'a'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(68)); // Space
-    // The rest of the digit row, immediately adjacent to '1'-'7' in the
-    // allowlist (row 0, col 8-10; col 7/'7' moved INTO the allowlist as
-    // JUMP_7, Phase 11 — see test_digits_are_jumps()) — the boundary most
-    // likely to catch an off-by-one in the jump keys' derivation.
+    // The rest of the digit row, immediately adjacent to '1'-'6' in the
+    // allowlist (row 0, col 7-10) — the boundary most likely to catch an
+    // off-by-one in the jump keys' derivation. '7' (K=35) and '8' (K=41)
+    // briefly carried CELL's and then Analyze's own digit-jump (Phase 11,
+    // Phase 10) and are back to unmapped as of 2026-09-04, when Tools
+    // shrank the main carousel to six stops — see keyboard.h's own comment
+    // on KEY_RAW_6_PRESS.
+    TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(35)); // '7'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(41)); // '8'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(45)); // '9'
     TEST_ASSERT_TRUE(KeyAction::NONE == keyboardDecodeEvent(51)); // '0'
@@ -208,8 +213,8 @@ void test_zero_is_no_event() {
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_comma_is_prev);
-    RUN_TEST(test_semicolon_is_prev);
-    RUN_TEST(test_period_is_next);
+    RUN_TEST(test_semicolon_is_up);
+    RUN_TEST(test_period_is_down);
     RUN_TEST(test_slash_is_next);
     RUN_TEST(test_enter_is_select);
     RUN_TEST(test_esc_is_back);

@@ -26,6 +26,7 @@
 #include "node_identity.h"
 #include "region_plan.h"
 #include "scan_observation.h"
+#include "scope_trace.h"
 
 // Starts the SX1262 on `channel`/`profile` and launches the task on Core 1.
 // `queue` receives Detection structs, `scanQueue` receives fixed CAD
@@ -154,8 +155,25 @@ uint16_t radioEnergyPeakCount();
 // True if `bin` was logged as a peak during the most recent sweep — a
 // UI-facing occupancy sketch (e.g. tick marks along a frequency bar), not
 // acquisition state. Always false for a bin index outside the current
-// sweep's fixed 224-bit mask.
+// sweep's fixed 224-bit mask. Live: updated bin-by-bin as a sweep
+// progresses, so it can only be read safely from radio_task's own core
+// (ui_pages.cpp's drawSweepOccupancy(), which draws on the same page a
+// Sweep is actively running from). A cross-core consumer wanting a stable
+// per-completed-sweep result must use radioEnergyPeakBinSetAtLastComplete()
+// below instead — see its own comment for why.
 bool radioEnergyPeakBinSet(uint16_t bin);
+
+// Same bit-per-bin meaning as radioEnergyPeakBinSet() above, but reading a
+// snapshot taken once, atomically with energySweepCount++, when a sweep
+// finishes -- stable until the *next* sweep finishes, not reset the moment
+// the next one starts. analyzer_state.cpp's analyzerNoteSweepComplete()
+// (Core 0, cross-core from radio_task's Core 1) must use this one: reading
+// the live mask instead raced radio_task's repeat-mode do-while, which
+// resets it at the very start of the next lap with no delay -- Waterfall
+// rows in repeat mode read an already-cleared mask almost every time,
+// reporting quiet regardless of what Pass A actually found (found on real
+// hardware 2026-09-03, fixed the same day).
+bool radioEnergyPeakBinSetAtLastComplete(uint16_t bin);
 
 // The strongest peak observed during the most recent sweep, for a single
 // "most interesting thing found" UI callout. `valid` is false until at
@@ -273,6 +291,41 @@ uint32_t radioCellCancelCount();
 uint32_t radioCellFailureCount();
 uint32_t radioCellRecoveryCount();
 uint32_t radioCellLastAwayMs();
+
+// Field Analyzer's Scope view (Phase 10, docs/research/
+// LoRaTrace-Phases-7-10-Design.md §8.2/§8.4): a bounded, radio-owned
+// acquisition that samples RSSI continuously at one explicitly displayed
+// frequency and fills a live ScopeTrace (scope_trace.h), restoring Watch
+// on every exit path. Same one-slot-mailbox, never-blocks, mutually-
+// exclusive-with-Probe/Sweep/Cell contract as radioRequestCellSweep()
+// above. Calling it while active requests cancellation, same convention as
+// the other three. freq_khz, not a float, matches
+// radioRequestBenchRssiWindow()'s own integer-kHz convention for a
+// UI-selected frequency.
+bool radioRequestScopeAcquire(uint32_t freq_khz);
+bool radioScopeAcquireIsActive();
+
+enum class ScopeAcquireState : uint8_t {
+    IDLE,
+    RUNNING,
+    COMPLETE,
+    CANCELLED,
+    FAILED,
+};
+ScopeAcquireState radioScopeAcquireState();
+
+// Copies the live trace under a short mutex (§8.4: "The UI copies a small
+// snapshot under a short critical section or mutex, then renders after
+// releasing it") — safe to call from ui_task while the radio task is still
+// writing to it. Returns false if the mutex couldn't be taken within
+// `timeout`.
+bool radioScopeTraceSnapshot(ScopeTrace &out, TickType_t timeout = pdMS_TO_TICKS(250));
+
+uint32_t radioScopeAcquireCount();
+uint32_t radioScopeCancelCount();
+uint32_t radioScopeFailureCount();
+uint32_t radioScopeRecoveryCount();
+uint32_t radioScopeLastAwayMs();
 
 // --- Diagnostics -------------------------------------------------------
 // Exposed because Phase 2's exit criterion is "no dropped packets

@@ -27,6 +27,7 @@
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 
+#include "analyzer_state.h"
 #include "backlight.h"
 #include "battery.h"
 #include "board_pins.h"
@@ -408,6 +409,13 @@ void setup() {
         if (lock.held()) {
             Serial.println(F("WARN: GPS task failed to start — detections will log without position."));
         }
+    }
+
+    // Field Analyzer's derived-state layer (Phase 10) — must exist before
+    // loggerTaskStart() below, which is its only writer from its very first
+    // dequeued Detection.
+    if (!analyzerStateInit()) {
+        fatal(F("FATAL: could not create the analyzer state mutex."), F("FATAL: analyzer state"));
     }
 
     if (!loggerTaskStart(detectionQueue, scanObservationQueue, energyObservationQueue, identityQueue,

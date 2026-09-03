@@ -43,6 +43,12 @@ bool keyboardReady = false;
 
 UiPage page = UiPage::RADIO;
 
+// Analyze hub's own row selection (Phase 10) — see ui_task_shared.h.
+uint8_t analyzeHubIndex = 0;
+// Tools hub's own row selection (operator request, 2026-09-04) — same
+// contract, ui_task_shared.h.
+uint8_t toolsHubIndex = 0;
+
 // Toast layer: a brief overlay message for feedback not tied to whichever
 // menu row is highlighted (e.g. confirming a toggle right before BACK
 // leaves the menu). Static buffer, no heap allocation.
@@ -54,6 +60,7 @@ uint32_t toastShownAt = 0;
 uint32_t probeTerminalShownAt = 0;
 uint32_t sweepTerminalShownAt = 0;
 uint32_t cellTerminalShownAt = 0;
+uint32_t scopeTerminalShownAt = 0;
 
 // activeBrightnessPercent is the operator's chosen level (5-100) — what
 // idle-dim restores to on the next keypress, not necessarily what the
@@ -155,6 +162,15 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
 // dedicated cards also expose them through Enter — same "no duplicate entry
 // point" convention for all three (Cell joined this shape Phase 11,
 // 2026-09-01, having briefly had its own root row in an earlier revision).
+// Tools and Analyze *did* each briefly have their own root row
+// (MenuAction::OPEN_TOOLS/OPEN_ANALYZE), but both are ordinary main-
+// carousel stops now — reachable by plain prev/next paging or JUMP_2/
+// JUMP_3 the same as Channel/GPS/System already are — so a menu shortcut to
+// them became exactly the "duplicate entry point" the house rule above
+// already argues against for Probe/Sweep/Cell (operator report,
+// 2026-09-04). Removed along with OPEN_TOOLS/OPEN_ANALYZE and
+// showToolsPage()/showAnalyzePage() themselves, not just this table —
+// nothing else called them.
 constexpr MenuItem ROOT_ITEMS[] = {
     {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 3},
@@ -224,24 +240,152 @@ constexpr uint32_t REDRAW_MS = 1000;
 // burst (TOAST_DURATION_MS or RX_PULSE_MS), not a continuous loop.
 constexpr uint32_t FAST_REDRAW_MS = 60;
 
+// Field Analyzer's Scope view (Phase 10) is the one page whose mere arrival
+// requests a radio action (docs/research/LoRaTrace-Phases-7-10-Design.md
+// §8.1: "entering it requests the bounded radio-owned SCOPE_ACQUIRE mode" —
+// every other Analyzer view stays purely passive). Samples the currently
+// active channel's own frequency, the same "explicitly displayed frequency"
+// drawChannelPage() already shows via radioActiveChannel(). Gated on
+// keyboardReady: a headless unit's own auto-advance carousel (AUTO_ADVANCE_MS
+// below) would otherwise pause Watch for ~4.8s every lap it happens to cycle
+// through Scope, silently costing coverage on exactly the deployment mode
+// (unattended, multi-hour) that most needs continuous Watch — Scope is an
+// interactive exploration tool, not something a headless run should trigger
+// on its own. A no-op if a capture is already running (radioRequestScopeAcquire()
+// would just queue a cancel instead) or nothing else can run right now
+// (Trace paused, another bounded action active) — the operator can still
+// trigger it explicitly (SCOPE_TOGGLE, below) once whatever's in the way
+// clears.
+void maybeStartScopeAcquire() {
+    if (page != UiPage::SCOPE || !keyboardReady || radioScopeAcquireIsActive()) return;
+    const uint32_t freqKhz = (uint32_t)(radioActiveChannel().freq_mhz * 1000.0f + 0.5f);
+    radioRequestScopeAcquire(freqKhz);
+}
+
+// The operator-facing main carousel, explicit rather than an enum-value
+// range (operator request, 2026-09-04: Tools joined Analyze as a second
+// hub, and their gated sub-pages — METER..NODES, PROBE/SWEEP/CELL — are
+// no longer contiguous with this list in UiPage's own enum order). Adding
+// a third hub later means adding one entry here, not renumbering anything.
+constexpr UiPage MAIN_PAGES[] = {
+    UiPage::RADIO, UiPage::TOOLS, UiPage::ANALYZE, UiPage::CHANNEL, UiPage::GPS, UiPage::SYSTEM,
+};
+constexpr uint8_t MAIN_PAGE_COUNT = (uint8_t)(sizeof(MAIN_PAGES) / sizeof(MAIN_PAGES[0]));
+
+bool isAnalyzeSubPage(UiPage p) {
+    return p == UiPage::METER || p == UiPage::WATERFALL || p == UiPage::SCOPE ||
+           p == UiPage::CAPTURES || p == UiPage::NODES;
+}
+
+bool isToolsSubPage(UiPage p) {
+    return p == UiPage::PROBE || p == UiPage::SWEEP || p == UiPage::CELL;
+}
+
+// Order here IS each hub's own row order (drawAnalyzePage()/drawToolsPage(),
+// ui_pages.cpp) and what analyzeHubIndex/toolsHubIndex index into.
+constexpr UiPage ANALYZE_HUB_PAGES[ANALYZE_HUB_COUNT] = {
+    UiPage::METER, UiPage::WATERFALL, UiPage::SCOPE, UiPage::CAPTURES, UiPage::NODES,
+};
+constexpr MenuAction ANALYZE_HUB_ACTIONS[ANALYZE_HUB_COUNT] = {
+    MenuAction::OPEN_METER, MenuAction::OPEN_WATERFALL, MenuAction::OPEN_SCOPE,
+    MenuAction::OPEN_CAPTURES, MenuAction::OPEN_NODES,
+};
+constexpr UiPage TOOLS_HUB_PAGES[TOOLS_HUB_COUNT] = {
+    UiPage::PROBE, UiPage::SWEEP, UiPage::CELL,
+};
+constexpr MenuAction TOOLS_HUB_ACTIONS[TOOLS_HUB_COUNT] = {
+    MenuAction::OPEN_PROBE, MenuAction::OPEN_SWEEP, MenuAction::OPEN_CELL,
+};
+
+// What nextPage()/prevPage() below treat `p` as being "at" for main-
+// carousel purposes — a gated sub-page counts as its own hub's position.
+UiPage effectiveMainPage(UiPage p) {
+    if (isToolsSubPage(p)) return UiPage::TOOLS;
+    if (isAnalyzeSubPage(p)) return UiPage::ANALYZE;
+    return p;
+}
+
+uint8_t mainPageIndex(UiPage p) {
+    for (uint8_t i = 0; i < MAIN_PAGE_COUNT; i++) {
+        if (MAIN_PAGES[i] == p) return i;
+    }
+    return 0; // p wasn't a main page — shouldn't happen, fail to Radio's slot
+}
+
 // No fillScreen() here: drawPage() (ui_pages.cpp) already wipes and
 // redraws the whole content region every call, and the caller always
 // follows a page change with fullRedraw() in the same loop iteration. An
 // explicit clear here was a redundant second full-panel blank — the direct
 // cause of a visible black flash on every page change (2026-08-25 bench).
+// Left/right (PREV/NEXT) always page the main carousel, even from inside a
+// gated sub-page (operator request, 2026-09-03: they must never be
+// "trapped" — up/down are what browse a hub itself, see
+// nextAnalyzeSubPage()/nextToolsSubPage() etc. below). A sub-page's own
+// UiPage value isn't in MAIN_PAGES at all, so effectiveMainPage() is what
+// keeps "leave hub-land" a single, predictable step (next after Tools is
+// Analyze; prev is Radio) regardless of which of its own sub-pages was on
+// screen.
 void nextPage() {
-    page = (UiPage)(((uint8_t)page + 1) % (uint8_t)UiPage::COUNT);
+    const uint8_t idx = mainPageIndex(effectiveMainPage(page));
+    page = MAIN_PAGES[(idx + 1) % MAIN_PAGE_COUNT];
     lastPageChange = millis();
+    maybeStartScopeAcquire();
 }
 
 void prevPage() {
-    page = (UiPage)(((uint8_t)page + (uint8_t)UiPage::COUNT - 1) % (uint8_t)UiPage::COUNT);
+    const uint8_t idx = mainPageIndex(effectiveMainPage(page));
+    page = MAIN_PAGES[(idx + MAIN_PAGE_COUNT - 1) % MAIN_PAGE_COUNT];
     lastPageChange = millis();
+    maybeStartScopeAcquire();
 }
 
 void jumpToPage(UiPage p) {
     page = p;
     lastPageChange = millis();
+    maybeStartScopeAcquire();
+}
+
+// PREV/NEXT while already inside a gated sub-page stay confined to the
+// other pages in that same hub (operator request, 2026-09-03/04) — same
+// shape as nextPage()/prevPage() above, just over one hub's own list.
+void nextAnalyzeSubPage() {
+    uint8_t idx = 0;
+    for (uint8_t i = 0; i < ANALYZE_HUB_COUNT; i++) {
+        if (ANALYZE_HUB_PAGES[i] == page) { idx = i; break; }
+    }
+    page = ANALYZE_HUB_PAGES[(idx + 1) % ANALYZE_HUB_COUNT];
+    lastPageChange = millis();
+    maybeStartScopeAcquire();
+}
+
+void prevAnalyzeSubPage() {
+    uint8_t idx = 0;
+    for (uint8_t i = 0; i < ANALYZE_HUB_COUNT; i++) {
+        if (ANALYZE_HUB_PAGES[i] == page) { idx = i; break; }
+    }
+    page = ANALYZE_HUB_PAGES[(idx + ANALYZE_HUB_COUNT - 1) % ANALYZE_HUB_COUNT];
+    lastPageChange = millis();
+    maybeStartScopeAcquire();
+}
+
+void nextToolsSubPage() {
+    uint8_t idx = 0;
+    for (uint8_t i = 0; i < TOOLS_HUB_COUNT; i++) {
+        if (TOOLS_HUB_PAGES[i] == page) { idx = i; break; }
+    }
+    page = TOOLS_HUB_PAGES[(idx + 1) % TOOLS_HUB_COUNT];
+    lastPageChange = millis();
+    maybeStartScopeAcquire();
+}
+
+void prevToolsSubPage() {
+    uint8_t idx = 0;
+    for (uint8_t i = 0; i < TOOLS_HUB_COUNT; i++) {
+        if (TOOLS_HUB_PAGES[i] == page) { idx = i; break; }
+    }
+    page = TOOLS_HUB_PAGES[(idx + TOOLS_HUB_COUNT - 1) % TOOLS_HUB_COUNT];
+    lastPageChange = millis();
+    maybeStartScopeAcquire();
 }
 
 // Drains the TCA8418 event FIFO and returns the most recently recognized
@@ -291,6 +435,9 @@ void uiTask(void *) {
     uint32_t lastCellRunSeen = radioCellSweepCount();
     uint32_t lastCellCancelSeen = radioCellCancelCount();
     uint32_t lastCellFailureSeen = radioCellFailureCount();
+    uint32_t lastScopeRunSeen = radioScopeAcquireCount();
+    uint32_t lastScopeCancelSeen = radioScopeCancelCount();
+    uint32_t lastScopeFailureSeen = radioScopeFailureCount();
     bool wasAnimating = false;
 
     for (;;) {
@@ -410,6 +557,31 @@ void uiTask(void *) {
             redraw = true;
         }
 
+        // Same async-completion-toast shape as Probe/Sweep/Cell above, for
+        // Field Analyzer's Scope view (Phase 10). No repeat-mode suppression
+        // to mirror (Scope has none) and no SD-related state to report — a
+        // capture never writes to SD, it only fills the in-RAM ScopeTrace.
+        const uint32_t scopeRuns = radioScopeAcquireCount();
+        if (scopeRuns != lastScopeRunSeen) {
+            lastScopeRunSeen = scopeRuns;
+            const bool scopeFailed = radioScopeFailureCount() != lastScopeFailureSeen;
+            const bool scopeCancelled = radioScopeCancelCount() != lastScopeCancelSeen;
+            lastScopeFailureSeen = radioScopeFailureCount();
+            lastScopeCancelSeen = radioScopeCancelCount();
+            char scopeMsg[48];
+            if (scopeFailed) {
+                snprintf(scopeMsg, sizeof(scopeMsg), "Scope: FAILED %d", radioLastError());
+            } else if (scopeCancelled) {
+                snprintf(scopeMsg, sizeof(scopeMsg), "Scope: CANCELLED");
+            } else {
+                snprintf(scopeMsg, sizeof(scopeMsg), "Scope: DONE in %lums",
+                         (unsigned long)radioScopeLastAwayMs());
+            }
+            showToast(scopeMsg);
+            scopeTerminalShownAt = millis();
+            redraw = true;
+        }
+
         // P is deliberately global rather than card- or menu-scoped: it is
         // the one hard shortcut for the bounded Probe start/cancel action.
         // showProbeResults() closes any open menu after an accepted request.
@@ -429,69 +601,197 @@ void uiTask(void *) {
         } else if (!menu.isOpen()) {
             // Carousel: page navigation is this file's own concern, not
             // MenuState's (ui_menu.h stays free of any UiPage dependency).
-            if (action == KeyAction::PREV) {
+            // JUMP_1..6 are hoisted ahead of the page-mode branches below —
+            // a direct jump to a named page works identically regardless of
+            // whether the operator is currently on a hub, inside a gated
+            // sub-page, or on an ordinary carousel page. Six now, not eight
+            // (operator request, 2026-09-04): Tools folded Probe/Sweep/Cell's
+            // own JUMP_2/3/4 away (gated behind the hub, same as Analyze's
+            // five never had one) and Analyze's own JUMP_8 collapsed into
+            // JUMP_3 now that it's a main-carousel stop in its own right —
+            // MAIN_PAGES above is the actual source of truth for what "the
+            // main carousel" means; this switch just names each slot.
+            if (action == KeyAction::JUMP_1) {
+                jumpToPage(UiPage::RADIO);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_2) {
+                jumpToPage(UiPage::TOOLS);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_3) {
+                jumpToPage(UiPage::ANALYZE);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_4) {
+                jumpToPage(UiPage::CHANNEL);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_5) {
+                jumpToPage(UiPage::GPS);
+                redraw = true;
+            } else if (action == KeyAction::JUMP_6) {
+                jumpToPage(UiPage::SYSTEM);
+                redraw = true;
+            } else if (isToolsSubPage(page)) {
+                // Gated behind the Tools hub (operator request, 2026-09-04),
+                // exact structural twin of the Analyze sub-page branch
+                // below — see its comment for the left/right-vs-up/down
+                // reasoning. SELECT/REPEAT here are the same
+                // PROBE_TOGGLE/SWEEP_TOGGLE/CELL_TOGGLE/*_REPEAT_TOGGLE
+                // dispatch that used to live in the plain-carousel branch
+                // at the bottom of this chain, moved up here now that these
+                // three are gated sub-pages instead of ordinary ones. P/S/C
+                // remain global hotkeys regardless — handled earlier in this
+                // function, before carousel dispatch even begins — so this
+                // branch only covers keys pressed while already viewing one
+                // of these three cards by some other means (Tools hub,
+                // paging, or the hotkey that got you here).
+                if (action == KeyAction::PREV) {
+                    prevPage();
+                    redraw = true;
+                } else if (action == KeyAction::NEXT) {
+                    nextPage();
+                    redraw = true;
+                } else if (action == KeyAction::UP) {
+                    prevToolsSubPage();
+                    redraw = true;
+                } else if (action == KeyAction::DOWN) {
+                    nextToolsSubPage();
+                    redraw = true;
+                } else if (action == KeyAction::BACK) {
+                    jumpToPage(UiPage::TOOLS);
+                    redraw = true;
+                } else if (action == KeyAction::SELECT && page == UiPage::PROBE) {
+                    fireMenuAction(MenuAction::PROBE_TOGGLE);
+                    redraw = true;
+                } else if (action == KeyAction::SELECT && page == UiPage::SWEEP) {
+                    fireMenuAction(MenuAction::SWEEP_TOGGLE);
+                    redraw = true;
+                } else if (action == KeyAction::SELECT && page == UiPage::CELL) {
+                    fireMenuAction(MenuAction::CELL_TOGGLE);
+                    redraw = true;
+                } else if (action == KeyAction::REPEAT && page == UiPage::SWEEP) {
+                    // See the original (pre-gating) comment on this dispatch
+                    // for the full Ctrl+S/KEY_RAW_R_PRESS history — unchanged
+                    // by the move, just relocated.
+                    fireMenuAction(MenuAction::SWEEP_REPEAT_TOGGLE);
+                    redraw = true;
+                } else if (action == KeyAction::REPEAT && page == UiPage::CELL) {
+                    fireMenuAction(MenuAction::CELL_REPEAT_TOGGLE);
+                    redraw = true;
+                }
+            } else if (page == UiPage::TOOLS) {
+                // The hub itself: exact structural twin of the Analyze hub
+                // branch below.
+                if (action == KeyAction::PREV) {
+                    prevPage();
+                    redraw = true;
+                } else if (action == KeyAction::NEXT) {
+                    nextPage();
+                    redraw = true;
+                } else if (action == KeyAction::UP) {
+                    toolsHubIndex = (uint8_t)((toolsHubIndex + TOOLS_HUB_COUNT - 1) % TOOLS_HUB_COUNT);
+                    redraw = true;
+                } else if (action == KeyAction::DOWN) {
+                    toolsHubIndex = (uint8_t)((toolsHubIndex + 1) % TOOLS_HUB_COUNT);
+                    redraw = true;
+                } else if (action == KeyAction::SELECT) {
+                    fireMenuAction(TOOLS_HUB_ACTIONS[toolsHubIndex]);
+                    redraw = true;
+                } else if (action == KeyAction::BACK) {
+                    menu.open();
+                    redraw = true;
+                }
+            } else if (isAnalyzeSubPage(page)) {
+                // Gated behind the Analyze hub (operator request,
+                // 2026-09-03), left/right vs. up/down split same session
+                // (operator report: left/right trapped on this page instead
+                // of paging the carousel like everywhere else). PREV/NEXT
+                // (left/right, ',' / '/') always escape to the main
+                // carousel, same as any other page — never trapped. UP/DOWN
+                // (up/down, ';' / '.') stay confined to the other four
+                // sub-pages, the vertical-browse axis these two keys are
+                // for. BACK peels back exactly one level to the hub instead
+                // of straight to the main menu — same "one level per press"
+                // convention ui_menu.h's own BACK already uses.
+                if (action == KeyAction::PREV) {
+                    prevPage();
+                    redraw = true;
+                } else if (action == KeyAction::NEXT) {
+                    nextPage();
+                    redraw = true;
+                } else if (action == KeyAction::UP) {
+                    prevAnalyzeSubPage();
+                    redraw = true;
+                } else if (action == KeyAction::DOWN) {
+                    nextAnalyzeSubPage();
+                    redraw = true;
+                } else if (action == KeyAction::BACK) {
+                    jumpToPage(UiPage::ANALYZE);
+                    redraw = true;
+                } else if (action == KeyAction::SELECT && page == UiPage::SCOPE) {
+                    // Same dual re-trigger/cancel shape as before — arriving
+                    // here already started a first capture on its own
+                    // (maybeStartScopeAcquire()); this is for every capture
+                    // after that.
+                    fireMenuAction(MenuAction::SCOPE_TOGGLE);
+                    redraw = true;
+                } else if (action == KeyAction::SELECT && page == UiPage::WATERFALL) {
+                    // Operator request, 2026-09-04: Waterfall is Sweep's own
+                    // history view, so starting/stopping repeat Sweep straight
+                    // from here — without a detour through Tools > Sweep —
+                    // saves a real trip. See ui_menu.h's own comment on this
+                    // action for why it isn't just SWEEP_REPEAT_TOGGLE reused.
+                    fireMenuAction(MenuAction::WATERFALL_SWEEP_REPEAT_TOGGLE);
+                    redraw = true;
+                }
+            } else if (page == UiPage::ANALYZE) {
+                // The hub itself: same left/right-escapes, up/down-browses
+                // split as the sub-pages above — PREV/NEXT leave the hub
+                // for the main carousel, UP/DOWN move the highlighted row
+                // (page-local state, not MenuState — this is a real
+                // carousel page). SELECT opens the highlighted sub-page;
+                // BACK opens the main menu, same as every other top-level
+                // carousel page.
+                if (action == KeyAction::PREV) {
+                    prevPage();
+                    redraw = true;
+                } else if (action == KeyAction::NEXT) {
+                    nextPage();
+                    redraw = true;
+                } else if (action == KeyAction::UP) {
+                    analyzeHubIndex = (uint8_t)((analyzeHubIndex + ANALYZE_HUB_COUNT - 1) % ANALYZE_HUB_COUNT);
+                    redraw = true;
+                } else if (action == KeyAction::DOWN) {
+                    analyzeHubIndex = (uint8_t)((analyzeHubIndex + 1) % ANALYZE_HUB_COUNT);
+                    redraw = true;
+                } else if (action == KeyAction::SELECT) {
+                    fireMenuAction(ANALYZE_HUB_ACTIONS[analyzeHubIndex]);
+                    redraw = true;
+                } else if (action == KeyAction::BACK) {
+                    menu.open();
+                    redraw = true;
+                }
+            } else if (action == KeyAction::PREV || action == KeyAction::UP) {
+                // UP aliases PREV on every ordinary page — preserves the
+                // printed Fn-arrow diamond's original "doubles as page nav"
+                // behavior (Phase 5) outside a hub, where up/down now has
+                // its own real meaning instead. Only RADIO/CHANNEL/GPS/
+                // SYSTEM reach this branch now — Probe/Sweep/Cell moved to
+                // their own gated branch above, 2026-09-04.
                 prevPage();
                 redraw = true;
-            } else if (action == KeyAction::NEXT) {
+            } else if (action == KeyAction::NEXT || action == KeyAction::DOWN) {
                 nextPage();
                 redraw = true;
             } else if (action == KeyAction::BACK) {
                 menu.open();
                 redraw = true;
-            } else if (action == KeyAction::JUMP_1) {
-                jumpToPage(UiPage::RADIO);
-                redraw = true;
-            } else if (action == KeyAction::JUMP_2) {
-                jumpToPage(UiPage::PROBE);
-                redraw = true;
-            } else if (action == KeyAction::JUMP_3) {
-                jumpToPage(UiPage::SWEEP);
-                redraw = true;
-            } else if (action == KeyAction::JUMP_4) {
-                jumpToPage(UiPage::CELL);
-                redraw = true;
-            } else if (action == KeyAction::JUMP_5) {
-                jumpToPage(UiPage::CHANNEL);
-                redraw = true;
-            } else if (action == KeyAction::JUMP_6) {
-                jumpToPage(UiPage::GPS);
-                redraw = true;
-            } else if (action == KeyAction::JUMP_7) {
-                jumpToPage(UiPage::SYSTEM);
-                redraw = true;
             } else if (action == KeyAction::SELECT && page == UiPage::RADIO) {
                 fireMenuAction(MenuAction::TRACE_TOGGLE);
                 redraw = true;
-            } else if (action == KeyAction::SELECT && page == UiPage::PROBE) {
-                fireMenuAction(MenuAction::PROBE_TOGGLE);
-                redraw = true;
-            } else if (action == KeyAction::SELECT && page == UiPage::SWEEP) {
-                fireMenuAction(MenuAction::SWEEP_TOGGLE);
-                redraw = true;
-            } else if (action == KeyAction::SELECT && page == UiPage::CELL) {
-                fireMenuAction(MenuAction::CELL_TOGGLE);
-                redraw = true;
-            } else if (action == KeyAction::REPEAT && page == UiPage::SWEEP) {
-                // Repeat ("walk around and scan" mode) has its own
-                // dedicated key (R) rather than a Ctrl+S chord (operator
-                // request, 2026-08-29; reverted 2026-08-30 — see
-                // keyboard.h's top-of-file note: real hardware testing with
-                // KEY_DUMP showed the TCA8418 can drop Ctrl's own release
-                // event on that chord, leaving repeat mode stuck on until
-                // reboot). A single key has no release event to lose. Page-
-                // gated here rather than a global shortcut like P/S/C above
-                // (operator request, 2026-09-01): R only means something on
-                // the Sweep or Cell card, matching SELECT's own page-gated
-                // shape just above. Probe deliberately has none.
-                fireMenuAction(MenuAction::SWEEP_REPEAT_TOGGLE);
-                redraw = true;
-            } else if (action == KeyAction::REPEAT && page == UiPage::CELL) {
-                fireMenuAction(MenuAction::CELL_REPEAT_TOGGLE);
-                redraw = true;
             }
-            // Enter acts on RADIO (Trace), PROBE, SWEEP, and CELL
-            // (start/cancel); R repeats on SWEEP and CELL only. Elsewhere
-            // both remain a no-op; ESC (BACK) opens the menu.
+            // Enter acts on RADIO (Trace) here; Probe/Sweep/Cell's own
+            // SELECT/REPEAT dispatch moved to the isToolsSubPage() branch
+            // above. Elsewhere both remain a no-op; ESC (BACK) opens the
+            // menu.
         } else if (action != KeyAction::NONE) {
             // Menu open (root/group/slider) — MenuState owns navigation;
             // this file only reacts to what fired. Captured before handle()
@@ -502,7 +802,16 @@ void uiTask(void *) {
             // happen every step).
             const bool leavingSlider = menu.inSlider() &&
                                        (action == KeyAction::BACK || action == KeyAction::SELECT);
-            const MenuAction fired = menu.handle(action);
+            // UP/DOWN (';'/'.', split off PREV/NEXT 2026-09-03 for the
+            // Analyze hub — see keyboard.h's KeyAction::UP comment)
+            // translate back to PREV/NEXT here so the settings menu and
+            // slider keep responding to all four Fn-arrow diamond keys
+            // exactly as before the split — ui_menu.h stays a plain two-
+            // action PREV/NEXT model, unaware any of this happened.
+            const KeyAction menuAction = action == KeyAction::UP     ? KeyAction::PREV
+                                        : action == KeyAction::DOWN  ? KeyAction::NEXT
+                                                                      : action;
+            const MenuAction fired = menu.handle(menuAction);
             if (fired != MenuAction::NONE) fireMenuAction(fired);
             if (leavingSlider) {
                 DisplaySettings settings;
@@ -551,6 +860,22 @@ void uiTask(void *) {
 
 } // namespace
 
+// 1-based position of whichever main-carousel stop `page` currently belongs
+// to (a gated sub-page reports its own hub's position, via
+// effectiveMainPage()) — what drawFooterStatus() (ui_pages.cpp) shows,
+// deliberately not raw UiPage ordinals/UiPage::COUNT: those would count
+// every gated sub-page as if it were its own top-level stop, showing e.g.
+// "8/14" for Analyze and making the carousel look bigger than what prev/
+// next/digit keys actually reach (operator report, 2026-09-04: "users will
+// think they are missing cards").
+uint8_t mainCarouselPosition() {
+    return (uint8_t)(mainPageIndex(effectiveMainPage(page)) + 1);
+}
+
+uint8_t mainCarouselCount() {
+    return MAIN_PAGE_COUNT;
+}
+
 void showProbeResults() {
     jumpToPage(UiPage::PROBE);
     menu.close();
@@ -563,6 +888,38 @@ void showSweepResults() {
 
 void showCellResults() {
     jumpToPage(UiPage::CELL);
+    menu.close();
+}
+
+// Field Analyzer (Phase 10) — same "closes any open menu onto a specific
+// page" shape as the three above. jumpToPage() itself is what triggers a
+// first Scope capture (maybeStartScopeAcquire()); showScopePage() doesn't
+// need its own copy of that logic. (showToolsPage()/showAnalyzePage()
+// themselves were removed 2026-09-04 along with the root menu rows that
+// were their only callers — Tools/Analyze are ordinary main-carousel
+// stops now, reachable by prev/next/JUMP_2/JUMP_3 like any other page.)
+void showMeterPage() {
+    jumpToPage(UiPage::METER);
+    menu.close();
+}
+
+void showWaterfallPage() {
+    jumpToPage(UiPage::WATERFALL);
+    menu.close();
+}
+
+void showScopePage() {
+    jumpToPage(UiPage::SCOPE);
+    menu.close();
+}
+
+void showCapturesPage() {
+    jumpToPage(UiPage::CAPTURES);
+    menu.close();
+}
+
+void showNodesPage() {
+    jumpToPage(UiPage::NODES);
     menu.close();
 }
 

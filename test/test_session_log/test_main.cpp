@@ -11,6 +11,7 @@
 
 #include <string.h>
 
+#include "../../src/analyzer_budget.h" // ANALYZER_STATIC_BYTES
 #include "../../src/session_log.h"
 
 // Counts comma-separated fields. Safe for this schema: every value is a
@@ -86,6 +87,13 @@ static SessionStats healthySample() {
     s.cell_failures = 0;
     s.cell_recoveries = 3;
     s.cell_last_away_ms = 1500;
+    // The real compile-time constant, not an arbitrary test value — pins
+    // this test to analyzer_state.h's actual structures, so a future change
+    // to any of the four (WaterfallHistory/ScopeTrace/CaptureHistory/
+    // NodeRoster) fails this test as a deliberate reminder to update the
+    // documented memory-budget numbers (docs/STATUS.md/version.h), not a
+    // silent drift.
+    s.analyzer_static_bytes = ANALYZER_STATIC_BYTES;
     return s;
 }
 
@@ -109,7 +117,7 @@ void test_row_with_fix_carries_position_and_counters() {
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7,"
         "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,"
-        "9,2,3,1,0,3,1500",
+        "9,2,3,1,0,3,1500,6728",
         row);
 }
 
@@ -225,19 +233,36 @@ void test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters() {
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     const char *suffix =
-        "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,9,2,3,1,0,3,1500";
+        "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,9,2,3,1,0,3,1500,6728";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
 
-void test_cell_diagnostics_are_the_last_columns() {
+void test_cell_diagnostics_precede_analyzer_static_bytes() {
     // Appended after identities_decoded/identity_drops, same append-only
     // convention gps_max_loop_gap_ms/gps_oversize_drops and
-    // logger_stack_free established before it.
+    // logger_stack_free established before it. No longer the row's own
+    // last columns as of analyzer_static_bytes (Phase 10, 2026-09-04) —
+    // see test_analyzer_static_bytes_is_the_last_column() below for that
+    // claim now.
     SessionStats s = healthySample();
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
-    const char *suffix = "9,2,3,1,0,3,1500";
+    const char *suffix = "9,2,3,1,0,3,1500,6728";
+    TEST_ASSERT_TRUE(n >= strlen(suffix));
+    TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
+}
+
+void test_analyzer_static_bytes_is_the_last_column() {
+    // Phase 10's one memory number (docs/research/LoRaTrace-Phases-7-10-
+    // Design.md §9), appended after cell_last_away_ms per this schema's own
+    // append-only-at-the-end convention.
+    SessionStats s = healthySample();
+    s.analyzer_static_bytes = 12345;
+    char row[320];
+    size_t n = sessionFormatCsv(s, row, sizeof(row), "");
+    TEST_ASSERT_TRUE(n > 0);
+    const char *suffix = "12345";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -275,7 +300,8 @@ int main(int, char **) {
     RUN_TEST(test_logger_stack_headroom_precedes_run);
     RUN_TEST(test_gps_diagnostics_keep_their_append_only_positions);
     RUN_TEST(test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters);
-    RUN_TEST(test_cell_diagnostics_are_the_last_columns);
+    RUN_TEST(test_cell_diagnostics_precede_analyzer_static_bytes);
+    RUN_TEST(test_analyzer_static_bytes_is_the_last_column);
     RUN_TEST(test_truncation_is_reported);
     RUN_TEST(test_null_timestamp_is_tolerated);
     return UNITY_END();

@@ -12,18 +12,23 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "analyzer_state.h"
 #include "battery.h"
+#include "capture_history.h"
 #include "cell_plan.h"
 #include "detection.h"
 #include "discovery_plan.h"
 #include "energy_plan.h"
 #include "gps_task.h"
 #include "logger_task.h"
+#include "node_roster.h"
+#include "scope_trace.h"
 #include "serial_control.h"
 #include "radio_task.h"
 #include "spi_bus.h"
 #include "ui_labels.h"
 #include "version.h"
+#include "waterfall.h"
 #include "wifi_task.h"
 
 namespace {
@@ -76,6 +81,13 @@ const char *pageName(UiPage p) {
         case UiPage::PROBE: return "PROBE";
         case UiPage::SWEEP: return "SWEEP";
         case UiPage::CELL: return "CELL";
+        case UiPage::TOOLS: return "TOOLS";
+        case UiPage::ANALYZE: return "ANALYZE";
+        case UiPage::METER: return "METER";
+        case UiPage::WATERFALL: return "WATERFALL";
+        case UiPage::SCOPE: return "SCOPE";
+        case UiPage::CAPTURES: return "CAPTURES";
+        case UiPage::NODES: return "NODES";
         default: return "?";
     }
 }
@@ -159,6 +171,16 @@ uint16_t heapStatusColour() {
 // right-anchored. Carousel only: the menu already shows the active
 // profile on its own "Profile" row. Drawn before drawToast() so a toast
 // paints over it and it reappears once the toast clears.
+//
+// Position/total come from mainCarouselPosition()/mainCarouselCount()
+// (ui_task.cpp), not raw UiPage ordinals/UiPage::COUNT: this project's
+// operator-facing carousel is six stops (Radio/Tools/Analyze/Channel/GPS/
+// System) — every gated sub-page (Probe/Sweep/Cell, Meter/Waterfall/Scope/
+// Captures/Nodes) reports its own hub's position instead of a 14th/13th/
+// etc. slot of its own, matching what prev/next/digit keys actually reach.
+// An earlier revision used raw ordinals and showed e.g. Analyze as "8/14"
+// — technically not wrong, but confusing enough that an operator asked
+// "where are the other 6 cards" (2026-09-04).
 void drawFooterStatus() {
     if (menu.isOpen()) return;
     const int16_t y = uiTft->height() - 10;
@@ -169,7 +191,7 @@ void drawFooterStatus() {
     uiTft->print(uiProfileLabel(radioActiveProfile()));
 
     char posBuf[8];
-    snprintf(posBuf, sizeof(posBuf), "%u/%u", (unsigned)page + 1, (unsigned)UiPage::COUNT);
+    snprintf(posBuf, sizeof(posBuf), "%u/%u", (unsigned)mainCarouselPosition(), (unsigned)mainCarouselCount());
     uiTft->setCursor(uiTft->width() - (int16_t)strlen(posBuf) * 6 - 2, y);
     uiTft->print(posBuf);
 }
@@ -408,6 +430,76 @@ void drawFreqBar(int16_t x, int16_t y, int16_t w, float freqMhz, float lo = 868.
     snprintf(hiBuf, sizeof(hiBuf), "%d", (int)hi);
     uiTft->setCursor(x + w - (int16_t)strlen(hiBuf) * 6, y + 6);
     uiTft->print(hiBuf);
+}
+
+// Meter's own bar gauge (operator request, 2026-09-04) — unlike
+// drawFreqBar()'s deliberate "position, not proportion" marker (frequency
+// is a location within a band), signal strength genuinely IS a quantity —
+// more power really is "more" — so a filled bar is the honest shape here,
+// not a marker on a line. Neutral colour (COL_FG fill, COL_DIM border) on
+// purpose: no strength-tier colour-coding (green=strong/red=weak) — no
+// such convention exists anywhere else in this codebase, and a raw dBm
+// number has no universal "good/bad" line without knowing SF/BW context,
+// so inventing thresholds here would be exactly the kind of fabricated
+// meaning this project is otherwise careful to avoid.
+void drawMeterBar(int16_t x, int16_t y, int16_t w, int16_t h, float dbm, float lo, float hi) {
+    uiTft->drawRect(x, y, w, h, COL_DIM);
+    float frac = (dbm - lo) / (hi - lo);
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
+    const int16_t fillW = (int16_t)((w - 2) * frac);
+    if (fillW > 0) uiTft->fillRect(x + 1, y + 1, fillW, h - 2, COL_FG);
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(x, y + h + 3);
+    uiTft->print((int)lo);
+    char hiBuf[8];
+    snprintf(hiBuf, sizeof(hiBuf), "%d", (int)hi);
+    uiTft->setCursor(x + w - (int16_t)strlen(hiBuf) * 6, y + h + 3);
+    uiTft->print(hiBuf);
+}
+
+// Waterfall's own frequency axis (operator request, 2026-09-04) — a plain
+// labeled scale, not drawFreqBar()'s "current position" marker convention:
+// Waterfall shows history across many rows, not one live scan, so a single
+// "you are here" mark has no honest meaning here. Four unlabeled reference
+// ticks at 20/40/60/80% (the "checkmarks for each band" ask) plus three
+// labeled points (lo/center/hi), one decimal place to match drawFreqBar()'s
+// own MHz precision elsewhere. Sized for the full plot content width
+// (unlike drawFreqBar()'s calls on Sweep/Cell, which only ever use their
+// page's narrower two-column layout).
+//
+// Waterfall rows don't record which Region (US/Global) was active when
+// pushed (waterfall.h's WaterfallRow has no region field) — this labels the
+// CURRENT live region's band, same "best current guess" drawSweepPage()'s
+// own drawFreqBar() call already relies on for its one scan. Slightly wrong
+// for older rows only if Region was toggled mid-history, an edge case, not
+// the common path.
+//
+// No hline of its own (operator request, 2026-09-04: "can the bottom of
+// the waterfall chart become the marker for the frequency?") — `y` here is
+// the plot box's own bottom border (drawWaterfallPage() passes PLOT_Y +
+// PLOT_H directly, no gap), not a separate line drawn a few px below it.
+// Ticks hang down from that shared border instead of straddling a second
+// line, closing what used to be a small but real double-line gap and
+// giving that height back to the box (see PLOT_H's own comment).
+void drawWaterfallFreqAxis(int16_t x, int16_t y, int16_t w, float lo, float hi) {
+    static const float kTickFracs[] = {0.2f, 0.4f, 0.6f, 0.8f};
+    for (float frac : kTickFracs) {
+        uiTft->drawFastVLine(x + (int16_t)(w * frac), y + 1, 3, COL_DIM);
+    }
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%.1f", (double)lo);
+    uiTft->setCursor(x, y + 4);
+    uiTft->print(buf);
+    snprintf(buf, sizeof(buf), "%.1f", (double)hi);
+    uiTft->setCursor(x + w - (int16_t)strlen(buf) * 6, y + 4);
+    uiTft->print(buf);
+    snprintf(buf, sizeof(buf), "%.1f", (double)((lo + hi) / 2.0f));
+    uiTft->setCursor(x + w / 2 - (int16_t)strlen(buf) * 3, y + 4);
+    uiTft->print(buf);
 }
 
 // One dim tick per peak bin, same height/vertical span as drawFreqBar()'s
@@ -1023,6 +1115,592 @@ void drawMenuSlider() {
     uiTft->print(",/. adjust   Enter/` back");
 }
 
+// --- Field Analyzer (Phase 10) --------------------------------------------
+// Presentation layer over real Watch/Probe/Sweep/Cell observations — none of
+// these five views ever polls or reconfigures the radio (docs/research/
+// LoRaTrace-Phases-7-10-Design.md §8.1), except Scope, whose own capture is
+// requested from ui_task.cpp's maybeStartScopeAcquire()/SCOPE_TOGGLE, not
+// from here.
+
+// Tools hub (operator request, 2026-09-04): same shape as drawAnalyzePage()
+// below exactly — reuses drawMenuRow() at the same tight 20px pitch, page-
+// local row selection (toolsHubIndex, ui_task_shared.h) instead of
+// MenuState. Row values are the real per-page headline words
+// (SCANNING/COMPLETE/CANCELLED/FAILED, drawProbePage()/drawSweepPage()/
+// drawCellPage()'s own vocabulary — not invented words like "RUNNING"/
+// "DONE", a mismatch the Field Analyzer preview mockup caught 2026-09-04),
+// collapsing to "IDLE" once each card's own RESULT_HOLD_MS hold has expired
+// (probeTerminalShownAt etc., same fields those three pages already use
+// for their own dim-IDLE reversion) so the hub never advertises a result
+// that's no longer showing on the real card.
+void drawToolsPage() {
+    static const char *const LABELS[TOOLS_HUB_COUNT] = { "Probe", "Sweep", "Cell" };
+    char values[TOOLS_HUB_COUNT][12];
+
+    {
+        const DiscoverySweepState s = radioDiscoverySweepState();
+        const bool holdExpired = s != DiscoverySweepState::RUNNING && probeTerminalShownAt != 0 &&
+                                 millis() - probeTerminalShownAt >= RESULT_HOLD_MS;
+        if (s == DiscoverySweepState::RUNNING) snprintf(values[0], sizeof(values[0]), "SCANNING");
+        else if (holdExpired || s == DiscoverySweepState::IDLE) snprintf(values[0], sizeof(values[0]), "IDLE");
+        else if (s == DiscoverySweepState::COMPLETE) snprintf(values[0], sizeof(values[0]), "COMPLETE");
+        else if (s == DiscoverySweepState::CANCELLED) snprintf(values[0], sizeof(values[0]), "CANCELLED");
+        else snprintf(values[0], sizeof(values[0]), "FAILED");
+    }
+    {
+        const EnergySweepState s = radioEnergySweepState();
+        const bool holdExpired = s != EnergySweepState::RUNNING && sweepTerminalShownAt != 0 &&
+                                 millis() - sweepTerminalShownAt >= RESULT_HOLD_MS;
+        if (radioEnergySweepRepeatIsActive()) snprintf(values[1], sizeof(values[1]), "REPEAT");
+        else if (s == EnergySweepState::RUNNING) snprintf(values[1], sizeof(values[1]), "SCANNING");
+        else if (holdExpired || s == EnergySweepState::IDLE) snprintf(values[1], sizeof(values[1]), "IDLE");
+        else if (s == EnergySweepState::COMPLETE) snprintf(values[1], sizeof(values[1]), "COMPLETE");
+        else if (s == EnergySweepState::CANCELLED) snprintf(values[1], sizeof(values[1]), "CANCELLED");
+        else snprintf(values[1], sizeof(values[1]), "FAILED");
+    }
+    {
+        const CellSweepState s = radioCellSweepState();
+        const bool holdExpired = s != CellSweepState::RUNNING && cellTerminalShownAt != 0 &&
+                                 millis() - cellTerminalShownAt >= RESULT_HOLD_MS;
+        if (radioCellSweepRepeatIsActive()) snprintf(values[2], sizeof(values[2]), "REPEAT");
+        else if (s == CellSweepState::RUNNING) snprintf(values[2], sizeof(values[2]), "SCANNING");
+        else if (holdExpired || s == CellSweepState::IDLE) snprintf(values[2], sizeof(values[2]), "IDLE");
+        else if (s == CellSweepState::COMPLETE) snprintf(values[2], sizeof(values[2]), "COMPLETE");
+        else if (s == CellSweepState::CANCELLED) snprintf(values[2], sizeof(values[2]), "CANCELLED");
+        else snprintf(values[2], sizeof(values[2]), "FAILED");
+    }
+
+    for (uint8_t i = 0; i < TOOLS_HUB_COUNT; i++) {
+        drawMenuRow(22 + i * 20, LABELS[i], values[i], toolsHubIndex == i);
+    }
+}
+
+// Analyze hub (Phase 10): the one page every other Analyze view is gated
+// behind (operator request, 2026-09-03 — "gate them behind the Analyze
+// card... open each panel from there"), replacing an earlier design where
+// all five sat loose in the main carousel. Reuses drawMenuRow()'s exact row
+// visual — this IS a list, just page-local state (analyzeHubIndex,
+// ui_task_shared.h) instead of MenuState — at a tighter 20px pitch than the
+// real menu's own 24px: five rows at 24px would collide with the footer the
+// same way System's own list once did at 5 rows (see SYSTEM_GROUP_ITEMS's
+// comment); 20px keeps the last row's bottom edge clear of it.
+void drawAnalyzePage() {
+    static const char *const LABELS[ANALYZE_HUB_COUNT] = {
+        "Meter", "Waterfall", "Scope", "Captures", "Nodes",
+    };
+    char values[ANALYZE_HUB_COUNT][12];
+
+    CaptureHistory captures;
+    const bool haveCaptures = analyzerCaptureHistorySnapshot(captures, pdMS_TO_TICKS(20));
+    CaptureSummary latestCapture;
+    if (haveCaptures && captureHistoryEntryAt(captures, 0, latestCapture)) {
+        snprintf(values[0], sizeof(values[0]), "%ddBm", (int)latestCapture.rssi_dbm);
+    } else {
+        snprintf(values[0], sizeof(values[0]), "--");
+    }
+
+    const uint8_t waterfallRows = analyzerWaterfallRowCount(pdMS_TO_TICKS(20));
+    if (waterfallRows > 0) {
+        snprintf(values[1], sizeof(values[1]), "%u rows", (unsigned)waterfallRows);
+    } else {
+        snprintf(values[1], sizeof(values[1]), "--");
+    }
+
+    // "CAPTURING", matching drawScopePage()'s own real headline word, not
+    // "RUNNING" (a word this app never actually shows anywhere — caught via
+    // the Field Analyzer preview mockup, 2026-09-04). Collapses to "IDLE"
+    // once scopeTerminalShownAt's own RESULT_HOLD_MS has elapsed (or if
+    // nothing has ever been captured this boot), same dim-IDLE reversion
+    // drawScopePage() itself already shows, so the hub doesn't advertise a
+    // result that no longer holds on the real card.
+    if (radioScopeAcquireIsActive()) {
+        snprintf(values[2], sizeof(values[2]), "CAPTURING");
+    } else {
+        const bool holdExpired = scopeTerminalShownAt != 0 &&
+                                 millis() - scopeTerminalShownAt >= RESULT_HOLD_MS;
+        ScopeTrace trace;
+        if (!holdExpired && radioScopeTraceSnapshot(trace, 0) && trace.count > 0) {
+            snprintf(values[2], sizeof(values[2]), "CAPTURED");
+        } else {
+            snprintf(values[2], sizeof(values[2]), "IDLE");
+        }
+    }
+
+    snprintf(values[3], sizeof(values[3]), "%u/%u", (unsigned)(haveCaptures ? captures.count : 0),
+             (unsigned)CAPTURE_HISTORY_MAX_ENTRIES);
+
+    NodeRoster roster;
+    uint8_t liveNodes = 0;
+    if (analyzerNodeRosterSnapshot(roster, pdMS_TO_TICKS(20))) {
+        for (uint8_t i = 0; i < NODE_ROSTER_MAX_ENTRIES; i++) {
+            if (roster.entries[i].node_id != NODE_ROSTER_EMPTY_ID) liveNodes++;
+        }
+    }
+    snprintf(values[4], sizeof(values[4]), "%u/%u", (unsigned)liveNodes, (unsigned)NODE_ROSTER_MAX_ENTRIES);
+
+    for (uint8_t i = 0; i < ANALYZE_HUB_COUNT; i++) {
+        drawMenuRow(22 + i * 20, LABELS[i], values[i], analyzeHubIndex == i);
+    }
+}
+
+// Meter: "packet RSSI, selected-bin RSSI, or current scope RSSI with its
+// source identified... show measurement age" (§8.2) — prefers a live/recent
+// Scope sample when Scope is what actually produced the newest number,
+// otherwise the most recent real detection's RSSI. Never both at once and
+// never unlabeled, so a frozen reading can't be mistaken for continuous
+// sampling.
+void drawMeterPage() {
+    ScopeTrace trace;
+    const bool haveTrace = radioScopeTraceSnapshot(trace, 0) && trace.count > 0;
+    int8_t scopeSample = 0;
+    const bool haveScopeSample = haveTrace && scopeTraceSampleAt(trace, 0, scopeSample);
+
+    CaptureHistory captures;
+    CaptureSummary latestCapture;
+    const bool haveCapture = analyzerCaptureHistorySnapshot(captures, pdMS_TO_TICKS(50)) &&
+                             captureHistoryEntryAt(captures, 0, latestCapture);
+
+    // Scope wins when it's actively running, or when nothing else exists,
+    // or when its own capture is newer than the latest packet — "current
+    // scope RSSI", not a stale one left over from an earlier visit.
+    const bool useScope = haveScopeSample &&
+        (radioScopeAcquireIsActive() || !haveCapture || trace.start_millis >= latestCapture.rx_millis);
+
+    uiTft->setTextSize(2);
+    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 8);
+
+    if (useScope) {
+        char buf[12];
+        snprintf(buf, sizeof(buf), "%d dBm", (int)scopeSample);
+        uiTft->print(buf);
+        uiTft->setTextSize(1);
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 30);
+        char detail[32];
+        snprintf(detail, sizeof(detail), "scope @ %.3fMHz", (double)trace.tuned_freq_mhz);
+        uiTft->print(detail);
+        // No SNR line here (operator request, 2026-09-04, mocked up first
+        // in docs/research/analyzer-preview.html): Scope samples raw RSSI
+        // at one tuned frequency without demodulating anything
+        // (drawScopePage()'s own "never a spectrum, no decode" design), so
+        // it genuinely has no SNR to report — honest omission, not an
+        // inconsistency, same reasoning as Waterfall's "no fabricated
+        // vertical texture" rule. Same reason the right-column SF/BW/CR
+        // block below is watch-only too.
+        uiTft->setCursor(2, HEADER_H + 54);
+        if (radioScopeAcquireIsActive()) {
+            uiTft->setTextColor(COL_WARN, COL_BG);
+            uiTft->print("live - watch paused");
+        } else {
+            char ageBuf[24];
+            snprintf(ageBuf, sizeof(ageBuf), "%lus ago", (unsigned long)((millis() - trace.start_millis) / 1000));
+            uiTft->print(ageBuf);
+        }
+        // Range widened -30 -> 0 (operator feedback, 2026-09-04: real
+        // readings from a close repeater hit -16dBm, clipping flat
+        // against the old ceiling — a real defect, since a clipped bar
+        // can't distinguish -16dBm from -5dBm). Deliberately not shared
+        // with drawScopePage()'s own DISPLAY_LO/DISPLAY_HI (-120/-30,
+        // unchanged) — that page's ceiling exists so trace heights stay
+        // visually comparable across captures, a different reason than
+        // Meter's own "show the SX1262's real RSSI range without
+        // clipping" here.
+        constexpr float DISPLAY_LO = -120.0f, DISPLAY_HI = 0.0f;
+        drawMeterBar(2, HEADER_H + 72, 232, 12, (float)scopeSample, DISPLAY_LO, DISPLAY_HI);
+    } else if (haveCapture) {
+        char buf[12];
+        snprintf(buf, sizeof(buf), "%.0f dBm", (double)latestCapture.rssi_dbm);
+        uiTft->print(buf);
+        uiTft->setTextSize(1);
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 30);
+        char detail[32];
+        snprintf(detail, sizeof(detail), "watch @ %.3fMHz", (double)latestCapture.freq_mhz);
+        uiTft->print(detail);
+        // SNR (operator request, 2026-09-04): real data this page already
+        // had access to and never showed — capture_history.h's
+        // CaptureSummary carries snr_db for every real decoded packet.
+        char snrBuf[16];
+        snprintf(snrBuf, sizeof(snrBuf), "SNR: %+.1fdB", (double)latestCapture.snr_db);
+        uiTft->setCursor(2, HEADER_H + 42);
+        uiTft->print(snrBuf);
+        uiTft->setCursor(2, HEADER_H + 54);
+        char ageBuf[24];
+        snprintf(ageBuf, sizeof(ageBuf), "%lus ago", (unsigned long)((millis() - latestCapture.rx_millis) / 1000));
+        uiTft->print(ageBuf);
+        // Right column ("what can we use the dead space on the right
+        // for?", operator request, 2026-09-04) — the channel params this
+        // exact packet was decoded with, also real CaptureSummary data
+        // and also never shown. Right-aligned, vertically matched to the
+        // freq/SNR/age rows it sits beside.
+        char rightBuf[16];
+        snprintf(rightBuf, sizeof(rightBuf), "SF%u", (unsigned)latestCapture.sf);
+        uiTft->setCursor(232 - (int16_t)strlen(rightBuf) * 6, HEADER_H + 30);
+        uiTft->print(rightBuf);
+        snprintf(rightBuf, sizeof(rightBuf), "%.1fkHz", (double)latestCapture.bw_khz_x10 / 10.0);
+        uiTft->setCursor(232 - (int16_t)strlen(rightBuf) * 6, HEADER_H + 42);
+        uiTft->print(rightBuf);
+        snprintf(rightBuf, sizeof(rightBuf), "CR4/%u", (unsigned)latestCapture.cr_denom);
+        uiTft->setCursor(232 - (int16_t)strlen(rightBuf) * 6, HEADER_H + 54);
+        uiTft->print(rightBuf);
+        // Range widened -30 -> 0 (operator feedback, 2026-09-04: real
+        // readings from a close repeater hit -16dBm, clipping flat
+        // against the old ceiling — a real defect, since a clipped bar
+        // can't distinguish -16dBm from -5dBm). Deliberately not shared
+        // with drawScopePage()'s own DISPLAY_LO/DISPLAY_HI (-120/-30,
+        // unchanged) — that page's ceiling exists so trace heights stay
+        // visually comparable across captures, a different reason than
+        // Meter's own "show the SX1262's real RSSI range without
+        // clipping" here.
+        constexpr float DISPLAY_LO = -120.0f, DISPLAY_HI = 0.0f;
+        drawMeterBar(2, HEADER_H + 72, 232, 12, latestCapture.rssi_dbm, DISPLAY_LO, DISPLAY_HI);
+    } else {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print("NO MEASUREMENT");
+    }
+}
+
+// Aggregates one already-quantized WaterfallRow down to plot columns,
+// max-arbitrated (a strong single bin must not be diluted by quieter
+// neighbors sharing its column) — same reasoning as waterfall.h's own
+// int16-domain waterfallAggregateRow(), just operating on the byte-encoded
+// storage a WaterfallRow already holds instead of raw dBm.
+void waterfallRowToColumns(const WaterfallRow &row, uint8_t *outColumns, uint16_t columnCount) {
+    for (uint16_t c = 0; c < columnCount; c++) outColumns[c] = WATERFALL_NO_DATA;
+    for (uint16_t b = 0; b < row.bin_count; b++) {
+        if (row.bins[b] == WATERFALL_NO_DATA) continue;
+        const uint16_t col = waterfallColumnForBin(b, row.bin_count, columnCount);
+        if (outColumns[col] == WATERFALL_NO_DATA || row.bins[b] > outColumns[col]) {
+            outColumns[col] = row.bins[b];
+        }
+    }
+}
+
+// Waterfall: one row per completed Sweep, newest at top, x = frequency bin
+// mapped to a plot column. This slice's WaterfallHistory rows are occupancy
+// only (analyzer_state.cpp's own comment on analyzerNoteSweepComplete()
+// explains why) — quiet bins and no-data bins both render as background, so
+// this reads as a scrolling history of drawSweepOccupancy()'s existing tick
+// marks rather than a genuine RSSI-graded heatmap. Real Phase 9 sweep rows
+// only (§8.6: "no fabricated vertical texture").
+//
+// Laid out to match drawScope()'s shape (operator request, 2026-09-03: "we
+// should model this for some of these other pages"): a headline callout,
+// one compact metadata line, then a bordered fixed-height box — instead of
+// the plot growing edge-to-edge and needing its own bottom-anchored caption
+// that collided with the footer (same bug this rewrite also fixes).
+void drawWaterfallPage() {
+    // Content-column bounds, declared up front: needed both by the top-row
+    // repeat badge below and the plot box further down.
+    constexpr int16_t PLOT_X = 2;
+    constexpr uint16_t PLOT_W = 232;
+
+    // Row-at-a-time on purpose (analyzer_state.h's own comment): the full
+    // WaterfallHistory is ~5.5KB, far too large to ever hold as a stack
+    // local on ui_task's 4096B stack — an earlier version of this function
+    // did exactly that and crashed ui_task on real hardware (2026-09-03).
+    // One WaterfallRow (~232B) plus the column buffer below is a normal-
+    // sized set of locals.
+    const uint8_t rowCount = analyzerWaterfallRowCount(pdMS_TO_TICKS(50));
+    if (rowCount == 0) {
+        uiTft->setTextSize(2);
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 8);
+        uiTft->print("NO SWEEPS YET");
+        uiTft->setTextSize(1);
+        uiTft->setCursor(2, HEADER_H + 34);
+        uiTft->print("Enter: start repeat Sweep");
+        return;
+    }
+
+    // First pass: total hit-bin count across every stored row, not just
+    // whatever fits in the box below — the same "what did we find" callout
+    // shape drawSweepPage()/drawCellPage() already use (peaks / strongest
+    // signal), for a consistent headline across all three pages.
+    uint32_t totalHits = 0;
+    uint16_t latestBinCount = 0;
+    WaterfallRow row;
+    for (uint8_t r = 0; r < rowCount; r++) {
+        if (!analyzerWaterfallRowSnapshot(r, row, pdMS_TO_TICKS(50))) break;
+        if (r == 0) latestBinCount = row.bin_count;
+        for (uint16_t b = 0; b < row.bin_count; b++) {
+            if (row.bins[b] >= 200) totalHits++;
+        }
+    }
+
+    uiTft->setTextSize(2);
+    uiTft->setCursor(2, HEADER_H + 6);
+    if (totalHits > 0) {
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->print(totalHits);
+        uiTft->print(totalHits == 1 ? " HIT" : " HITS");
+    } else {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print("QUIET");
+    }
+
+    // Repeat-status badge, top row, right-aligned opposite the hit counter
+    // (operator request, 2026-09-04 — first landed on the metadata line
+    // below, moved up here same day): Waterfall is Sweep's own history
+    // view, so an operator watching it needs to know without leaving the
+    // page whether it's actively being fed right now — same "measure
+    // without extracting energy.csv first" reasoning Serial Control's own
+    // STATUS fields already follow elsewhere in this project. Enter
+    // toggles it; see WATERFALL_SWEEP_REPEAT_TOGGLE. Size 1, not size 2
+    // like the hit counter — a secondary status badge, not a second
+    // headline competing for the same weight.
+    const bool repeating = radioEnergySweepRepeatIsActive();
+    if (repeating) {
+        static const char kScanning[] = "SCANNING";
+        uiTft->setTextSize(1);
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(PLOT_X + PLOT_W - (int16_t)(sizeof(kScanning) - 1) * 6, HEADER_H + 6);
+        uiTft->print(kScanning);
+    }
+
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 24);
+    char meta[40];
+    snprintf(meta, sizeof(meta), "%u rows, newest first  %u bins", (unsigned)rowCount,
+             (unsigned)latestBinCount);
+    uiTft->print(meta);
+
+    // Fixed-height bordered box, same visual language as drawScope()'s own
+    // plot rect — its height (not "grow until the footer") is what keeps
+    // this page's layout stable and collision-free regardless of history
+    // depth. Top edge moved up from HEADER_H+44 to HEADER_H+34 (operator
+    // request, 2026-09-04): the meta line above ends around HEADER_H+32,
+    // so the box used to leave ~10px of dead space before it started —
+    // closed that gap and gave the reclaimed height straight to PLOT_H
+    // (45 -> 55) instead of just moving empty space around. Then the
+    // frequency axis below merged into this box's own bottom border,
+    // same day (see drawWaterfallFreqAxis()'s own comment) — that removed
+    // both the axis's separate hline and the gap before it, reclaiming
+    // another ~5px, handed to PLOT_H again (55 -> 60, ~4 more visible
+    // rows total than the box originally shipped with). Axis footprint
+    // below the box is now ~12px, leaving a real ~7px margin before
+    // drawFooterStatus()'s text — tighter than before this merge, but
+    // nowhere near the ~3px that caused this page's real 2026-09-03
+    // footer collision.
+    constexpr int16_t PLOT_Y = HEADER_H + 34;
+    constexpr int16_t PLOT_H = 60;
+    uiTft->drawRect(PLOT_X, PLOT_Y, PLOT_W, PLOT_H, COL_DIM);
+
+    constexpr int16_t ROW_H = 4;
+    constexpr int16_t ROWS_BOTTOM = PLOT_Y + PLOT_H - 2;
+    uint8_t columns[PLOT_W];
+    for (uint8_t r = 0; r < rowCount; r++) {
+        const int16_t y = PLOT_Y + 2 + (int16_t)r * ROW_H;
+        if (y + ROW_H > ROWS_BOTTOM) break;
+        if (!analyzerWaterfallRowSnapshot(r, row, pdMS_TO_TICKS(50))) break;
+
+        waterfallRowToColumns(row, columns, PLOT_W);
+        for (uint16_t c = 0; c < PLOT_W; c++) {
+            if (columns[c] == WATERFALL_NO_DATA || columns[c] <= 1) continue; // quiet/no-data: background
+            const uint16_t colour = columns[c] >= 200 ? COL_WARN : COL_DIM;
+            uiTft->drawFastVLine(PLOT_X + (int16_t)c, y, ROW_H - 1, colour);
+        }
+    }
+    // Frequency axis below the box (operator request, 2026-09-04) — the
+    // box's shrunk, fixed height (above) is what guarantees this stays
+    // clear of the footer, not a "grow until it collides" layout the way
+    // an earlier revision's own bottom caption did (height-9, colliding
+    // with drawFooterStatus()'s profile text at height-10 on real
+    // hardware, 2026-09-03 — caught in docs/research/analyzer-preview.html
+    // before a second flash cycle, same tool that caught this addition's
+    // own first, too-tight vertical-margin draft before it ever reached
+    // real hardware).
+    const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
+    drawWaterfallFreqAxis(PLOT_X, PLOT_Y + PLOT_H, PLOT_W, band.lo_mhz, band.hi_mhz);
+}
+
+// Scope: x = time, y = RSSI, one fixed tuned frequency — never a spectrum
+// (§8.2). ui_task.cpp requests the actual SCOPE_ACQUIRE; this only ever
+// renders whatever ScopeTrace it's handed.
+void drawScopePage() {
+    ScopeTrace trace;
+    const bool have = radioScopeTraceSnapshot(trace, pdMS_TO_TICKS(50));
+    const bool running = radioScopeAcquireIsActive();
+    const bool holdExpired = !running && scopeTerminalShownAt != 0 &&
+                             millis() - scopeTerminalShownAt >= RESULT_HOLD_MS;
+
+    uiTft->setTextSize(2);
+    uiTft->setCursor(2, HEADER_H + 6);
+    if (!have || trace.count == 0) {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print("NO SCOPE YET");
+        uiTft->setTextSize(1);
+        uiTft->setCursor(2, HEADER_H + 30);
+        uiTft->print(running ? "watch paused" : "Enter to capture");
+        return;
+    }
+
+    if (running) {
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->print("CAPTURING");
+    } else if (holdExpired) {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print("IDLE");
+    } else {
+        uiTft->setTextColor(COL_GOOD, COL_BG);
+        uiTft->print("CAPTURED");
+    }
+
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 24);
+    char freqBuf[28];
+    snprintf(freqBuf, sizeof(freqBuf), "%.3fMHz  %ums/sample", (double)trace.tuned_freq_mhz,
+             (unsigned)trace.sample_interval_ms);
+    uiTft->print(freqBuf);
+    if (running) {
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 34);
+        uiTft->print("watch paused");
+    }
+
+    constexpr int16_t PLOT_X = 2, PLOT_Y = HEADER_H + 48, PLOT_W = 232, PLOT_H = 50;
+    uiTft->drawRect(PLOT_X, PLOT_Y, PLOT_W, PLOT_H, COL_DIM);
+
+    // Fixed display range, not a per-trace auto-scale: a generous envelope
+    // around any real SX1262 reading, chosen so two different captures'
+    // trace heights stay visually comparable rather than each rescaling to
+    // fill the box regardless of actual signal strength.
+    constexpr int8_t DISPLAY_LO = -120, DISPLAY_HI = -30;
+    int16_t prevX = -1, prevY = 0;
+    for (uint16_t i = 0; i < trace.count; i++) {
+        // Chronological left-to-right: i=0 is the oldest still-held sample
+        // (recency index count-1), i=count-1 is the newest.
+        int8_t value;
+        if (!scopeTraceSampleAt(trace, (uint16_t)(trace.count - 1 - i), value)) continue;
+        int16_t clamped = value;
+        if (clamped < DISPLAY_LO) clamped = DISPLAY_LO;
+        if (clamped > DISPLAY_HI) clamped = DISPLAY_HI;
+        const uint16_t denom = trace.count > 1 ? (uint16_t)(trace.count - 1) : 1;
+        const int16_t x = PLOT_X + (int16_t)((uint32_t)i * (PLOT_W - 1) / denom);
+        const float frac = (float)(clamped - DISPLAY_LO) / (float)(DISPLAY_HI - DISPLAY_LO);
+        const int16_t y = PLOT_Y + PLOT_H - 1 - (int16_t)(frac * (PLOT_H - 2));
+        if (prevX >= 0) uiTft->drawLine(prevX, prevY, x, y, COL_GOOD);
+        prevX = x;
+        prevY = y;
+    }
+
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    char hiBuf[8];
+    snprintf(hiBuf, sizeof(hiBuf), "%d", (int)DISPLAY_HI);
+    uiTft->setCursor(PLOT_X, PLOT_Y - 8);
+    uiTft->print(hiBuf);
+    char loBuf[8];
+    snprintf(loBuf, sizeof(loBuf), "%d", (int)DISPLAY_LO);
+    uiTft->setCursor(PLOT_X, PLOT_Y + PLOT_H + 1);
+    uiTft->print(loBuf);
+}
+
+// Recent Captures: "time, profile, frequency, SF/BW/CR, RSSI/SNR, length,
+// safe cleartext header IDs. No payload hex, plaintext, or key handling"
+// (§8.2) — CaptureSummary (capture_history.h) already enforces the "no
+// payload" half at the data-structure level, so this only ever formats
+// fields it's structurally incapable of leaking past.
+void drawCapturesPage() {
+    CaptureHistory history;
+    const bool have = analyzerCaptureHistorySnapshot(history, pdMS_TO_TICKS(50));
+    if (!have || history.count == 0) {
+        uiTft->setTextSize(2);
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 8);
+        uiTft->print("NO CAPTURES YET");
+        return;
+    }
+
+    constexpr int16_t ROW_H = 13;
+    constexpr int16_t FOOTER_Y = 126;
+    uiTft->setTextSize(1);
+    for (uint8_t i = 0; i < history.count; i++) {
+        CaptureSummary summary;
+        if (!captureHistoryEntryAt(history, i, summary)) break;
+        const int16_t y = HEADER_H + 3 + (int16_t)i * ROW_H;
+        if (y + ROW_H > FOOTER_Y) break;
+
+        char line[48];
+        const uint32_t ageS = (millis() - summary.rx_millis) / 1000;
+        if (summary.node_id != 0) {
+            snprintf(line, sizeof(line), "%s !%08lx %.1fMHz %ddBm %lus",
+                     missionProfileName(summary.profile), (unsigned long)summary.node_id,
+                     (double)summary.freq_mhz, (int)summary.rssi_dbm, (unsigned long)ageS);
+        } else {
+            snprintf(line, sizeof(line), "%s %.1fMHz %ddBm %lus", missionProfileName(summary.profile),
+                     (double)summary.freq_mhz, (int)summary.rssi_dbm, (unsigned long)ageS);
+        }
+        uiTft->setTextColor(summary.off_grid ? COL_WARN : COL_FG, COL_BG);
+        uiTft->setCursor(2, y);
+        uiTft->print(line);
+    }
+}
+
+// Passive Nodes: "cleartext node ID, last seen, packet count, best/latest
+// RSSI and SNR, hop metadata if already available. Fixed roster only" (§8.2)
+// — NodeRosterEntry (node_roster.h) has no field for a name, chat text, or
+// position, so there is nothing here capable of showing them either.
+// Recency-sorted for display only; the roster itself has no order beyond
+// slot index (its own LRU eviction doesn't need one).
+void drawNodesPage() {
+    NodeRoster roster;
+    if (!analyzerNodeRosterSnapshot(roster, pdMS_TO_TICKS(50))) {
+        uiTft->setTextSize(2);
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 8);
+        uiTft->print("NO NODES YET");
+        return;
+    }
+
+    uint8_t order[NODE_ROSTER_MAX_ENTRIES];
+    uint8_t liveCount = 0;
+    for (uint8_t i = 0; i < NODE_ROSTER_MAX_ENTRIES; i++) {
+        if (roster.entries[i].node_id != NODE_ROSTER_EMPTY_ID) order[liveCount++] = i;
+    }
+    if (liveCount == 0) {
+        uiTft->setTextSize(2);
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 8);
+        uiTft->print("NO NODES YET");
+        return;
+    }
+    // Selection sort, newest-seen first — at most 24 entries, cheap enough
+    // for a once-a-second redraw.
+    for (uint8_t i = 0; i < liveCount; i++) {
+        uint8_t best = i;
+        for (uint8_t j = (uint8_t)(i + 1); j < liveCount; j++) {
+            if (roster.entries[order[j]].last_seen_millis > roster.entries[order[best]].last_seen_millis) {
+                best = j;
+            }
+        }
+        if (best != i) {
+            const uint8_t tmp = order[i];
+            order[i] = order[best];
+            order[best] = tmp;
+        }
+    }
+
+    constexpr int16_t ROW_H = 13;
+    constexpr int16_t FOOTER_Y = 126;
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_FG, COL_BG);
+    for (uint8_t i = 0; i < liveCount; i++) {
+        const int16_t y = HEADER_H + 3 + (int16_t)i * ROW_H;
+        if (y + ROW_H > FOOTER_Y) break;
+        const NodeRosterEntry &e = roster.entries[order[i]];
+        const uint32_t ageS = (millis() - e.last_seen_millis) / 1000;
+        char line[48];
+        snprintf(line, sizeof(line), "%s !%08lx x%lu %ddBm %lus", missionProfileName(e.profile),
+                 (unsigned long)e.node_id, (unsigned long)e.packet_count, (int)e.latest_rssi_dbm,
+                 (unsigned long)ageS);
+        uiTft->setCursor(2, y);
+        uiTft->print(line);
+    }
+}
+
 // Toast overlay — flush-bottom band that slides up from off-panel on show
 // and carries a shrinking countdown bar along its own bottom edge. Both
 // are just per-frame rectangle geometry (no alpha blending needed), driven
@@ -1121,6 +1799,13 @@ void drawPage() {
             case UiPage::PROBE: drawProbePage(); break;
             case UiPage::SWEEP: drawSweepPage(); break;
             case UiPage::CELL: drawCellPage(); break;
+            case UiPage::TOOLS: drawToolsPage(); break;
+            case UiPage::ANALYZE: drawAnalyzePage(); break;
+            case UiPage::METER: drawMeterPage(); break;
+            case UiPage::WATERFALL: drawWaterfallPage(); break;
+            case UiPage::SCOPE: drawScopePage(); break;
+            case UiPage::CAPTURES: drawCapturesPage(); break;
+            case UiPage::NODES: drawNodesPage(); break;
             default: break;
         }
     }

@@ -473,7 +473,7 @@ band on the frequency bar with the expected scan duration.
   each individually sourced per CLAUDE.md's citation house rule — a
   research project, not a mechanical change.
 
-### Phase 10 — Field Analyzer (planned; release gate provisional)
+### Phase 10 — Field Analyzer (closed 2026-09-03 — the `v1.0.x` release gate)
 
 **Deliverable:** Meter, truthful frequency waterfall, bounded live Scope,
 recent captures, and a passive node roster over data acquired by Watch,
@@ -496,8 +496,133 @@ bounded memory and deterministic roster eviction hold; a worst-case UI/radio
 run has no drops, deadlocks, or watchdog resets; outdoor readability and
 minimum-brightness rendering are tested as separate conditions.
 
-Whether Phase 10 is required for `v1.0.x`, or follows a Phase 9-based v1.0,
-is deliberately decided after Phase 9 hardware evidence exists.
+**Decided 2026-09-03, with Phase 9 hardware evidence in hand: Phase 10 is
+required for `v1.0.x`.** `v1.0.x` is not tagged until Field Analyzer's own
+exit criteria above are also closed, matching the original "all four
+profiles + UI stable" framing this doc has used since the 2026-08-25
+renumbering. Work starts now under an interim `v0.10.x` line, the same
+convention Phase 8/9 used while in progress (see Versioning below).
+
+**Gate satisfied the same day: promoted to `v1.0.0`, 2026-09-03.** All
+five exit criteria above hardware-confirmed (`v0.10.1`), plus real
+hardware-confirmed UI polish beyond them (`v0.10.2`/`v0.10.3`, below).
+Phase 11 (Cell) was never part of this gate — added out of sequence,
+appended after Phase 10 rather than inserted into it, outside the
+original four-profile scope this promotion tracks — its own two open
+items (docs/STATUS.md) are known, tracked gaps post-`v1.0`, not blockers,
+an explicit call rather than a silent omission.
+
+**Implementation status (`v0.10.0`, 2026-09-03):**
+- **Data layer — done, host-verified.** `waterfall.h`/`scope_trace.h`/
+  `capture_history.h`/`node_roster.h` (WaterfallHistory, ScopeTrace,
+  CaptureHistory, NodeRoster) plus `analyzer_state.h`/`.cpp`'s mutex-guarded
+  cross-task snapshot layer. 202+ host-native test cases
+  (`pio test -e native`). Row-at-a-time waterfall snapshot API deliberately
+  replaces a first cut that returned the whole ~5.5KB struct — that version
+  crashed `ui_task`'s 4096B stack on real hardware (Waterfall page,
+  2026-09-03); see `analyzer_state.h`'s own comment on
+  `analyzerWaterfallRowSnapshot()`.
+- **`SCOPE_ACQUIRE` — done, hardware-verified.** Bounded, radio-owned,
+  mutual-exclusion against Probe/Sweep/Cell/bench triggers in both
+  directions, home-config restore on complete/cancel/timeout/failure
+  (`radio_task.cpp`/`.h`).
+- **On-device UI — done, hardware-verified**, and materially reshaped from
+  the original one-page-per-view plan during this session at the operator's
+  request: rather than five analyzer views navigable directly on the main
+  carousel, they're gated behind a single **Analyze** hub card (page-local
+  row selection, UP/DOWN — `;`/`.` — to browse, SELECT to open, BACK to
+  return); Probe/Sweep/Cell were folded the same way into a second **Tools**
+  hub, both real scope additions beyond this section's original text, not a
+  deviation from the exit criteria above. Iterated live against
+  `docs/research/analyzer-preview.html` (an interactive Canvas mockup of
+  the exact device palette/coordinates/state machine, built specifically so
+  hub UX could be worked out before each real flash) before being ported to
+  firmware. Two real bugs were caught and fixed along the way: a whole-struct
+  Waterfall snapshot overflowing `ui_task`'s stack (above), and
+  `drawFooterStatus()` computing the card-count footer from the raw
+  `UiPage` enum ordinal instead of the main-carousel-relative position,
+  which would have shown "14/14" for Tools and "8/14" for Analyze instead of
+  the intended "2/6"/"3/6" — fixed via new `mainCarouselPosition()`/
+  `mainCarouselCount()` accessors.
+- **Memory/telemetry — landed, not yet confirmed against a real multi-hour
+  run.** `ANALYZER_STATIC_BYTES` (`analyzer_budget.h`, split out of
+  `analyzer_state.h` so it stays reachable without pulling in FreeRTOS.h,
+  same "keep it pure" reasoning as `session_log.h`'s own header comment) is
+  a compile-time `sizeof()` sum, not a runtime measurement — the four
+  analyzer structures commit **6,728 bytes** against this section's
+  8,192-byte incremental ceiling (82.1% used, 1,464 bytes headroom).
+  `session_log.h`'s `analyzer_static_bytes` column reports it on every
+  health row (added append-only, per this project's CSV-schema
+  convention). Real linked-firmware RAM delta since Phase 10 work began:
+  +6,472 bytes, within compiler-alignment noise of the computed number.
+**All five exit criteria closed, 2026-09-03:**
+- **Worst-case UI/radio run — closed.** WiFi on, Sweep repeat mode
+  running continuously, Waterfall open the whole time, for a full 60
+  minutes. A background Serial Control watch (231 `STATUS` polls at 15s
+  intervals) recorded **zero** dropped/unanswered requests and **zero**
+  `task_wdt`/`Guru Meditation` signatures for the entire hour. Confirms
+  the exit criterion directly, not just "nothing looked wrong."
+- **Outdoor and minimum-brightness readability — closed (operator
+  check, 2026-09-03):** confirmed good both in direct window sunlight and
+  indoors.
+- **A real, hardware-found Waterfall bug surfaced by the worst-case
+  run — found and fixed same day.** During the run, Pass A found 50
+  energy peaks (`PBA=50` cumulative, `STATUS`'s own field) worth
+  triggering Pass B CAD on, yet Waterfall showed nothing the entire hour.
+  Root cause: `analyzerNoteSweepComplete()` (`analyzer_state.cpp`) read
+  `radio_task.cpp`'s live `energyPeakBinMask` to build each Waterfall row,
+  but in repeat mode `radio_task`'s own do-while loop (`radio_task.cpp`
+  ~1443) calls straight back into `performEnergySweep()` for the next lap
+  with no delay — whose first line resets that same mask. `logger_task`
+  (Core 0) only polls `radioEnergySweepCount()` on its own ~100ms cadence,
+  so it almost always lost that race against Core 1 and read an
+  already-cleared mask: every repeat-mode Waterfall row reported quiet
+  regardless of what Pass A actually found. `energy.csv` itself was never
+  affected — `enqueueEnergyObservation()` pushes each peak to a queue the
+  instant Pass A finds it, independent of this mask, so all 50 peaks (with
+  bin/frequency/RSSI/`pass_b_confidence`) are real rows on the card.
+  **Fix:** a second, stable buffer (`energyPeakBinMaskAtComplete`)
+  snapshotted atomically at `energySweepCount++`, before the next lap can
+  touch it; a new accessor,
+  `radioEnergyPeakBinSetAtLastComplete()`, is what
+  `analyzerNoteSweepComplete()` reads now. `drawSweepOccupancy()`
+  (ui_pages.cpp, the Sweep page's own live occupancy ticks) is untouched
+  — it still reads the live mask on purpose, so it keeps rendering ticks
+  progressively as an active sweep runs. **Hardware-confirmed the same
+  day**: operator re-ran Waterfall during a live repeat Sweep against
+  real MeshCore traffic and confirmed hits now appear on the display.
+- **Bench SD card / boot-loop finding — found then resolved same day
+  (2026-09-03):** the bench Cardputer briefly hit a 100%-reproducible
+  `task_wdt` abort during SD bring-up on every cold boot, isolated to the
+  SD card (identical crash reproduced on the last tagged release,
+  `v0.9.0`/`b84d88c`, with no Phase 10 code at all — not a regression from
+  this work). Operator swapped the card; the fix was confirmed two ways:
+  a 20-minute passive Serial Control watch (zero `task_wdt`/`Guru
+  Meditation`, `SD=1` throughout), then the card itself pulled and
+  inspected directly — `run0006`'s real `session.csv` covers a clean
+  29-minute boot, `analyzer_static_bytes=6728` on every row, `sd=ok`
+  throughout, zero row/queue/bus drops, heap settling once early then
+  flat for the rest of the run. This closes Stage 4's memory/telemetry
+  confirmation for real, not just at compile time. Full writeup:
+  `docs/STATUS.md`'s Phase 10 section.
+- **Post-closure UI polish, same day (`v0.10.2`/`v0.10.3`), hardware-
+  confirmed:** real scope beyond the five exit criteria above, not a
+  deviation from them — Waterfall gained a frequency axis (lo/center/hi
+  MHz + reference ticks, later merged into the plot box's own bottom
+  border to remove a redundant line and reclaim height) and an Enter key
+  that starts/stops repeat Sweep straight from the page, sharing
+  `WATERFALL_SWEEP_REPEAT_TOGGLE` with the Tools/Sweep card's own R key
+  rather than a parallel mechanism. Meter — previously three lines of
+  text and a lot of unused screen — gained a real bar gauge (`drawMeterBar()`,
+  filled proportionally, deliberately not `drawFreqBar()`'s position-marker
+  convention since signal strength is a quantity, not a location), an SNR
+  line, and a right-column SF/BW/CR block, all three watch-sourced only
+  from data (`CaptureSummary`) this page already had and never showed. Bar
+  range widened -30 -> 0dBm same day after a real -16dBm reading clipped
+  flat against the original ceiling. Every layout change was workshopped
+  in `docs/research/analyzer-preview.html` before reaching real hardware,
+  same tool that already caught this session's real Waterfall footer-
+  collision bug once.
 
 ### Phase 11 — Cell (added out of sequence, 2026-09-01)
 
@@ -721,7 +846,8 @@ reports can use.
 | v0.7.x | Phase 7 (device optimization) |
 | v0.8.x | Phase 8 (discovery sweep) |
 | v0.9.x | Phase 9 (energy sweep: Reticulum + General Exploration) |
-| v1.0.x | promotion target after Phase 9; whether Phase 10 is required is decided from Phase 9 hardware evidence |
+| v0.10.x | Phase 10 (Field Analyzer), in progress |
+| v1.0.x | reached 2026-09-03 — Phase 10 (Field Analyzer)'s exit criteria closed same day, the doc's own gate for this promotion (decided 2026-09-03), see Phase 10 above |
 
 **Phase 11 (Cell) is a deliberate exception to this table.**
 It landed as a PATCH bump (`v0.8.6`, not `v0.9.x`) because it is not the

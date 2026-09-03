@@ -105,11 +105,18 @@ void sendStatus(uint16_t sequence) {
     // (radioEnergyLastAwayMs(), already tracked internally, not
     // previously exposed) -- Phase 9's own "timing and home-away duration
     // are measured" exit criterion (ROADMAP.md) needs this outside the
-    // on-device UI/energy.csv.
+    // on-device UI/energy.csv. RXP/RXC are Watch/Trace's own cumulative
+    // counters (radioPacketCount()/radioCrcErrorCount(), both already
+    // tracked internally, not previously exposed) -- added 2026-09-03
+    // chasing a live "is Trace actually receiving this real traffic"
+    // question that R= (Probe's recovery count, not a packet count
+    // despite the letter) could not answer; distinct names on purpose so
+    // a host script can't confuse them the way this session just did.
     char argument[200] = {};
     snprintf(argument, sizeof(argument),
              "P=%s;T=%u;B=%s;SD=%u;F=%lu;R=%lu;I=%u;N=%u;C=%u,%u,%u,%u;M=%04X;"
-             "W=%s;WI=%u;WN=%u;WP=%u;PBA=%lu;PBD=%lu;BPC=%u;RW=%u;WIFI=%u;EA=%lu",
+             "W=%s;WI=%u;WN=%u;WP=%u;PBA=%lu;PBD=%lu;BPC=%u;RW=%u;WIFI=%u;EA=%lu;"
+             "RXP=%lu;RXC=%lu",
              profile, radioIsTracePaused() ? 0U : 1U, probe, loggerSdReady() ? 1U : 0U,
              (unsigned long)(channel.freq_mhz * 1000.0f),
              (unsigned long)radioDiscoveryRecoveryCount(),
@@ -124,7 +131,8 @@ void sendStatus(uint16_t sequence) {
              (unsigned)radioEnergyPeakCount(),
              (unsigned long)radioPassBAttemptCount(), (unsigned long)radioPassBDetectionCount(),
              radioBenchPassBCadIsActive() ? 1U : 0U, radioBenchRssiWindowIsActive() ? 1U : 0U,
-             wifiIsEnabled() ? 1U : 0U, (unsigned long)radioEnergyLastAwayMs());
+             wifiIsEnabled() ? 1U : 0U, (unsigned long)radioEnergyLastAwayMs(),
+             (unsigned long)radioPacketCount(), (unsigned long)radioCrcErrorCount());
     sendFrame(sequence, SerialControlOpcode::STATUS, argument);
 }
 

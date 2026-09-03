@@ -1,0 +1,1035 @@
+<title>Field Analyzer Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  /* Token system reused verbatim from docs/research/ui-panel-set.html --
+     this is a companion tool for the same device/subject, not a fresh
+     identity. Chrome palette (paper/ink/amber/sage) is the doc's own;
+     --scr-* below is real hardware truth (RGB565 quantized from
+     src/ui_pages.cpp), fixed regardless of viewer theme. */
+  :root {
+    --paper: #eef1ec;
+    --paper-raised: #e4e8e0;
+    --ink: #16201c;
+    --ink-soft: color-mix(in srgb, var(--ink) 62%, var(--paper));
+    --ink-faint: color-mix(in srgb, var(--ink) 38%, var(--paper));
+    --line: #c7ccc1;
+    --line-strong: #a7ad9d;
+    --amber: #a8721a;
+    --sage: #3d7a57;
+    --sage-wash: color-mix(in srgb, var(--sage) 12%, var(--paper));
+    --red: #b23b2e;
+    --shadow: rgba(22, 32, 28, 0.14);
+    --font-display: 'Barlow Condensed', 'Oswald', sans-serif;
+    --font-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'Consolas', monospace;
+
+    --scr-bg: #000000;
+    --scr-fg: #ffffff;
+    --scr-dim: #bdbebd;
+    --scr-good: #00ff00;
+    --scr-warn: #ffff00;
+    --scr-bad: #ff0000;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14181a; --paper-raised: #1b2020; --ink: #e7eae3;
+      --ink-soft: color-mix(in srgb, var(--ink) 62%, var(--paper));
+      --ink-faint: color-mix(in srgb, var(--ink) 38%, var(--paper));
+      --line: #2b322d; --line-strong: #3b443c; --amber: #e3b04d; --sage: #6cbb90;
+      --sage-wash: color-mix(in srgb, var(--sage) 10%, var(--paper));
+      --red: #d97264; --shadow: rgba(0, 0, 0, 0.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14181a; --paper-raised: #1b2020; --ink: #e7eae3;
+    --ink-soft: color-mix(in srgb, var(--ink) 62%, var(--paper));
+    --ink-faint: color-mix(in srgb, var(--ink) 38%, var(--paper));
+    --line: #2b322d; --line-strong: #3b443c; --amber: #e3b04d; --sage: #6cbb90;
+    --sage-wash: color-mix(in srgb, var(--sage) 10%, var(--paper));
+    --red: #d97264; --shadow: rgba(0, 0, 0, 0.4);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+  ::selection { background: var(--sage); color: var(--paper); }
+
+  h1, h2 { font-family: var(--font-display); font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; text-wrap: balance; margin: 0; }
+  code, .mono { font-family: var(--font-mono); }
+
+  header.top { padding: 26px clamp(18px, 4vw, 40px) 20px; border-bottom: 1px solid var(--line); }
+  .eyebrow { font-family: var(--font-display); font-weight: 600; text-transform: uppercase; letter-spacing: 0.15em; font-size: 12px; color: var(--amber); }
+  header.top h1 { font-size: clamp(24px, 3.4vw, 32px); margin: 5px 0 8px; }
+  header.top p { max-width: 64ch; color: var(--ink-soft); font-size: 14px; margin: 0; }
+  header.top p + p { margin-top: 8px; }
+
+  main { display: flex; gap: 30px; flex-wrap: wrap; align-items: flex-start; padding: 26px clamp(18px, 4vw, 40px) 50px; }
+
+  .device-col { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+  .device {
+    display: inline-block; padding: 13px; background: #2a2620; border-radius: 13px;
+    box-shadow: 0 8px 22px var(--shadow);
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .device { background: #d8d3c6; } }
+  :root[data-theme="dark"] .device { background: #d8d3c6; }
+  canvas#screen { display: block; width: 528px; height: 297px; max-width: 100%; }
+
+  .device-caption { font-family: var(--font-mono); font-size: 12px; color: var(--ink-faint); max-width: 528px; }
+  .device-caption b { color: var(--ink-soft); font-weight: 600; }
+
+  .panel { flex: 1; min-width: 300px; max-width: 420px; display: flex; flex-direction: column; gap: 20px; }
+  .group { border: 1px solid var(--line); background: var(--paper-raised); padding: 14px 16px 16px; }
+  .group h2 { font-size: 13px; letter-spacing: 0.1em; color: var(--ink-soft); margin-bottom: 10px; }
+  .group h2 .tag { font-family: var(--font-mono); font-weight: 400; letter-spacing: 0; color: var(--amber); text-transform: none; }
+
+  .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .btn-group-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.06em; color: var(--ink-faint); text-transform: uppercase; width: 100%; margin: 8px 0 -2px; }
+  .btn-group-label:first-child { margin-top: 0; }
+  button {
+    font-family: var(--font-mono); font-size: 12.5px; font-weight: 600;
+    background: var(--paper); color: var(--ink); border: 1px solid var(--line-strong);
+    padding: 7px 12px; cursor: pointer; letter-spacing: 0.02em;
+  }
+  button:hover { border-color: var(--sage); color: var(--sage); }
+  button:focus-visible { outline: 2px solid var(--sage); outline-offset: 2px; }
+  button.primary { background: var(--sage); color: var(--paper); border-color: var(--sage); }
+  button.primary:hover { opacity: 0.88; color: var(--paper); }
+  button.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  button.active:hover { color: var(--paper); border-color: var(--ink); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button:disabled:hover { border-color: var(--line-strong); color: var(--ink); }
+
+  .keycap-row { display: flex; gap: 8px; align-items: center; }
+  .keycap-row button { min-width: 64px; }
+  .hint { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+
+  .state-line { font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .state-line span { color: var(--ink); }
+
+  footer.note { padding: 0 clamp(18px, 4vw, 40px) 40px; font-size: 12.5px; color: var(--ink-faint); font-family: var(--font-mono); max-width: 70ch; }
+  footer.note p + p { margin-top: 6px; }
+</style>
+
+<header class="top">
+  <div class="eyebrow">LoRaTrace RX &middot; Phase 10 (shipped) + Tools hub (proposed)</div>
+  <h1>Field Analyzer preview</h1>
+  <p>Simulates the six-page main carousel this device could have: Radio, <b>Tools</b> (Probe/Sweep/Cell, proposed), <b>Analyze</b> (Meter/Waterfall/Scope/Captures/Nodes, already flashed), Channel, GPS, System. Drive it with the same four keys the physical unit uses.</p>
+  <p><b>Analyze is real</b> &mdash; this is what's on the device right now. <b>Tools is a proposal</b> (operator idea, 2026-09-03: apply the same hub pattern to Probe/Sweep/Cell, freeing up two main-carousel slots) &mdash; nothing below reflects real firmware for it yet.</p>
+  <p><b>Waterfall's frequency axis and Enter-to-repeat are also real</b> (operator idea, 2026-09-04, shipped and hardware-confirmed the same day &mdash; "waterfall works amazing"): a labeled MHz axis under the plot (lo/center/hi + reference ticks, since Waterfall shows history across many rows, not one live scan the way Sweep/Cell's own position-marker bar does), a top-row "SCANNING" badge opposite the hit counter, and reaching the same repeat-Sweep toggle the Tools/Sweep card's R key already has straight from this page &mdash; it's Sweep's own history view, so watching it fill in without a detour to Tools is the point.</p>
+  <p><b>Meter's SNR line, right-column channel params, and bar gauge are also real</b> (operator idea, 2026-09-04: "it's a little bland" — shipped and hardware-confirmed the same day). SNR and SF/BW/CR are real data this page already had access to (<code>CaptureSummary</code>) and never showed, watch-sourced only since Scope never demodulates a signal to have either. The bar is a filled gauge, not <code>drawFreqBar()</code>'s position marker &mdash; signal strength genuinely is a quantity, unlike frequency, which is a location — ranged -120/0dBm (widened from an initial -120/-30 same day, after a real -16dBm reading clipped flat against that ceiling). Deliberately no strength-tier colour-coding (green=strong/red=weak): no such convention exists anywhere in this codebase, and inventing thresholds would be the fabricated-meaning problem this project is otherwise careful about.</p>
+</header>
+
+<main>
+  <div class="device-col">
+    <div class="device"><canvas id="screen" width="528" height="297" aria-label="Simulated LoRaTrace RX panel"></canvas></div>
+    <div class="device-caption"><b>Not pixel-exact</b> &mdash; IBM Plex Mono stands in for the device's fixed 6&times;8/12&times;16 bitmap font. Analyze's real coordinates are from <code>src/ui_pages.cpp</code>; Radio/Channel/GPS/System/Probe/Sweep/Cell are simplified placeholders here (their own real layouts are unchanged by this proposal — see <code>ui-panel-set.html</code>).</div>
+  </div>
+
+  <div class="panel">
+    <div class="group">
+      <h2>Navigate (real keys)</h2>
+      <div class="keycap-row btn-row">
+        <button id="k-prev">, &laquo; prev</button>
+        <button id="k-next">/ &raquo; next</button>
+      </div>
+      <div class="keycap-row btn-row" style="margin-top:6px">
+        <button id="k-up">; &uarr; up</button>
+        <button id="k-select" class="primary">&crarr; select</button>
+        <button id="k-down">. &darr; down</button>
+        <button id="k-back">&#96; back</button>
+      </div>
+      <p class="hint" id="nav-hint"></p>
+    </div>
+
+    <div class="group">
+      <h2>Jump to page</h2>
+      <div class="btn-row" id="page-buttons"></div>
+    </div>
+
+    <div class="group" id="data-group">
+      <h2>Sample data</h2>
+      <div class="btn-row" id="data-buttons"></div>
+      <p class="hint" id="data-hint"></p>
+    </div>
+
+    <div class="state-line" id="state-line"></div>
+  </div>
+</main>
+
+<footer class="note">
+  <p>Colours are the real six: <code>COL_BG/FG/DIM/GOOD/WARN/BAD</code>, no others exist on-device (RGB565, no alpha).</p>
+  <p>On real hardware today, digit <b>8</b> jumps straight to Analyze from anywhere, and P/S/C remain global hotkeys for Probe/Sweep/Cell regardless of any of this. If Tools ships, the plan is: Radio=1, Tools=2, Analyze=3, Channel=4, GPS=5, System=6 — P/S/C keep working unchanged, jumping straight to their result card and bypassing Tools entirely, same as Enter already does from inside the hub.</p>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- Real device constants (src/ui_pages.cpp / src/ui_task.h) --------
+  var SCALE = 2.2;
+  var PANEL_W = 240, PANEL_H = 135;
+  var HEADER_H = 12;
+  var FOOTER_Y = PANEL_H - 10; // drawFooterStatus()'s own y
+  var COL = { bg: '#000000', fg: '#ffffff', dim: '#bdbebd', good: '#00ff00', warn: '#ffff00', bad: '#ff0000' };
+
+  // The proposed six-page main carousel — Tools/Analyze are hubs; Radio/
+  // Channel/GPS/System are plain placeholder pages here (their real content
+  // is unchanged by this proposal, not reproduced in this tool).
+  var MAIN_PAGES = ['RADIO', 'TOOLS', 'ANALYZE', 'CHANNEL', 'GPS', 'SYSTEM'];
+
+  // Each hub's own row list (order = display order = HUB.targets index).
+  // Both hubs share one interaction shape: up/down move the highlight,
+  // select opens the highlighted row, prev/next/back always escape.
+  var HUBS = {
+    TOOLS: { items: ['Probe', 'Sweep', 'Cell'], targets: ['PROBE', 'SWEEP', 'CELL'] },
+    ANALYZE: { items: ['Meter', 'Waterfall', 'Scope', 'Captures', 'Nodes'],
+               targets: ['METER', 'WATERFALL', 'SCOPE', 'CAPTURES', 'NODES'] },
+  };
+
+  var PAGE_HEADER = { // drawHeader()'s pageName() -- always upper-case on real hardware
+    RADIO: 'RADIO', TOOLS: 'TOOLS', PROBE: 'PROBE', SWEEP: 'SWEEP', CELL: 'CELL',
+    ANALYZE: 'ANALYZE', METER: 'METER', WATERFALL: 'WATERFALL', SCOPE: 'SCOPE',
+    CAPTURES: 'CAPTURES', NODES: 'NODES', CHANNEL: 'CHANNEL', GPS: 'GPS', SYSTEM: 'SYSTEM',
+  };
+  var PAGE_BUTTON_LABEL = { // control-panel button text only, not device chrome
+    RADIO: 'Radio', TOOLS: 'Tools', PROBE: 'Probe', SWEEP: 'Sweep', CELL: 'Cell',
+    ANALYZE: 'Analyze', METER: 'Meter', WATERFALL: 'Waterfall', SCOPE: 'Scope',
+    CAPTURES: 'Captures', NODES: 'Nodes', CHANNEL: 'Channel', GPS: 'GPS', SYSTEM: 'System',
+  };
+  var ALL_PAGES = ['RADIO', 'TOOLS', 'PROBE', 'SWEEP', 'CELL', 'ANALYZE', 'METER', 'WATERFALL',
+                    'SCOPE', 'CAPTURES', 'NODES', 'CHANNEL', 'GPS', 'SYSTEM'];
+
+  var WATERFALL_MAX_ROWS = 24, WATERFALL_MAX_BINS = 224;
+  // Real constant, ui_task_shared.h: how long a terminal RUNNING/CAPTURING
+  // result stays as its real headline (COMPLETE/CAPTURED) before the card
+  // reverts to a dim IDLE, giving an operator a "ready to run again" cue.
+  var RESULT_HOLD_MS = 8000;
+  var CAPTURE_MAX = 8;
+  var NODE_MAX = 24;
+  var SCOPE_MAX_SAMPLES = 240;
+
+  function hubOfSubPage(page) {
+    for (var id in HUBS) if (HUBS[id].targets.indexOf(page) >= 0) return id;
+    return null;
+  }
+  // What nextPage()/prevPage() would treat `page` as being "at", for main-
+  // carousel cycling — a sub-page counts as its own hub's position, same
+  // "effective page" fix ui_task.cpp's real nextPage()/prevPage() needed so
+  // escaping mid-sub-page lands predictably instead of an arbitrary
+  // modulus artifact.
+  function effectiveMainPage(page) {
+    var hub = hubOfSubPage(page);
+    if (hub) return hub;
+    return MAIN_PAGES.indexOf(page) >= 0 ? page : 'RADIO';
+  }
+  function pageFooterIndex(page) {
+    return MAIN_PAGES.indexOf(effectiveMainPage(page)) + 1;
+  }
+
+  // ---- Simulated state (mirrors analyzer_state.cpp's shared structures,
+  // plus a lightweight stand-in for Probe/Sweep/Cell's own state machines
+  // — real state lives in radio_task.cpp, not reproduced here) -----------
+  var state = {
+    page: 'ANALYZE',
+    hubIndex: { TOOLS: 0, ANALYZE: 0 },
+    tools: { // status: 'idle' | 'scanning' | 'complete' -- stands in for
+             // DiscoverySweepState/EnergySweepState/CellSweepState.
+             // everRun distinguishes "never run this boot" (real cards
+             // show "NO PROBE YET" etc.) from "ran before, now reverted to
+             // dim IDLE after RESULT_HOLD_MS" -- two visually different
+             // real states that both happen to be `status: 'idle'` here.
+             // repeating stands in for energyRepeatActive (radio_task.cpp)
+             // -- Sweep/Cell only (Probe deliberately has no repeat mode,
+             // operator decision: "Repeat only on the Sweeps"). One shared
+             // state either the Tools/Sweep card's own R key or Waterfall's
+             // proposed Enter key would toggle in real firmware -- both
+             // are just views onto the same radio_task Sweep state, not
+             // two separate mechanisms, so this mockup keeps them on one
+             // object rather than inventing a parallel status for Waterfall.
+      PROBE: { status: 'idle', everRun: false },
+      SWEEP: { status: 'idle', everRun: false, repeating: false },
+      CELL: { status: 'idle', everRun: false },
+    },
+    meter: null,           // {source:'scope'|'watch', dbm, freq, ageS, live}
+    waterfallRows: [],     // each: Uint8Array(binCount) of 0(no hit)/254(hit)/255(no data tail)
+    waterfallBinCount: 85,
+    scope: { running: false, samples: [], freq: 918.5, intervalMs: 20 },
+    captures: [],          // {profile, nodeId, freq, rssi, ageS, offGrid}
+    nodes: []              // {profile, nodeId, count, rssi, ageS}
+  };
+
+  // ---- Canvas setup -------------------------------------------------------
+  var canvas = document.getElementById('screen');
+  var ctx = canvas.getContext('2d');
+  function R(v) { return Math.round(v * SCALE); }
+
+  function fontFor(size2, bold) {
+    var px = size2 ? 32 : 16;
+    return (bold ? '600 ' : '400 ') + px + 'px "IBM Plex Mono", monospace';
+  }
+  function charW(size2) { return (size2 ? 12 : 6) * SCALE; }
+
+  function rect(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(R(x), R(y), R(w), R(h)); }
+  function strokeRectR(x, y, w, h, color) {
+    ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, SCALE * 0.7);
+    ctx.strokeRect(R(x) + ctx.lineWidth / 2, R(y) + ctx.lineWidth / 2, R(w) - ctx.lineWidth, R(h) - ctx.lineWidth);
+  }
+  function hline(x, y, w, color) { rect(x, y, w, Math.max(1, 1 / SCALE), color); }
+  function vseg(x, y, h, color) { rect(x, y, Math.max(1, 1 / SCALE), h, color); }
+  function txt(x, y, str, opts) {
+    opts = opts || {};
+    ctx.font = fontFor(opts.size2, opts.bold);
+    ctx.fillStyle = opts.color || COL.fg;
+    ctx.textBaseline = 'top';
+    if (opts.align === 'right') {
+      ctx.textAlign = 'right';
+      ctx.fillText(str, R(x), R(y));
+      ctx.textAlign = 'left';
+    } else if (opts.align === 'center') {
+      ctx.textAlign = 'center';
+      ctx.fillText(str, R(x), R(y));
+      ctx.textAlign = 'left';
+    } else {
+      ctx.fillText(str, R(x), R(y));
+    }
+  }
+  function circle(cx, cy, rad, color) {
+    ctx.beginPath(); ctx.fillStyle = color;
+    ctx.arc(R(cx), R(cy), R(rad), 0, Math.PI * 2); ctx.fill();
+  }
+  function line(x1, y1, x2, y2, color) {
+    ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, SCALE * 0.9);
+    ctx.beginPath(); ctx.moveTo(R(x1), R(y1)); ctx.lineTo(R(x2), R(y2)); ctx.stroke();
+  }
+
+  // ---- Header/footer, shared by every page (drawHeader()/drawFooterStatus()) --
+  function drawChrome() {
+    rect(0, 0, PANEL_W, HEADER_H, COL.bg);
+    txt(2, 2, PAGE_HEADER[state.page], { color: COL.fg });
+
+    // Battery -- static sample (82%), not the focus of this tool.
+    var bx = PANEL_W - 22 - 4, by = 2;
+    txt(bx - 2, by, '82%', { color: COL.good, align: 'right' });
+    strokeRectR(bx, by, 22, 9, COL.good);
+    rect(bx + 22, by + 2, 2, 5, COL.good);
+    rect(bx + 1, by + 1, 14, 7, COL.good);
+
+    circle(157, 6, 2, COL.good);
+    circle(166, 6, 2, COL.good);
+    circle(175, 6, 2, COL.dim);
+    hline(0, HEADER_H, PANEL_W, COL.dim);
+
+    txt(2, FOOTER_Y, 'Meshtastic', { color: COL.dim });
+    var posStr = pageFooterIndex(state.page) + '/' + MAIN_PAGES.length;
+    txt(PANEL_W - 2, FOOTER_Y, posStr, { color: COL.dim, align: 'right' });
+  }
+
+  // ---- Hub pages (drawAnalyzePage() is real/shipped; a drawToolsPage()
+  // would be its exact structural twin if Tools ships) ---------------------
+  function drawMenuRow(y, label, value, selected) {
+    var bg = selected ? COL.fg : COL.bg;
+    var fg = selected ? COL.bg : COL.fg;
+    rect(0, y - 3, PANEL_W, 20, bg);
+    txt(4, y, label, { size2: true, bold: true, color: fg });
+    if (value) {
+      var vx = 4 + (label.length + 2) * charW(true);
+      txt(vx, y, value, { size2: true, bold: true, color: fg });
+    }
+  }
+  function analyzeRowValue(i) {
+    switch (i) {
+      case 0: return state.meter ? (state.meter.dbm + 'dBm') : '--';
+      case 1: return state.waterfallRows.length ? (state.waterfallRows.length + ' rows') : '--';
+      // 'CAPTURING' matches drawScope()'s own real headline word (not
+      // 'RUNNING', which isn't a word this app ever actually shows) — same
+      // fix as toolsRowValue() below, same reason. Reverts to 'IDLE' once
+      // holdExpired fires (RESULT_HOLD_MS after completion) — literally the
+      // word drawScope()'s own dim reversion shows, not a bare dash
+      // (operator report, 2026-09-04: state rows should say their state).
+      case 2: return state.scope.running ? 'CAPTURING'
+                    : (state.scope.samples.length && !state.scope.holdExpired ? 'CAPTURED' : 'IDLE');
+      case 3: return state.captures.length ? (state.captures.length + '/' + CAPTURE_MAX) : '--';
+      case 4: return state.nodes.length ? (state.nodes.length + '/' + NODE_MAX) : '--';
+    }
+  }
+  // Real per-page headline words only (drawProbePage()/drawSweepPage()/
+  // drawCellPage() all print exactly 'SCANNING'/'COMPLETE', never 'RUNNING'/
+  // 'DONE' — those were placeholder words that drifted from the actual
+  // copy). 'IDLE' (not '--') covers both "never run this boot" and "ran
+  // before, now reverted after the hold" — a state machine's row shows its
+  // state name, same reasoning as Analyze's own Scope row above; '--'
+  // stays reserved for Meter/Waterfall/Captures/Nodes, which aren't state
+  // machines and have no state name to show.
+  function toolsRowValue(i) {
+    var status = state.tools[HUBS.TOOLS.targets[i]].status;
+    if (status === 'scanning') return 'SCANNING';
+    if (status === 'complete') return 'COMPLETE';
+    return 'IDLE';
+  }
+  function drawHubPage(hubId) {
+    var hub = HUBS[hubId];
+    var valueFn = hubId === 'TOOLS' ? toolsRowValue : analyzeRowValue;
+    for (var i = 0; i < hub.items.length; i++) {
+      drawMenuRow(22 + i * 20, hub.items[i], valueFn(i), i === state.hubIndex[hubId]);
+    }
+  }
+
+  // ---- Placeholder pages (Radio/Channel/GPS/System aren't reproduced —
+  // their own real layout is unaffected by this proposal) ------------------
+  function drawPlaceholder(note) {
+    txt(2, HEADER_H + 8, 'not modeled here', { color: COL.dim });
+    txt(2, HEADER_H + 22, note, { color: COL.dim });
+  }
+
+  // ---- Probe/Sweep/Cell placeholders (real headline copy, no frequency
+  // bar/occupancy ticks/FCC blocks — those exist unchanged in ui_pages.cpp
+  // and aren't the thing this proposal changes) ----------------------------
+  var TOOL_COPY = {
+    PROBE: { idle: 'NO PROBE YET', hint: 'P / Enter to run Probe', running: 'SCANNING', done: 'COMPLETE' },
+    SWEEP: { idle: 'NO SWEEP YET', hint: 'S: sweep   R: repeat', running: 'SCANNING', done: 'COMPLETE' },
+    CELL: { idle: 'NO SCAN YET', hint: 'C: scan   R: repeat', running: 'SCANNING', done: 'COMPLETE' },
+  };
+  function drawToolPage(toolId) {
+    var copy = TOOL_COPY[toolId];
+    var t = state.tools[toolId];
+    if (t.status === 'idle' && !t.everRun) {
+      // Never run this boot — real cards show this exact copy
+      // (drawProbePage() etc.), not a bare "IDLE" headline.
+      txt(2, HEADER_H + 8, copy.idle, { size2: true, bold: true, color: COL.dim });
+      txt(2, HEADER_H + 34, copy.hint, { color: COL.dim });
+      return;
+    }
+    if (t.status === 'idle') {
+      // Ran before; RESULT_HOLD_MS has elapsed since the last COMPLETE —
+      // dim IDLE headline, the real "ready to run again" cue (same
+      // holdExpired reversion drawScope() already had, now on this card
+      // too). Real cards keep the rest of the last result showing below
+      // this line; this placeholder has no result detail to hold onto.
+      txt(2, HEADER_H + 8, 'IDLE', { size2: true, bold: true, color: COL.dim });
+      return;
+    }
+    var word = t.status === 'scanning' ? copy.running : copy.done;
+    var colour = t.status === 'scanning' ? COL.warn : COL.good;
+    txt(2, HEADER_H + 8, word, { size2: true, bold: true, color: colour });
+    if (t.status === 'scanning') txt(2, HEADER_H + 31, 'watch paused', { color: COL.warn });
+  }
+
+  // ---- METER --------------------------------------------------------------
+  // Bar gauge (proposal, 2026-09-04): unlike drawFreqBar()'s deliberate
+  // "position, not proportion" marker (frequency is a location within a
+  // band), signal strength genuinely IS a quantity -- more power really is
+  // "more" -- so a filled bar is the honest shape here, not a marker on a
+  // line. Neutral colour (COL.fg fill, COL.dim track) on purpose: no
+  // strength-tier colour-coding (green=strong/red=weak) -- there's no
+  // established RSSI-tiering convention anywhere in this codebase, and a
+  // raw dBm number has no universal "good/bad" line without knowing
+  // SF/BW context, so inventing thresholds here would be exactly the kind
+  // of fabricated meaning this project is careful to avoid elsewhere. The
+  // bar shows a real value at a real position on a real fixed scale,
+  // nothing more. Range widened -30 -> 0 (operator feedback, 2026-09-04:
+  // real readings from a close repeater hit -16dBm, clipping flat against
+  // the old ceiling — a real defect, not cosmetic, since a clipped bar
+  // can't distinguish -16dBm from -5dBm). No longer matches Scope's own
+  // DISPLAY_HI (-30) on purpose: that page's own choice wasn't touched by
+  // this fix, and Meter's honest ceiling is the SX1262's real RSSI range,
+  // not Scope's separate trace-comparability reasoning.
+  var METER_LO = -120, METER_HI = 0;
+  function drawMeterBar(x, y, w, h, dbm, lo, hi) {
+    strokeRectR(x, y, w, h, COL.dim);
+    var frac = Math.max(0, Math.min(1, (dbm - lo) / (hi - lo)));
+    var fillW = Math.max(1, Math.round((w - 2) * frac));
+    rect(x + 1, y + 1, fillW, h - 2, COL.fg);
+    txt(x, y + h + 3, lo.toFixed(0), { color: COL.dim });
+    txt(x + w, y + h + 3, hi.toFixed(0), { color: COL.dim, align: 'right' });
+  }
+  function drawMeter() {
+    if (!state.meter) {
+      txt(2, HEADER_H + 8, 'NO MEASUREMENT', { size2: true, bold: true, color: COL.dim });
+      return;
+    }
+    var m = state.meter;
+    txt(2, HEADER_H + 8, m.dbm + ' dBm', { size2: true, bold: true, color: COL.fg });
+    var srcLabel = m.source === 'scope' ? ('scope @ ' + m.freq.toFixed(3) + 'MHz') : ('watch @ ' + m.freq.toFixed(3) + 'MHz');
+    txt(2, HEADER_H + 30, srcLabel, { color: COL.dim });
+    // SNR (proposal, 2026-09-04): real data this page already had access to
+    // and never showed -- capture_history.h's CaptureSummary carries
+    // snr_db for every real decoded packet. Scope samples raw RSSI without
+    // decoding anything (drawScope()'s own "never a spectrum, no decode"
+    // design), so it genuinely has no SNR to report -- honest omission,
+    // not an inconsistency, same reasoning as Waterfall's own "no
+    // fabricated vertical texture" rule.
+    if (m.snr !== null && m.snr !== undefined) {
+      txt(2, HEADER_H + 42, 'SNR: ' + (m.snr >= 0 ? '+' : '') + m.snr.toFixed(1) + 'dB', { color: COL.dim });
+    }
+    if (m.source === 'scope' && m.live) {
+      txt(2, HEADER_H + 54, 'live - watch paused', { color: COL.warn });
+    } else {
+      txt(2, HEADER_H + 54, m.ageS + 's ago', { color: COL.fg });
+    }
+    // Right column (proposal, 2026-09-04: "what can we use the dead space
+    // on the right for?") — the channel params this exact packet was
+    // decoded with, also real CaptureSummary data (sf/bw_khz_x10/cr_denom)
+    // and also never shown. Watch-sourced only: Scope samples raw RSSI at
+    // one tuned frequency without demodulating anything, so it has no
+    // SF/BW/CR of a signal to report — same honest-omission shape as the
+    // SNR line above, not an inconsistency. Right-aligned, vertically
+    // matched to the three left-column rows it sits beside.
+    if (m.source === 'watch' && m.sf) {
+      txt(230, HEADER_H + 30, 'SF' + m.sf, { color: COL.dim, align: 'right' });
+      txt(230, HEADER_H + 42, m.bwKhz.toFixed(1) + 'kHz', { color: COL.dim, align: 'right' });
+      txt(230, HEADER_H + 54, 'CR4/' + m.crDenom, { color: COL.dim, align: 'right' });
+    }
+    drawMeterBar(2, HEADER_H + 72, 232, 12, m.dbm, METER_LO, METER_HI);
+  }
+
+  // ---- WATERFALL --------------------------------------------------------
+  // Same shape as drawScope(): headline callout, one metadata line, then a
+  // fixed-height bordered box — not a plot growing edge-to-edge with its own
+  // bottom caption, which is what collided with the footer's profile text
+  // in the first pass of this page (operator screenshot, 2026-09-03).
+  //
+  // Shipped 2026-09-04, hardware-confirmed ("waterfall works amazing" --
+  // operator, same day) at WF_PLOT_H=55/WF_PLOT_Y=HEADER_H+34, with a
+  // separate frequency-axis hairline 3px below the box's own bottom
+  // border -- two near-parallel lines a few px apart. Merged into one
+  // (same day, operator feedback: "can the bottom of the waterfall chart
+  // become the marker for the frequency?") -- the box's own bottom border
+  // now doubles as the axis line; drawWaterfallFreqAxis() no longer draws
+  // its own hline(), just ticks+labels hanging off the y it's given. That
+  // removed both the redundant line AND the 3px gap, reclaiming ~5px,
+  // handed straight to WF_PLOT_H (55 -> 60, one more visible row) rather
+  // than left as saved-but-unused space. Axis footprint below the box is
+  // now ~12px (ticks + one label row hanging off the shared border),
+  // leaving a real ~7px margin before FOOTER_Y (125) -- tighter than the
+  // ~9px margin before this merge, but not the ~3px that caused the
+  // actual 2026-09-03 collision this page has twice now been careful not
+  // to repeat.
+  var WF_PLOT_X = 2, WF_PLOT_Y = HEADER_H + 34, WF_PLOT_H = 60, WF_PLOT_W = 232, WF_ROW_H = 4;
+  // Waterfall rows don't record which Region (US/Global) was active when
+  // pushed (waterfall.h's WaterfallRow has no region field) -- this axis
+  // labels the CURRENT live region's band, same "best current guess"
+  // Sweep's own drawFreqBar() call already relies on for its one scan.
+  // Slightly wrong for older rows only if Region was toggled mid-history,
+  // an edge case, not the common path. US shown here since
+  // waterfallBinCount=85 already assumes US in this mockup's own comments.
+  var WF_BAND_LO = 902.0, WF_BAND_HI = 923.0;
+  function waterfallColumnForBin(bin, binCount, colCount) {
+    if (binCount <= 1 || colCount <= 1) return 0;
+    if (bin >= binCount) bin = binCount - 1;
+    return Math.floor(bin * (colCount - 1) / (binCount - 1));
+  }
+  // Shipped 2026-09-04, a plain labeled axis, not drawFreqBar()'s
+  // "current position" marker convention -- Waterfall shows history across
+  // many rows, not one live scan, so a single "you are here" mark has no
+  // honest meaning here. Four unlabeled reference ticks at 20/40/60/80% (the
+  // "check marks" ask) plus three labeled points (lo/center/hi) sized to fit
+  // the full WF_PLOT_W=232 content width (Sweep/Cell's own drawFreqBar()
+  // calls only ever use their page's narrower 108px left column).
+  //
+  // No hline() of its own (merged into the plot box's own bottom border,
+  // same day -- see WF_PLOT_H's own comment): `y` here is the box's border
+  // itself, not a separate line 3px below it. Ticks hang down from it.
+  function drawWaterfallFreqAxis(x, y, w, lo, hi) {
+    [0.2, 0.4, 0.6, 0.8].forEach(function (frac) {
+      vseg(x + Math.round(w * frac), y + 1, 3, COL.dim);
+    });
+    txt(x, y + 4, lo.toFixed(1), { color: COL.dim });
+    txt(x + w, y + 4, hi.toFixed(1), { color: COL.dim, align: 'right' });
+    txt(x + w / 2, y + 4, ((lo + hi) / 2).toFixed(1), { color: COL.dim, align: 'center' });
+  }
+  function drawWaterfall() {
+    if (!state.waterfallRows.length) {
+      txt(2, HEADER_H + 8, 'NO SWEEPS YET', { size2: true, bold: true, color: COL.dim });
+      txt(2, HEADER_H + 34, 'Enter: start repeat Sweep', { color: COL.dim });
+      return;
+    }
+
+    var totalHits = 0;
+    state.waterfallRows.forEach(function (row) {
+      for (var b = 0; b < row.length; b++) if (row[b] >= 200) totalHits++;
+    });
+    if (totalHits > 0) {
+      txt(2, HEADER_H + 6, totalHits + (totalHits === 1 ? ' HIT' : ' HITS'), { size2: true, bold: true, color: COL.warn });
+    } else {
+      txt(2, HEADER_H + 6, 'QUIET', { size2: true, bold: true, color: COL.dim });
+    }
+    // Repeat-status badge, top row, right-aligned opposite the hit counter
+    // (first landed as a metadata-line suffix, moved up here same day --
+    // operator feedback, 2026-09-04): Waterfall is Sweep's own history
+    // view, so an operator watching it needs to know without leaving the
+    // page whether it's actively being fed right now (same "measure
+    // without extracting energy.csv first" reasoning STATUS's own compact
+    // fields already follow elsewhere in this project). Size 1, not size 2
+    // like the hit counter -- a secondary status badge, not a second
+    // headline competing for the same weight.
+    if (state.tools.SWEEP.repeating) {
+      txt(WF_PLOT_X + WF_PLOT_W, HEADER_H + 6, 'SCANNING', { color: COL.warn, align: 'right' });
+    }
+    var latestBinCount = state.waterfallRows[0].length ? state.waterfallBinCount : 0;
+    var meta = state.waterfallRows.length + ' rows, newest first  ' + latestBinCount + ' bins';
+    txt(2, HEADER_H + 24, meta, { color: COL.dim });
+
+    strokeRectR(WF_PLOT_X, WF_PLOT_Y, WF_PLOT_W, WF_PLOT_H, COL.dim);
+    var rowsBottom = WF_PLOT_Y + WF_PLOT_H - 2;
+    for (var r = 0; r < state.waterfallRows.length; r++) {
+      var y = WF_PLOT_Y + 2 + r * WF_ROW_H;
+      if (y + WF_ROW_H > rowsBottom) break;
+      var row = state.waterfallRows[r];
+      var cols = new Uint8Array(WF_PLOT_W).fill(255);
+      for (var b = 0; b < row.length; b++) {
+        if (row[b] === 255) continue;
+        var col = waterfallColumnForBin(b, row.length, WF_PLOT_W);
+        if (cols[col] === 255 || row[b] > cols[col]) cols[col] = row[b];
+      }
+      for (var c = 0; c < WF_PLOT_W; c++) {
+        if (cols[c] === 255 || cols[c] <= 1) continue;
+        var colour = cols[c] >= 200 ? COL.warn : COL.dim;
+        vseg(WF_PLOT_X + c, y, WF_ROW_H - 1, colour);
+      }
+    }
+    drawWaterfallFreqAxis(WF_PLOT_X, WF_PLOT_Y + WF_PLOT_H, WF_PLOT_W, WF_BAND_LO, WF_BAND_HI);
+  }
+
+  // ---- SCOPE ----------------------------------------------------------------
+  var SC_PLOT_X = 2, SC_PLOT_Y = HEADER_H + 48, SC_PLOT_W = 232, SC_PLOT_H = 50;
+  var SC_LO = -120, SC_HI = -30;
+  function drawScope() {
+    var s = state.scope;
+    if (!s.samples.length) {
+      txt(2, HEADER_H + 6, 'NO SCOPE YET', { size2: true, bold: true, color: COL.dim });
+      txt(2, HEADER_H + 30, s.running ? 'watch paused' : 'Enter to capture', { color: COL.dim });
+      return;
+    }
+    var headline = s.running ? ['CAPTURING', COL.warn] : (s.holdExpired ? ['IDLE', COL.dim] : ['CAPTURED', COL.good]);
+    txt(2, HEADER_H + 6, headline[0], { size2: true, bold: true, color: headline[1] });
+    txt(2, HEADER_H + 24, s.freq.toFixed(3) + 'MHz  ' + s.intervalMs + 'ms/sample', { color: COL.fg });
+    if (s.running) txt(2, HEADER_H + 34, 'watch paused', { color: COL.warn });
+
+    strokeRectR(SC_PLOT_X, SC_PLOT_Y, SC_PLOT_W, SC_PLOT_H, COL.dim);
+    var prevX = null, prevY = null;
+    for (var i = 0; i < s.samples.length; i++) {
+      var v = Math.max(SC_LO, Math.min(SC_HI, s.samples[i]));
+      var x = SC_PLOT_X + Math.round(i * (SC_PLOT_W - 1) / Math.max(1, s.samples.length - 1));
+      var frac = (v - SC_LO) / (SC_HI - SC_LO);
+      var y = SC_PLOT_Y + SC_PLOT_H - 1 - Math.round(frac * (SC_PLOT_H - 2));
+      if (prevX !== null) line(prevX, prevY, x, y, COL.good);
+      prevX = x; prevY = y;
+    }
+    txt(SC_PLOT_X, SC_PLOT_Y - 8, String(SC_HI), { color: COL.dim });
+    txt(SC_PLOT_X, SC_PLOT_Y + SC_PLOT_H + 1, String(SC_LO), { color: COL.dim });
+  }
+
+  // ---- CAPTURES / NODES -------------------------------------------------------
+  function drawCaptures() {
+    if (!state.captures.length) {
+      txt(2, HEADER_H + 8, 'NO CAPTURES YET', { size2: true, bold: true, color: COL.dim });
+      return;
+    }
+    var ROW_H = 13;
+    for (var i = 0; i < state.captures.length; i++) {
+      var y = HEADER_H + 3 + i * ROW_H;
+      if (y + ROW_H > FOOTER_Y + 1) break;
+      var c = state.captures[i];
+      var line1 = c.profile + (c.nodeId ? (' !' + c.nodeId) : '') + ' ' + c.freq.toFixed(1) + 'MHz ' + c.rssi + 'dBm ' + c.ageS + 's';
+      txt(2, y, line1, { color: c.offGrid ? COL.warn : COL.fg });
+    }
+  }
+  function drawNodes() {
+    if (!state.nodes.length) {
+      txt(2, HEADER_H + 8, 'NO NODES YET', { size2: true, bold: true, color: COL.dim });
+      return;
+    }
+    var ROW_H = 13;
+    var ordered = state.nodes.slice().sort(function (a, b) { return a.ageS - b.ageS; });
+    for (var i = 0; i < ordered.length; i++) {
+      var y = HEADER_H + 3 + i * ROW_H;
+      if (y + ROW_H > FOOTER_Y + 1) break;
+      var n = ordered[i];
+      var line1 = n.profile + ' !' + n.nodeId + ' x' + n.count + ' ' + n.rssi + 'dBm ' + n.ageS + 's';
+      txt(2, y, line1, { color: COL.fg });
+    }
+  }
+
+  // ---- Full redraw ----------------------------------------------------------
+  function draw() {
+    rect(0, 0, PANEL_W, PANEL_H, COL.bg);
+    drawChrome();
+    switch (state.page) {
+      case 'TOOLS': drawHubPage('TOOLS'); break;
+      case 'ANALYZE': drawHubPage('ANALYZE'); break;
+      case 'PROBE': case 'SWEEP': case 'CELL': drawToolPage(state.page); break;
+      case 'METER': drawMeter(); break;
+      case 'WATERFALL': drawWaterfall(); break;
+      case 'SCOPE': drawScope(); break;
+      case 'CAPTURES': drawCaptures(); break;
+      case 'NODES': drawNodes(); break;
+      case 'RADIO': drawPlaceholder('unchanged by this proposal'); break;
+      case 'CHANNEL': drawPlaceholder('unchanged by this proposal'); break;
+      case 'GPS': drawPlaceholder('unchanged by this proposal'); break;
+      case 'SYSTEM': drawPlaceholder('unchanged by this proposal'); break;
+    }
+    renderControls();
+  }
+
+  // ---- Sample-data generators (fed by "inject" buttons) ----------------------
+  function randRange(lo, hi) { return lo + Math.random() * (hi - lo); }
+  function pushBounded(arr, item, max) { arr.unshift(item); if (arr.length > max) arr.length = max; }
+
+  function addWaterfallRow() {
+    var binCount = state.waterfallBinCount;
+    var row = new Uint8Array(WATERFALL_MAX_BINS).fill(255);
+    for (var b = 0; b < binCount; b++) {
+      row[b] = Math.random() < 0.06 ? 254 : 0; // ~6% of bins peak, matching a real quiet-room Sweep
+    }
+    pushBounded(state.waterfallRows, row, WATERFALL_MAX_ROWS);
+    refreshMeterFromLatest();
+  }
+  function clearWaterfall() { state.waterfallRows = []; }
+
+  function startScopeCapture() {
+    state.scope.running = true;
+    state.scope.samples = [];
+    state.scope.freq = 918.5;
+    var base = randRange(-95, -60);
+    var n = 0;
+    var timer = setInterval(function () {
+      var v = Math.round(base + randRange(-4, 4) + (Math.random() < 0.05 ? randRange(-20, -10) : 0));
+      state.scope.samples.push(Math.max(-128, Math.min(127, v)));
+      n++;
+      if (n >= 90 || !state.scope.running) {
+        clearInterval(timer);
+        state.scope.running = false;
+        state.scope.holdExpired = false;
+        refreshMeterFromLatest();
+        // Was set but never actually scheduled before (2026-09-03 fix,
+        // same operator report that caught Tools' RUNNING/DONE mismatch) —
+        // drawScope()'s own holdExpired check had nothing real driving it.
+        setTimeout(function () {
+          state.scope.holdExpired = true;
+          draw();
+        }, RESULT_HOLD_MS);
+      }
+      draw();
+    }, 16);
+  }
+  function clearScope() { state.scope.samples = []; state.scope.running = false; }
+
+  function addCapture() {
+    var profiles = ['meshtastic', 'meshtastic', 'meshcore'];
+    var p = profiles[Math.floor(Math.random() * profiles.length)];
+    var offGrid = Math.random() < 0.15;
+    // Real per-node channel params vary in practice (channel_plans.h's own
+    // tables; MeshCore's US narrow preset is SF7/62.5kHz/CR4:5, Meshtastic's
+    // LongFast is SF11/250kHz/CR4:5) -- picking by profile here so the
+    // right-column block reads as plausible per-packet metadata, not a
+    // random triple unrelated to the freq/profile already shown.
+    var chan = p === 'meshtastic' ? { sf: 11, bwKhz: 250.0, crDenom: 5 } : { sf: 7, bwKhz: 62.5, crDenom: 5 };
+    pushBounded(state.captures, {
+      profile: offGrid ? 'meshtastic' : p,
+      nodeId: p === 'meshtastic' ? Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, '0') : null,
+      freq: p === 'meshtastic' ? 906.875 : 910.525,
+      rssi: Math.round(randRange(-110, -55)),
+      snr: Math.round(randRange(-5, 13) * 10) / 10, // real range seen this session (2026-09-03 pyMC correlation)
+      sf: chan.sf, bwKhz: chan.bwKhz, crDenom: chan.crDenom,
+      ageS: 0,
+      offGrid: offGrid
+    }, CAPTURE_MAX);
+    refreshMeterFromLatest();
+    tickAges();
+  }
+  function clearCaptures() { state.captures = []; }
+
+  function addOrUpdateNode() {
+    var reuse = state.nodes.length > 0 && Math.random() < 0.5;
+    if (reuse) {
+      var n = state.nodes[Math.floor(Math.random() * state.nodes.length)];
+      n.count++; n.rssi = Math.round(randRange(-110, -55)); n.ageS = 0;
+    } else if (state.nodes.length < NODE_MAX) {
+      state.nodes.push({
+        profile: 'meshtastic',
+        nodeId: Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, '0'),
+        count: 1, rssi: Math.round(randRange(-110, -55)), ageS: 0
+      });
+    }
+    tickAges();
+  }
+  function clearNodes() { state.nodes = []; }
+
+  function refreshMeterFromLatest() {
+    if (state.scope.samples.length) {
+      state.meter = { source: 'scope', dbm: state.scope.samples[state.scope.samples.length - 1], freq: state.scope.freq, ageS: 0, live: state.scope.running, snr: null };
+    } else if (state.captures.length) {
+      var latest = state.captures[0];
+      state.meter = { source: 'watch', dbm: latest.rssi, freq: latest.freq, ageS: 0, live: false, snr: latest.snr,
+                       sf: latest.sf, bwKhz: latest.bwKhz, crDenom: latest.crDenom };
+    }
+  }
+  function tickAges() {
+    state.captures.forEach(function (c) { c.ageS += Math.floor(randRange(1, 4)); });
+    state.nodes.forEach(function (n) { n.ageS += Math.floor(randRange(1, 4)); });
+  }
+
+  // Stands in for radioRequestDiscoverySweep()/EnergySweep()/CellSweep():
+  // tap once to start, tap again while running to cancel. Real bounded
+  // duration is a few hundred ms to a few seconds; simulated with a fixed
+  // short delay, not measured against anything real. Chains a second
+  // timeout matching RESULT_HOLD_MS so COMPLETE -> IDLE actually happens
+  // here too, not just in drawToolPage()'s rendering logic.
+  function runTool(toolId) {
+    var t = state.tools[toolId];
+    if (t.status === 'scanning') {
+      t.status = 'idle'; // cancel
+      draw();
+      return;
+    }
+    t.status = 'scanning';
+    t.everRun = true;
+    draw();
+    setTimeout(function () {
+      if (t.status !== 'scanning') return; // cancelled mid-flight
+      t.status = 'complete';
+      draw();
+      setTimeout(function () {
+        if (t.status === 'complete') { t.status = 'idle'; draw(); }
+      }, RESULT_HOLD_MS);
+    }, 900);
+  }
+  function resetTool(toolId) { state.tools[toolId] = { status: 'idle', everRun: false }; }
+
+  // Stands in for radioRequestEnergySweepRepeat() (radio_task.cpp) — one
+  // real toggle, proposed to be reachable from two places: the Tools/Sweep
+  // card's own R key (unchanged, not modeled by this button-driven mockup)
+  // and, new here, Waterfall's Enter key, since Waterfall is Sweep's own
+  // history view and watching it fill in without a detour to Tools is the
+  // whole point of the proposal (operator ask, 2026-09-04). Each simulated
+  // "lap" pushes one waterfall row, echoing analyzerNoteSweepComplete()
+  // firing once per real completed sweep.
+  var sweepRepeatTimer = null;
+  function toggleSweepRepeat() {
+    var s = state.tools.SWEEP;
+    if (s.repeating) {
+      s.repeating = false;
+      s.status = 'idle';
+      clearInterval(sweepRepeatTimer);
+      sweepRepeatTimer = null;
+      return;
+    }
+    s.repeating = true;
+    s.status = 'scanning';
+    s.everRun = true;
+    addWaterfallRow(); // first lap fires immediately, same as a real tap
+    sweepRepeatTimer = setInterval(function () {
+      if (!state.tools.SWEEP.repeating) return; // stopped between ticks
+      addWaterfallRow();
+      draw();
+    }, 1400); // faked cadence -- real laps measured ~3.4s away time (EA, STATUS/session.csv)
+  }
+
+  // ---- Input: mirrors ui_task.cpp's exact key semantics (2026-09-03 split:
+  // left/right always page the main carousel, up/down browse a hub) -------
+  function pressPrev() {
+    var idx = MAIN_PAGES.indexOf(effectiveMainPage(state.page));
+    state.page = MAIN_PAGES[(idx + MAIN_PAGES.length - 1) % MAIN_PAGES.length];
+    draw();
+  }
+  function pressNext() {
+    var idx = MAIN_PAGES.indexOf(effectiveMainPage(state.page));
+    state.page = MAIN_PAGES[(idx + 1) % MAIN_PAGES.length];
+    draw();
+  }
+  function pressUp() {
+    var hub = hubOfSubPage(state.page);
+    if (hub) {
+      var targets = HUBS[hub].targets;
+      var idx = targets.indexOf(state.page);
+      state.page = targets[(idx + targets.length - 1) % targets.length];
+    } else if (HUBS[state.page]) {
+      var n = HUBS[state.page].items.length;
+      state.hubIndex[state.page] = (state.hubIndex[state.page] + n - 1) % n;
+    } else {
+      pressPrev(); // plain page: up/down alias prev/next, same as Phase 5
+      return;
+    }
+    draw();
+  }
+  function pressDown() {
+    var hub = hubOfSubPage(state.page);
+    if (hub) {
+      var targets = HUBS[hub].targets;
+      var idx = targets.indexOf(state.page);
+      state.page = targets[(idx + 1) % targets.length];
+    } else if (HUBS[state.page]) {
+      var n = HUBS[state.page].items.length;
+      state.hubIndex[state.page] = (state.hubIndex[state.page] + 1) % n;
+    } else {
+      pressNext();
+      return;
+    }
+    draw();
+  }
+  function pressSelect() {
+    if (HUBS[state.page]) {
+      var hub = HUBS[state.page];
+      state.page = hub.targets[state.hubIndex[state.page]];
+      // Only Scope auto-triggers on arrival (docs/research/
+      // LoRaTrace-Phases-7-10-Design.md §8.1) -- Probe/Sweep/Cell need an
+      // explicit Enter/hotkey, same as landing on their card today.
+      if (state.page === 'SCOPE' && !state.scope.running) startScopeCapture();
+    } else if (state.page === 'SCOPE') {
+      if (state.scope.running) { state.scope.running = false; }
+      else startScopeCapture();
+    } else if (state.page === 'PROBE' || state.page === 'SWEEP' || state.page === 'CELL') {
+      runTool(state.page);
+    } else if (state.page === 'WATERFALL') {
+      toggleSweepRepeat();
+    }
+    draw();
+  }
+  function pressBack() {
+    // One level at a time, same as ui_menu.h's own BACK: a sub-page returns
+    // to its hub; a hub or plain page would open the main menu on real
+    // hardware (not modeled here).
+    var hub = hubOfSubPage(state.page);
+    if (hub) { state.page = hub; draw(); }
+  }
+
+  document.getElementById('k-prev').addEventListener('click', pressPrev);
+  document.getElementById('k-next').addEventListener('click', pressNext);
+  document.getElementById('k-up').addEventListener('click', pressUp);
+  document.getElementById('k-down').addEventListener('click', pressDown);
+  document.getElementById('k-select').addEventListener('click', pressSelect);
+  document.getElementById('k-back').addEventListener('click', pressBack);
+
+  // ---- Page-jump buttons, grouped by area ---------------------------------
+  var pageButtonsEl = document.getElementById('page-buttons');
+  var JUMP_GROUPS = [
+    { label: 'Main carousel', pages: MAIN_PAGES },
+    { label: 'Tools (proposed)', pages: HUBS.TOOLS.targets },
+    { label: 'Analyze (shipped)', pages: HUBS.ANALYZE.targets },
+  ];
+  JUMP_GROUPS.forEach(function (group) {
+    var label = document.createElement('div');
+    label.className = 'btn-group-label';
+    label.textContent = group.label;
+    pageButtonsEl.appendChild(label);
+    group.pages.forEach(function (p) {
+      var b = document.createElement('button');
+      b.textContent = PAGE_BUTTON_LABEL[p];
+      b.addEventListener('click', function () { state.page = p; draw(); });
+      b.dataset.page = p;
+      pageButtonsEl.appendChild(b);
+    });
+  });
+
+  // ---- Per-page data-injection controls -----------------------------------
+  var dataButtonsEl = document.getElementById('data-buttons');
+  var dataHintEl = document.getElementById('data-hint');
+  function mkBtn(label, fn, primary) {
+    var b = document.createElement('button');
+    b.textContent = label;
+    if (primary) b.className = 'primary';
+    b.addEventListener('click', function () { fn(); draw(); });
+    return b;
+  }
+  function renderDataButtons() {
+    dataButtonsEl.innerHTML = '';
+    var hint = '';
+    switch (state.page) {
+      case 'WATERFALL':
+        dataButtonsEl.appendChild(mkBtn(state.tools.SWEEP.repeating ? 'Stop repeat (Enter)' : 'Start repeat (Enter)', toggleSweepRepeat, true));
+        dataButtonsEl.appendChild(mkBtn('+1 row (no repeat)', addWaterfallRow));
+        dataButtonsEl.appendChild(mkBtn('Clear', clearWaterfall));
+        hint = 'Shipped 2026-09-04: Enter starts/stops repeat Sweep straight from this page — same radioRequestEnergySweepRepeat() the Tools/Sweep card\'s R key already calls, just reachable from here too. Each row is one completed lap\'s peak-bin occupancy (' + state.waterfallBinCount + ' bins, US region) — rings at ' + WATERFALL_MAX_ROWS + ' rows, oldest drops off the bottom.';
+        break;
+      case 'SCOPE':
+        dataButtonsEl.appendChild(mkBtn('Start capture', startScopeCapture, true));
+        dataButtonsEl.appendChild(mkBtn('Clear', clearScope));
+        hint = 'Fills live, one sample at a time, matching the real ~20ms/sample cadence (sped up here).';
+        break;
+      case 'CAPTURES':
+        dataButtonsEl.appendChild(mkBtn('Add a capture', addCapture, true));
+        dataButtonsEl.appendChild(mkBtn('Clear', clearCaptures));
+        hint = 'Rings at ' + CAPTURE_MAX + ' entries, newest first — same as CaptureHistory’s real ring buffer.';
+        break;
+      case 'NODES':
+        dataButtonsEl.appendChild(mkBtn('Simulate detection', addOrUpdateNode, true));
+        dataButtonsEl.appendChild(mkBtn('Clear', clearNodes));
+        hint = 'Repeat sightings update an existing node in place; new ones fill up to ' + NODE_MAX + ' slots, then LRU-evict.';
+        break;
+      case 'METER':
+        hint = 'Meter has no data of its own — it reflects the newest of Scope’s latest sample or Captures’ most recent row. Feed those two pages instead.';
+        break;
+      case 'ANALYZE':
+        hint = 'The hub reflects live totals from the other five views — feed them, then come back here.';
+        break;
+      case 'PROBE': case 'SWEEP': case 'CELL':
+        dataButtonsEl.appendChild(mkBtn(state.tools[state.page].status === 'scanning' ? 'Cancel' : 'Run', function () { runTool(state.page); }, true));
+        dataButtonsEl.appendChild(mkBtn('Reset', function () { resetTool(state.page); }));
+        hint = 'Stand-in for the real bounded radio action (radio_task.cpp) — timing here is fake, just enough to see the headline states.';
+        break;
+      case 'TOOLS':
+        hint = 'The hub reflects each tool’s own status — feed them, then come back here.';
+        break;
+      default:
+        hint = 'This page isn’t reproduced in this tool — its real layout in ui_pages.cpp is unaffected by the Tools proposal.';
+    }
+    dataHintEl.textContent = hint;
+  }
+
+  // ---- State line + button active-states ----------------------------------
+  var stateLineEl = document.getElementById('state-line');
+  function renderControls() {
+    Array.prototype.forEach.call(pageButtonsEl.children, function (b) {
+      if (b.dataset && b.dataset.page) b.classList.toggle('active', b.dataset.page === state.page);
+    });
+    var onHub = !!HUBS[state.page];
+    document.getElementById('k-prev').disabled = false;
+    document.getElementById('k-next').disabled = false;
+    document.getElementById('k-up').disabled = false;
+    document.getElementById('k-down').disabled = false;
+    document.getElementById('k-select').disabled = !onHub && state.page !== 'SCOPE' &&
+                                                     state.page !== 'PROBE' && state.page !== 'SWEEP' && state.page !== 'CELL' &&
+                                                     state.page !== 'WATERFALL';
+    document.getElementById('k-back').disabled = !hubOfSubPage(state.page);
+
+    var hub = hubOfSubPage(state.page);
+    if (onHub) {
+      document.getElementById('nav-hint').textContent =
+        'Up/down move the highlight (currently "' + HUBS[state.page].items[state.hubIndex[state.page]] +
+        '"); select opens it. Prev/next page the main carousel; back would open the main menu.';
+    } else if (hub) {
+      document.getElementById('nav-hint').textContent =
+        'Up/down cycle the other pages in ' + PAGE_BUTTON_LABEL[hub] + '; select acts on this page; prev/next page the main carousel; back returns to ' + PAGE_BUTTON_LABEL[hub] + ' (never trapped).';
+    } else {
+      document.getElementById('nav-hint').textContent = 'Up/down alias prev/next on plain pages (Phase 5 behavior, unchanged) — only hubs give them their own meaning.';
+    }
+    renderDataButtons();
+    stateLineEl.innerHTML = 'page=<span>' + state.page + '</span>  tools_hub=<span>' + HUBS.TOOLS.items[state.hubIndex.TOOLS] + '</span>  '
+      + 'analyze_hub=<span>' + HUBS.ANALYZE.items[state.hubIndex.ANALYZE] + '</span>  '
+      + 'probe=<span>' + state.tools.PROBE.status + '</span> sweep=<span>' + state.tools.SWEEP.status
+      + (state.tools.SWEEP.repeating ? ' (repeat)' : '') + '</span> cell=<span>' + state.tools.CELL.status + '</span><br>'
+      + 'wf_rows=<span>' + state.waterfallRows.length + '</span>  scope_n=<span>' + state.scope.samples.length + '</span>  '
+      + 'captures=<span>' + state.captures.length + '</span>  nodes=<span>' + state.nodes.length + '</span>';
+  }
+
+  // ---- Boot with a populated look, so the first paint isn't all-empty -----
+  function seed() {
+    for (var i = 0; i < 6; i++) addWaterfallRow();
+    for (var i = 0; i < 4; i++) addCapture();
+    for (var i = 0; i < 5; i++) addOrUpdateNode();
+    state.scope.samples = [];
+    refreshMeterFromLatest();
+    state.tools.CELL = { status: 'complete', everRun: true };
+  }
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.load('600 32px "IBM Plex Mono"');
+    document.fonts.load('400 16px "IBM Plex Mono"');
+    document.fonts.ready.then(function () { seed(); draw(); });
+  } else {
+    seed(); draw();
+  }
+})();
+</script>

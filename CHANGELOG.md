@@ -7,6 +7,33 @@ fresh from the documentation restructuring below and stays terse —
 one or two lines per entry, newest first. For the current state of the
 project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
+## 2026-09-03
+
+- Closed Phase 10 (Field Analyzer, `v0.10.0`→`v0.10.1`): all five exit
+  criteria hardware-confirmed, including a 60-minute worst-case run (WiFi
+  on, Sweep repeat, Waterfall open) with zero drops or watchdog resets.
+  That run surfaced a real repeat-mode Waterfall bug — a cross-core race
+  cleared the peak-bin mask before it could be read — fixed same day.
+- Fixed a bench SD card causing a 100%-reproducible boot-loop, isolated by
+  reproducing the identical crash on the last tagged release before
+  concluding it wasn't a code regression.
+- Shipped Waterfall's frequency axis and an Enter-to-toggle-repeat-Sweep
+  control, then merged the axis into the plot box's own border to remove
+  a redundant line (`v0.10.2`→`v0.10.3`). Gave Meter a real bar gauge, SNR
+  line, and channel-param column — real `CaptureSummary` data it already
+  had and never showed. All hardware-confirmed; every layout choice
+  workshopped in `docs/research/analyzer-preview.html` first.
+- Diagnosed a "Sweep sees nothing near real traffic" puzzle down to Sweep's
+  own short dwell time, not the noise-floor margin — confirmed via the
+  operator's own MeshCore repeater API and a direct RTL-SDR capture during
+  a live Sweep. Added `RXP`/`RXC` (real RX/CRC counters) to Serial
+  Control's `STATUS` line along the way.
+- **Promoted to `v1.0.0`.** ROADMAP.md's own documented gate for this
+  promotion was Phase 10 closing, and only that — done, same day. Phase 11
+  (Cell) was never part of the gate; its two open items (a real cell-band
+  RSSI rise near a tower, `cell.csv`/`session.csv` column verification)
+  are known, tracked gaps post-`v1.0`, not blockers.
+
 ## 2026-09-01
 
 - Added a Sweep region setting (`v0.8.9`): System > Region narrows

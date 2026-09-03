@@ -4,6 +4,7 @@
 #include <SD.h>
 #include <freertos/task.h>
 
+#include "analyzer_state.h"
 #include "battery.h"
 #include "board_pins.h"
 #include "cell_observation.h"
@@ -341,6 +342,7 @@ void writeSessionRow(const char *reason) {
     s.cell_failures = radioCellFailureCount();
     s.cell_recoveries = radioCellRecoveryCount();
     s.cell_last_away_ms = radioCellLastAwayMs();
+    s.analyzer_static_bytes = ANALYZER_STATIC_BYTES;
 
     char timestamp[24];
     detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
@@ -355,6 +357,11 @@ void writeSessionRow(const char *reason) {
 }
 
 void appendDetection(const Detection &det) {
+    // Field Analyzer's Recent Captures/Nodes views (Phase 10) — presentation
+    // state, independent of whether this detection ever reaches SD, so this
+    // runs before any of the sdReady branches below.
+    analyzerNoteDetection(det);
+
     GpsFix fix;
     bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
 
@@ -561,6 +568,13 @@ void loggerTask(void *) {
     uint32_t lastFlush = millis();
     uint32_t lastSession = millis();
     bool bootRowWritten = false;
+    // Field Analyzer's Waterfall view (Phase 10): a completed sweep has no
+    // queue record of its own to drain (its bins already went through
+    // energyObservationQueue as they were found) — this poll, same shape as
+    // ui_task.cpp's own lastProbeRunSeen/lastEnergyRunSeen, is what notices
+    // "a sweep just finished" so analyzerNoteSweepComplete() runs exactly
+    // once per completed sweep, not once per bin.
+    uint32_t lastAnalyzerSweepSeen = radioEnergySweepCount();
 
     for (;;) {
         Detection det;
@@ -600,6 +614,12 @@ void loggerTask(void *) {
             if (xQueueReceive(cellObservationQueue, &observation, 0) == pdTRUE) {
                 appendCellObservation(observation);
             }
+        }
+
+        const uint32_t analyzerSweepRuns = radioEnergySweepCount();
+        if (analyzerSweepRuns != lastAnalyzerSweepSeen) {
+            lastAnalyzerSweepSeen = analyzerSweepRuns;
+            analyzerNoteSweepComplete();
         }
 
         const uint32_t now = millis();

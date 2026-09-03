@@ -140,8 +140,11 @@ constexpr uint8_t KEY_RAW_ESC_PRESS = 1;
 
 // Semicolon ';' and Slash '/': the rest of the printed Fn-arrow diamond
 // (up/right; ',' /'.' already cover left/down as Comma/Period above).
-// Aliases for the same KeyAction::PREV/NEXT the carousel and menu already
-// use, not new actions — see keyboardDecodeEvent() below.
+// Originally wired as aliases of PREV/NEXT (the printed diamond doubling as
+// page/menu nav, Phase 5). Slash still is — right/next is one fixed
+// physical pairing regardless. Semicolon split off into its own KeyAction
+// (UP, 2026-09-03) once the Analyze hub needed left/right and up/down to
+// mean different things — see KeyAction::UP's own comment.
 // ';': physical (row 2, col 11) -> t=5, u=7 -> K=57.
 constexpr uint8_t KEY_RAW_SEMICOLON_PRESS = 57;
 // '/': physical (row 3, col 12) -> t=6, u=4 -> K=64.
@@ -167,13 +170,16 @@ constexpr uint8_t KEY_RAW_5_PRESS = 25;
 // value is corroborated by that pre-existing test, not just this file's
 // formula.
 constexpr uint8_t KEY_RAW_6_PRESS = 31;
-// '7': physical (row 0, col 7) -> t=3, u=5 -> K=35. Added when UiPage grew a
-// 7th page (CELL, Phase 11) and the six-digit/six-page mapping broke the
-// same way '6' did for Sweep above; SYSTEM is what loses its slot this time
-// (4/5/6 -> 5/6/7, see ui_task.cpp) and gets it back here. Same row-0 table
-// this file already cites (sourcing note 3 above) as '1'-'6'; not bench-
-// confirmed on real hardware yet (see file header).
-constexpr uint8_t KEY_RAW_7_PRESS = 35;
+// '7' (K=35) and '8' (K=41) briefly carried CELL and then the Analyze hub's
+// own digit-jump before this — see docs/history/CHANGELOG.md/git history
+// around 2026-09-01/03 if that mapping matters to a future reader. Removed
+// entirely (not just unwired) 2026-09-04, same session Tools folded Probe/
+// Sweep/Cell's own JUMP_2/3/4 away: the operator-facing main carousel
+// shrank to six stops (Radio/Tools/Analyze/Channel/GPS/System), so only
+// six digits are meaningful, and leaving these two mapped to nothing would
+// be a dead, undocumented allowlist entry — this file's own header
+// promises "known key does its one thing" or ignored, not a third silent
+// option.
 
 // P: physical (row 1, col 10) -> t=5, u=2 -> K=52. It is the global Probe
 // shortcut: ui_task.cpp starts/cancels the bounded action from any UI state.
@@ -248,13 +254,33 @@ inline bool keyboardPhysicalPosition(uint8_t keyNumber, uint8_t &row, uint8_t &c
 
 enum class KeyAction {
     NONE,
-    // ',' or ';' (Fn-arrow "left"/"up") — previous status page (carousel) /
-    // move selection up (menu). Two physical keys, one action: see
-    // KEY_RAW_SEMICOLON_PRESS above for why.
+    // ',' (Fn-arrow "left") — previous status page (carousel) / move
+    // selection up (menu, via ui_task.cpp's UP/DOWN->PREV/NEXT translation
+    // below).
+    //
+    // Until 2026-09-03, ';' (Fn-arrow "up") was wired as a second physical
+    // key for this same action, and '/' likewise aliased NEXT — a deliberate
+    // "the printed diamond doubles as page/menu nav" choice from Phase 5.
+    // Split apart once the Analyze hub (Phase 10) needed left/right and
+    // up/down to mean genuinely different things (operator report: with the
+    // alias, entering an Analyze sub-page trapped left/right on browsing it
+    // instead of paging the main carousel, matching every other page). '/'
+    // stays the fixed physical pairing for PREV/NEXT (see KEY_RAW_SLASH_PRESS
+    // below); UP/DOWN below are what ';'/'.' produce now.
     PREV,
-    // '.' or '/' (Fn-arrow "down"/"right") — next status page (carousel) /
-    // move selection down (menu). Same two-keys-one-action pattern as PREV.
+    // '/' (Fn-arrow "right") — next status page (carousel) / move selection
+    // down (menu). See PREV's comment for the history of this pairing.
     NEXT,
+    // ';' (Fn-arrow "up") — new 2026-09-03, split off from PREV (see its
+    // comment). Browses vertically wherever that's the natural axis: the
+    // Analyze hub's own row list and its sub-pages' four-way cycle
+    // (ui_task.cpp) today; translated back to PREV before reaching
+    // MenuState (ui_menu.h stays a plain two-action PREV/NEXT model) so the
+    // settings menu and slider keep working exactly as before the split.
+    UP,
+    // '.' (Fn-arrow "down") — new 2026-09-03, split off from NEXT. See UP's
+    // comment; translated to NEXT before reaching MenuState.
+    DOWN,
     // Enter — activate/commit the highlighted selection in the menu. In the
     // carousel it toggles Trace on RADIO and starts/cancels Probe on PROBE;
     // it remains a no-op on the other status cards. It does not open the
@@ -266,19 +292,22 @@ enum class KeyAction {
     // KEY_RAW_ESC_PRESS above for that first move, and docs/history/PROGRESS.md's
     // 2026-08-24 bench pass for this second one (Enter-to-open felt wrong).
     BACK,
-    // '1'-'7' — jump straight to that carousel page (carousel mode only).
-    // 1=RADIO, 2=PROBE, 3=SWEEP, 4=CELL, 5=CHANNEL, 6=GPS, 7=SYSTEM (Phase
-    // 11 inserted CELL at 4, pushing CHANNEL/GPS/SYSTEM from 4/5/6 to
-    // 5/6/7). Kept as plain, separately-named actions rather than one
-    // "JUMP + index" action so this header stays free of any dependency on
-    // ui_task.h's UiPage enum — ui_task.cpp does the index mapping itself.
+    // '1'-'6' — jump straight to that main-carousel page (carousel mode
+    // only). 1=RADIO, 2=TOOLS, 3=ANALYZE, 4=CHANNEL, 5=GPS, 6=SYSTEM —
+    // resettled here 2026-09-04 when Tools joined Analyze as a second hub
+    // and the operator-facing main carousel shrank to six stops (down from
+    // the eight/seven/six of earlier phases — Probe/Sweep/Cell lost their
+    // own JUMP_2/3/4 the same way Analyze's five sub-pages never had one:
+    // see ui_task.h's UiPage comment). Kept as plain, separately-named
+    // actions rather than one "JUMP + index" action so this header stays
+    // free of any dependency on ui_task.h's UiPage enum — ui_task.cpp does
+    // the index mapping itself.
     JUMP_1,
     JUMP_2,
     JUMP_3,
     JUMP_4,
     JUMP_5,
     JUMP_6,
-    JUMP_7,
     PROBE,
     // Bounded single-shot Sweep (S).
     SWEEP,
@@ -292,7 +321,7 @@ enum class KeyAction {
 };
 
 // Maps one raw TCA8418 event byte to a KeyAction. Deliberately an allowlist:
-// only the seventeen press bytes above resolve to anything — every release
+// only the sixteen press bytes above resolve to anything — every release
 // event and all other keys on the board return NONE. That's what keeps
 // this safe despite covering only a small slice of the board's 56 keys:
 // there's no "unknown key does something surprising" case, only "known key
@@ -300,8 +329,8 @@ enum class KeyAction {
 inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
     switch (rawEvent) {
         case KEY_RAW_COMMA_PRESS: return KeyAction::PREV;
-        case KEY_RAW_SEMICOLON_PRESS: return KeyAction::PREV;
-        case KEY_RAW_PERIOD_PRESS: return KeyAction::NEXT;
+        case KEY_RAW_SEMICOLON_PRESS: return KeyAction::UP;
+        case KEY_RAW_PERIOD_PRESS: return KeyAction::DOWN;
         case KEY_RAW_SLASH_PRESS: return KeyAction::NEXT;
         case KEY_RAW_ENTER_PRESS: return KeyAction::SELECT;
         case KEY_RAW_ESC_PRESS: return KeyAction::BACK;
@@ -311,7 +340,6 @@ inline KeyAction keyboardDecodeEvent(uint8_t rawEvent) {
         case KEY_RAW_4_PRESS: return KeyAction::JUMP_4;
         case KEY_RAW_5_PRESS: return KeyAction::JUMP_5;
         case KEY_RAW_6_PRESS: return KeyAction::JUMP_6;
-        case KEY_RAW_7_PRESS: return KeyAction::JUMP_7;
         case KEY_RAW_P_PRESS: return KeyAction::PROBE;
         case KEY_RAW_S_PRESS: return KeyAction::SWEEP;
         case KEY_RAW_R_PRESS: return KeyAction::REPEAT;

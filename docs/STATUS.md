@@ -8,7 +8,7 @@ prose that used to be duplicated (and drifting) across `CLAUDE.md`,
 
 ## Current version
 
-**v0.9.0** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
+**v1.0.0** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
 *reached*, not the phase in progress — see ROADMAP.md's Versioning
 section. Phase 9 (`ENERGY_SWEEP`/"Sweep") reached 2026-09-03: all five
 ROADMAP.md exit criteria closed, including two full 8-hour endurance
@@ -18,7 +18,20 @@ below for the full writeup. `v0.8.6`-`v0.8.9` were all PATCH bumps for
 out-of-sequence Phase 9/11 additions landed while Phase 9 itself was
 still open (Cell's repeat mode, FCC A/B block markers, the Sweep region
 setting) — see ROADMAP.md's Versioning section for why those stayed
-PATCH rather than MINOR.
+PATCH rather than MINOR. **Phase 10 (Field Analyzer) reached MINOR status
+2026-09-03 and closed all five exit criteria the same day** — see the
+Phase 10 entry below. `v0.10.1` is a same-day PATCH fixing a real bug the
+worst-case run itself surfaced (a repeat-mode Waterfall race condition);
+`v0.10.2`/`v0.10.3` are same-day PATCHes for real, hardware-confirmed UI
+polish (Waterfall's frequency axis + repeat toggle, Meter's bar gauge/SNR/
+channel-param block) — see the Phase 10 entry's "Post-closure UI polish"
+paragraph below. Same PATCH-not-MINOR convention as the Phase 9/11 bumps
+above throughout. **Promoted to `v1.0.0` the same day**: ROADMAP.md's own
+documented gate for this promotion was Phase 10 closing, and only that —
+that's done. Phase 11 (Cell) was never part of the gate (added out of
+sequence, outside the original four-profile scope); its own two open
+items (below) are known, tracked gaps post-`v1.0`, an explicit operator
+call, not an oversight.
 
 ## What's hardware-verified
 
@@ -258,8 +271,100 @@ criteria closed:**
 
 Phase 10 (Field Analyzer) is accepted as planned scope. Whether it's
 required before `v1.0.x` was an explicit decision deferred until Phase 9
-hardware evidence exists (ROADMAP.md) — that evidence exists now
-(above), so this decision is open to make; it hasn't been made yet.
+hardware evidence exists (ROADMAP.md) — that evidence exists now (above),
+and **the decision was made 2026-09-03: Phase 10 is required for `v1.0.x`.**
+Work is starting under an interim `v0.10.x` line, the same convention
+Phase 8/9 used while in progress; see ROADMAP.md's Phase 10 entry and
+Versioning table.
+
+**Phase 10 (Field Analyzer) — `v0.10.1`, all five exit criteria closed
+2026-09-03:**
+- **Data layer, `SCOPE_ACQUIRE`, and the on-device UI (Meter/Waterfall/
+  Scope/Captures/Nodes) are done and hardware-verified**, including a
+  second hub — **Tools**, gating Probe/Sweep/Cell — added at the operator's
+  request the same session (real scope beyond ROADMAP.md's own Phase 10
+  text, not a deviation from it). Two real bugs were found and fixed on
+  real hardware during this pass: a whole-`WaterfallHistory` snapshot
+  (~5.5KB) overflowing `ui_task`'s 4096B stack (crashed the device opening
+  Analyze > Waterfall), and the carousel-position footer reading straight
+  off the raw `UiPage` enum ordinal instead of the main-carousel-relative
+  index (would have shown "14/14" instead of "2/6"/"3/6" for the two new
+  hub cards). Full writeup: ROADMAP.md's Phase 10 entry.
+- **Memory budget — closed, confirmed two ways.** `ANALYZER_STATIC_BYTES`
+  (compile-time `sizeof()`, `analyzer_budget.h`) measures the four
+  analyzer structures at **6,728 of the 8,192-byte incremental ceiling**
+  (82.1%, 1,464B headroom). A real 29-minute `session.csv` (`run0006`,
+  below) confirms it end-to-end on hardware, not just at compile time.
+- **Worst-case UI/radio run — closed.** WiFi on, Sweep repeat mode
+  running continuously, Waterfall open, for a full 60 real minutes. A
+  background Serial Control watch (231 `STATUS` polls at 15s intervals)
+  recorded zero dropped/unanswered requests and zero `task_wdt`/`Guru
+  Meditation` signatures for the entire hour.
+- **Outdoor and minimum-brightness readability — closed** (operator
+  check, 2026-09-03): confirmed good both in direct window sunlight and
+  indoors.
+- **A real bug the worst-case run itself surfaced — found and fixed
+  same day, `v0.10.1`.** Pass A found 50 energy peaks over that hour
+  (`STATUS`'s `PBA=50`), yet Waterfall showed nothing the whole time.
+  Root cause: `analyzerNoteSweepComplete()` (`analyzer_state.cpp`, Core 0)
+  read `radio_task.cpp`'s live per-sweep peak-bin mask, but in repeat mode
+  `radio_task`'s own do-while loop calls straight back into
+  `performEnergySweep()` for the next lap with no delay, and that lap's
+  first line resets the same mask — Core 0's ~100ms poll cadence almost
+  always lost that race, so every repeat-mode Waterfall row read an
+  already-cleared mask regardless of what Pass A actually found.
+  `energy.csv` itself was never affected (a separate, queue-based path
+  that logs each peak the instant Pass A finds it). **Fix:** a second,
+  stable snapshot buffer (`energyPeakBinMaskAtComplete`) taken atomically
+  at sweep completion, read via a new `radioEnergyPeakBinSetAtLastComplete()`
+  accessor; the Sweep page's own live occupancy ticks
+  (`drawSweepOccupancy()`) are untouched, still reading the live mask on
+  purpose so they keep updating progressively during an active sweep.
+  **Hardware-confirmed same day**: operator re-ran Waterfall during a live
+  repeat Sweep against real MeshCore traffic and confirmed hits now
+  appear on the display.
+
+**Post-closure UI polish, same day (`v0.10.2`/`v0.10.3`), hardware-
+confirmed** — real scope beyond the five exit criteria above, not a
+deviation: Waterfall gained a frequency axis (later merged into the plot
+box's own bottom border to remove a redundant line) and an Enter key that
+starts/stops repeat Sweep straight from the page. Meter gained a real bar
+gauge, an SNR line, and a right-column SF/BW/CR block — all real
+`CaptureSummary` data this page had access to and never showed — plus a
+range widened -30 -> 0dBm after a real -16dBm reading clipped flat
+against the original ceiling. Full writeup: `docs/ROADMAP.md`'s Phase 10
+entry.
+
+**Hardware finding, 2026-09-03 — found, isolated, and resolved by an SD
+card swap.** While attempting the Stage 4 hardware verification above,
+every cold boot hit a 100%-reproducible `task_wdt` abort ~13-14s after
+`[config] Applied channel override(s)` — `logger` (Core 0) ran long
+enough during SD bring-up to starve `IDLE0` past the watchdog's 5s
+window, hard-resetting the device into a boot loop, with
+`[W] sd_diskio.cpp:180 sdCommand(): crc error` firing immediately before
+it every time. Isolated by flashing the last tagged release
+(`v0.9.0`/`b84d88c`, no Phase 10 code) to the same device: identical
+crash, timing, and SD CRC warning — confirming this was the SD card, not
+firmware, in either version. **Operator swapped the card same day; the
+same `v0.10.0` build now boots cleanly** — GPS clock sync, radio task
+start, and a Serial Control `HELLO`/`STATUS` round-trip all confirmed
+(`STATUS` reports `SD=1`), zero `task_wdt`/`Guru Meditation` signatures
+across a reset and a subsequent **20-minute passive Serial Control watch**
+(40 `STATUS` polls at 30s intervals, 16:55-17:15 UTC, every poll
+answered, `SD=1` throughout, no reboot). Confirms the fix holds under a
+sustained idle run, not just a single clean boot.
+
+**`session.csv` pulled off the card afterward (operator reattached it
+directly, 2026-09-03) — real confirmation, not just the compile-time
+number.** `run0006` covers a real 29-minute boot (`uptime_s` 3 through
+1744, boot row through 29 periodic rows at the correct 60s cadence):
+`analyzer_static_bytes,6728` on every single row, `sd=ok` throughout,
+zero `row_drop`/`queue_drop`/`bus_miss`/`crc_err` for the entire run, and
+`heap_free`/`heap_min` settling from 258,488B at boot to ~211,552B/
+207,108B within the first ~10 minutes and holding perfectly flat for the
+remaining ~19 — the same "one legitimate one-time settle, then flat"
+signature Phase 9's own soak established as healthy, not a leak. This
+closes the memory/telemetry side of Stage 4 for real, not just on paper.
 
 **Phase 11 (Cell) — added out of sequence, PARTIALLY hardware-verified:**
 a bounded RSSI-only presence sweep of 869-894MHz (North American Cellular
@@ -310,6 +415,60 @@ the lo/hi labels above or the disclaimer line below.
 
 ## What's still open
 
+- ~~Bench SD card / boot-loop finding~~ — resolved 2026-09-03. The
+  bench Cardputer's `task_wdt` boot-loop (see Phase 10 section above) was
+  the SD card, not firmware; operator swapped it same day, and a clean
+  boot plus a 20-minute zero-crash passive Serial Control watch confirmed
+  the fix. Bench device trusted again.
+- ~~Phase 10 (Field Analyzer) hardware confirmation~~ — closed
+  2026-09-03. All five exit criteria done, including a real bug (a
+  repeat-mode Waterfall race condition) the worst-case run itself
+  surfaced and got fixed the same day; see the Phase 10 section above for
+  the full writeup.
+- **Sweep silence near real MeshCore traffic — diagnosed, 2026-09-03: it's
+  dwell timing, not the noise floor.** Originally opened as "is 35.0dB too
+  conservative?" after a worst-case run found 50 Pass-A peaks but zero
+  packet promotions while Watch/Trace saw plenty of real traffic from a
+  6-foot-away MeshCore repeater (operator's own `pyMC_Repeater` node, real
+  local mesh). Three independent lines of evidence closed this out:
+  - **The floor itself is fine.** The repeater's own noise-floor monitor
+    reports -94.0dBm average at this exact location; its packets average
+    -34.8dBm — a ~59dB clearance over the floor, well past the 35dB
+    margin. Real traffic here is nowhere near the threshold.
+  - **Watch/Trace has no reception bug.** A live correlation (Serial
+    Control's new `RXP`/`RXC` fields, `radioPacketCount()`/
+    `radioCrcErrorCount()`, added this session) logged 96 real packets in
+    6 minutes with zero CRC errors — more than the repeater's own log
+    showed for the same window, since Trace hears the whole broadcast
+    mesh, not just one node's vantage point. (An earlier reading of this
+    session mistakenly used `R`, which is Probe's own recovery counter,
+    not a packet count despite the letter — corrected before drawing any
+    conclusion from it.)
+  - **Direct RTL-SDR ground truth confirms the dwell-timing theory.** A
+    focused 909-912MHz capture during 19 live single-shot Sweep laps
+    showed near-continuous real bursts at 910.5MHz (roughly one every
+    1-8 seconds, 182 flagged events over ~5 minutes) — yet Sweep only
+    registered a peak on 5/19 laps (26%), even with transmissions that
+    dense nearby. A ~40ms dwell at one bin per lap only rarely coincides
+    with an independently-timed burst; this is a receive-window problem,
+    not a sensitivity problem. Matches (with much denser real traffic)
+    the same effect the 923MHz-edge bench work already established for a
+    single controlled signal.
+  - **Bonus, unplanned finding:** the same test showed Trace decoding only
+    6 packets in ~5 minutes while Sweep laps ran back-to-back, versus 96
+    in 6 minutes with the radio otherwise free — a real, now-quantified
+    ~15x drop in Watch/Trace's catch rate while Sweep (repeat or
+    back-to-back single-shot) monopolizes the radio. Not a bug, an
+    inherent trade-off worth knowing about, not previously measured.
+  
+  No firmware change indicated by this investigation — the margin, the
+  reception path, and the dwell design are all working as built. Making
+  the margin operator-configurable (floated earlier) is no longer
+  motivated by a suspected miscalibration, though it could still be
+  useful as a general tuning knob if a future need justifies the menu-
+  toggle work CLAUDE.md requires for it. `RXP`/`RXC` stay on `STATUS`
+  going forward — genuinely useful for future "is Trace actually
+  receiving" questions, not just this one.
 - **Cell hardware verification** (Phase 11, above) — C key, mutual
   exclusion against Probe/Sweep (both directions), and the carousel card
   are now confirmed on real hardware (2026-09-01). Still open: confirm a
