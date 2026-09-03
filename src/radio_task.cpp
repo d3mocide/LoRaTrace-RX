@@ -1438,8 +1438,21 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
 
     // Create the task before wiring the ISR: onDio1Action dereferences
     // radioTaskHandle, so this ordering makes that dependency explicit.
+    //
+    // 6144, not 4096: an 8-hour endurance soak (2026-09-03, docs/STATUS.md)
+    // pulled real session.csv data showing radio_stack_free's lifetime-
+    // minimum watermark settling at 820B free (20.0%) within the first two
+    // hours and never dropping further -- no leak, but below this
+    // project's own documented margin rule (25% or 1KB, whichever is
+    // larger; 4096 needed >=1024B free and only had 820B). Bumped
+    // proportionate to how logger_task's own near-identical story (sized
+    // by inspection, never load-tested, found undersized only once a real
+    // soak stress-tested it) got fixed just before this in the same soak
+    // cycle -- radio_task is the single most critical task here (owns the
+    // SX1262, must never block), not one to leave at a margin that's
+    // already below the house rule just because it hadn't overflowed yet.
     BaseType_t ok =
-        xTaskCreatePinnedToCore(radioTask, "radio", 4096, nullptr, 3, &radioTaskHandle, 1);
+        xTaskCreatePinnedToCore(radioTask, "radio", 6144, nullptr, 3, &radioTaskHandle, 1);
     if (ok != pdPASS) return false;
 
     SpiBusLock lock(portMAX_DELAY);
