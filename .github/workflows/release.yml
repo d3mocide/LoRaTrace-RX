@@ -5,14 +5,25 @@ on:
     tags:
       - "v*.*.*"
   # Lets an already-tagged release be rebuilt manually (Actions tab -> Release
-  # -> Run workflow -> pick the vX.Y.Z tag as the ref) to backfill assets a
-  # workflow change added after that release was first created — e.g. the
-  # bootloader/partitions/boot_app0 parts pages.yml needs, added after v1.0.0
-  # had already shipped with only the app binary. `draft` below is
-  # conditioned on this vs. the tag-push trigger specifically so re-running
-  # it against an already-published release can't silently revert it to
-  # draft.
+  # -> Run workflow) to backfill assets a workflow change added after that
+  # release was first created — e.g. the bootloader/partitions/boot_app0
+  # parts pages.yml needs, added after v1.0.0 had already shipped with only
+  # the app binary. This can't dispatch against the vX.Y.Z tag itself as the
+  # ref: GitHub only allows workflow_dispatch against a ref whose own copy of
+  # the workflow file already defines the trigger, and a tag cut before this
+  # trigger existed never will (confirmed 2026-09-03 trying exactly this
+  # against v1.0.0). So instead this always runs from a branch (main) and
+  # takes the target release tag as an input — safe only because the
+  # "Verify version.h" step below still checks the checked-out source
+  # actually matches that tag before anything is built or uploaded.
+  # `draft` is conditioned on workflow_dispatch vs. the tag-push trigger so
+  # re-running this against an already-published release can't silently
+  # revert it to draft.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to attach the built assets to, e.g. v1.0.0"
+        required: true
 
 permissions:
   contents: write # needed to publish the release
@@ -30,32 +41,37 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
+      - name: Resolve target release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
       # docs/ROADMAP.md's Versioning section previously noted that a
       # tag/version.h mismatch was "a review-time catch, not an automated
       # one". It is automated now: shipping a binary whose boot banner
       # disagrees with its release tag makes every subsequent bug report
       # ambiguous, and that is exactly the cost this project keeps paying
-      # when hardware facts and code drift apart.
-      - name: Verify version.h matches the release tag
+      # when hardware facts and code drift apart. This is also the only
+      # thing standing between a workflow_dispatch mistake and the wrong
+      # binaries landing on an existing release, since dispatch builds
+      # whatever ref it's checked out against (usually main), not the
+      # tagged commit itself — see the trigger comment above.
+      - name: Verify version.h matches the target release tag
         run: |
-          # A workflow_dispatch re-run (see the trigger comment above) must
-          # target the vX.Y.Z tag itself via the ref dropdown — left on the
-          # default branch, GITHUB_REF_NAME is a branch name like "main" and
-          # the check below fails with a misleading "bump version.h" message
-          # (seen 2026-09-03: dispatched against main instead of v1.0.0).
-          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
-            echo "::error::This run's ref is the branch '${GITHUB_REF_NAME}', not a tag. Re-run via Actions -> Release -> Run workflow, and pick the vX.Y.Z tag from the Use workflow from dropdown before running."
-            exit 1
-          fi
+          target_tag="${{ steps.tag.outputs.value }}"
           header_version="$(sed -n 's/^#define FIRMWARE_VERSION "\(.*\)"/\1/p' src/version.h)"
-          tag_version="${GITHUB_REF_NAME#v}"
-          echo "version.h: '${header_version}'   tag: '${tag_version}'"
+          tag_version="${target_tag#v}"
+          echo "version.h: '${header_version}'   target tag: '${tag_version}'"
           if [ -z "$header_version" ]; then
             echo "::error::Could not parse FIRMWARE_VERSION from src/version.h"
             exit 1
           fi
           if [ "$header_version" != "$tag_version" ]; then
-            echo "::error::src/version.h says ${header_version} but the tag is ${GITHUB_REF_NAME}. Bump version.h to match before tagging (docs/ROADMAP.md Versioning)."
+            echo "::error::src/version.h says ${header_version} but the target release tag is ${target_tag}. Checked-out ref must build the same firmware that tag represents (docs/ROADMAP.md Versioning)."
             exit 1
           fi
 
@@ -65,7 +81,7 @@ jobs:
       - name: Rename binary for Launcher / SD-drop distribution
         run: |
           mkdir -p dist
-          cp .pio/build/cardputer-adv/firmware.bin "dist/LoRaTraceRX-${GITHUB_REF_NAME}.bin"
+          cp .pio/build/cardputer-adv/firmware.bin "dist/LoRaTraceRX-${{ steps.tag.outputs.value }}.bin"
 
       # bootloader.bin/partitions.bin plus the Arduino core's boot_app0.bin
       # are the other three pieces a from-scratch flash needs beside the
@@ -75,14 +91,21 @@ jobs:
       # (pages.yml) is what actually consumes them.
       - name: Collect flash parts for the web flasher
         run: |
-          cp .pio/build/cardputer-adv/bootloader.bin "dist/LoRaTraceRX-${GITHUB_REF_NAME}-bootloader.bin"
-          cp .pio/build/cardputer-adv/partitions.bin "dist/LoRaTraceRX-${GITHUB_REF_NAME}-partitions.bin"
+          cp .pio/build/cardputer-adv/bootloader.bin "dist/LoRaTraceRX-${{ steps.tag.outputs.value }}-bootloader.bin"
+          cp .pio/build/cardputer-adv/partitions.bin "dist/LoRaTraceRX-${{ steps.tag.outputs.value }}-partitions.bin"
           boot_app0="$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -n1)"
-          cp "$boot_app0" "dist/LoRaTraceRX-${GITHUB_REF_NAME}-boot_app0.bin"
+          cp "$boot_app0" "dist/LoRaTraceRX-${{ steps.tag.outputs.value }}-boot_app0.bin"
 
+      # generate_release_notes is off for a workflow_dispatch backfill: the
+      # action would otherwise regenerate the release body from this run's
+      # own commit (the dispatch branch's tip, not the original tag), which
+      # would rewrite the tag's real notes with every commit landed since —
+      # a dispatch run should only add the missing asset files, never touch
+      # the release's existing body/name.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/LoRaTraceRX-${{ github.ref_name }}*.bin
+          tag_name: ${{ steps.tag.outputs.value }}
+          files: dist/LoRaTraceRX-${{ steps.tag.outputs.value }}*.bin
           draft: ${{ github.event_name != 'workflow_dispatch' }}
-          generate_release_notes: true
+          generate_release_notes: ${{ github.event_name != 'workflow_dispatch' }}
