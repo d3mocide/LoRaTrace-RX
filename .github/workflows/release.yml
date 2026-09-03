@@ -38,6 +38,15 @@ jobs:
       # when hardware facts and code drift apart.
       - name: Verify version.h matches the release tag
         run: |
+          # A workflow_dispatch re-run (see the trigger comment above) must
+          # target the vX.Y.Z tag itself via the ref dropdown — left on the
+          # default branch, GITHUB_REF_NAME is a branch name like "main" and
+          # the check below fails with a misleading "bump version.h" message
+          # (seen 2026-09-03: dispatched against main instead of v1.0.0).
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "::error::This run's ref is the branch '${GITHUB_REF_NAME}', not a tag. Re-run via Actions -> Release -> Run workflow, and pick the vX.Y.Z tag from the Use workflow from dropdown before running."
+            exit 1
+          fi
           header_version="$(sed -n 's/^#define FIRMWARE_VERSION "\(.*\)"/\1/p' src/version.h)"
           tag_version="${GITHUB_REF_NAME#v}"
           echo "version.h: '${header_version}'   tag: '${tag_version}'"
