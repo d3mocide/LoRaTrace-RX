@@ -139,3 +139,21 @@ jobs:
           draft: ${{ github.event_name != 'workflow_dispatch' }}
           body_path: ${{ github.event_name == 'push' && 'release-body.md' || '' }}
           generate_release_notes: false
+
+  # Runs once the job above has finished uploading this tag's assets --
+  # `needs:` orders that by construction, unlike pages.yml's old approach of
+  # reacting to this workflow's completion as an event, which could still
+  # arrive before the upload step actually finished. A draft release (the
+  # normal push-triggered case) is invisible to pages.yml's `gh release
+  # view` regardless, so dispatching here doesn't leak it early; it only
+  # ever surfaces a release once it's actually published, same as before.
+  dispatch-deploy:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Re-trigger the web flasher deploy now that assets are attached
+        run: gh workflow run pages.yml --ref main -R "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}

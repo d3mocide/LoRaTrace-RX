@@ -4,29 +4,25 @@ name: Deploy web flasher
 # whenever there's a new binary to offer:
 #   - `release: released` fires when a release is published (a maintainer
 #     manually publishing a v1.0.0-style draft — see release.yml — or the
-#     first-ever creation of the dev-latest prerelease).
+#     first-ever creation of the dev-latest prerelease). By the time this
+#     fires, release.yml's own job (which built the draft) has long since
+#     finished, so its assets are already attached — safe.
 #   - `workflow_run` on Build catches every later dev-latest *update*: that
 #     release already exists after its first publish, so re-uploading
-#     assets to it is an edit, not a new "released" event.
-# Deliberately does NOT trigger on release.yml's own workflow_run — that
-# would expose a vX.Y.Z build's binaries through the flasher while the
-# release itself is still a draft, defeating the point of drafting it
-# (docs/ROADMAP.md: tagging is "a separate, deliberate step").
+#     assets to it is an edit, not a new "released" event. Also safe: Build
+#     uploads dev-latest's assets as a step within its own job, before the
+#     job (and so the whole workflow) completes, so this can't fire early.
+# Deliberately does NOT react to release.yml's workflow_run: a v1.0.5/v1.0.6
+# run once showed that racing an event against release.yml's own ~2-minute
+# asset-upload step (rather than something gated on it) fails with "no
+# assets to download" if this fires first. release.yml now dispatches this
+# workflow itself, via `needs:` on the job that uploads those assets, which
+# is ordered by construction instead of raced — see its dispatch-deploy job.
 on:
   release:
     types: [released]
   workflow_run:
-    # "Build" catches dev-latest updates. "Release" is the fix for a race
-    # observed on both v1.0.5 and v1.0.6: publishing a release (whether via
-    # release.yml's draft or by hand, tag+publish together) fires
-    # `release: released` immediately, but release.yml's own job -- which
-    # uploads that tag's binaries -- can still be running for ~2 more
-    # minutes. The deploy job below downloads by tag and fails with "no
-    # assets to download" if it runs first. Re-entering once Release
-    # finishes is racefree by construction: `gh release view` still skips a
-    # release left in draft, so this doesn't expose anything early -- it
-    # only ever re-checks a release that could plausibly be published by now.
-    workflows: ["Build", "Release"]
+    workflows: ["Build"]
     types: [completed]
   workflow_dispatch:
 
