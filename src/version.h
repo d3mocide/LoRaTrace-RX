@@ -20,6 +20,79 @@
 //    share one semantic version. Carries a "-dirty" suffix when built from
 //    a modified working tree.
 
+// 1.0.6: correctness pass over what v1.0.5 shipped, from a code review and
+// a whole-project audit (docs/research/2026-09-04-project-audit.md).
+//
+// Bumped for its own sake as much as the fixes: v1.0.5 was tagged and
+// published, and then this work landed on top of it while version.h still
+// read 1.0.5 -- so for a while a build reported a version whose released
+// binary behaved differently. release.yml's guard compares a version string
+// to a tag name and structurally cannot catch that, which is the audit's H1.
+//
+// Radio-ownership fixes (all in repeat-mode Sweep's new capture window):
+// - energyActive now covers the window. It is the "energy subsystem owns
+//   the radio" flag every other bounded action tests, and it was false for
+//   ~70% of each repeat cycle: a P/C press during a window passed the
+//   mutual-exclusion check, queued silently, and fired minutes later, and a
+//   repeat-stop press never raised energyCancelRequested so the window ran
+//   its full budget.
+// - Captures from a window no lap ever reported (repeat stopped mid-window)
+//   are discarded rather than left for the next sweep's snapshot to claim.
+//   A later single-shot sweep, which runs no window at all, would otherwise
+//   draw a green Waterfall mark and an "N PKTS" headline for packets it
+//   never received.
+// - The Pass-A margin is snapshotted once per sweep alongside the band
+//   (radio_task.h's own "read at the start of each sweep, never mid-sweep"
+//   rule) instead of read live per bin, so nudging the Margin slider mid-lap
+//   can no longer judge one lap against two thresholds.
+//
+// Cross-core hardening (audit M1/M2), both latent rather than observed:
+// - activeChannel/activeProfile are written under a spinlock and read back
+//   under it. The struct is two floats plus three bytes written on Core 1
+//   and read by value from six Core-0 sites; "cheap to return by value" was
+//   never the same claim as "indivisible". Scope derives its acquisition
+//   frequency from that struct, so a torn read parked it on a frequency no
+//   profile ever used.
+// - The per-sweep completion snapshot is published with an explicit
+//   release fence, paired with an acquire in radioEnergySweepCount().
+//   energyPeakBinMaskAtComplete is a plain array; volatile on the counter
+//   ordered nothing about it. This path already produced one hardware-only
+//   bug (v0.10.1's all-quiet Waterfall rows), so the ordering the comments
+//   promised is now enforced rather than assumed.
+//
+// Menu itemCount static_asserts extended to ROOT_ITEMS, which is where the
+// v0.8.9 bug they cite actually lived -- verified by reintroducing that bug
+// and confirming the build fails.
+//
+// Settings-parser consolidation, same release (audit L1/M5): the four
+// modules each carried a byte-identical copy of "trim, skip #comments,
+// split on =, trim halves, reject empties" with only the per-key
+// validation differing. That shared half is now config_line.h, and each
+// module's apply...() moved into its header as a pure function -- which is
+// what finally makes them host-testable (test_config_line/,
+// test_settings_parse/, 20 new cases; 207 -> 227).
+//
+// That immediately exposed a real defect the missing tests had been
+// hiding: Arduino's String::toInt() returns 0 for unparseable input, and 0
+// is a *valid* value for two of these keys. `window_index=<garbage>`
+// silently selected Capture: OFF and `idle_timeout_index=<garbage>`
+// silently selected Idle dim: Off -- a corrupt line was honoured as a real
+// setting instead of ignored. configParseLong() now requires the whole
+// token to be digits. BRIGHTNESS_MIN/MAX/STEP also stopped being defined
+// twice (display_settings.h owns them; ui_task_shared.h includes it), with
+// a static_assert tying IDLE_TIMEOUT_OPTION_COUNT to the persisted index
+// bound.
+//
+// PATCH, not MINOR -- correctness within Phase 9/10 scope, no new scope.
+// Hardware-verified 2026-09-04 on real hardware: repeat Sweep refused all
+// 25 PROBE_START attempts including 6 sampled during the capture window
+// (the exact state v1.0.5 accepted them in), captures still landed
+// (RXP 0->4), and the four settings files still load their real persisted
+// values off the card (margin=300, brightness=40, idle_idx=1 -- three
+// non-defaults, so the parser is genuinely reading the files rather than
+// falling back).
+#define FIRMWARE_VERSION "1.0.6"
+
 // 1.0.5: Waterfall now shows packet captures, not just energy. Green
 // (COL_GOOD) marks a bin where a real packet was demodulated and
 // CRC-checked during that row's between-lap listen window; yellow
@@ -46,7 +119,7 @@
 // design doc's 8192 ceiling (+96B, 1368 headroom); the session_log test's
 // literal was updated deliberately to keep that canary meaningful.
 // PATCH, not MINOR -- still Phase 9/10 scope.
-#define FIRMWARE_VERSION "1.0.5"
+// (Superseded by 1.0.6 above.)
 
 // 1.0.4: the 1.0.3 capture window is now an operator setting, not a
 // constant -- System > Tuning > Capture (Off/1s/2s/4s), persisted to
@@ -72,7 +145,7 @@
 
 // 1.0.3: repeat-mode Sweep now timeshares the radio with the home channel
 // instead of monopolizing it -- after each completed lap it parks on home
-// with RX armed for ENERGY_SWEEP_HOME_LISTEN_MS (2000ms) and services real
+// with RX armed for the capture window (2000ms default) and services real
 // packets through HOME_LISTEN's own readDetectionLocked()/enqueueDetection()
 // path, so a packet caught mid-sweep is indistinguishable downstream from
 // one Trace caught while idle. Single-shot Sweep is deliberately unchanged.

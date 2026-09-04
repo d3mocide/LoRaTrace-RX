@@ -10,28 +10,6 @@ namespace {
 constexpr const char *SWEEP_MARGIN_CONFIG_DIR = "/loratrace";
 constexpr const char *SWEEP_MARGIN_CONFIG_PATH = "/loratrace/sweep_margin.txt";
 
-bool applySweepMarginConfigLine(const String &rawLine, SweepMarginSettings &settings) {
-    String line = rawLine;
-    line.trim();
-    if (line.length() == 0 || line.startsWith("#")) return false;
-
-    int eq = line.indexOf('=');
-    if (eq < 0) return false;
-
-    String key = line.substring(0, eq);
-    String val = line.substring(eq + 1);
-    key.trim();
-    val.trim();
-    if (key.length() == 0 || val.length() == 0) return false;
-
-    if (key == "margin_dbm_x10") {
-        long v = val.toInt();
-        if (v < ENERGY_SWEEP_MARGIN_MIN_DBM_X10 || v > ENERGY_SWEEP_MARGIN_MAX_DBM_X10) return false;
-        settings.margin_dbm_x10 = (int16_t)v;
-        return true;
-    }
-    return false;
-}
 
 // Delete-then-recreate, not truncate-in-place — same reasoning
 // writeRegionConfigFile()/writeDisplayConfigFile() document: a shorter new
@@ -75,7 +53,7 @@ bool loadSweepMarginSettingsFromSD(SweepMarginSettings &settings) {
     bool appliedAny = false;
     while (f.available()) {
         String line = f.readStringUntil('\n');
-        if (applySweepMarginConfigLine(line, settings)) appliedAny = true;
+        if (applySweepMarginConfigLine(line.c_str(), settings)) appliedAny = true;
     }
     f.close();
     return appliedAny;

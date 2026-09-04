@@ -10,43 +10,6 @@ namespace {
 constexpr const char *DISPLAY_CONFIG_DIR = "/loratrace";
 constexpr const char *DISPLAY_CONFIG_PATH = "/loratrace/display.txt";
 
-// Same bounds ui_task.cpp's Brightness slider / IDLE_TIMEOUT_OPTIONS use —
-// duplicated here rather than shared, since pulling in ui_task.h just for
-// two constants would be a much larger coupling than two small numbers
-// agreeing by convention (same trade config.cpp's own channel bounds
-// already accept against wifi_task's settings endpoint).
-constexpr uint8_t BRIGHTNESS_MIN = 5;
-constexpr uint8_t BRIGHTNESS_MAX = 100;
-constexpr uint8_t IDLE_TIMEOUT_INDEX_MAX = 4; // Off/30s/60s/2min/5min = 0-4
-
-bool applyDisplayConfigLine(const String &rawLine, DisplaySettings &settings) {
-    String line = rawLine;
-    line.trim();
-    if (line.length() == 0 || line.startsWith("#")) return false;
-
-    int eq = line.indexOf('=');
-    if (eq < 0) return false;
-
-    String key = line.substring(0, eq);
-    String val = line.substring(eq + 1);
-    key.trim();
-    val.trim();
-    if (key.length() == 0 || val.length() == 0) return false;
-
-    if (key == "brightness_pct") {
-        long v = val.toInt();
-        if (v < BRIGHTNESS_MIN || v > BRIGHTNESS_MAX || v % 5 != 0) return false;
-        settings.brightness_pct = (uint8_t)v;
-        return true;
-    }
-    if (key == "idle_timeout_index") {
-        long v = val.toInt();
-        if (v < 0 || v > IDLE_TIMEOUT_INDEX_MAX) return false;
-        settings.idle_timeout_index = (uint8_t)v;
-        return true;
-    }
-    return false;
-}
 
 // Delete-then-recreate, not truncate-in-place — same reasoning
 // writeProfileConfigToSD() documents: a shorter new file must not leave a
@@ -93,7 +56,7 @@ bool loadDisplaySettingsFromSD(DisplaySettings &settings) {
     bool appliedAny = false;
     while (f.available()) {
         String line = f.readStringUntil('\n');
-        if (applyDisplayConfigLine(line, settings)) appliedAny = true;
+        if (applyDisplayConfigLine(line.c_str(), settings)) appliedAny = true;
     }
     f.close();
     return appliedAny;

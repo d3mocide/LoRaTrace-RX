@@ -7,6 +7,83 @@ fresh from the documentation restructuring below and stays terse —
 one or two lines per entry, newest first. For the current state of the
 project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
+## 2026-09-04
+
+- Ran a `/code-review` pass and then a whole-project audit
+  (`docs/research/2026-09-04-project-audit.md`), and fixed what it found
+  (`v1.0.6`). Radio-ownership bugs in v1.0.5's new capture window:
+  `energyActive` didn't cover the window, so Probe/Cell/Scope's mutual
+  exclusion silently queued instead of refusing and a repeat-stop press
+  waited out the full budget; captures from a window no lap reported could
+  be claimed by a later single-shot sweep, drawing a green Waterfall mark
+  for packets it never received; the Pass-A margin is now snapshotted per
+  sweep instead of read live per bin.
+- Hardened two latent cross-core paths the audit found: `activeChannel` is a
+  multi-word struct written on Core 1 and read from six Core-0 sites, now
+  under a spinlock (Scope derives its tune frequency from it, so a torn read
+  had teeth); and the per-sweep completion snapshot is now published behind
+  an explicit release/acquire fence pair rather than relying on `volatile`
+  on the counter to order a plain array — the same path that produced
+  v0.10.1's all-quiet Waterfall rows.
+- Fixed the Pages/tag CI failure: `release`-triggered runs carry the tag as
+  their ref and the `github-pages` environment only allows the default
+  branch, so the job died at 0 steps ("Tag vX.Y.Z is not allowed to deploy").
+  Now re-dispatched onto `main`, keeping the environment gate. **Unverified
+  — needs a real published release to confirm.**
+- Closed a real release-integrity hazard: `release.yml`'s manual dispatch
+  built the dispatch branch rather than the target tag, guarded only by a
+  version-string check that `main` happened to satisfy — so a backfill
+  against `v1.0.5` would have overwritten it with different binaries. The
+  dispatch now checks out the tag itself.
+- **Audit M6, partially confirmed and partially retracted.** Sweep's light
+  retune reads the noise floor **2.40dB low** — reproduced identically in
+  5/5 independent runs, so `energy.csv`'s absolute RSSI has been slightly
+  low since v1.0.2. But the claim that the under-read *grows with signal
+  strength* (which would mean lost detections, not just wrong logs) is
+  **withdrawn**: three attempts gave three contradictory answers, and a
+  settle=0 control re-running the exact "confirmed" configuration failed to
+  reproduce it — FULL's own carrier reading moved 11dB between runs, as
+  large as the claimed effect. Cause was reading a max statistic over a
+  luck-dominated sample (a 2s pulse train vs a 10-55ms bin visit). Built
+  `BENCH_SWEEP_SETTLE` (0-50ms) for the proposed fix but ship it
+  **disabled**: ~425ms/sweep is too much to pay for an unproven benefit.
+  The audit doc records what a trustworthy measurement would need.
+- Added a bench-only `BENCH_SWEEP_RETUNE=FULL|LIGHT` opcode and
+  `scripts/phase9_retune_floor_bench.py`, then used them to confirm audit M6:
+  Sweep's shipped light retune reports the noise floor **2.84dB lower** than
+  a full `begin()` per bin (-122.77 vs -119.93dBm, far outside each arm's
+  0.05-0.54dB spread), so `energy.csv`'s absolute RSSI has been slightly low
+  since v1.0.2. The switch is a runtime override so both arms run on one
+  image in one session rather than across two builds. The bigger question —
+  whether strong signals are suppressed *more* than the floor, which would
+  cost real detections rather than just logging accuracy — needs the Heltec
+  rig and is written up as Phase 2 in the audit doc.
+- Tried porting Sweep's light per-bin retune to Cell (audit L2) and
+  **reverted it**: 3.9x faster (5594ms → 1423ms) but it stopped seeing the
+  band's strongest real carrier entirely — full `begin()` found 892.0MHz at
+  −73dBm on 6/6 laps, the light retune never found it once and reported
+  −86..−91dBm noise at a different frequency each lap. Cell reports absolute
+  RSSI with no relative threshold to hide an under-read behind, so the
+  speedup isn't worth it. A 5ms settling delay recovers stable −72dBm
+  readings at 2.6x, which points at AGC settling time as the cause — but it
+  picks a different strongest bin than the baseline, so equivalence is
+  unproven. Kept the proven path; findings and an acceptance test are in the
+  audit doc. This also raised a new open question (M6) about whether Sweep's
+  own shipped light retune has the same under-read.
+- Consolidated the four settings parsers behind a shared, pure
+  `config_line.h` and moved each module's `apply...()` into its header, so
+  they are finally host-testable (audit L1/M5) — 20 new cases, 207 → 227,
+  and the `.cpp` files drop 401 → 293 lines. Doing so exposed a real bug the
+  missing tests had hidden: `String::toInt()` returns 0 for unparseable
+  input, and 0 is *valid* for two of these keys, so a corrupt
+  `window_index`/`idle_timeout_index` line silently selected "OFF" instead
+  of being ignored. Parsing is now strict. `BRIGHTNESS_MIN/MAX/STEP` also
+  stopped being defined in two places.
+- Extended the menu `itemCount` static_asserts to `ROOT_ITEMS`, which is
+  where the v0.8.9 bug they were written for actually lived; verified by
+  reintroducing that bug and confirming the build fails. Added the 18
+  modules missing from `CLAUDE.md`'s layout.
+
 ## 2026-09-03
 
 - Closed Phase 10 (Field Analyzer, `v0.10.0`→`v0.10.1`): all five exit

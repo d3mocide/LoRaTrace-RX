@@ -175,8 +175,10 @@ constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
 // silently never render. That exact bug shipped once (Region became
 // System's 4th row while the count still said 3, docs/STATUS.md's Region
 // entry) and was only caught by an operator not seeing the row on
-// hardware. These make it a build error instead. One per nested group, so
-// adding a row to any of them fails loudly rather than quietly.
+// hardware. These make it a build error instead. One per GROUP row —
+// including ROOT_ITEMS' own, below, which is where that historical bug
+// actually was — so adding a row anywhere fails loudly rather than
+// quietly.
 template <size_t N>
 constexpr size_t menuItemCount(const MenuItem (&)[N]) { return N; }
 static_assert(SYSTEM_GROUP_ITEMS[0].itemCount == menuItemCount(CONNECTIVITY_GROUP_ITEMS),
@@ -214,6 +216,17 @@ constexpr MenuItem ROOT_ITEMS[] = {
     {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 4},
 };
 constexpr uint8_t ROOT_COUNT = 3;
+// ROOT_ITEMS' own GROUP rows need the same guard as SYSTEM_GROUP_ITEMS'
+// above — and more so: the v0.8.9 bug those cite was *here*, on the row
+// pointing at SYSTEM_GROUP_ITEMS, not inside it. Asserting only the
+// children would have left the exact historical failure uncovered.
+// ROOT_COUNT is hand-written for the same reason and drifts the same way.
+static_assert(ROOT_ITEMS[1].itemCount == menuItemCount(PROFILE_GROUP_ITEMS),
+              "root > Profile itemCount does not match PROFILE_GROUP_ITEMS");
+static_assert(ROOT_ITEMS[2].itemCount == menuItemCount(SYSTEM_GROUP_ITEMS),
+              "root > System itemCount does not match SYSTEM_GROUP_ITEMS");
+static_assert(ROOT_COUNT == menuItemCount(ROOT_ITEMS),
+              "ROOT_COUNT does not match ROOT_ITEMS");
 
 // RX activity pulse: a brief, event-driven flash on the header's third
 // status dot and a matching flash bar on RADIO, replacing an old idle

@@ -25,6 +25,9 @@
 // its struct defaults, never a partial/garbage state.
 
 #include <stdint.h>
+#include <string.h>
+
+#include "config_line.h"
 
 struct DisplaySettings {
     // 5-100, 5% steps (ui_task.cpp's Brightness slider bounds).
@@ -33,6 +36,43 @@ struct DisplaySettings {
     // matches this feature's original hardcoded 60s default.
     uint8_t idle_timeout_index = 2;
 };
+
+// The Brightness slider's bounds and step. These used to exist twice —
+// once in display_settings.cpp for validation and once in ui_task_shared.h
+// for the slider — with a comment on each explaining that duplicating two
+// small numbers beat coupling the modules. That trade is no longer needed:
+// this header is pure (no Arduino, no SD), so ui_task_shared.h simply
+// includes it and the numbers have one definition. Moved up from the .cpp
+// so the parser below can be host-tested.
+constexpr uint8_t BRIGHTNESS_MIN = 5;
+constexpr uint8_t BRIGHTNESS_MAX = 100;
+constexpr uint8_t BRIGHTNESS_STEP = 5;
+constexpr uint8_t IDLE_TIMEOUT_INDEX_MAX = 4; // Off/30s/60s/2min/5min = 0-4
+
+// Pure and host-tested — see applyCaptureConfigLine()'s note in
+// capture_settings.h.
+inline bool applyDisplayConfigLine(const char *rawLine, DisplaySettings &settings) {
+    char key[32];
+    char value[32];
+    if (!configLineSplit(rawLine, key, sizeof(key), value, sizeof(value))) return false;
+
+    if (strcmp(key, "brightness_pct") == 0) {
+        long parsed = 0;
+        if (!configParseLongInRange(value, BRIGHTNESS_MIN, BRIGHTNESS_MAX, parsed)) return false;
+        // The slider only ever produces multiples of its step, so a value
+        // off the step grid is a hand-edit that the UI could not round-trip.
+        if (parsed % BRIGHTNESS_STEP != 0) return false;
+        settings.brightness_pct = (uint8_t)parsed;
+        return true;
+    }
+    if (strcmp(key, "idle_timeout_index") == 0) {
+        long parsed = 0;
+        if (!configParseLongInRange(value, 0, IDLE_TIMEOUT_INDEX_MAX, parsed)) return false;
+        settings.idle_timeout_index = (uint8_t)parsed;
+        return true;
+    }
+    return false;
+}
 
 bool loadDisplaySettingsFromSD(DisplaySettings &settings);
 bool writeDisplaySettingsToSD(const DisplaySettings &settings);

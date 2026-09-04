@@ -8,7 +8,7 @@ prose that used to be duplicated (and drifting) across `CLAUDE.md`,
 
 ## Current version
 
-**v1.0.5** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
+**v1.0.6** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
 *reached*, not the phase in progress — see ROADMAP.md's Versioning
 section. Phase 9 (`ENERGY_SWEEP`/"Sweep") reached 2026-09-03: all five
 ROADMAP.md exit criteria closed, including two full 8-hour endurance
@@ -578,7 +578,7 @@ the lo/hi labels above or the disclaimer line below.
     but effectively total blindness while sweeping.
     The fix is to timeshare the radio rather than tune it:
     `performEnergySweepHomeListen()` parks on the home channel with RX
-    armed for `ENERGY_SWEEP_HOME_LISTEN_MS` (2000ms) after each lap in
+    armed for the capture window (2000ms default) after each lap in
     repeat mode, servicing packets through HOME_LISTEN's own
     `readDetectionLocked()`/`enqueueDetection()` path — same `Detection`,
     same `RXP`, same `detections.csv` row, no second definition of "a real

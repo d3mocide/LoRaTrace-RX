@@ -50,6 +50,38 @@ unsigned char benchCadSymbols();
 bool benchSweepMarginConfigure(const char *argument);
 int16_t benchSweepMarginDbmX10();
 
+// Bench-image-only override for performEnergySweep()'s per-bin retune
+// strategy. Argument is "FULL" (a complete radio.begin() at every bin, the
+// pre-v1.0.2 behaviour) or "LIGHT" (standby/setFrequency/startReceive, what
+// production ships).
+//
+// Exists to test M6 (docs/research/2026-09-04-project-audit.md): porting the
+// light retune to Cell made it miss a real -73dBm carrier entirely while
+// still reporting plausible noise, which looks like RSSI/AGC settling time
+// that begin()'s overhead had been providing. Whether Sweep has the same
+// under-read is unknown, and a *runtime* switch is what makes that
+// answerable honestly -- both arms then run on one firmware image in one
+// session, instead of comparing two separate builds across two flashes and
+// two boots. Enough measurements this session were confounded by exactly
+// that kind of difference.
+//
+// Production always reports LIGHT and rejects changes, same split as the
+// margin/CAD selectors above.
+bool benchSweepRetuneConfigure(const char *argument);
+bool benchSweepRetuneFullEveryBin();
+
+// Bench-image-only override for the light retune's settling delay, in ms
+// (0-50). Production always returns ENERGY_SWEEP_SETTLE_DEFAULT_MS.
+//
+// M6 measured the light retune reporting a real carrier 11.1dB weaker than
+// a full begin() does, while the noise floor differed by only 2.4dB -- an
+// under-read that grows with signal strength, which is what an unsettled
+// AGC looks like. A runtime knob is what makes the fix answerable: the
+// right settle duration is an empirical question, and reflashing per
+// candidate value would put a build boundary between every datapoint.
+bool benchSweepSettleConfigure(const char *argument);
+uint16_t benchSweepSettleMs();
+
 // Bench-image-only gate for triggering one Pass B CAD attempt on demand
 // (research/phase9-sweep-pass-b-design.md's false-positive-vs-SF bench
 // matrix): production Pass B only ever runs at a real Pass-A peak, so this

@@ -27,12 +27,34 @@
 // adjustable (docs/STATUS.md's 2026-09-03 "Sweep silence" investigation).
 
 #include <stdint.h>
+#include <string.h>
+
+#include "config_line.h"
 
 #include "energy_observation.h"
 
 struct SweepMarginSettings {
     int16_t margin_dbm_x10 = ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10;
 };
+
+// Pure and host-tested — see applyCaptureConfigLine()'s note in
+// capture_settings.h for why these live in the headers.
+inline bool applySweepMarginConfigLine(const char *rawLine, SweepMarginSettings &settings) {
+    char key[32];
+    char value[32];
+    if (!configLineSplit(rawLine, key, sizeof(key), value, sizeof(value))) return false;
+
+    if (strcmp(key, "margin_dbm_x10") == 0) {
+        long parsed = 0;
+        if (!configParseLongInRange(value, ENERGY_SWEEP_MARGIN_MIN_DBM_X10,
+                                    ENERGY_SWEEP_MARGIN_MAX_DBM_X10, parsed)) {
+            return false;
+        }
+        settings.margin_dbm_x10 = (int16_t)parsed;
+        return true;
+    }
+    return false;
+}
 
 bool loadSweepMarginSettingsFromSD(SweepMarginSettings &settings);
 bool writeSweepMarginSettingsToSD(const SweepMarginSettings &settings);

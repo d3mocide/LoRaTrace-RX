@@ -21,6 +21,9 @@ volatile unsigned char cadSymbols = 2;
 // against the calibration bench's own expected result instead of trusting
 // the constant edit alone).
 volatile int16_t sweepMarginDbmX10 = ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10;
+// false = the shipped light retune; true = a full begin() at every bin.
+volatile bool sweepRetuneFullEveryBin = false;
+volatile uint16_t sweepSettleMs = ENERGY_SWEEP_SETTLE_DEFAULT_MS;
 
 volatile EnergyObservationResult passBCadLastResult = EnergyObservationResult::RADIO_ERROR;
 volatile bool passBCadHaveResult = false;
@@ -139,6 +142,57 @@ unsigned char benchCadSymbols() {
     return 2;
 #else
     return cadSymbols;
+#endif
+}
+
+bool benchSweepSettleConfigure(const char *argument) {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    (void)argument;
+    return false;
+#else
+    if (argument == nullptr || argument[0] == '\0') return false;
+    unsigned int parsed = 0;
+    for (const char *p = argument; *p; ++p) {
+        if (*p < '0' || *p > '9') return false;
+        parsed = parsed * 10U + (unsigned int)(*p - '0');
+        if (parsed > 50U) return false;
+    }
+    sweepSettleMs = (uint16_t)parsed;
+    return true;
+#endif
+}
+
+uint16_t benchSweepSettleMs() {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    return ENERGY_SWEEP_SETTLE_DEFAULT_MS;
+#else
+    return sweepSettleMs;
+#endif
+}
+
+bool benchSweepRetuneConfigure(const char *argument) {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    (void)argument;
+    return false;
+#else
+    if (argument == nullptr) return false;
+    if (strcmp(argument, "FULL") == 0) {
+        sweepRetuneFullEveryBin = true;
+        return true;
+    }
+    if (strcmp(argument, "LIGHT") == 0) {
+        sweepRetuneFullEveryBin = false;
+        return true;
+    }
+    return false;
+#endif
+}
+
+bool benchSweepRetuneFullEveryBin() {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    return false; // production always ships the light retune
+#else
+    return sweepRetuneFullEveryBin;
 #endif
 }
 

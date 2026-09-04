@@ -18,6 +18,7 @@
 // stays a plain header-local `constexpr`, same as before the split — no
 // ODR risk, each including TU just gets its own identical copy.
 
+#include "display_settings.h" // BRIGHTNESS_MIN/MAX/STEP, IDLE_TIMEOUT_INDEX_MAX
 #include "ui_menu.h"
 #include "ui_task.h" // UiPage, Arduino_GFX (transitively)
 
@@ -83,15 +84,19 @@ bool rxPulseActive();
 extern uint8_t activeBrightnessPercent;
 extern bool displayDimmed;
 extern uint8_t idleTimeoutIndex;
-constexpr uint8_t BRIGHTNESS_MIN = 5;
-constexpr uint8_t BRIGHTNESS_MAX = 100;
-constexpr uint8_t BRIGHTNESS_STEP = 5;
+// BRIGHTNESS_MIN/MAX/STEP now come from display_settings.h — the module
+// that persists them and validates them on the way back in — so the slider
+// and the file parser cannot drift apart.
 struct IdleTimeoutOption {
     const char *label;
     uint32_t ms; // unused when index 0 ("Off")
 };
 extern const IdleTimeoutOption IDLE_TIMEOUT_OPTIONS[];
 constexpr uint8_t IDLE_TIMEOUT_OPTION_COUNT = 5;
+// The table here and the persisted index bound in display_settings.h are
+// the same fact stated twice; this is what keeps them honest.
+static_assert(IDLE_TIMEOUT_OPTION_COUNT == IDLE_TIMEOUT_INDEX_MAX + 1,
+              "IDLE_TIMEOUT_OPTIONS and display_settings.h's persisted index bound disagree");
 
 // --- Probe/Sweep result hold ---
 // Timestamp of the first redraw after a NEW terminal Probe/Sweep result

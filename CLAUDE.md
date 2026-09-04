@@ -76,6 +76,27 @@ src/
   --- added during phase 11, out of sequence (see docs/ROADMAP.md) ---
   [x] cell_plan.h                # Cell: 869-894MHz cell-band bin math
   [x] cell_observation.h         # fixed RSSI-reading record + cell.csv formatter
+  --- present since earlier phases but never listed here until the
+      2026-09-04 audit found 18 real modules missing from this tree ---
+  [x] radio_task.h               # (listed above as radio_task.cpp/.h)
+  [x] energy_plan.h              # Sweep's frequency-bin math (phase 9)
+  [x] energy_observation.h       # Pass-A working stats + energy.csv record
+  [x] pass_b_plan.h              # Pass-B SF/BW candidate table + confidence
+  [x] region_plan.h              # Region enum shared by Sweep's band choice
+  [x] region_settings.h / .cpp   # System > Tuning > Region, /loratrace/region.txt
+  [x] sweep_margin_settings.h/.cpp # System > Tuning > Margin, sweep_margin.txt
+  [x] capture_settings.h / .cpp  # System > Tuning > Capture, capture.txt (v1.0.4)
+  [x] profile_state.h            # last-selected profile, survives power cycle
+  [x] node_identity.h            # decoded node identity record
+  [x] node_roster.h              # Analyze > Nodes roster (phase 10)
+  [x] meshtastic_identity.h      # Meshtastic advert/node-id decode
+  [x] meshcore_identity.h        # MeshCore advert decode
+  [x] capture_history.h          # Analyze > Captures ring (phase 10)
+  [x] scope_trace.h              # Scope's fixed trace buffer (phase 10)
+  [x] waterfall.h                # Waterfall storage + capture marks (phase 10)
+  [x] analyzer_state.h / .cpp    # mutex-guarded Analyze state, Core 0 side
+  [x] analyzer_budget.h          # ANALYZER_STATIC_BYTES vs the 8192 ceiling
+  [x] bench_fault.h / .cpp       # bench-image-only fault/override hooks
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native
   [x] test_detection/            # queue-record + CSV, fixtures are REAL captured packets
@@ -147,6 +168,27 @@ docs/
   `FIRMWARE_BUILD_REV` (git short SHA, `-dirty` when the tree is modified)
   into every build, because a dozen `dev-latest` binaries otherwise share
   one version string and a hardware bug report can't name which one it hit.
+- **Every `vX.Y.Z` tag ships operator-facing release notes** in
+  `docs/RELEASE_NOTES.md`, one `## vX.Y.Z` section per version.
+  `release.yml` extracts that section as the release body and **fails the
+  tag if it is missing** — same reasoning as the version.h/tag check: a
+  release nobody can read is not a finished release, and "we'll write them
+  later" never survives contact with the next session. Established
+  2026-09-04, once v1.0 meant real people flash these builds.
+  Three files, three audiences, not interchangeable — write for the right
+  one:
+  - `src/version.h` — *maintainers*: why a change was made, what was
+    measured, what was tried and rejected. Long is fine.
+  - `CHANGELOG.md` — *maintainers*: terse running log by date, newest
+    first, one or two lines.
+  - `docs/RELEASE_NOTES.md` — *operators*: what changes for someone
+    holding the hardware. Name the on-device menu path when a setting
+    moves or appears, say what they will notice, and state plainly when
+    something is unverified or a known issue. No internal identifiers, no
+    refactors that change nothing observable.
+  GitHub's auto-generated commit list is deliberately off: a list of
+  commit subjects is not release notes.
+
 - **Comments explain "why," briefly — not the full investigation.** State
   the fact/value/gotcha and, if needed, a one-line reason or citation
   (source repo/file, date, measured number). Don't retell an entire

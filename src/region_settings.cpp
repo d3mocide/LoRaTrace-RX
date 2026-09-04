@@ -10,33 +10,6 @@ namespace {
 constexpr const char *REGION_CONFIG_DIR = "/loratrace";
 constexpr const char *REGION_CONFIG_PATH = "/loratrace/region.txt";
 
-bool applyRegionConfigLine(const String &rawLine, RegionSettings &settings) {
-    String line = rawLine;
-    line.trim();
-    if (line.length() == 0 || line.startsWith("#")) return false;
-
-    int eq = line.indexOf('=');
-    if (eq < 0) return false;
-
-    String key = line.substring(0, eq);
-    String val = line.substring(eq + 1);
-    key.trim();
-    val.trim();
-    if (key.length() == 0 || val.length() == 0) return false;
-
-    if (key == "region") {
-        if (val == "US") {
-            settings.region = Region::US;
-            return true;
-        }
-        if (val == "GLOBAL") {
-            settings.region = Region::GLOBAL;
-            return true;
-        }
-        return false;
-    }
-    return false;
-}
 
 // Delete-then-recreate, not truncate-in-place — same reasoning
 // writeProfileConfigToSD()/writeDisplayConfigFile() document: a shorter
@@ -80,7 +53,7 @@ bool loadRegionSettingsFromSD(RegionSettings &settings) {
     bool appliedAny = false;
     while (f.available()) {
         String line = f.readStringUntil('\n');
-        if (applyRegionConfigLine(line, settings)) appliedAny = true;
+        if (applyRegionConfigLine(line.c_str(), settings)) appliedAny = true;
     }
     f.close();
     return appliedAny;

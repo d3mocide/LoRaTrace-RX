@@ -10,28 +10,6 @@ namespace {
 constexpr const char *CAPTURE_CONFIG_DIR = "/loratrace";
 constexpr const char *CAPTURE_CONFIG_PATH = "/loratrace/capture.txt";
 
-bool applyCaptureConfigLine(const String &rawLine, CaptureSettings &settings) {
-    String line = rawLine;
-    line.trim();
-    if (line.length() == 0 || line.startsWith("#")) return false;
-
-    int eq = line.indexOf('=');
-    if (eq < 0) return false;
-
-    String key = line.substring(0, eq);
-    String val = line.substring(eq + 1);
-    key.trim();
-    val.trim();
-    if (key.length() == 0 || val.length() == 0) return false;
-
-    if (key == "window_index") {
-        long v = val.toInt();
-        if (v < 0 || v >= CAPTURE_WINDOW_OPTION_COUNT) return false;
-        settings.window_index = (uint8_t)v;
-        return true;
-    }
-    return false;
-}
 
 // Delete-then-recreate, not truncate-in-place — same reasoning
 // writeRegionConfigFile()/writeSweepMarginConfigFile() document.
@@ -73,7 +51,7 @@ bool loadCaptureSettingsFromSD(CaptureSettings &settings) {
     bool appliedAny = false;
     while (f.available()) {
         String line = f.readStringUntil('\n');
-        if (applyCaptureConfigLine(line, settings)) appliedAny = true;
+        if (applyCaptureConfigLine(line.c_str(), settings)) appliedAny = true;
     }
     f.close();
     return appliedAny;

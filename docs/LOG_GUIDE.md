@@ -41,6 +41,26 @@ startup window.
 `1` is a normal GPS fix; `2` is DGPS. `run` repeats the directory number so
 multiple runs can be combined safely.
 
+### RSSI comparability across firmware versions
+
+`energy.csv`'s `rssi_avg_dbm` and `rssi_peak_dbm` read about **2.4 dB lower
+from `v1.0.2` onward** than they did before it. That release replaced Sweep's
+per-bin full `radio.begin()` with a lighter retune, which measurably shifts
+the reported noise floor: measured at -120.30 dBm before and -122.70 dBm
+after, reproduced identically across five independent bench runs
+(`docs/research/2026-09-04-project-audit.md`, M6).
+
+This does **not** affect which bins are flagged as peaks. Pass A's test is
+`peak >= floor + margin`, and peak and floor are measured the same way in the
+same sweep, so a uniform shift cancels — the 35.0 dB margin still means what
+it was calibrated to mean.
+
+It does matter if you compare absolute RSSI values across that boundary:
+runs logged before and after `v1.0.2` are on slightly different scales, so
+subtract the offset or compare within one firmware version. `detections.csv`
+is unaffected — packet RSSI is read from the radio's own packet status, not
+from Sweep's per-bin sampling.
+
 ## `detections.csv`: packet observations
 
 The current header is:

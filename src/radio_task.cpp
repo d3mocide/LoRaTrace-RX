@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 #include <RadioLib.h>
+
+#include <atomic>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
@@ -26,8 +28,36 @@ TaskHandle_t radioTaskHandle = nullptr;
 QueueHandle_t detectionQueue = nullptr;
 QueueHandle_t scanObservationQueue = nullptr;
 QueueHandle_t identityQueue = nullptr;
+// activeChannel is a multi-word struct (two floats + three bytes) written
+// on Core 1 and read by value from six Core-0 call sites (ui_pages,
+// ui_task, ui_actions, wifi_task, serial_control). Returning it "by value"
+// is cheap but NOT atomic: without this lock a reader could observe a
+// half-updated channel mid-profile-switch -- a new freq_mhz beside the old
+// sf/bw/sync. Mostly that would be a status page rendering a channel that
+// never existed, but ui_task.cpp/ui_actions.cpp both derive Scope's
+// acquisition frequency from activeChannel.freq_mhz, so a torn read parks
+// Scope on a frequency no profile ever used.
+//
+// A spinlock rather than a FreeRTOS mutex on purpose: the radio task must
+// never block (CLAUDE.md), and the critical section here is a ~16-byte
+// struct copy -- a handful of instructions, no I/O, no allocation.
+// activeProfile is guarded by the same lock so a caller reading both sees
+// one coherent pair rather than a channel from one profile and the name of
+// another.
+portMUX_TYPE activeChannelMux = portMUX_INITIALIZER_UNLOCKED;
 ChannelParams activeChannel;
 MissionProfile activeProfile = MissionProfile::MESHTASTIC;
+
+// Both writers and readers go through these so the locking cannot be
+// forgotten at a call site. Radio-task-internal code that already knows it
+// owns the radio still reads the raw fields directly; only the
+// cross-core-visible accessors below need the lock.
+void setActiveChannelLocked(const ChannelParams &channel, MissionProfile profile) {
+    portENTER_CRITICAL(&activeChannelMux);
+    activeChannel = channel;
+    activeProfile = profile;
+    portEXIT_CRITICAL(&activeChannelMux);
+}
 // Per-profile SD/web overrides, copied in once at radioTaskStart() and
 // read-only after that — every radioRequestProfileSwitch() resolves
 // against this same copy, which is what keeps a switch from reverting to
@@ -298,9 +328,6 @@ constexpr uint8_t ENERGY_SWEEP_SAMPLES_PER_BIN = 4;
 constexpr uint8_t CELL_SAMPLES_PER_BIN = 4;
 constexpr uint32_t ENERGY_SAMPLE_INTERVAL_MS = 1;
 
-// Repeat-mode timeshare: after each completed lap, stay parked on the home
-// channel with RX armed for this long, servicing real packets, before
-// starting the next lap. Single-shot Sweep is deliberately unaffected.
 // One full trace per bounded Scope acquisition: SCOPE_MAX_SAMPLES samples
 // at this spacing is ~4.8s — in the same few-second bounded-scan range
 // Cell/Sweep/Probe already established as reasonable for a field
@@ -619,8 +646,7 @@ bool restoreHomeListen(const ChannelParams &homeChannel, MissionProfile homeProf
 
     lastError = radio.startReceive();
     if (lastError != RADIOLIB_ERR_NONE) return false;
-    activeChannel = homeChannel;
-    activeProfile = homeProfile;
+    setActiveChannelLocked(homeChannel, homeProfile);
     return true;
 }
 
@@ -1091,6 +1117,13 @@ void performEnergySweep() {
     const ChannelParams homeChannel = activeChannel;
     const MissionProfile homeProfile = activeProfile;
     const EnergySweepBand band = energySweepBandForRegion(activeEnergySweepRegion);
+    // Snapshot the margin for the whole lap, the same way `band` above
+    // snapshots Region ("read at the start of each sweep, never mid-sweep",
+    // radio_task.h). Read live per bin instead, an operator nudging the
+    // Margin slider mid-lap would have one sweep's bins judged against two
+    // different thresholds -- and energy.csv would carry both under one
+    // run, with nothing in the row saying which applied.
+    const int16_t sweepMarginDbmX10 = benchSweepMarginDbmX10();
     const uint16_t totalBins = energyBinCount(band, ENERGY_SWEEP_DEFAULT_STEP);
     energyBinIndex = 0;
     energyTotalBins = totalBins;
@@ -1150,7 +1183,11 @@ void performEnergySweep() {
                 failed = true;
                 break;
             }
-            if (needsFullRetune) {
+            // benchSweepRetuneFullEveryBin() is always false in production
+            // (bench_fault.h); on the bench image it forces the pre-v1.0.2
+            // full-begin()-per-bin path so both retune strategies can be
+            // compared within one session. See M6 in the audit doc.
+            if (needsFullRetune || benchSweepRetuneFullEveryBin()) {
                 // Sweep is protocol-agnostic energy measurement, not a
                 // decode attempt — reusing the home channel's own
                 // SF/BW/CR/sync keeps this simple; a dedicated wide-BW scan
@@ -1175,6 +1212,18 @@ void performEnergySweep() {
             break;
         }
 
+        // Let the AGC settle before sampling. Deliberately outside the SPI
+        // lock above -- the radio task must never hold the shared bus while
+        // delaying (CLAUDE.md), and this is a wait, not a transaction.
+        // Skipped entirely when the full begin() path ran, which already
+        // takes far longer than any settle window.
+        {
+            const uint16_t settleMs = benchSweepSettleMs();
+            if (settleMs > 0 && !benchSweepRetuneFullEveryBin()) {
+                vTaskDelay(pdMS_TO_TICKS(settleMs));
+            }
+        }
+
         if (applyBenchFault(BenchFaultPoint::AFTER_RETUNE, nullptr, 0, aborted, failed)) {
             break;
         }
@@ -1197,7 +1246,7 @@ void performEnergySweep() {
                 energyBinStatsAddSample(stats, fixed);
                 if (haveFloor) {
                     energyBinStatsNoteOccupancy(
-                        stats, energyExceedsFloor(fixed, noiseFloor, benchSweepMarginDbmX10()));
+                        stats, energyExceedsFloor(fixed, noiseFloor, sweepMarginDbmX10));
                 }
             }
             if (s + 1 < ENERGY_SWEEP_SAMPLES_PER_BIN) vTaskDelay(pdMS_TO_TICKS(ENERGY_SAMPLE_INTERVAL_MS));
@@ -1216,13 +1265,14 @@ void performEnergySweep() {
             // Decide against the floor as it stood *before* this bin, then
             // fold this bin's average in — so a strong bin can't drag its
             // own floor upward and mask itself (energy_observation.h's own
-            // noted concern). benchSweepMarginDbmX10() resolves to the
+            // noted concern). sweepMarginDbmX10 (snapshotted at the top of
+            // this sweep) resolves to the
             // operator's System > Tuning > Margin setting (radio_task.h,
             // defaulting to ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10) on
             // production firmware, or to the cardputer-adv-bench image's
             // own BENCH_SWEEP_MARGIN override when armed there (see
             // bench_fault.h's own comment on this function).
-            if (energyBinIsPeak(stats, noiseFloor, benchSweepMarginDbmX10())) {
+            if (energyBinIsPeak(stats, noiseFloor, sweepMarginDbmX10)) {
                 energyPeakBinMask[bin / 8] |= (uint8_t)(1U << (bin % 8));
                 if (!energyStrongestValid || stats.rssi_peak_dbm_x10 > energyStrongestRssiDbmX10) {
                     energyStrongestFreqMhz = energyBinFrequencyMhz(bin, band, ENERGY_SWEEP_DEFAULT_STEP);
@@ -1280,6 +1330,15 @@ void performEnergySweep() {
         (homeChannel.freq_mhz >= band.lo_mhz && homeChannel.freq_mhz <= band.hi_mhz)
             ? energyBinIndexForFrequencyMhz(homeChannel.freq_mhz, band, ENERGY_SWEEP_DEFAULT_STEP)
             : WATERFALL_NO_CAPTURE_BIN;
+    // Publish barrier. energySweepCount is what Core 0 polls to decide the
+    // snapshot above is ready (logger_task -> analyzerNoteSweepComplete()),
+    // so every write to that snapshot must be visible before the counter
+    // moves. energyPeakBinMaskAtComplete is a plain array -- `volatile` on
+    // the counter alone orders nothing about it, and nothing else here
+    // enforces it. This path has already produced one hardware-only bug
+    // (v0.10.1: every repeat-mode Waterfall row came back quiet), so the
+    // ordering the comments promise is made explicit rather than assumed.
+    std::atomic_thread_fence(std::memory_order_release);
     energySweepCount++;
     if (aborted || energyCancelRequested) energyCancelCount++;
     if (failed) energyFailureCount++;
@@ -1292,7 +1351,8 @@ void performEnergySweep() {
     energyActive = false;
 }
 
-// Repeat-mode timeshare window (ENERGY_SWEEP_HOME_LISTEN_MS): sit on the
+// Repeat-mode timeshare window (activeEnergySweepHomeListenMs, the
+// operator's System > Tuning > Capture setting): sit on the
 // home channel between laps and actually receive, instead of starting the
 // next lap immediately. performEnergySweep() has already called
 // restoreHomeListen() by the time this runs, so the radio is on the home
@@ -1394,8 +1454,25 @@ void performCellSweep() {
             // keeps this simple; the configured receive bandwidth is
             // logged per-observation (rx_bw_khz) since it's a real
             // measurement condition, not a claim about the carrier itself.
-            beginState = radio.begin(freq, homeChannel.bw_khz, homeChannel.sf,
-                                     homeChannel.cr_denom, homeChannel.sync_word);
+            //
+            // Deliberately still a full begin() per bin, unlike
+            // performEnergySweep()'s light standby()/setFrequency() retune.
+            // That port was tried and measured on 2026-09-04 and REVERTED:
+            // it ran 3.9x faster (5594ms -> 1423ms) but stopped seeing the
+            // band's strongest real carrier. Six laps each, minutes apart:
+            // full begin() found 892.000MHz at -72..-74dBm on 6/6 laps;
+            // the light retune never found it once, reporting -86..-91dBm
+            // noise peaks at a different frequency every lap. Cell exists
+            // to report absolute cell-band RSSI and has no relative
+            // threshold to hide a systematic under-read behind, so the
+            // speedup is not worth the measurement.
+            // Root cause looks like AGC/RSSI settling time that begin()'s
+            // own overhead was incidentally providing: adding a 5ms delay
+            // after startReceive() restored stable -72dBm readings while
+            // still running 2.6x faster. That is a promising route, but it
+            // then reported a *different* strongest bin (884MHz) than the
+            // baseline, so per-bin calibration equivalence is unproven —
+            // see docs/research/2026-09-04-project-audit.md L2.
             if (beginState == RADIOLIB_ERR_NONE) beginState = radio.startReceive();
         }
         if (beginState != RADIOLIB_ERR_NONE) {
@@ -1579,8 +1656,7 @@ void radioTask(void *) {
                                         swreq.channel.sf, swreq.channel.cr_denom,
                                         swreq.channel.sync_word);
                 if (lastError == RADIOLIB_ERR_NONE) {
-                    activeChannel = swreq.channel;
-                    activeProfile = swreq.profile;
+                    setActiveChannelLocked(swreq.channel, swreq.profile);
                 }
                 // A profile switch always means "go back to listening" —
                 // even mid-pause, picking a different protocol is an
@@ -1750,8 +1826,10 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
                     const ProfileOverrides &overrides, QueueHandle_t queue,
                     QueueHandle_t scanQueue, QueueHandle_t energyQueue,
                     QueueHandle_t nodesQueue, QueueHandle_t cellQueue) {
-    activeChannel = channel;
-    activeProfile = profile;
+    // Boot-time and single-threaded (the task below does not exist yet), so
+    // the lock is uncontended here -- taken anyway so every write to this
+    // state goes through one path.
+    setActiveChannelLocked(channel, profile);
     activeOverrides = overrides;
     detectionQueue = queue;
     scanObservationQueue = scanQueue;
@@ -1906,7 +1984,12 @@ uint16_t radioDiscoveryErrorCount() {
 }
 
 ChannelParams radioActiveChannel() {
-    return activeChannel; // small POD struct, cheap to return by value
+    // Locked: see activeChannelMux. Cheap to return by value, but the read
+    // itself is what needs to be indivisible, not the copy.
+    portENTER_CRITICAL(&activeChannelMux);
+    const ChannelParams copy = activeChannel;
+    portEXIT_CRITICAL(&activeChannelMux);
+    return copy;
 }
 
 MissionProfile radioActiveProfile() {
@@ -2134,7 +2217,13 @@ uint32_t radioEnergyObservationDropCount() {
 }
 
 uint32_t radioEnergySweepCount() {
-    return energySweepCount;
+    const uint32_t count = energySweepCount;
+    // Acquire half of the pair documented at the release fence in
+    // performEnergySweep(): a caller that sees a new count here must also
+    // see the completed snapshot that count publishes. Callers polling this
+    // purely for display are unaffected -- the fence is free on this core.
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return count;
 }
 
 uint32_t radioEnergyCancelCount() {

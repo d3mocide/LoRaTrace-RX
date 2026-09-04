@@ -26,6 +26,9 @@
 // to ~2.9s per lap.
 
 #include <stdint.h>
+#include <string.h>
+
+#include "config_line.h"
 
 // Index into the table below rather than raw ms, so a corrupt file can
 // only ever select a real option — same reasoning as DisplaySettings'
@@ -48,6 +51,25 @@ inline uint32_t captureWindowMsForIndex(uint8_t index) {
 inline const char *captureWindowLabelForIndex(uint8_t index) {
     if (index >= CAPTURE_WINDOW_OPTION_COUNT) index = CAPTURE_WINDOW_DEFAULT_INDEX;
     return CAPTURE_WINDOW_LABELS[index];
+}
+
+// Pure, so it is host-testable (test/test_settings_parse/) rather than only
+// reachable by booting hardware with a real card. Returns true only when a
+// line actually applied a value; a blank/comment/unknown/out-of-range line
+// returns false and leaves `settings` alone, so a damaged file degrades to
+// the struct defaults instead of a half-applied mix.
+inline bool applyCaptureConfigLine(const char *rawLine, CaptureSettings &settings) {
+    char key[32];
+    char value[32];
+    if (!configLineSplit(rawLine, key, sizeof(key), value, sizeof(value))) return false;
+
+    if (strcmp(key, "window_index") == 0) {
+        long parsed = 0;
+        if (!configParseLongInRange(value, 0, CAPTURE_WINDOW_OPTION_COUNT - 1, parsed)) return false;
+        settings.window_index = (uint8_t)parsed;
+        return true;
+    }
+    return false;
 }
 
 bool loadCaptureSettingsFromSD(CaptureSettings &settings);

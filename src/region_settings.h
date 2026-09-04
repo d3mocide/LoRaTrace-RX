@@ -24,11 +24,37 @@
 // per-profile frequency tables are explicit, larger follow-ups
 // (docs/ROADMAP.md), not wired to this yet.
 
+#include <string.h>
+
+#include "config_line.h"
 #include "region_plan.h"
 
 struct RegionSettings {
     Region region = Region::US;
 };
+
+// Pure and host-tested — see applyCaptureConfigLine()'s note in
+// capture_settings.h. Region is a token, not a number, so it validates by
+// exact match: an unrecognised token is rejected rather than defaulted, or
+// a typo'd region would silently scan the wrong band.
+inline bool applyRegionConfigLine(const char *rawLine, RegionSettings &settings) {
+    char key[32];
+    char value[32];
+    if (!configLineSplit(rawLine, key, sizeof(key), value, sizeof(value))) return false;
+
+    if (strcmp(key, "region") == 0) {
+        if (strcmp(value, "US") == 0) {
+            settings.region = Region::US;
+            return true;
+        }
+        if (strcmp(value, "GLOBAL") == 0) {
+            settings.region = Region::GLOBAL;
+            return true;
+        }
+        return false;
+    }
+    return false;
+}
 
 bool loadRegionSettingsFromSD(RegionSettings &settings);
 bool writeRegionSettingsToSD(const RegionSettings &settings);

@@ -13,9 +13,10 @@ on:
   # the workflow file already defines the trigger, and a tag cut before this
   # trigger existed never will (confirmed 2026-09-03 trying exactly this
   # against v1.0.0). So instead this always runs from a branch (main) and
-  # takes the target release tag as an input — safe only because the
-  # "Verify version.h" step below still checks the checked-out source
-  # actually matches that tag before anything is built or uploaded.
+  # takes the target release tag as an input — but checks that tag out as
+  # the build source (see the checkout step), so a dispatch builds the
+  # commit the release was actually cut from rather than the dispatch
+  # branch's tip.
   # `draft` is conditioned on workflow_dispatch vs. the tag-push trigger so
   # re-running this against an already-published release can't silently
   # revert it to draft.
@@ -32,7 +33,21 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # On a tag push this is the tagged commit already. On a manual
+      # dispatch it must be made so explicitly: GitHub only allows
+      # workflow_dispatch against a ref whose own copy of this file declares
+      # the trigger, so the run is always started from a branch (main) — but
+      # nothing forces the *source* to come from that branch. Without this,
+      # a dispatch builds main's tip and uploads it onto an older release,
+      # and the version check below is the only thing standing in the way.
+      # That check compares a version string to a tag name, so it cannot
+      # tell "1.0.5 built from the v1.0.5 commit" from "1.0.5 built from a
+      # later commit that still says 1.0.5" — which is exactly the state
+      # main was in on 2026-09-04. Checking out the tag makes the check a
+      # second line of defence instead of the only one.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -55,11 +70,10 @@ jobs:
       # one". It is automated now: shipping a binary whose boot banner
       # disagrees with its release tag makes every subsequent bug report
       # ambiguous, and that is exactly the cost this project keeps paying
-      # when hardware facts and code drift apart. This is also the only
-      # thing standing between a workflow_dispatch mistake and the wrong
-      # binaries landing on an existing release, since dispatch builds
-      # whatever ref it's checked out against (usually main), not the
-      # tagged commit itself — see the trigger comment above.
+      # when hardware facts and code drift apart. Since the checkout step
+      # now resolves the target tag itself, this is a second line of
+      # defence rather than the only one — it still catches a tag whose own
+      # version.h never matched it, which the checkout cannot.
       - name: Verify version.h matches the target release tag
         run: |
           target_tag="${{ steps.tag.outputs.value }}"
@@ -74,6 +88,14 @@ jobs:
             echo "::error::src/version.h says ${header_version} but the target release tag is ${target_tag}. Checked-out ref must build the same firmware that tag represents (docs/ROADMAP.md Versioning)."
             exit 1
           fi
+
+      # Same "make it a build failure, not a review-time catch" reasoning as
+      # the version check above: a release without operator-facing notes is
+      # a release nobody can read. Checked here, before the build, so the
+      # failure is fast and obvious rather than arriving after a full
+      # PlatformIO compile.
+      - name: Verify release notes exist for this tag
+        run: python3 scripts/extract_release_notes.py "${{ steps.tag.outputs.value }}" --check
 
       - name: Build firmware
         run: pio run -e cardputer-adv
@@ -96,16 +118,24 @@ jobs:
           boot_app0="$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -n1)"
           cp "$boot_app0" "dist/LoRaTraceRX-${{ steps.tag.outputs.value }}-boot_app0.bin"
 
-      # generate_release_notes is off for a workflow_dispatch backfill: the
-      # action would otherwise regenerate the release body from this run's
-      # own commit (the dispatch branch's tip, not the original tag), which
-      # would rewrite the tag's real notes with every commit landed since —
-      # a dispatch run should only add the missing asset files, never touch
-      # the release's existing body/name.
+      # body_path carries docs/RELEASE_NOTES.md's curated section rather than
+      # GitHub's auto-generated commit list, which is not something an
+      # operator can read. Both body_path and generate_release_notes are
+      # empty/false on a workflow_dispatch backfill: that path exists only to
+      # attach missing asset files to an already-published release, and must
+      # never rewrite its body or name. An empty body_path is treated as
+      # unset by the action, leaving the existing body alone.
+      - name: Render release notes
+        run: |
+          python3 scripts/extract_release_notes.py "${{ steps.tag.outputs.value }}" \
+            > release-body.md
+          echo "--- release body ---"; cat release-body.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.value }}
           files: dist/LoRaTraceRX-${{ steps.tag.outputs.value }}*.bin
           draft: ${{ github.event_name != 'workflow_dispatch' }}
-          generate_release_notes: ${{ github.event_name != 'workflow_dispatch' }}
+          body_path: ${{ github.event_name == 'push' && 'release-body.md' || '' }}
+          generate_release_notes: false

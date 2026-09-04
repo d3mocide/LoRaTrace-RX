@@ -30,8 +30,41 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A `release: released` run carries the TAG as its ref, not a branch
+  # (head_branch=v1.0.5). The github-pages environment's deployment-branch
+  # policy only accepts the default branch, so such a run is rejected before
+  # a single step executes -- "Tag v1.0.5 is not allowed to deploy to
+  # github-pages" (runs 33831888472 and 33819824654 both died at 0 steps in
+  # ~2s; every main-ref run completes all 11). Re-enter the workflow on main,
+  # where the deploy is allowed; the dispatched run picks up the
+  # just-published release through `gh release view` exactly as it would
+  # have. workflow_dispatch is one of the two events GitHub still fires when
+  # triggered with GITHUB_TOKEN, so this does not silently no-op.
+  #
+  # Deliberately NOT solved by dropping deploy's `environment:` block: that
+  # block is the Pages deployment gate and actions/deploy-pages documents it
+  # as required, so removing it trades a loud, understood failure for an
+  # unverified one -- and drops the deployment URL from the Actions UI.
+  # Fixing this in repo settings instead (github-pages -> deployment
+  # branches -> also allow `v*` tags) would make this job unnecessary.
+  dispatch-on-main:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Re-run on main, where the environment gate allows deploying
+        run: gh workflow run pages.yml --ref main -R "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   deploy:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    # `release` is handled by dispatch-on-main above and comes back around as
+    # a workflow_dispatch on an allowed ref; deploying it here would just hit
+    # the environment gate again.
+    if: >-
+      github.event_name != 'release' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -61,8 +94,18 @@ jobs:
         id: ts
         run: echo "value=$(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
 
+      # Fatal on purpose, unlike the stable lookup above: the dev track is
+      # not optional to this site — build_web_flasher_site.py copies it
+      # unconditionally, and only `stable` is treated as optional there. So
+      # this stays a hard failure; it just explains itself instead of
+      # surfacing a bare `gh` error, since the fix ("run Build on main once
+      # to create dev-latest") is not obvious from gh's own message.
       - name: Download dev-latest assets
-        run: gh release download dev-latest -R "$GITHUB_REPOSITORY" -D dev-assets --clobber
+        run: |
+          if ! gh release download dev-latest -R "$GITHUB_REPOSITORY" -D dev-assets --clobber; then
+            echo "::error::Could not download the 'dev-latest' release assets. The web flasher's dev track is required (scripts/build_web_flasher_site.py copies it unconditionally). dev-latest is created by build.yml's first push to main — if this repo has never had one, or the release was deleted, re-run Build on main before this workflow."
+            exit 1
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
 

@@ -249,6 +249,26 @@ void handleFrame(const SerialControlFrame &frame) {
                 sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
             }
             break;
+        case SerialControlOpcode::BENCH_SWEEP_SETTLE:
+            if (benchSweepSettleConfigure(frame.argument)) {
+                char argument[20] = {};
+                snprintf(argument, sizeof(argument), "SETTLE=%u",
+                         (unsigned)benchSweepSettleMs());
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            }
+            break;
+        case SerialControlOpcode::BENCH_SWEEP_RETUNE:
+            if (benchSweepRetuneConfigure(frame.argument)) {
+                char argument[20] = {};
+                snprintf(argument, sizeof(argument), "RETUNE=%s",
+                         benchSweepRetuneFullEveryBin() ? "FULL" : "LIGHT");
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            }
+            break;
         case SerialControlOpcode::BENCH_PASS_B_CAD: {
             uint16_t index = 0;
             if (!serialControlParseSequence(frame.argument, index) ||

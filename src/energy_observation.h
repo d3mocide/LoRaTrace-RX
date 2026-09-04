@@ -107,6 +107,23 @@ constexpr int16_t ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10 = 350; // 35.0dB
 // against at 0; ceiling of 500 (50.0dB) matches that same file's bench
 // bound so the operator range never exceeds what the bench harness itself
 // considers plausible.
+// Settling delay after the light retune's startReceive(), before RSSI is
+// sampled. The SX1262's AGC needs time to converge after a frequency move,
+// and a full radio.begin() was incidentally providing it; the light retune
+// (v1.0.2) does not, which is why it reports a real carrier ~11dB weaker
+// than begin() does while the noise floor differs by only ~2.4dB -- the
+// error scales with signal strength because a strong signal demands a
+// larger gain change (docs/research/2026-09-04-project-audit.md, M6).
+// DEFAULT 0 = disabled: production behaviour is unchanged. The settling
+// theory is plausible and Cell showed 5ms restoring stable readings there,
+// but on Sweep it is NOT proven -- the carrier measurement that would
+// justify it could not be reproduced between runs (see the audit doc's M6
+// section). Shipping a ~425ms/sweep cost (5ms x 85 bins) for an unproven
+// benefit would be paying a real price for a maybe. The knob stays so the
+// question can be settled properly with a rig that holds still; raise this
+// only once a reproducible measurement says it helps.
+constexpr uint16_t ENERGY_SWEEP_SETTLE_DEFAULT_MS = 0;
+
 constexpr int16_t ENERGY_SWEEP_MARGIN_MIN_DBM_X10 = 150; // 15.0dB
 constexpr int16_t ENERGY_SWEEP_MARGIN_MAX_DBM_X10 = 500; // 50.0dB
 constexpr int16_t ENERGY_SWEEP_MARGIN_STEP_DBM_X10 = 50; // 5.0dB per NEXT/PREV, same step count as Brightness's 5%
