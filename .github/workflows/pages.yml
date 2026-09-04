@@ -4,9 +4,13 @@ name: Deploy web flasher
 # whenever there's a new binary to offer:
 #   - `release: released` fires when a release is published (a maintainer
 #     manually publishing a v1.0.0-style draft — see release.yml — or the
-#     first-ever creation of the dev-latest prerelease). By the time this
-#     fires, release.yml's own job (which built the draft) has long since
-#     finished, so its assets are already attached — safe.
+#     first-ever creation of the dev-latest prerelease). This is NOT
+#     reliably ordered after release.yml's own build/upload job: runs
+#     33912509081/33912608422 (v1.0.7, 2026-09-04) both hit "no assets to
+#     download" seconds after publish, because the draft had been created
+#     (and manually published) before release.yml's ~2-minute build step
+#     had uploaded its assets. The "Download stable release assets" step
+#     below retries instead of assuming assets are already there.
 #   - `workflow_run` on Build catches every later dev-latest *update*: that
 #     release already exists after its first publish, so re-uploading
 #     assets to it is an edit, not a new "released" event. Also safe: Build
@@ -115,9 +119,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      # Retries because the release object can go non-draft before its own
+      # release.yml job finishes uploading assets — see the on: comment
+      # above. release.yml's build+upload took ~2m4s for v1.0.7, so six
+      # tries 20s apart comfortably covers that window without masking a
+      # real failure indefinitely.
       - name: Download stable release assets
         if: steps.stable.outputs.found == 'true'
-        run: gh release download "${{ steps.stable.outputs.tag }}" -R "$GITHUB_REPOSITORY" -D stable-assets --clobber
+        run: |
+          tag="${{ steps.stable.outputs.tag }}"
+          for attempt in 1 2 3 4 5 6; do
+            if gh release download "$tag" -R "$GITHUB_REPOSITORY" -D stable-assets --clobber; then
+              exit 0
+            fi
+            echo "Attempt $attempt: no assets yet for $tag, retrying in 20s..."
+            sleep 20
+          done
+          echo "::error::No assets ever appeared for release $tag after retrying for 2 minutes. If release.yml's build failed or is still running, re-run this workflow once it's done."
+          exit 1
         env:
           GH_TOKEN: ${{ github.token }}
 
