@@ -16,7 +16,17 @@ on:
   release:
     types: [released]
   workflow_run:
-    workflows: ["Build"]
+    # "Build" catches dev-latest updates. "Release" is the fix for a race
+    # observed on both v1.0.5 and v1.0.6: publishing a release (whether via
+    # release.yml's draft or by hand, tag+publish together) fires
+    # `release: released` immediately, but release.yml's own job -- which
+    # uploads that tag's binaries -- can still be running for ~2 more
+    # minutes. The deploy job below downloads by tag and fails with "no
+    # assets to download" if it runs first. Re-entering once Release
+    # finishes is racefree by construction: `gh release view` still skips a
+    # release left in draft, so this doesn't expose anything early -- it
+    # only ever re-checks a release that could plausibly be published by now.
+    workflows: ["Build", "Release"]
     types: [completed]
   workflow_dispatch:
 
