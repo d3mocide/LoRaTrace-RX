@@ -121,9 +121,20 @@ def main():
     html = html.replace("__REPO_URL__", repo_url)
     html = html.replace("__BUILD_TIMESTAMP__", build_timestamp)
 
+    # The stored file is the fixed name "firmware.bin" (copy_track() above),
+    # kept generic on purpose so the manifest's part paths don't change
+    # between versions. Without an explicit `download` filename here the
+    # browser suggests that generic name instead of a real release name, so
+    # it's set explicitly per track rather than renaming the stored file.
     if has_stable:
-        html = html.replace('id="stable-bin-link" href="#"', 'id="stable-bin-link" href="./bin/stable/firmware.bin"')
-    html = html.replace('id="dev-bin-link" href="#"', 'id="dev-bin-link" href="./bin/dev/firmware.bin"')
+        html = html.replace(
+            'id="stable-bin-link" href="#" download>',
+            f'id="stable-bin-link" href="./bin/stable/firmware.bin" download="LoRaTraceRX-{stable_version}.bin">',
+        )
+    html = html.replace(
+        'id="dev-bin-link" href="#" download>',
+        'id="dev-bin-link" href="./bin/dev/firmware.bin" download="LoRaTraceRX-dev.bin">',
+    )
 
     with open(os.path.join(out_dir, "index.html"), "w") as f:
         f.write(html)
