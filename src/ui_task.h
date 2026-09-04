@@ -29,17 +29,17 @@
 //     RADIO and starts/cancels Probe on PROBE (no-op on other cards), while
 //     P starts/cancels Probe from any UI state.
 //   - **Menu root**: the same move keys move a highlighted root row; Enter
-//     opens a GROUP row's sub-list (Profile and System are groups; Trace is
-//     a direct action — see
-//     ROOT_ITEMS in ui_task.cpp and docs/BRAND.md's Interface Naming section);
-//     the backtick/ESC key closes the menu back to the carousel. Digit
-//     keys are ignored here, same as Phase 5.
-//   - **Menu group** (inside a GROUP row, "Profile" or "System"): the
-//     same move keys move a highlighted item within the group; Enter fires
-//     it (a direct profile switch to Meshtastic/MeshCore, or the WiFi/Debug
-//     toggles — the same radio_task.h/wifi_task.h/logger_task.h calls
-//     Phase 3/4/5 already made); the backtick/ESC key returns to the menu
-//     root, not all the way to the carousel.
+//     opens a GROUP row's sub-list — Profile, Analyze, Tools, System are
+//     all groups now (Tools/Analyze joined 2026-09-05, folding in what used
+//     to be their own carousel hub pages; Trace moved into Tools as a
+//     child row — see ROOT_ITEMS in ui_task.cpp and docs/BRAND.md's
+//     Interface Naming section); the backtick/ESC key closes the menu back
+//     to the carousel. Digit keys are ignored here, same as Phase 5.
+//   - **Menu group** (inside a GROUP row): the same move keys move a
+//     highlighted item within the group; Enter fires it (a direct profile
+//     switch to Meshtastic/MeshCore, the WiFi/Debug toggles, or navigates
+//     onto a real page for Tools/Analyze's own rows); the backtick/ESC key
+//     returns to the menu root, not all the way to the carousel.
 // A toast overlay (ui_task.cpp's showToast()) confirms whatever action just
 // fired, independent of which page/menu level is on screen afterward.
 // Deliberately not a general keymap or text-entry UI — see keyboard.h for
@@ -62,47 +62,48 @@
 // carousel slot of its own once SYSTEM had room for a 2x2 grid.
 //
 // CELL inserted after SWEEP (Phase 11, 2026-09-01, operator request) — same
-// "own bounded action gets its own results card" precedent as PROBE/SWEEP,
-// pushing CHANNEL/GPS/SYSTEM's digit-jump keys from 4/5/6 to 5/6/7 (see
-// keyboard.h's KEY_RAW_7_PRESS). Values are unnumbered on purpose so this
-// insertion is the only edit needed here; every downstream digit/JUMP
-// mapping lives in ui_task.cpp/keyboard.h instead.
-// ANALYZE appended after SYSTEM (Phase 10, docs/research/
-// LoRaTrace-Phases-7-10-Design.md §8); TOOLS appended after that (operator
-// request, 2026-09-04: "condense down our UI cards" — apply the same hub
-// pattern to Probe/Sweep/Cell). Neither insertion moved an existing enum
-// value — ui_task.cpp's own main-carousel order is a small explicit
-// MAIN_PAGES[] array now, not enum-value adjacency, specifically so a hub
-// can be added without renumbering anything else here.
+// "own bounded action gets its own results card" precedent as PROBE/SWEEP.
+// Values are unnumbered on purpose so an insertion here is never itself an
+// edit anywhere else; every downstream digit/JUMP mapping lives in
+// ui_task.cpp/keyboard.h instead.
 //
-// The *operator-facing* main carousel is six stops: Radio, Tools, Analyze,
-// Channel, GPS, System (JUMP_1..6) — PROBE/SWEEP/CELL and METER/WATERFALL/
-// SCOPE/CAPTURES/NODES are real UiPage values (each still needs its own
-// draw function and footer identity) but are gated behind their hub, same
-// shape for both: not part of the main carousel's own PREV/NEXT loop
-// (ui_task.cpp's nextPage()/prevPage() stop at the hub); reachable by
-// SELECTing a row on the hub (or a direct JUMP_n to a *different* main
-// page, or — Probe/Sweep/Cell only — the P/S/C global hotkeys, unchanged
-// by any of this and still the primary way to trigger them in the field);
-// once inside, PREV/NEXT still page the main carousel (never trapped —
-// this project's own house lesson, see nextPage()'s comment), UP/DOWN
-// cycle the other pages in that same hub, and BACK returns to the hub one
-// level at a time, same convention ui_menu.h's own BACK already uses.
+// The *operator-facing* main carousel is five stops: Radio, Activity,
+// Channel, GPS, System (JUMP_1..5, JUMP_6 unmapped) — PROBE/SWEEP/CELL and
+// METER/WATERFALL/SCOPE/CAPTURES/NODES are real UiPage values (each still
+// needs its own draw function and footer identity) but are reached only
+// through the menu (Tools/Analyze GROUPs, ROOT_ITEMS' own comment in
+// ui_task.cpp, 2026-09-05) — they briefly had their own carousel hub pages
+// (Phase 10/2026-09-04, CHANGELOG.md), which is why they're still real
+// UiPage values instead of menu-resident rows: a live-rendered page needs
+// the full 240x135 panel and its own per-page key handling (Scope's
+// Enter-to-acquire), the same way Radio/Channel/GPS/System do. Once on
+// one, UP/DOWN cycle the other pages in the same group
+// (nextToolsSubPage()/nextAnalyzeSubPage() etc., ui_task.cpp) and
+// PREV/NEXT/BACK all reopen the menu at its root, since none of them has a
+// carousel position to return to.
+//
+// ACTIVITY (added 2026-09-05, main carousel slot 2, operator request) is a
+// read-only mirror of whichever bounded action is currently running
+// (Probe/Sweep/Cell/Scope) — an ordinary carousel page like Radio/Channel/
+// GPS/System, not a gated sub-page: it never starts or cancels anything
+// itself, just reports state, so it carries none of the "duplicate entry
+// point" risk Probe/Sweep/Cell's own dedicated cards would. Complements
+// Radio's own STANDBY/repeat banner (drawRadioPage()) with more room to
+// show it, rather than replacing that banner.
 enum class UiPage : uint8_t {
     RADIO = 0,
+    ACTIVITY,
     PROBE,
     SWEEP,
     CELL,
     CHANNEL,
     GPS,
     SYSTEM,
-    ANALYZE,
     METER,
     WATERFALL,
     SCOPE,
     CAPTURES,
     NODES,
-    TOOLS,
     COUNT,
 };
 

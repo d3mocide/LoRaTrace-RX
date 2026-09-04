@@ -20,6 +20,137 @@
 //    share one semantic version. Carries a "-dirty" suffix when built from
 //    a modified working tree.
 
+// 1.0.7: Tools and Analyze moved from main-carousel hub pages into real
+// menu GROUPs (operator report: having both a home carousel with card-like
+// hubs and a separate BACK-triggered menu read as "am I in the menu or
+// not" in practice). Root menu is now Profile/Analyze/Tools/System; Trace
+// moved from its own root row into Tools as a child row (it has no global
+// hotkey the way P/S/C do, so it loses nothing by sitting one level
+// deeper). This reverses part of 2026-09-04's "Tools/Analyze are ordinary
+// carousel stops, no menu shortcut" call for those two specifically —
+// Probe/Sweep/Cell's own "no duplicate root row" convention is unchanged,
+// they're still one level under Tools/Analyze, not at the root themselves.
+//
+// The operator-facing main carousel shrank from six stops to four (Radio/
+// Channel/GPS/System); JUMP_2/JUMP_3 now land on Channel/GPS instead of
+// Tools/Analyze, and JUMP_5/JUMP_6 are unmapped. Probe/Sweep/Cell/Meter/
+// Waterfall/Scope/Captures/Nodes are unchanged as real UiPage views (full-
+// panel live rendering, own key handling) but are reached only through the
+// menu now; UP/DOWN still cycle the sibling pages in the same group,
+// PREV/NEXT/BACK all reopen the menu at its root instead of paging to a
+// hub page that no longer exists. Enter-on-Radio still toggles Trace
+// directly, unchanged — that shortcut isn't tied to Trace's root-menu
+// position.
+//
+// Two follow-up fixes from the first bench pass, same day: folding
+// Tools/Analyze into plain menu GROUP rows had silently dropped their
+// per-row live status (SCANNING/COMPLETE/dBm/etc.) — the operator called
+// this out as genuinely useful, lost from the old hub pages. Restored by
+// extending menuEntryValue() (ui_pages.cpp) with a case per OPEN_* action,
+// same state logic the deleted drawToolsPage()/drawAnalyzePage() used,
+// just returning through the existing menu-row value column instead of a
+// page-local array. Separately, Analyze's 5 rows at the menu's 24px
+// row pitch overflowed under the footer hint text (System's own
+// 4-row ceiling, SYSTEM_GROUP_ITEMS' comment, was never actually raised
+// for a 5-row list) — drawMenuList() now scrolls any list past 4 rows,
+// keeping the highlighted row in view and showing a small '^'/'v' cue on
+// the top/bottom visible row when more sit outside the window. Generic
+// over any list, not special-cased to Analyze, so a future group that
+// grows past 4 rows gets this for free.
+//
+// Third same-day follow-up: on a Tools/Analyze sub-page (Probe/Sweep/Cell,
+// Meter/Waterfall/Scope/Captures/Nodes), PREV/NEXT (left/right, ','/'/')
+// now alias UP/DOWN and cycle the sibling pages in that same group instead
+// of leaving to the menu — operator request, "helps these tool carousels
+// work like the main carousel." Same alias direction the plain carousel
+// already uses outside these pages (UP aliases PREV there). BACK is the
+// sole "leave to the menu" key now.
+//
+// Fourth: BACK that closes the menu all the way out now returns to
+// UiPage::RADIO if `page` is still a Tools/Analyze sub-page — previously
+// it re-showed whichever Probe/Sweep/Cell/Meter/... page had been open
+// before the menu was opened from there (operator report: closing out
+// after browsing System landed back on a sub-tool page, not the main
+// carousel). `page` isn't MenuState's to know about, so this is checked in
+// ui_task.cpp right after menu.handle() returns, gated to a BACK that just
+// closed the menu specifically -- SELECTing a Tools/Analyze row also
+// closes the menu, but deliberately onto that exact page, and must stay
+// untouched.
+//
+// Fifth: Radio's own status page now shows a banner while repeat Sweep or
+// repeat Cell is running in the background, same two-line shape as its
+// existing Probe banner (operator report: driving with a repeat scan
+// active gave no visible sign of it on Radio, unlike Probe). Sweep gets
+// "REPEATING" rather than Probe/Cell's "WATCH PAUSED" -- its home-channel
+// capture window (v1.0.3) genuinely listens and captures packets between
+// laps, so that claim would be false for it specifically; Cell has no such
+// window and fully owns the radio during its scan, same as Probe.
+//
+// Sixth: a new main-carousel page, Activity, inserted at slot 2 (Radio,
+// Activity, Channel, GPS, System — JUMP_2 now Activity, JUMP_3..5 shift to
+// Channel/GPS/System, JUMP_6 unmapped) -- operator request, a follow-on to
+// the fifth item above: Radio's own banner has to share space with rx/log/
+// drop, so this gets the whole panel to mirror whichever bounded action
+// (Probe/Sweep/Cell/Scope) is currently running, plus an explicit IDLE
+// state when nothing is. Read-only, same as Radio's banner -- no SELECT/
+// REPEAT handling of its own, so it cannot become a second way to start a
+// scan (the exact "duplicate entry point" risk Probe/Sweep/Cell's own
+// cards are kept off the root menu to avoid). Priority and wording
+// (SCANNING/REPEATING/CAPTURING/WATCH PAUSED/CAPTURING ON HOME) match
+// drawRadioPage()'s banner and menuEntryValue()'s OPEN_* cases exactly, so
+// the same state reads the same word everywhere it's shown.
+//
+// Seventh, same day, bench feedback ("really bland and has a lot of dead
+// space"): Activity now shows genuinely live detail per action instead of
+// a bare state word -- Probe gets a real progress bar over its candidate
+// count; Sweep/Cell reuse drawFreqBar()/drawSweepOccupancy()/
+// drawCellBandBlocks()/statBlock() to show the exact same bin position,
+// occupancy, best-signal, and lap numbers their own dedicated cards do
+// (copied geometry, not reinvented, so it can't drift out of sync); Scope
+// shows its tuned frequency. The idle case (nothing running) now lists all
+// four tools' last result via menuEntryValue()'s own OPEN_* cases instead
+// of a flat "no tool running" line, and reads STANDBY instead of IDLE when
+// Trace is paused with nothing else active.
+//
+// Eighth: with Activity now covering it properly, drawRadioPage()'s own
+// STANDBY/Probe/repeat-Sweep/repeat-Cell banner is gone -- operator
+// request ("we can drop the activity state from the radio page now that
+// activity has its own card"). Its one case Activity's idle branch didn't
+// already cover (STANDBY, a manually-paused Trace with nothing else
+// running) is why that branch now checks radioIsTracePaused() too (see
+// seventh item above) -- otherwise removing the banner would have quietly
+// dropped that signal everywhere, not just moved it.
+//
+// Ninth, same day, more bench feedback ("get rid of the top IDLE line
+// completely its redundant... take a page out of analyzer's page and show
+// some useful info from the last capture"): Activity's idle view drops its
+// hero line entirely and moves the four rows up to fill the space. Each
+// row's value is no longer menuEntryValue()'s OPEN_* state word (which
+// read "IDLE" on all four most of the time, since they revert to it
+// within RESULT_HOLD_MS of finishing) -- it's the real last-result numbers
+// each tool's own card computes (hit count, peak count + best MHz, best
+// MHz + dB, last Scope sample's dBm), same source data, just read directly
+// instead of through the perishable state word. Shows plain "IDLE" (no
+// summary, operator request: "instead of never run can it just say IDLE")
+// for a tool genuinely never fired this boot. Net effect: this also removes the
+// STANDBY-vs-IDLE distinction the eighth item above had just added --
+// Trace-paused now has no on-screen indicator anywhere except
+// Menu > Tools > Trace. Flagged, not silently dropped; worth revisiting if
+// that turns out to matter in the field.
+//
+// Tenth: that flagged tradeoff turned out to matter -- STANDBY is back on
+// Radio (operator request: "put that standby in the radio card again"),
+// just the one line, not the rest of the old banner (Activity now owns
+// the Probe/Sweep/Cell/Scope-specific detail properly). Checks
+// radioIsTracePaused() directly, true whenever the radio isn't actively
+// listening for any reason (manual pause or a bounded action owning it) --
+// this line's job is only "is watch paused," not which of those it is.
+//
+// PATCH, not MINOR -- a UI reorganization within already-closed phase
+// scope, no new capability. Not yet hardware-verified on real hardware;
+// flag before calling this done.
+#define FIRMWARE_VERSION "1.0.7"
+
 // 1.0.6: correctness pass over what v1.0.5 shipped, from a code review and
 // a whole-project audit (docs/research/2026-09-04-project-audit.md).
 //
@@ -91,7 +222,7 @@
 // values off the card (margin=300, brightness=40, idle_idx=1 -- three
 // non-defaults, so the parser is genuinely reading the files rather than
 // falling back).
-#define FIRMWARE_VERSION "1.0.6"
+// (Superseded by 1.0.7 above.)
 
 // 1.0.5: Waterfall now shows packet captures, not just energy. Green
 // (COL_GOOD) marks a bin where a real packet was demodulated and

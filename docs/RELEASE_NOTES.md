@@ -24,6 +24,56 @@ Versions before `v1.0.6` predate this file; their history is in
 
 ---
 
+## v1.0.7
+
+**Tools and Analyze moved into the menu.** They were home-screen carousel
+cards; now they're groups in the menu (backtick/ESC), alongside Profile and
+System. Menu root is now **Profile / Analyze / Tools / System**. **Trace**
+moved with them — it's now at **Menu > Tools > Trace** instead of its own
+menu row (Enter still toggles it directly from the Radio page, unchanged).
+
+Probe, Sweep, Cell, Meter, Waterfall, Scope, Captures, and Nodes work the
+same as before once you're on them — this only changes how you get there:
+through **Menu > Tools** or **Menu > Analyze** instead of paging to a home
+screen card. Each row still shows its live status right in the menu
+(SCANNING, COMPLETE, a live dBm reading, and so on) exactly like the old
+home-screen cards did.
+
+**Menu lists longer than 4 rows now scroll** (Analyze's 5 rows were the
+first to need it) — the highlighted row always stays on screen, with a
+small `^` or `v` mark on the top or bottom row whenever there's more above
+or below.
+
+**Left/right now moves between Probe/Sweep/Cell (or Meter/Waterfall/Scope/
+Captures/Nodes) the same way up/down already did** — once you're on one of
+these pages, `,`/`/` cycle to the next one in its group instead of leaving
+to the menu, matching how the main Radio/Channel/GPS/System carousel
+already works. The backtick/ESC key is still what takes you back to the
+menu.
+
+**Fixed:** closing the menu all the way out while on a Probe/Sweep/Cell/
+Meter/Waterfall/Scope/Captures/Nodes page (say, after backing out of a
+detour through System) now returns you to Radio instead of re-showing
+that page.
+
+**New home-screen page — Activity.** The main carousel is now **Radio /
+Activity / Channel / GPS / System** (JUMP shortcuts: **1** Radio, **2**
+Activity, **3** Channel, **4** GPS, **5** System; **6** unused). Activity
+gives whichever bounded action is currently running (Probe, Sweep, Cell, or
+Scope) the full panel with real live detail — progress and candidate count
+for Probe, the same frequency position/occupancy/best-signal/lap numbers
+Sweep and Cell's own cards show, Scope's tuned frequency. When nothing's
+running, it lists each tool's real last result instead — hit count, peak
+count and best frequency, best frequency and signal strength, last sample's
+signal strength — rather than an empty screen. It's read-only: a status
+mirror, not a way to start or cancel anything.
+
+**Radio's own status banner is simpler now — just STANDBY.** With Activity
+covering Probe/Sweep/Cell/Scope detail properly, Radio only shows
+**STANDBY** when watch isn't actively listening (a manual pause, or any
+bounded action currently running) — check Activity for which one and how
+far along.
+
 ## v1.0.6
 
 **Sweep now captures packets while it scans.** Previously, running Sweep in

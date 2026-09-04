@@ -76,14 +76,13 @@ constexpr int16_t TOAST_H = 16;
 const char *pageName(UiPage p) {
     switch (p) {
         case UiPage::RADIO: return "RADIO";
+        case UiPage::ACTIVITY: return "ACTIVITY";
         case UiPage::CHANNEL: return "CHANNEL";
         case UiPage::GPS: return "GPS";
         case UiPage::SYSTEM: return "SYSTEM";
         case UiPage::PROBE: return "PROBE";
         case UiPage::SWEEP: return "SWEEP";
         case UiPage::CELL: return "CELL";
-        case UiPage::TOOLS: return "TOOLS";
-        case UiPage::ANALYZE: return "ANALYZE";
         case UiPage::METER: return "METER";
         case UiPage::WATERFALL: return "WATERFALL";
         case UiPage::SCOPE: return "SCOPE";
@@ -175,13 +174,15 @@ uint16_t heapStatusColour() {
 //
 // Position/total come from mainCarouselPosition()/mainCarouselCount()
 // (ui_task.cpp), not raw UiPage ordinals/UiPage::COUNT: this project's
-// operator-facing carousel is six stops (Radio/Tools/Analyze/Channel/GPS/
-// System) — every gated sub-page (Probe/Sweep/Cell, Meter/Waterfall/Scope/
-// Captures/Nodes) reports its own hub's position instead of a 14th/13th/
-// etc. slot of its own, matching what prev/next/digit keys actually reach.
-// An earlier revision used raw ordinals and showed e.g. Analyze as "8/14"
-// — technically not wrong, but confusing enough that an operator asked
-// "where are the other 6 cards" (2026-09-04).
+// operator-facing carousel is four stops (Radio/Channel/GPS/System) since
+// Tools/Analyze moved into the menu (2026-09-05) — mainCarouselPosition()
+// returns 0 while on one of their sub-pages (Probe/Sweep/Cell, Meter/
+// Waterfall/Scope/Captures/Nodes), reached only through the menu now and
+// with no carousel position of their own, so the "N/M" text is omitted
+// entirely rather than showing a stale or misleading number. An earlier
+// revision used raw UiPage ordinals for a six-stop carousel and showed
+// e.g. Analyze as "8/14" — technically not wrong, but confusing enough
+// that an operator asked "where are the other 6 cards" (2026-09-04).
 void drawFooterStatus() {
     if (menu.isOpen()) return;
     const int16_t y = uiTft->height() - 10;
@@ -191,10 +192,13 @@ void drawFooterStatus() {
     uiTft->setCursor(2, y);
     uiTft->print(uiProfileLabel(radioActiveProfile()));
 
-    char posBuf[8];
-    snprintf(posBuf, sizeof(posBuf), "%u/%u", (unsigned)mainCarouselPosition(), (unsigned)mainCarouselCount());
-    uiTft->setCursor(uiTft->width() - (int16_t)strlen(posBuf) * 6 - 2, y);
-    uiTft->print(posBuf);
+    const uint8_t pos = mainCarouselPosition();
+    if (pos != 0) {
+        char posBuf[8];
+        snprintf(posBuf, sizeof(posBuf), "%u/%u", (unsigned)pos, (unsigned)mainCarouselCount());
+        uiTft->setCursor(uiTft->width() - (int16_t)strlen(posBuf) * 6 - 2, y);
+        uiTft->print(posBuf);
+    }
 }
 
 // "Label above value" block for the secondary/context column every page
@@ -238,27 +242,16 @@ void drawRadioPage() {
     uiTft->print("drop ");
     uiTft->print(drops);
 
-    // STANDBY/Probe banner (Radio menu): rx/log/drop above
-    // stay as real frozen totals rather than being replaced — the thing
-    // that must not be ambiguous is "is the radio actually listening right
-    // now," not the counters themselves, which are still meaningful while
-    // paused. Sits in the gap between the hero column and the bottom flush
-    // band, which RADIO's layout otherwise leaves empty (unlike GPS/SYSTEM,
-    // which use it for their own secondary content).
-    if (radioDiscoverySweepIsActive()) {
-        const uint8_t current = radioDiscoveryCandidateIndex();
-        const uint8_t total = radioDiscoveryCandidateCount();
-        uiTft->setTextSize(2);
-        uiTft->setTextColor(COL_WARN, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 66);
-        uiTft->print("PROBE ");
-        uiTft->print(current);
-        uiTft->print('/');
-        uiTft->print(total);
-        uiTft->setTextSize(1);
-        uiTft->setCursor(2, HEADER_H + 86);
-        uiTft->print("WATCH PAUSED");
-    } else if (radioIsTracePaused()) {
+    // STANDBY: the one piece of the old Probe/repeat-scan banner brought
+    // back here (operator request, 2026-09-05) after Activity's own idle
+    // view dropped its hero line and lost this as its last remaining home
+    // — watch-paused is exactly the kind of thing this page's rx/log/drop
+    // counters need it to not be silently ambiguous about. True whenever
+    // the radio isn't actively listening, whether that's a manual pause or
+    // a bounded action (Probe/Sweep/Cell/Scope) currently owning it — the
+    // specific "which one and how far along" detail is Activity's job, not
+    // this one line's.
+    if (radioIsTracePaused()) {
         uiTft->setTextSize(2);
         uiTft->setTextColor(COL_WARN, COL_BG);
         uiTft->setCursor(2, HEADER_H + 66);
@@ -1014,8 +1007,12 @@ void drawSystemPage() {
 // carried by inverting FG/BG on the whole row width, same convention
 // drawBattery()/drawRadioPage() use for a single value. The label/value
 // separator lives here, not baked into each label string as a trailing
-// space — removes an easy, silent mistake in the table.
-void drawMenuRow(int16_t y, const char *rowLabel, const char *value, bool selected) {
+// space — removes an easy, silent mistake in the table. scrollHint ('^'/
+// 'v'/0) is drawMenuList()'s own "more rows this way" cue for the top/
+// bottom visible row of a scrolled list — drawn here, in the row's own
+// unused right margin, so it inherits that row's already-inverted colours
+// for free when the top or bottom row happens to be the selected one.
+void drawMenuRow(int16_t y, const char *rowLabel, const char *value, bool selected, char scrollHint = 0) {
     const uint16_t fg = selected ? COL_BG : COL_FG;
     const uint16_t bg = selected ? COL_FG : COL_BG;
     uiTft->fillRect(0, y - 3, uiTft->width(), 20, bg);
@@ -1027,14 +1024,108 @@ void drawMenuRow(int16_t y, const char *rowLabel, const char *value, bool select
         uiTft->print(": ");
         uiTft->print(value);
     }
+    if (scrollHint != 0) {
+        uiTft->setCursor(uiTft->width() - 14, y);
+        uiTft->print(scrollHint);
+    }
 }
 
 // What an ACTION row's value column shows. Generic over every list in the
 // menu (Profile's choices, System's toggles, Display's Idle-dim cycle) —
 // MenuState/MenuItem are data-driven (ui_menu.h), so this stays one switch
-// on MenuAction rather than one function per list.
+// on MenuAction rather than one function per list. `buf` backs the four
+// OPEN_* cases below that need to format a live number rather than return a
+// fixed string literal — safe as a single shared static buffer because
+// each call's result is fully consumed (printed by drawMenuRow(), from
+// drawMenuList()'s single-threaded per-row loop) before the next call runs.
 const char *menuEntryValue(MenuAction action) {
+    static char buf[16];
     switch (action) {
+        // Tools' own three rows (operator report, 2026-09-05: restoring the
+        // live per-tool status these rows showed as their own carousel hub
+        // page, lost when that page was folded into a plain menu GROUP).
+        // Same state vocabulary and RESULT_HOLD_MS dim-IDLE reversion
+        // drawProbePage()/drawSweepPage()/drawCellPage() themselves use, so
+        // this row never advertises a result the real page has already
+        // reverted past.
+        case MenuAction::OPEN_PROBE: {
+            const DiscoverySweepState s = radioDiscoverySweepState();
+            const bool holdExpired = s != DiscoverySweepState::RUNNING && probeTerminalShownAt != 0 &&
+                                     millis() - probeTerminalShownAt >= RESULT_HOLD_MS;
+            if (s == DiscoverySweepState::RUNNING) return "SCANNING";
+            if (holdExpired || s == DiscoverySweepState::IDLE) return "IDLE";
+            if (s == DiscoverySweepState::COMPLETE) return "COMPLETE";
+            if (s == DiscoverySweepState::CANCELLED) return "CANCELLED";
+            return "FAILED";
+        }
+        case MenuAction::OPEN_SWEEP: {
+            const EnergySweepState s = radioEnergySweepState();
+            const bool holdExpired = s != EnergySweepState::RUNNING && sweepTerminalShownAt != 0 &&
+                                     millis() - sweepTerminalShownAt >= RESULT_HOLD_MS;
+            if (radioEnergySweepRepeatIsActive()) return "REPEAT";
+            if (s == EnergySweepState::RUNNING) return "SCANNING";
+            if (holdExpired || s == EnergySweepState::IDLE) return "IDLE";
+            if (s == EnergySweepState::COMPLETE) return "COMPLETE";
+            if (s == EnergySweepState::CANCELLED) return "CANCELLED";
+            return "FAILED";
+        }
+        case MenuAction::OPEN_CELL: {
+            const CellSweepState s = radioCellSweepState();
+            const bool holdExpired = s != CellSweepState::RUNNING && cellTerminalShownAt != 0 &&
+                                     millis() - cellTerminalShownAt >= RESULT_HOLD_MS;
+            if (radioCellSweepRepeatIsActive()) return "REPEAT";
+            if (s == CellSweepState::RUNNING) return "SCANNING";
+            if (holdExpired || s == CellSweepState::IDLE) return "IDLE";
+            if (s == CellSweepState::COMPLETE) return "COMPLETE";
+            if (s == CellSweepState::CANCELLED) return "CANCELLED";
+            return "FAILED";
+        }
+        // Analyze's own five rows, same restoration reasoning as Tools'
+        // three above — identical value logic to the deleted
+        // drawAnalyzePage(), just returning through `buf` instead of a
+        // page-local array.
+        case MenuAction::OPEN_METER: {
+            CaptureHistory captures;
+            CaptureSummary latest;
+            if (analyzerCaptureHistorySnapshot(captures, pdMS_TO_TICKS(20)) &&
+                captureHistoryEntryAt(captures, 0, latest)) {
+                snprintf(buf, sizeof(buf), "%ddBm", (int)latest.rssi_dbm);
+                return buf;
+            }
+            return "--";
+        }
+        case MenuAction::OPEN_WATERFALL: {
+            const uint8_t rows = analyzerWaterfallRowCount(pdMS_TO_TICKS(20));
+            if (rows == 0) return "--";
+            snprintf(buf, sizeof(buf), "%u rows", (unsigned)rows);
+            return buf;
+        }
+        case MenuAction::OPEN_SCOPE: {
+            if (radioScopeAcquireIsActive()) return "CAPTURING";
+            const bool holdExpired = scopeTerminalShownAt != 0 &&
+                                     millis() - scopeTerminalShownAt >= RESULT_HOLD_MS;
+            ScopeTrace trace;
+            if (!holdExpired && radioScopeTraceSnapshot(trace, 0) && trace.count > 0) return "CAPTURED";
+            return "IDLE";
+        }
+        case MenuAction::OPEN_CAPTURES: {
+            CaptureHistory captures;
+            const bool have = analyzerCaptureHistorySnapshot(captures, pdMS_TO_TICKS(20));
+            snprintf(buf, sizeof(buf), "%u/%u", (unsigned)(have ? captures.count : 0),
+                     (unsigned)CAPTURE_HISTORY_MAX_ENTRIES);
+            return buf;
+        }
+        case MenuAction::OPEN_NODES: {
+            NodeRoster roster;
+            uint8_t liveNodes = 0;
+            if (analyzerNodeRosterSnapshot(roster, pdMS_TO_TICKS(20))) {
+                for (uint8_t i = 0; i < NODE_ROSTER_MAX_ENTRIES; i++) {
+                    if (roster.entries[i].node_id != NODE_ROSTER_EMPTY_ID) liveNodes++;
+                }
+            }
+            snprintf(buf, sizeof(buf), "%u/%u", (unsigned)liveNodes, (unsigned)NODE_ROSTER_MAX_ENTRIES);
+            return buf;
+        }
         case MenuAction::SELECT_MESHTASTIC:
             return radioActiveProfile() == MissionProfile::MESHTASTIC ? "ACTIVE" : "";
         case MenuAction::SELECT_MESHCORE:
@@ -1060,6 +1151,240 @@ const char *menuEntryValue(MenuAction action) {
         }
         // BRIGHTNESS_UP/DOWN aren't ACTION rows, so they never reach here.
         default: return "";
+    }
+}
+
+// Read-only mirror of whichever bounded action is currently running
+// (operator request, 2026-09-05) — carousel slot 2. Replaces
+// drawRadioPage()'s own STANDBY/Probe/repeat banner (dropped the same
+// session once this existed to do the job properly, on operator request:
+// "we can drop the activity state from the radio page now that activity
+// has its own card"). Never starts or cancels anything itself, only
+// reports state — same "no duplicate entry point" reasoning that keeps
+// Probe/Sweep/Cell off the root menu applies in reverse here: this page
+// has no SELECT/REPEAT handling of its own, so it can't become a second
+// way to start a scan.
+//
+// Reuses drawFreqBar()/drawSweepOccupancy()/drawCellBandBlocks()/
+// statBlock() and copies drawSweepPage()/drawCellPage()'s own RUNNING-
+// state geometry verbatim (same x/y offsets) rather than inventing a
+// second layout — same live numbers, same proven-not-to-collide
+// positions, just trimmed to the running case only (this page never shows
+// a terminal COMPLETE/CANCELLED/FAILED state; the idle branch below covers
+// "nothing running" instead, once per tool, reusing menuEntryValue()'s own
+// OPEN_* cases and drawMenuRow() — this is why the function lives here,
+// after both, rather than up with the other page-draw functions).
+void drawActivityPage() {
+    if (radioDiscoverySweepIsActive()) {
+        const uint8_t current = radioDiscoveryCandidateIndex();
+        const uint8_t total = radioDiscoveryCandidateCount();
+        uiTft->setTextSize(2);
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 8);
+        uiTft->print("PROBE");
+        uiTft->setTextSize(1);
+        uiTft->setTextColor(COL_FG, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 31);
+        uiTft->print("watch paused  ");
+        uiTft->print(current);
+        uiTft->print('/');
+        uiTft->print(total);
+        uiTft->print(" candidates");
+
+        // Candidates land one at a time with nothing partial to report
+        // meanwhile (drawProbePage()'s own comment: "nothing else to
+        // summarize until a candidate lands somewhere") — a plain progress
+        // bar is the one genuinely live thing left to draw.
+        constexpr int16_t BAR_X = 2, BAR_Y = HEADER_H + 54, BAR_W = 200, BAR_H = 14;
+        uiTft->drawRect(BAR_X, BAR_Y, BAR_W, BAR_H, COL_WARN);
+        if (total > 0) {
+            const int16_t fill = (int16_t)((BAR_W - 2) * ((float)current / (float)total));
+            if (fill > 0) uiTft->fillRect(BAR_X + 1, BAR_Y + 1, fill, BAR_H - 2, COL_WARN);
+        }
+        return;
+    }
+
+    if (radioEnergySweepIsActive()) {
+        const bool repeating = radioEnergySweepRepeatIsActive();
+        const uint16_t bin = radioEnergyBinIndex();
+        const uint16_t total = radioEnergyBinCount();
+        const uint16_t peaks = radioEnergyPeakCount();
+        const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
+
+        uiTft->setTextSize(2);
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 8);
+        uiTft->print("SWEEP");
+        uiTft->setTextSize(1);
+        uiTft->setTextColor(COL_FG, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 31);
+        // Repeat mode parks on the home channel between laps with RX armed
+        // (v1.0.3) — genuinely still listening, unlike single-shot, which
+        // fully occupies the radio the same way Probe/Cell do.
+        uiTft->print(repeating ? "capturing on home  " : "watch paused  ");
+        uiTft->print(bin);
+        uiTft->print('/');
+        uiTft->print(total);
+
+        drawFreqBar(2, HEADER_H + 62, 108, energyBinFrequencyMhz(bin, band, ENERGY_SWEEP_DEFAULT_STEP),
+                   band.lo_mhz, band.hi_mhz);
+        drawSweepOccupancy(2, HEADER_H + 62, 108, total);
+
+        char value[10];
+        snprintf(value, sizeof(value), "%u", (unsigned)peaks);
+        statBlock(170, HEADER_H + 6, "peaks", value, peaks == 0 ? COL_DIM : COL_WARN);
+        const EnergyStrongestPeak strongest = radioEnergyStrongestPeak();
+        if (strongest.valid) {
+            char freqBuf[10];
+            snprintf(freqBuf, sizeof(freqBuf), "%.1f", (double)strongest.freq_mhz);
+            statBlock(170, HEADER_H + 34, "best MHz", freqBuf, COL_WARN);
+        } else {
+            uiTft->setTextColor(COL_DIM, COL_BG);
+            uiTft->setCursor(170, HEADER_H + 34);
+            uiTft->print("none found");
+        }
+        if (repeating) {
+            char lapValue[10];
+            snprintf(lapValue, sizeof(lapValue), "%lu", (unsigned long)radioEnergySweepRepeatCount());
+            statBlock(170, HEADER_H + 90, "lap", lapValue, COL_WARN);
+        }
+        return;
+    }
+
+    if (radioCellSweepIsActive()) {
+        const bool repeating = radioCellSweepRepeatIsActive();
+        const uint16_t bin = radioCellBinIndex();
+        const uint16_t total = radioCellBinCount();
+
+        uiTft->setTextSize(2);
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 8);
+        uiTft->print("CELL");
+        uiTft->setTextSize(1);
+        uiTft->setTextColor(COL_FG, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 31);
+        uiTft->print("watch paused  ");
+        uiTft->print(bin);
+        uiTft->print('/');
+        uiTft->print(total);
+
+        drawFreqBar(2, HEADER_H + 62, 108, cellBinFrequencyMhz(bin), CELL_SWEEP_BAND_LO_MHZ,
+                   CELL_SWEEP_BAND_HI_MHZ);
+        drawCellBandBlocks(2, HEADER_H + 80, 108);
+
+        const CellStrongestSignal strongest = radioCellStrongestSignal();
+        if (strongest.valid) {
+            char freqBuf[10];
+            snprintf(freqBuf, sizeof(freqBuf), "%.1f", (double)strongest.freq_mhz);
+            statBlock(170, HEADER_H + 6, "best MHz", freqBuf, COL_WARN);
+            char rssiBuf[10];
+            snprintf(rssiBuf, sizeof(rssiBuf), "%ddB", (int)(strongest.rssi_peak_dbm_x10 / 10));
+            statBlock(170, HEADER_H + 34, "rssi", rssiBuf);
+        } else {
+            uiTft->setTextColor(COL_DIM, COL_BG);
+            uiTft->setCursor(170, HEADER_H + 6);
+            uiTft->print("none found");
+        }
+        if (repeating) {
+            char lapValue[10];
+            snprintf(lapValue, sizeof(lapValue), "%lu", (unsigned long)radioCellSweepRepeatCount());
+            statBlock(170, HEADER_H + 62, "lap", lapValue, COL_WARN);
+        }
+        return;
+    }
+
+    if (radioScopeAcquireIsActive()) {
+        ScopeTrace trace;
+        const bool have = radioScopeTraceSnapshot(trace, pdMS_TO_TICKS(20));
+        uiTft->setTextSize(2);
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 8);
+        uiTft->print("SCOPE");
+        uiTft->setTextSize(1);
+        uiTft->setTextColor(COL_FG, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 24);
+        if (have) {
+            char freqBuf[16];
+            snprintf(freqBuf, sizeof(freqBuf), "%.3fMHz", (double)trace.tuned_freq_mhz);
+            uiTft->print(freqBuf);
+        }
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 34);
+        uiTft->print("watch paused");
+        return;
+    }
+
+    // Idle: nothing currently running. No hero line (operator feedback,
+    // 2026-09-05: "get rid of the top IDLE line completely its redundant"
+    // — most tools revert to their idle word within RESULT_HOLD_MS of
+    // finishing, so a state word up top was uninformative most of the
+    // time). Rows moved up to fill the space and show real last-result
+    // numbers instead of a perishable state word — same source data each
+    // tool's own dedicated card computes (radioDiscoveryCadDetectedCount()
+    // etc.), not menuEntryValue()'s OPEN_* state words, which is what was
+    // showing "IDLE" on all four rows most of the time in the first place.
+    // Shows "IDLE" (plain, no summary) for a tool genuinely never fired
+    // this boot (state == IDLE) — RUNNING is impossible here (the four
+    // branches above already returned), so IDLE here can only mean that.
+    //
+    // NOTE: this also removes the only remaining on-screen indicator that
+    // Trace itself is paused (drawRadioPage()'s old banner covered it,
+    // then this page's own hero briefly did) — now visible only at
+    // Menu > Tools > Trace. Flagged, not silently dropped; worth
+    // revisiting if that turns out to matter in the field.
+    {
+        char value[16];
+        if (radioDiscoverySweepState() == DiscoverySweepState::IDLE) {
+            drawMenuRow(HEADER_H + 10, "Probe", "IDLE", false);
+        } else {
+            snprintf(value, sizeof(value), "%u/%u hits", (unsigned)radioDiscoveryCadDetectedCount(),
+                     (unsigned)radioDiscoveryCandidateCount());
+            drawMenuRow(HEADER_H + 10, "Probe", value, false);
+        }
+    }
+    {
+        char value[16];
+        if (radioEnergySweepState() == EnergySweepState::IDLE) {
+            drawMenuRow(HEADER_H + 34, "Sweep", "IDLE", false);
+        } else {
+            const EnergyStrongestPeak strongest = radioEnergyStrongestPeak();
+            if (strongest.valid) {
+                snprintf(value, sizeof(value), "%upk %.0fMHz", (unsigned)radioEnergyPeakCount(),
+                         (double)strongest.freq_mhz);
+            } else {
+                snprintf(value, sizeof(value), "none found");
+            }
+            drawMenuRow(HEADER_H + 34, "Sweep", value, false);
+        }
+    }
+    {
+        char value[16];
+        if (radioCellSweepState() == CellSweepState::IDLE) {
+            drawMenuRow(HEADER_H + 58, "Cell", "IDLE", false);
+        } else {
+            const CellStrongestSignal strongest = radioCellStrongestSignal();
+            if (strongest.valid) {
+                snprintf(value, sizeof(value), "%.0fMHz %ddB", (double)strongest.freq_mhz,
+                         (int)(strongest.rssi_peak_dbm_x10 / 10));
+            } else {
+                snprintf(value, sizeof(value), "none found");
+            }
+            drawMenuRow(HEADER_H + 58, "Cell", value, false);
+        }
+    }
+    {
+        char value[16];
+        ScopeTrace trace;
+        const bool have = radioScopeTraceSnapshot(trace, pdMS_TO_TICKS(20));
+        int8_t latest = 0;
+        if (!have || trace.count == 0 || !scopeTraceSampleAt(trace, 0, latest)) {
+            drawMenuRow(HEADER_H + 82, "Scope", "IDLE", false);
+        } else {
+            // RSSI only, not frequency — Channel already shows the tuned
+            // frequency, and "MHz -120dB" together overflowed a 240px row.
+            snprintf(value, sizeof(value), "%ddBm", (int)latest);
+            drawMenuRow(HEADER_H + 82, "Scope", value, false);
+        }
     }
 }
 
@@ -1099,30 +1424,57 @@ float sliderFraction(const MenuItem &item) {
     }
 }
 
+// How many rows fit at drawMenuRow()'s 24px pitch before the last one's
+// bottom edge reaches the footer hint text — the same math
+// SYSTEM_GROUP_ITEMS' own comment (ui_task.cpp) already worked out once
+// (its 5th row collided with the footer at y=135 on a 135px-tall panel).
+constexpr uint8_t MENU_LIST_VISIBLE_ROWS = 4;
+
 // One list of rows, at whatever depth menu.currentList() currently is —
 // root, System's list, or Display's nested list all draw through this
-// same function; no depth-specific draw functions.
+// same function; no depth-specific draw functions. Lists longer than
+// MENU_LIST_VISIBLE_ROWS scroll: the window slides to keep the highlighted
+// row always visible (Analyze is the first list to need this, five rows
+// against a four-row ceiling — operator report, 2026-09-05), with a small
+// '^'/'v' cue on the top/bottom visible row whenever more rows sit outside
+// the window in that direction.
 void drawMenuList() {
     const MenuItem *list = menu.currentList();
     const uint8_t count = menu.currentCount();
-    for (uint8_t i = 0; i < count; i++) {
+    const uint8_t sel = menu.currentIndex();
+
+    uint8_t start = 0;
+    if (count > MENU_LIST_VISIBLE_ROWS) {
+        if (sel >= MENU_LIST_VISIBLE_ROWS) start = (uint8_t)(sel - MENU_LIST_VISIBLE_ROWS + 1);
+        const uint8_t maxStart = (uint8_t)(count - MENU_LIST_VISIBLE_ROWS);
+        if (start > maxStart) start = maxStart;
+    }
+    const uint8_t visible = count < MENU_LIST_VISIBLE_ROWS ? count : MENU_LIST_VISIBLE_ROWS;
+
+    for (uint8_t row = 0; row < visible; row++) {
+        const uint8_t i = (uint8_t)(start + row);
         const MenuItem &item = list[i];
+        const int16_t y = (int16_t)(HEADER_H + 10 + row * 24);
+        const bool selected = sel == i;
+        char scrollHint = 0;
+        if (row == 0 && start > 0) scrollHint = '^';
+        else if (row == (uint8_t)(visible - 1) && (uint8_t)(start + visible) < count) scrollHint = 'v';
+
         if (item.kind == ItemKind::SLIDER) {
             char valueBuf[12];
             sliderValueLabel(item, valueBuf, sizeof(valueBuf));
-            drawMenuRow(HEADER_H + 10 + i * 24, item.label, valueBuf, menu.currentIndex() == i);
+            drawMenuRow(y, item.label, valueBuf, selected, scrollHint);
         } else if (item.items == PROFILE_GROUP_ITEMS) {
             // "Profile: Meshtastic" — surfaces the live profile without
             // drilling into the group. Goes through the same label/value
             // path as every ACTION row so drawMenuRow's ": " separator
             // stays the one place that decides the shape, rather than this
             // branch building its own copy of it.
-            drawMenuRow(HEADER_H + 10 + i * 24, item.label, uiProfileLabel(radioActiveProfile()),
-                        menu.currentIndex() == i);
+            drawMenuRow(y, item.label, uiProfileLabel(radioActiveProfile()), selected, scrollHint);
         } else if (item.kind == ItemKind::GROUP) {
-            drawMenuRow(HEADER_H + 10 + i * 24, item.label, nullptr, menu.currentIndex() == i);
+            drawMenuRow(y, item.label, nullptr, selected, scrollHint);
         } else {
-            drawMenuRow(HEADER_H + 10 + i * 24, item.label, menuEntryValue(item.action), menu.currentIndex() == i);
+            drawMenuRow(y, item.label, menuEntryValue(item.action), selected, scrollHint);
         }
     }
 
@@ -1167,127 +1519,6 @@ void drawMenuSlider() {
 // LoRaTrace-Phases-7-10-Design.md §8.1), except Scope, whose own capture is
 // requested from ui_task.cpp's maybeStartScopeAcquire()/SCOPE_TOGGLE, not
 // from here.
-
-// Tools hub (operator request, 2026-09-04): same shape as drawAnalyzePage()
-// below exactly — reuses drawMenuRow() at the same tight 20px pitch, page-
-// local row selection (toolsHubIndex, ui_task_shared.h) instead of
-// MenuState. Row values are the real per-page headline words
-// (SCANNING/COMPLETE/CANCELLED/FAILED, drawProbePage()/drawSweepPage()/
-// drawCellPage()'s own vocabulary — not invented words like "RUNNING"/
-// "DONE", a mismatch the Field Analyzer preview mockup caught 2026-09-04),
-// collapsing to "IDLE" once each card's own RESULT_HOLD_MS hold has expired
-// (probeTerminalShownAt etc., same fields those three pages already use
-// for their own dim-IDLE reversion) so the hub never advertises a result
-// that's no longer showing on the real card.
-void drawToolsPage() {
-    static const char *const LABELS[TOOLS_HUB_COUNT] = { "Probe", "Sweep", "Cell" };
-    char values[TOOLS_HUB_COUNT][12];
-
-    {
-        const DiscoverySweepState s = radioDiscoverySweepState();
-        const bool holdExpired = s != DiscoverySweepState::RUNNING && probeTerminalShownAt != 0 &&
-                                 millis() - probeTerminalShownAt >= RESULT_HOLD_MS;
-        if (s == DiscoverySweepState::RUNNING) snprintf(values[0], sizeof(values[0]), "SCANNING");
-        else if (holdExpired || s == DiscoverySweepState::IDLE) snprintf(values[0], sizeof(values[0]), "IDLE");
-        else if (s == DiscoverySweepState::COMPLETE) snprintf(values[0], sizeof(values[0]), "COMPLETE");
-        else if (s == DiscoverySweepState::CANCELLED) snprintf(values[0], sizeof(values[0]), "CANCELLED");
-        else snprintf(values[0], sizeof(values[0]), "FAILED");
-    }
-    {
-        const EnergySweepState s = radioEnergySweepState();
-        const bool holdExpired = s != EnergySweepState::RUNNING && sweepTerminalShownAt != 0 &&
-                                 millis() - sweepTerminalShownAt >= RESULT_HOLD_MS;
-        if (radioEnergySweepRepeatIsActive()) snprintf(values[1], sizeof(values[1]), "REPEAT");
-        else if (s == EnergySweepState::RUNNING) snprintf(values[1], sizeof(values[1]), "SCANNING");
-        else if (holdExpired || s == EnergySweepState::IDLE) snprintf(values[1], sizeof(values[1]), "IDLE");
-        else if (s == EnergySweepState::COMPLETE) snprintf(values[1], sizeof(values[1]), "COMPLETE");
-        else if (s == EnergySweepState::CANCELLED) snprintf(values[1], sizeof(values[1]), "CANCELLED");
-        else snprintf(values[1], sizeof(values[1]), "FAILED");
-    }
-    {
-        const CellSweepState s = radioCellSweepState();
-        const bool holdExpired = s != CellSweepState::RUNNING && cellTerminalShownAt != 0 &&
-                                 millis() - cellTerminalShownAt >= RESULT_HOLD_MS;
-        if (radioCellSweepRepeatIsActive()) snprintf(values[2], sizeof(values[2]), "REPEAT");
-        else if (s == CellSweepState::RUNNING) snprintf(values[2], sizeof(values[2]), "SCANNING");
-        else if (holdExpired || s == CellSweepState::IDLE) snprintf(values[2], sizeof(values[2]), "IDLE");
-        else if (s == CellSweepState::COMPLETE) snprintf(values[2], sizeof(values[2]), "COMPLETE");
-        else if (s == CellSweepState::CANCELLED) snprintf(values[2], sizeof(values[2]), "CANCELLED");
-        else snprintf(values[2], sizeof(values[2]), "FAILED");
-    }
-
-    for (uint8_t i = 0; i < TOOLS_HUB_COUNT; i++) {
-        drawMenuRow(22 + i * 20, LABELS[i], values[i], toolsHubIndex == i);
-    }
-}
-
-// Analyze hub (Phase 10): the one page every other Analyze view is gated
-// behind (operator request, 2026-09-03 — "gate them behind the Analyze
-// card... open each panel from there"), replacing an earlier design where
-// all five sat loose in the main carousel. Reuses drawMenuRow()'s exact row
-// visual — this IS a list, just page-local state (analyzeHubIndex,
-// ui_task_shared.h) instead of MenuState — at a tighter 20px pitch than the
-// real menu's own 24px: five rows at 24px would collide with the footer the
-// same way System's own list once did at 5 rows (see SYSTEM_GROUP_ITEMS's
-// comment); 20px keeps the last row's bottom edge clear of it.
-void drawAnalyzePage() {
-    static const char *const LABELS[ANALYZE_HUB_COUNT] = {
-        "Meter", "Waterfall", "Scope", "Captures", "Nodes",
-    };
-    char values[ANALYZE_HUB_COUNT][12];
-
-    CaptureHistory captures;
-    const bool haveCaptures = analyzerCaptureHistorySnapshot(captures, pdMS_TO_TICKS(20));
-    CaptureSummary latestCapture;
-    if (haveCaptures && captureHistoryEntryAt(captures, 0, latestCapture)) {
-        snprintf(values[0], sizeof(values[0]), "%ddBm", (int)latestCapture.rssi_dbm);
-    } else {
-        snprintf(values[0], sizeof(values[0]), "--");
-    }
-
-    const uint8_t waterfallRows = analyzerWaterfallRowCount(pdMS_TO_TICKS(20));
-    if (waterfallRows > 0) {
-        snprintf(values[1], sizeof(values[1]), "%u rows", (unsigned)waterfallRows);
-    } else {
-        snprintf(values[1], sizeof(values[1]), "--");
-    }
-
-    // "CAPTURING", matching drawScopePage()'s own real headline word, not
-    // "RUNNING" (a word this app never actually shows anywhere — caught via
-    // the Field Analyzer preview mockup, 2026-09-04). Collapses to "IDLE"
-    // once scopeTerminalShownAt's own RESULT_HOLD_MS has elapsed (or if
-    // nothing has ever been captured this boot), same dim-IDLE reversion
-    // drawScopePage() itself already shows, so the hub doesn't advertise a
-    // result that no longer holds on the real card.
-    if (radioScopeAcquireIsActive()) {
-        snprintf(values[2], sizeof(values[2]), "CAPTURING");
-    } else {
-        const bool holdExpired = scopeTerminalShownAt != 0 &&
-                                 millis() - scopeTerminalShownAt >= RESULT_HOLD_MS;
-        ScopeTrace trace;
-        if (!holdExpired && radioScopeTraceSnapshot(trace, 0) && trace.count > 0) {
-            snprintf(values[2], sizeof(values[2]), "CAPTURED");
-        } else {
-            snprintf(values[2], sizeof(values[2]), "IDLE");
-        }
-    }
-
-    snprintf(values[3], sizeof(values[3]), "%u/%u", (unsigned)(haveCaptures ? captures.count : 0),
-             (unsigned)CAPTURE_HISTORY_MAX_ENTRIES);
-
-    NodeRoster roster;
-    uint8_t liveNodes = 0;
-    if (analyzerNodeRosterSnapshot(roster, pdMS_TO_TICKS(20))) {
-        for (uint8_t i = 0; i < NODE_ROSTER_MAX_ENTRIES; i++) {
-            if (roster.entries[i].node_id != NODE_ROSTER_EMPTY_ID) liveNodes++;
-        }
-    }
-    snprintf(values[4], sizeof(values[4]), "%u/%u", (unsigned)liveNodes, (unsigned)NODE_ROSTER_MAX_ENTRIES);
-
-    for (uint8_t i = 0; i < ANALYZE_HUB_COUNT; i++) {
-        drawMenuRow(22 + i * 20, LABELS[i], values[i], analyzeHubIndex == i);
-    }
-}
 
 // Meter: "packet RSSI, selected-bin RSSI, or current scope RSSI with its
 // source identified... show measurement age" (§8.2) — prefers a live/recent
@@ -1883,14 +2114,13 @@ void drawPage() {
     } else {
         switch (page) {
             case UiPage::RADIO: drawRadioPage(); break;
+            case UiPage::ACTIVITY: drawActivityPage(); break;
             case UiPage::CHANNEL: drawChannelPage(); break;
             case UiPage::GPS: drawGpsPage(); break;
             case UiPage::SYSTEM: drawSystemPage(); break;
             case UiPage::PROBE: drawProbePage(); break;
             case UiPage::SWEEP: drawSweepPage(); break;
             case UiPage::CELL: drawCellPage(); break;
-            case UiPage::TOOLS: drawToolsPage(); break;
-            case UiPage::ANALYZE: drawAnalyzePage(); break;
             case UiPage::METER: drawMeterPage(); break;
             case UiPage::WATERFALL: drawWaterfallPage(); break;
             case UiPage::SCOPE: drawScopePage(); break;

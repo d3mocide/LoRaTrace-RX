@@ -293,15 +293,13 @@ enum class KeyAction {
     // 2026-08-24 bench pass for this second one (Enter-to-open felt wrong).
     BACK,
     // '1'-'6' — jump straight to that main-carousel page (carousel mode
-    // only). 1=RADIO, 2=TOOLS, 3=ANALYZE, 4=CHANNEL, 5=GPS, 6=SYSTEM —
-    // resettled here 2026-09-04 when Tools joined Analyze as a second hub
-    // and the operator-facing main carousel shrank to six stops (down from
-    // the eight/seven/six of earlier phases — Probe/Sweep/Cell lost their
-    // own JUMP_2/3/4 the same way Analyze's five sub-pages never had one:
-    // see ui_task.h's UiPage comment). Kept as plain, separately-named
-    // actions rather than one "JUMP + index" action so this header stays
-    // free of any dependency on ui_task.h's UiPage enum — ui_task.cpp does
-    // the index mapping itself.
+    // only). 1=RADIO, 2=ACTIVITY, 3=CHANNEL, 4=GPS, 5=SYSTEM; 6 currently
+    // unmapped — Tools and Analyze moved from main-carousel hubs into menu
+    // GROUPs (2026-09-05, CHANGELOG.md), and ACTIVITY (a read-only mirror
+    // of whichever bounded action is running) joined the carousel the same
+    // day. Kept as plain, separately-named actions rather than one
+    // "JUMP + index" action so this header stays free of any dependency on
+    // ui_task.h's UiPage enum — ui_task.cpp does the index mapping itself.
     JUMP_1,
     JUMP_2,
     JUMP_3,

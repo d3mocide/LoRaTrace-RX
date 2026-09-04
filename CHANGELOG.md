@@ -7,6 +7,69 @@ fresh from the documentation restructuring below and stays terse —
 one or two lines per entry, newest first. For the current state of the
 project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
+## 2026-09-05
+
+- Moved Tools and Analyze from main-carousel hub pages into real menu
+  groups (`v1.0.7`), reversing part of the previous day's "ordinary
+  carousel stop, no menu shortcut" call for those two — an operator report
+  that having both a card-like home carousel and a separate menu read as
+  "am I in the menu or not". Root menu is now Profile/Analyze/Tools/System;
+  Trace moved from its own root row into Tools. Main carousel shrank from
+  six stops to four (Radio/Channel/GPS/System); Probe/Sweep/Cell/Meter/
+  Waterfall/Scope/Captures/Nodes are unchanged as real pages but reached
+  only through the menu now.
+- Two bench-pass follow-ups to the above, same day: restored the per-row
+  live status (SCANNING/COMPLETE/dBm/etc.) Tools/Analyze rows lost when
+  their hub pages folded into plain menu rows — `menuEntryValue()`
+  (ui_pages.cpp) now covers every `OPEN_*` action, same state logic the
+  deleted hub pages used. And `drawMenuList()` now scrolls any list longer
+  than 4 rows (Analyze's 5 were overflowing under the footer hint text),
+  keeping the selected row in view with a small `^`/`v` cue when more rows
+  sit outside the window.
+- Third same-day follow-up: on a Tools/Analyze sub-page, PREV/NEXT
+  (left/right) now alias UP/DOWN and cycle the sibling pages in that group
+  instead of leaving to the menu — "helps these tool carousels work like
+  the main carousel." BACK is the sole "leave to the menu" key now.
+- Fourth: BACK that closes the menu all the way out now returns to Radio
+  if you'd left `page` on a Tools/Analyze sub-page — previously closing out
+  after browsing System (say) re-showed whichever Probe/Sweep/Cell/Meter/
+  ... page had been open before, not the main carousel.
+- Fifth: Radio's own status page now banners a background repeat Sweep or
+  repeat Cell scan, same shape as its existing Probe banner — previously
+  neither showed at all on Radio. Sweep reads "REPEATING" (its capture
+  window still listens between laps); Cell reads "WATCH PAUSED" (it has no
+  such window and fully owns the radio while scanning, like Probe).
+- Sixth: added Activity, a new main-carousel page at slot 2 (Radio,
+  Activity, Channel, GPS, System) that mirrors whichever bounded action
+  (Probe/Sweep/Cell/Scope) is currently running, full-panel, with an IDLE
+  state when nothing is — a follow-on to the fifth item, giving that same
+  status more room than Radio's own banner has. Read-only, same as the
+  banner: no SELECT/REPEAT of its own, so it can't become a second way to
+  start a scan.
+- Seventh, bench feedback ("really bland and has a lot of dead space"):
+  Activity now shows real live detail per tool (progress bar for Probe,
+  the same frequency-position/occupancy/best-signal/lap numbers Sweep and
+  Cell's own cards show, Scope's tuned frequency) instead of a bare state
+  word, and its idle view lists all four tools' last result instead of a
+  flat "nothing running" line — reading STANDBY instead of IDLE when Trace
+  is paused with nothing else active.
+- Eighth: dropped drawRadioPage()'s own STANDBY/Probe/repeat-scan banner
+  now that Activity covers the same ground properly — its one case
+  Activity's idle view didn't already have (STANDBY) is why that view now
+  checks Trace-paused too, so removing the banner didn't quietly drop that
+  signal everywhere.
+- Ninth, more bench feedback: Activity's idle view drops its hero line
+  (redundant — most tools read "IDLE" there most of the time anyway) and
+  shows each tool's real last-result numbers instead of that perishable
+  state word — hit count, peak count + best MHz, best MHz + dB, last
+  Scope sample's dBm. Net effect: undoes the eighth item's STANDBY-vs-IDLE
+  distinction — Trace-paused now shows nowhere except Menu > Tools > Trace,
+  flagged as a real tradeoff rather than silently dropped.
+- Tenth: that tradeoff turned out to matter — STANDBY is back on Radio,
+  just the one line, not the rest of the old banner (Activity owns the
+  Probe/Sweep/Cell/Scope detail now). True whenever watch isn't actively
+  listening for any reason, manual pause or a bounded action running.
+
 ## 2026-09-04
 
 - Ran a `/code-review` pass and then a whole-project audit

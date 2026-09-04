@@ -103,14 +103,12 @@ enum class MenuAction : uint8_t {
     // regionalization are separate follow-ups (docs/ROADMAP.md).
     REGION_CYCLE,
     // Field Analyzer (Phase 10, docs/research/LoRaTrace-Phases-7-10-
-    // Design.md §8.5): fired by the Analyze hub's own SELECT handling
-    // (ui_task.cpp), one per row — real UiPage entries, not menu-resident
-    // views, since a live-rendered page needs the full 240x135 panel and
-    // its own per-page key handling (Scope's Enter-to-acquire) the same
-    // way Probe/Sweep/Cell's own cards already do. No root menu row of
-    // their own (an earlier revision had one, OPEN_ANALYZE — removed
-    // 2026-09-04 once Analyze became an ordinary main-carousel stop
-    // reachable by prev/next/JUMP_3, making a menu shortcut redundant).
+    // Design.md §8.5): fired by the Analyze menu group's own rows
+    // (ANALYZE_GROUP_ITEMS, ui_task.cpp), one per row — real UiPage
+    // entries, not menu-resident views, since a live-rendered page needs
+    // the full 240x135 panel and its own per-page key handling (Scope's
+    // Enter-to-acquire) the same way Probe/Sweep/Cell's own cards already
+    // do. Navigation-only, same reasoning as OPEN_PROBE/SWEEP/CELL below.
     OPEN_METER,
     OPEN_WATERFALL,
     OPEN_SCOPE,
@@ -134,17 +132,16 @@ enum class MenuAction : uint8_t {
     // context but wrong here — the operator pressed Enter on Waterfall
     // specifically to keep watching it fill in, not to be navigated away.
     WATERFALL_SWEEP_REPEAT_TOGGLE,
-    // Tools hub (operator request, 2026-09-04): same shape as OPEN_METER
-    // etc. above, just for Probe/Sweep/Cell, fired by the Tools hub's own
-    // SELECT handling — deliberately navigation-only, not PROBE_TOGGLE/
+    // Same shape as OPEN_METER etc. above, just for Probe/Sweep/Cell —
+    // fired by the Tools menu group's own rows (TOOLS_GROUP_ITEMS,
+    // ui_task.cpp). Deliberately navigation-only, not PROBE_TOGGLE/
     // SWEEP_TOGGLE/CELL_TOGGLE: unlike Scope, none of these three auto-
     // start on arrival (only Scope's SCOPE_ACQUIRE design does that), so
-    // opening one from the hub should land on an idle/last-result card
+    // opening one from the menu should land on an idle/last-result card
     // exactly like using a JUMP_n or paging there directly would, not
     // silently kick off a scan. Reuses showProbeResults()/
     // showSweepResults()/showCellResults() (already exist — the P/S/C
     // hotkeys already jump to these same three cards), not new functions.
-    // No root menu row either, same OPEN_ANALYZE reasoning above.
     OPEN_PROBE,
     OPEN_SWEEP,
     OPEN_CELL,

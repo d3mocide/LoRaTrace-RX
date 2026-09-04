@@ -42,8 +42,9 @@ extern bool keyboardReady;
 // drawPage()/drawFooterStatus() can read the current page.
 extern UiPage page;
 // 1-based position/total for drawFooterStatus()'s "N/M" — the operator-
-// facing main carousel (Radio/Tools/Analyze/Channel/GPS/System), not raw
-// UiPage ordinals. See mainCarouselPosition()'s own comment (ui_task.cpp)
+// facing main carousel (Radio/Channel/GPS/System), not raw UiPage ordinals;
+// position is 0 while on a Tools/Analyze sub-page (menu-reached, no
+// carousel slot). See mainCarouselPosition()'s own comment (ui_task.cpp)
 // for why that distinction matters.
 uint8_t mainCarouselPosition();
 uint8_t mainCarouselCount();
@@ -123,28 +124,11 @@ void showProbeResults();                // ui_task.cpp — closes menu onto the 
 void showSweepResults();                // ui_task.cpp — closes menu onto the Sweep page
 void showCellResults();                 // ui_task.cpp — closes menu onto the Cell page
 // Field Analyzer (Phase 10) — same "closes any open menu onto a specific
-// page" shape as the three above, fired by the Analyze hub's own row
-// selection (ui_task.cpp) via fireMenuAction() (ui_actions.cpp).
-// showToolsPage()/showAnalyzePage() themselves were removed 2026-09-04 —
-// see ROOT_ITEMS's own comment (ui_task.cpp) for why the root menu no
-// longer needs a shortcut to either hub.
+// page" shape as the three above, fired by the Analyze menu group's own
+// rows (ANALYZE_GROUP_ITEMS, ui_task.cpp) via fireMenuAction()
+// (ui_actions.cpp).
 void showMeterPage();
 void showWaterfallPage();
 void showScopePage();
 void showCapturesPage();
 void showNodesPage();
-
-// --- Analyze hub ---
-// The row currently highlighted on the Analyze hub page (0..
-// ANALYZE_HUB_COUNT-1, Meter/Waterfall/Scope/Captures/Nodes in that order).
-// ui_task.cpp owns moving it (PREV/NEXT while on UiPage::ANALYZE) and
-// firing its SELECT action; ui_pages.cpp's drawAnalyzePage() only reads it
-// to decide which row to invert.
-extern uint8_t analyzeHubIndex;
-constexpr uint8_t ANALYZE_HUB_COUNT = 5;
-
-// --- Tools hub ---
-// Same contract as the Analyze hub above, for UiPage::TOOLS's own three
-// rows (Probe/Sweep/Cell, in that order).
-extern uint8_t toolsHubIndex;
-constexpr uint8_t TOOLS_HUB_COUNT = 3;
