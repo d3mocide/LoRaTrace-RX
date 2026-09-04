@@ -9,6 +9,12 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- `pages.yml`'s "Download stable release assets" step now retries (6x/20s)
+  instead of failing hard: a maintainer publishing a draft release before
+  release.yml's build job finishes uploading assets makes `release:
+  released` fire before assets exist, which hit v1.0.7 twice
+  (runs 33912509081/33912608422).
+
 - Moved Tools and Analyze from main-carousel hub pages into real menu
   groups (`v1.0.7`), reversing part of the previous day's "ordinary
   carousel stop, no menu shortcut" call for those two — an operator report
