@@ -7,6 +7,7 @@
 
 #include "board_pins.h"
 #include "bench_fault.h"
+#include "capture_settings.h"
 #include "cell_plan.h"
 #include "discovery_plan.h"
 #include "energy_plan.h"
@@ -15,6 +16,7 @@
 #include "meshtastic_identity.h"
 #include "pass_b_plan.h"
 #include "spi_bus.h"
+#include "waterfall.h" // WATERFALL_NO_CAPTURE_BIN, shared with the Waterfall row this feeds
 
 namespace {
 
@@ -86,6 +88,33 @@ volatile uint32_t energyRepeatCount = 0;
 // whenever the operator cycles System > Region, read once at the start of
 // performEnergySweep(), never mid-sweep.
 volatile Region activeEnergySweepRegion = Region::US;
+// Operator-adjustable Pass-A peak margin (System > Tuning > Margin) — set
+// once at boot from SD (sweep_margin_settings.h) and again whenever the
+// operator adjusts the slider, read at each bin's peak decision below.
+// Defaults to the calibrated bench value; see radio_task.h's own comment
+// on radioSetEnergySweepMarginDbmX10() for why this became adjustable.
+volatile int16_t activeEnergySweepMarginDbmX10 = ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10;
+// Operator-adjustable repeat-mode capture window (System > Tuning >
+// Capture) — set at boot from SD (capture_settings.h) and again whenever
+// the operator cycles the row, read once per lap by the repeat loop.
+//
+// Why it exists: one radio cannot both sweep 85 frequencies and receive on
+// one, so packet capture is bounded by the share of wall-clock time parked
+// on the home channel -- docs/STATUS.md measured the cost of spending none
+// of it there (0 of 42 packets, 0.0%). A packet is only decodable if the
+// receiver is on its frequency when the preamble lands AND stays for the
+// full airtime, so a window's usable share is (window - airtime):
+//   capture ~= (window_ms - airtime) / (lap_ms + window_ms)
+// At the measured 850ms lap and 244ms median airtime the 2s default
+// predicts ~62% (measured 68%, 95% CI 54-82%), for a full-band survey
+// every ~2.9s instead of ~0.9s. Larger trades survey cadence for capture.
+//
+// Seeded from capture_settings.h's own default rather than a literal, so
+// the shipped default has exactly one definition -- main.cpp overwrites
+// this from SD moments later anyway, and the two disagreeing would be a
+// silent trap.
+volatile uint32_t activeEnergySweepHomeListenMs =
+    captureWindowMsForIndex(CAPTURE_WINDOW_DEFAULT_INDEX);
 volatile uint16_t energyBinIndex = 0;
 volatile uint16_t energyTotalBins = 0;
 volatile EnergySweepState energyState = EnergySweepState::IDLE;
@@ -112,6 +141,20 @@ uint8_t energyPeakBinMask[28] = {};
 // pushes each peak to a queue the instant Pass A finds it, mid-sweep,
 // independent of this mask entirely.
 uint8_t energyPeakBinMaskAtComplete[28] = {};
+// Packets decoded in performEnergySweepHomeListen()'s between-lap windows.
+// `...Total` is cumulative since boot; the other two are the same
+// snapshot-at-completion discipline energyPeakBinMaskAtComplete uses, and
+// for the same reason: Core 0 polls well after the fact, so anything it
+// reads must be a value that stopped moving, not live state the next lap
+// is already overwriting. `...AtComplete` is the count for the single
+// window that ran *before* the just-finished lap (see waterfall.h's
+// WaterfallRow comment on the one-window lag), and `...HomeBinAtComplete`
+// is which sweep bin the home channel occupied for it, or
+// WATERFALL_NO_CAPTURE_BIN when home fell outside the swept band.
+volatile uint32_t energyHomeListenCaptureTotal = 0;
+volatile uint32_t energyHomeListenCaptureAtPrevComplete = 0;
+volatile uint16_t energyCapturesAtComplete = 0;
+volatile uint16_t energyHomeBinAtComplete = WATERFALL_NO_CAPTURE_BIN;
 // The strongest peak observed this sweep, for the UI's single "most
 // interesting thing found" callout — cheap to keep (one float + one
 // int16) precisely because it's a running max, not a per-bin history.
@@ -235,12 +278,29 @@ constexpr uint32_t BENCH_RSSI_WINDOW_SAMPLE_INTERVAL_MS = 5;
 constexpr TickType_t BUS_WAIT = pdMS_TO_TICKS(250);
 constexpr uint32_t DISCOVERY_CAD_TIMEOUT_MS = 300;
 constexpr uint32_t DISCOVERY_RX_WINDOW_MS = 2500;
-// Placeholders pending real calibration (energy_observation.h carries the
-// same caveat for the noise-floor margin/divisor): 4 samples spaced 1ms
-// apart per bin keeps a full 221-bin sweep in the few-second range Probe's
-// own CAD sweep already established as a reasonable bounded-scan duration.
-constexpr uint8_t ENERGY_SAMPLES_PER_BIN = 4;
+// 4 samples spaced 1ms apart per bin. Briefly raised to 34 (2026-09-03/04)
+// to spend the time performEnergySweep()'s lighter per-bin retune had
+// freed, on the theory that a wider per-bin dwell would coincide with more
+// independently-timed bursts; reverted after real-traffic measurement (see
+// docs/STATUS.md's dwell-timing entry). Two reasons it was the wrong lever:
+// a real packet's airtime (142-490ms measured, median 244ms) is one to two
+// orders of magnitude longer than any per-bin dwell either value gives, so
+// dwell width barely moves an overlap probability whose numerator is a
+// ~244ms packet; and detection of a *packet* (not just its energy) needs
+// the receiver parked on that frequency for the packet's whole airtime,
+// which no full-band sweep can offer any single bin. ENERGY_SWEEP_HOME_-
+// LISTEN_MS below is what actually addresses capture.
+//
+// Deliberately its own constant, not shared with performCellSweep() below:
+// Cell still does a full begin() every bin (unoptimized), so a change here
+// must not silently retime a function this work never touched.
+constexpr uint8_t ENERGY_SWEEP_SAMPLES_PER_BIN = 4;
+constexpr uint8_t CELL_SAMPLES_PER_BIN = 4;
 constexpr uint32_t ENERGY_SAMPLE_INTERVAL_MS = 1;
+
+// Repeat-mode timeshare: after each completed lap, stay parked on the home
+// channel with RX armed for this long, servicing real packets, before
+// starting the next lap. Single-shot Sweep is deliberately unaffected.
 // One full trace per bounded Scope acquisition: SCOPE_MAX_SAMPLES samples
 // at this spacing is ~4.8s — in the same few-second bounded-scan range
 // Cell/Sweep/Probe already established as reasonable for a field
@@ -1056,6 +1116,20 @@ void performEnergySweep() {
     // service the Sweep request — same reasoning as Probe's own discard.
     ulTaskNotifyTake(pdTRUE, 0);
 
+    // Whether the next bin needs a full radio.begin() (chip reset + config
+    // reload) rather than a light retune (operator report/dwell-timing
+    // investigation, 2026-09-03: RadioLib's begin() -> modSetup() does a
+    // full hardware reset, chip re-detect, and TCXO restart every call --
+    // vastly more than a bin-to-bin retune needs, since SF/BW/CR/sync never
+    // change across a sweep. Only the frequency does, and RadioLib's own
+    // setFrequency() only re-runs image calibration past a 20MHz jump
+    // (RADIOLIB_SX126X_CAL_IMG_FREQ_TRIG_MHZ) -- never triggered by this
+    // sweep's 250kHz step). True for bin 0 (nothing configured yet) and for
+    // any bin right after passBCadAtBin() below ran a CAD attempt: that
+    // leaves the radio on a Pass-B candidate's own SF/BW/sync, which only a
+    // full begin() can restore correctly.
+    bool needsFullRetune = true;
+
     for (uint16_t bin = 0; bin < totalBins; bin++) {
         if (energyAbortPending()) {
             aborted = true;
@@ -1076,12 +1150,23 @@ void performEnergySweep() {
                 failed = true;
                 break;
             }
-            // Sweep is protocol-agnostic energy measurement, not a decode
-            // attempt — reusing the home channel's own SF/BW/CR/sync keeps
-            // this slice simple; a dedicated wide-BW scan config is a
-            // future calibration decision, not a correctness requirement.
-            beginState = radio.begin(freq, homeChannel.bw_khz, homeChannel.sf,
-                                     homeChannel.cr_denom, homeChannel.sync_word);
+            if (needsFullRetune) {
+                // Sweep is protocol-agnostic energy measurement, not a
+                // decode attempt — reusing the home channel's own
+                // SF/BW/CR/sync keeps this simple; a dedicated wide-BW scan
+                // config is a future calibration decision, not a
+                // correctness requirement.
+                beginState = radio.begin(freq, homeChannel.bw_khz, homeChannel.sf,
+                                         homeChannel.cr_denom, homeChannel.sync_word);
+                needsFullRetune = false;
+            } else {
+                // Light retune: SetRfFrequency is only valid from standby
+                // per the SX126x datasheet, so standby() first (also just
+                // one SPI command, not a reset) — the previous bin left the
+                // radio actively receiving.
+                beginState = radio.standby();
+                if (beginState == RADIOLIB_ERR_NONE) beginState = radio.setFrequency(freq);
+            }
             if (beginState == RADIOLIB_ERR_NONE) beginState = radio.startReceive();
         }
         if (beginState != RADIOLIB_ERR_NONE) {
@@ -1095,7 +1180,7 @@ void performEnergySweep() {
         }
 
         EnergyBinStats stats;
-        for (uint8_t s = 0; s < ENERGY_SAMPLES_PER_BIN; s++) {
+        for (uint8_t s = 0; s < ENERGY_SWEEP_SAMPLES_PER_BIN; s++) {
             float rssi = 0.0f;
             bool gotSample = false;
             {
@@ -1115,7 +1200,7 @@ void performEnergySweep() {
                         stats, energyExceedsFloor(fixed, noiseFloor, benchSweepMarginDbmX10()));
                 }
             }
-            if (s + 1 < ENERGY_SAMPLES_PER_BIN) vTaskDelay(pdMS_TO_TICKS(ENERGY_SAMPLE_INTERVAL_MS));
+            if (s + 1 < ENERGY_SWEEP_SAMPLES_PER_BIN) vTaskDelay(pdMS_TO_TICKS(ENERGY_SAMPLE_INTERVAL_MS));
         }
 
         // Bench-only (bench_fault.h): keeps this bin's average even when it
@@ -1131,10 +1216,12 @@ void performEnergySweep() {
             // Decide against the floor as it stood *before* this bin, then
             // fold this bin's average in — so a strong bin can't drag its
             // own floor upward and mask itself (energy_observation.h's own
-            // noted concern). benchSweepMarginDbmX10() is the calibrated
-            // production default (energy_observation.h) unless the
-            // cardputer-adv-bench image has an operator-armed
-            // BENCH_SWEEP_MARGIN override active.
+            // noted concern). benchSweepMarginDbmX10() resolves to the
+            // operator's System > Tuning > Margin setting (radio_task.h,
+            // defaulting to ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10) on
+            // production firmware, or to the cardputer-adv-bench image's
+            // own BENCH_SWEEP_MARGIN override when armed there (see
+            // bench_fault.h's own comment on this function).
             if (energyBinIsPeak(stats, noiseFloor, benchSweepMarginDbmX10())) {
                 energyPeakBinMask[bin / 8] |= (uint8_t)(1U << (bin % 8));
                 if (!energyStrongestValid || stats.rssi_peak_dbm_x10 > energyStrongestRssiDbmX10) {
@@ -1152,6 +1239,11 @@ void performEnergySweep() {
                 if (passBPeaksThisSweep < PASS_B_MAX_PEAKS_PER_SWEEP) {
                     passBPeaksThisSweep++;
                     passBCadAtBin(bin, freq, aborted, failed);
+                    // passBCadOneCombo() (inside passBCadAtBin()) just left
+                    // the radio on a Pass-B candidate's own SF/BW/sync, not
+                    // Sweep's — the next bin must fully reconfigure back,
+                    // not just retune frequency.
+                    needsFullRetune = true;
                 }
             }
             noiseFloor = energyNoiseFloorUpdate(noiseFloor, stats.rssi_avg_dbm_x10);
@@ -1175,6 +1267,19 @@ void performEnergySweep() {
     for (size_t i = 0; i < sizeof(energyPeakBinMask); i++) {
         energyPeakBinMaskAtComplete[i] = energyPeakBinMask[i];
     }
+    // Same snapshot-before-the-counter-moves discipline as the mask above:
+    // how many packets the previous between-lap listen window decoded, and
+    // which bin of THIS lap's band the home channel maps onto. Home is only
+    // recorded when it genuinely falls inside the swept range — Region can
+    // be narrower than the home frequency, and a capture plotted onto a bin
+    // the sweep never visited would be a fabricated column.
+    energyCapturesAtComplete =
+        (uint16_t)(energyHomeListenCaptureTotal - energyHomeListenCaptureAtPrevComplete);
+    energyHomeListenCaptureAtPrevComplete = energyHomeListenCaptureTotal;
+    energyHomeBinAtComplete =
+        (homeChannel.freq_mhz >= band.lo_mhz && homeChannel.freq_mhz <= band.hi_mhz)
+            ? energyBinIndexForFrequencyMhz(homeChannel.freq_mhz, band, ENERGY_SWEEP_DEFAULT_STEP)
+            : WATERFALL_NO_CAPTURE_BIN;
     energySweepCount++;
     if (aborted || energyCancelRequested) energyCancelCount++;
     if (failed) energyFailureCount++;
@@ -1185,6 +1290,61 @@ void performEnergySweep() {
                                                               : EnergySweepState::COMPLETE);
     energyCancelRequested = false;
     energyActive = false;
+}
+
+// Repeat-mode timeshare window (ENERGY_SWEEP_HOME_LISTEN_MS): sit on the
+// home channel between laps and actually receive, instead of starting the
+// next lap immediately. performEnergySweep() has already called
+// restoreHomeListen() by the time this runs, so the radio is on the home
+// channel with RX armed -- this only services what lands and keeps the
+// window bounded.
+//
+// Reuses HOME_LISTEN's own read-then-enqueue path (readDetectionLocked() +
+// enqueueDetection()/enqueueNodeIdentity()), so a packet caught here is
+// indistinguishable downstream from one caught while Trace was idle: same
+// Detection, same RXP counter, same detections.csv row -- no new plumbing
+// and no second definition of "a real packet". energyAbortPending() is the
+// abort predicate, so a cancel, profile switch, or Trace pause still
+// interrupts promptly rather than waiting out the window.
+void performEnergySweepHomeListen() {
+    // Read once per window, not per iteration: the operator cycling the
+    // Capture row mid-window should take effect on the next lap, not
+    // stretch or truncate the one already in flight.
+    const uint32_t budgetMs = activeEnergySweepHomeListenMs;
+    if (budgetMs == 0) return; // Capture: OFF
+    const uint32_t started = millis();
+    uint8_t buf[DETECTION_RAW_MAX_LEN];
+
+    for (;;) {
+        const uint32_t elapsed = millis() - started;
+        if (elapsed >= budgetMs) return;
+        if (!waitForDioUntil(budgetMs - elapsed, energyAbortPending)) {
+            return; // budget spent, or a control request is waiting
+        }
+
+        ulTaskNotifyTake(pdTRUE, 0);
+        Detection det = {};
+        bool readFailed = false;
+        bool haveDetection = false;
+        {
+            // Same short critical section / read-then-rearm ordering the
+            // main loop documents: the chip is deaf between DIO1 and
+            // startReceive(), which readDetectionLocked() does itself.
+            SpiBusLock lock(BUS_WAIT);
+            if (lock.held()) {
+                haveDetection = readDetectionLocked(activeChannel, activeProfile, buf,
+                                                    sizeof(buf), det, readFailed);
+                if (readFailed) crcErrorCount++;
+            } else {
+                busMissCount++;
+            }
+        }
+        if (haveDetection) {
+            enqueueDetection(det);
+            enqueueNodeIdentity(det);
+            energyHomeListenCaptureTotal++;
+        }
+    }
 }
 
 // Isolated from performEnergySweep() on purpose (see radio_task.h's
@@ -1248,7 +1408,7 @@ void performCellSweep() {
         }
 
         EnergyBinStats stats;
-        for (uint8_t s = 0; s < ENERGY_SAMPLES_PER_BIN; s++) {
+        for (uint8_t s = 0; s < CELL_SAMPLES_PER_BIN; s++) {
             float rssi = 0.0f;
             bool gotSample = false;
             {
@@ -1261,7 +1421,7 @@ void performCellSweep() {
                 }
             }
             if (gotSample) energyBinStatsAddSample(stats, energyRssiDbmToFixed(rssi));
-            if (s + 1 < ENERGY_SAMPLES_PER_BIN) vTaskDelay(pdMS_TO_TICKS(ENERGY_SAMPLE_INTERVAL_MS));
+            if (s + 1 < CELL_SAMPLES_PER_BIN) vTaskDelay(pdMS_TO_TICKS(ENERGY_SAMPLE_INTERVAL_MS));
         }
 
         enqueueCellObservation(bin, homeChannel, stats,
@@ -1467,8 +1627,43 @@ void radioTask(void *) {
                 do {
                     performEnergySweep();
                     if (energyRepeatActive) energyRepeatCount++;
+                    // Timeshare the radio between laps (see
+                    // activeEnergySweepHomeListenMs): without this, repeat
+                    // mode loops straight into the next lap and the home
+                    // channel never gets receive time, which is what made
+                    // Trace's catch rate collapse to zero during sweeps
+                    // (docs/STATUS.md). Only in repeat mode -- a single
+                    // bounded tap is unchanged.
+                    if (energyRepeatActive && energyState == EnergySweepState::COMPLETE &&
+                        !paused) {
+                        // energyActive is held across the window on purpose.
+                        // It is the "the energy subsystem owns the radio"
+                        // flag every other bounded action tests before
+                        // taking it (radioRequestDiscoverySweep()/Cell/
+                        // Scope) and that radioRequestEnergySweepRepeat()'s
+                        // own stop path checks before raising
+                        // energyCancelRequested. The radio genuinely IS
+                        // owned here, so leaving it false let a P/C press
+                        // land mid-window and fire minutes later, and made
+                        // a repeat-stop wait out the whole budget instead
+                        // of aborting. performEnergySweep() refuses to
+                        // re-enter while it is set, so it must be cleared
+                        // again before the next lap.
+                        energyActive = true;
+                        performEnergySweepHomeListen();
+                        energyActive = false;
+                    }
                 } while (energyRepeatActive && energyState == EnergySweepState::COMPLETE && !paused);
                 energyRepeatActive = false;
+                // Captures from a window that no lap ever reported (repeat
+                // stopped mid-window, which is the common case since the
+                // window is most of each cycle) belong to nothing. Drop
+                // them rather than let the next sweep's snapshot claim
+                // them: a later single-shot sweep, which runs no window at
+                // all, would otherwise draw a green Waterfall mark and a
+                // "N PKTS" headline for packets it never received --
+                // exactly the fabricated column waterfall.h refuses.
+                energyHomeListenCaptureAtPrevComplete = energyHomeListenCaptureTotal;
             }
             continue;
         }
@@ -1828,6 +2023,31 @@ void radioSetEnergySweepRegion(Region region) {
 Region radioEnergySweepRegion() {
     return activeEnergySweepRegion;
 }
+
+void radioSetEnergySweepMarginDbmX10(int16_t margin_dbm_x10) {
+    activeEnergySweepMarginDbmX10 = margin_dbm_x10;
+}
+
+int16_t radioEnergySweepMarginDbmX10() {
+    return activeEnergySweepMarginDbmX10;
+}
+
+void radioSetEnergySweepHomeListenMs(uint32_t window_ms) {
+    activeEnergySweepHomeListenMs = window_ms;
+}
+
+uint32_t radioEnergySweepHomeListenMs() {
+    return activeEnergySweepHomeListenMs;
+}
+
+uint16_t radioEnergyCapturesAtLastComplete() {
+    return energyCapturesAtComplete;
+}
+
+uint16_t radioEnergyHomeBinAtLastComplete() {
+    return energyHomeBinAtComplete;
+}
+
 
 bool radioRequestBenchPassBCadTrigger(uint8_t comboIndex) {
     if (!benchPassBCadTriggerAllowed()) return false;

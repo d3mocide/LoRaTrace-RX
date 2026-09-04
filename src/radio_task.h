@@ -145,6 +145,40 @@ uint32_t radioEnergySweepRepeatCount();
 void radioSetEnergySweepRegion(Region region);
 Region radioEnergySweepRegion();
 
+// Operator-adjustable Pass-A peak-detection margin (System > Tuning >
+// Margin) — set once at boot from SD (sweep_margin_settings.h) and again
+// whenever the operator adjusts the slider, read at each bin's peak
+// decision (energy_observation.h's energyBinIsPeak()/energyExceedsFloor()).
+// Defaults to ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10, the single-room
+// bench calibration — see energy_observation.h's own comment on
+// ENERGY_SWEEP_MARGIN_MIN_DBM_X10/MAX for why a weaker/more distant real
+// signal can need a smaller margin than that calibration run needed
+// (docs/STATUS.md's 2026-09-03 "Sweep silence" investigation).
+void radioSetEnergySweepMarginDbmX10(int16_t margin_dbm_x10);
+int16_t radioEnergySweepMarginDbmX10();
+
+// Repeat-mode capture window (System > Tuning > Capture) — how long Sweep
+// parks on the home channel with RX armed between laps, servicing real
+// packets through HOME_LISTEN's own read path. 0 disables it (repeat mode
+// then loops straight into the next lap, as it did before v1.0.3, and
+// captures essentially nothing: 0/42 packets measured). Set at boot from
+// SD (capture_settings.h) and again whenever the operator cycles the row;
+// read once per lap, never mid-window. See performEnergySweepHomeListen()
+// and docs/STATUS.md for the 0.0% -> 81.5% measurement behind the default.
+void radioSetEnergySweepHomeListenMs(uint32_t window_ms);
+uint32_t radioEnergySweepHomeListenMs();
+
+// Waterfall's green capture marks (ui_pages.cpp) read these. Both are
+// snapshots taken at sweep completion, never live state, for the same
+// reason radioEnergyPeakBinSetAtLastComplete() exists: Core 0 polls after
+// the fact and the next lap is already overwriting the live values.
+// CapturesAtLastComplete is the packet count for the single between-lap
+// listen window that ran BEFORE the just-completed lap; HomeBinAtLastComplete
+// is which bin of that lap's band the home channel occupied, or
+// WATERFALL_NO_CAPTURE_BIN when home falls outside the swept range.
+uint16_t radioEnergyCapturesAtLastComplete();
+uint16_t radioEnergyHomeBinAtLastComplete();
+
 uint16_t radioEnergyBinIndex();
 uint16_t radioEnergyBinCount();
 // Peaks logged during the most recent sweep (resets to 0 at the start of

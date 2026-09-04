@@ -83,13 +83,34 @@ inline void waterfallAggregateRow(const int16_t *bin_peak_dbm_x10, uint16_t bin_
     }
 }
 
+// "No home-channel bin applies to this row" — the home frequency fell
+// outside the swept band, or nothing was captured. Deliberately not bin 0,
+// which is a real, plottable bin: same "reserve a value that cannot be
+// mistaken for a real one" convention as WATERFALL_NO_DATA above.
+constexpr uint16_t WATERFALL_NO_CAPTURE_BIN = 0xFFFF;
+
 // One completed Sweep's worth of per-bin readings, stored at full bin
 // resolution. bin_count can differ row to row (Region toggled between
 // sweeps); bins beyond it stay WATERFALL_NO_DATA.
+//
+// capture_bin/capture_count are a deliberately separate channel from
+// bins[], not another value packed into it: bins[] is a quantized RSSI
+// scale whose one spare value (WATERFALL_NO_DATA) is already spent on
+// "no sample", and a decoded packet is a different kind of fact than an
+// energy reading — reusing a plausible RSSI byte to mean "packet" is
+// exactly what that field's own comment warns against. They record that
+// `capture_count` real packets were demodulated on the home channel,
+// which sat at `capture_bin`, during the listen window that ran just
+// BEFORE this row's sweep lap (radio_task.cpp's
+// performEnergySweepHomeListen(); the row is pushed when the lap
+// completes, and the window runs between laps). That one-window lag is
+// why this is stored per row rather than inferred at draw time.
 struct WaterfallRow {
     uint8_t bins[WATERFALL_MAX_BINS] = {};
     uint16_t bin_count = 0;
     uint32_t rx_millis = 0;
+    uint16_t capture_bin = WATERFALL_NO_CAPTURE_BIN;
+    uint8_t capture_count = 0;
 };
 
 struct WaterfallHistory {
@@ -98,8 +119,12 @@ struct WaterfallHistory {
     uint8_t next_index = 0; // ring write cursor
 };
 
+// capture_bin/capture_count default to "none", so existing callers that
+// only have energy data keep their exact previous behavior.
 inline void waterfallHistoryPushRow(WaterfallHistory &history, const int16_t *bin_peak_dbm_x10,
-                                     uint16_t bin_count, uint32_t rx_millis) {
+                                     uint16_t bin_count, uint32_t rx_millis,
+                                     uint16_t capture_bin = WATERFALL_NO_CAPTURE_BIN,
+                                     uint8_t capture_count = 0) {
     if (bin_count > WATERFALL_MAX_BINS) bin_count = WATERFALL_MAX_BINS;
     WaterfallRow &row = history.rows[history.next_index];
     for (uint16_t b = 0; b < bin_count; b++) {
@@ -109,6 +134,12 @@ inline void waterfallHistoryPushRow(WaterfallHistory &history, const int16_t *bi
     for (uint16_t b = bin_count; b < WATERFALL_MAX_BINS; b++) row.bins[b] = WATERFALL_NO_DATA;
     row.bin_count = bin_count;
     row.rx_millis = rx_millis;
+    // A capture bin outside this row's own swept range can't be plotted
+    // against it, so it's recorded as "none" rather than clamped onto a
+    // real bin it didn't happen at.
+    row.capture_bin = (capture_count > 0 && capture_bin < bin_count) ? capture_bin
+                                                                     : WATERFALL_NO_CAPTURE_BIN;
+    row.capture_count = (row.capture_bin == WATERFALL_NO_CAPTURE_BIN) ? 0 : capture_count;
     history.next_index = (uint8_t)((history.next_index + 1) % WATERFALL_MAX_ROWS);
     if (history.count < WATERFALL_MAX_ROWS) history.count++;
 }

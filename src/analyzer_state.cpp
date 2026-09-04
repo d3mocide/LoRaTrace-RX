@@ -69,8 +69,20 @@ void analyzerNoteSweepComplete() {
                                                           : WATERFALL_RSSI_FLOOR_DBM_X10;
     }
 
+    // Packets actually decoded on the home channel during the between-lap
+    // listen window (radio_task.cpp's performEnergySweepHomeListen(),
+    // v1.0.3) — a strictly stronger fact about that frequency than a Pass-A
+    // energy peak, since these were demodulated and CRC-checked, so the
+    // Waterfall marks them distinctly rather than leaving the bin blank.
+    // Both are the same at-completion snapshots as the peak mask above, for
+    // the same cross-core reason. See waterfall.h's WaterfallRow comment for
+    // why the count belongs to the window *before* this row's lap.
+    const uint16_t captureBin = radioEnergyHomeBinAtLastComplete();
+    const uint16_t captures = radioEnergyCapturesAtLastComplete();
+
     if (xSemaphoreTake(analyzerMutex, portMAX_DELAY) == pdTRUE) {
-        waterfallHistoryPushRow(sharedWaterfallHistory, bins, binCount, millis());
+        waterfallHistoryPushRow(sharedWaterfallHistory, bins, binCount, millis(), captureBin,
+                                captures > 255 ? 255 : (uint8_t)captures);
         xSemaphoreGive(analyzerMutex);
     }
 }

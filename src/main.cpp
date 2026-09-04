@@ -31,6 +31,7 @@
 #include "backlight.h"
 #include "battery.h"
 #include "board_pins.h"
+#include "capture_settings.h"
 #include "cell_observation.h"
 #include "channel_plans.h"
 #include "config.h"
@@ -45,6 +46,7 @@
 #include "region_settings.h"
 #include "serial_lock.h"
 #include "spi_bus.h"
+#include "sweep_margin_settings.h"
 #include "ui_task.h"
 #include "version.h"
 #include "wifi_task.h"
@@ -373,6 +375,12 @@ void setup() {
     RegionSettings regionSettings;
     loadRegionSettingsFromSD(regionSettings);
     radioSetEnergySweepRegion(regionSettings.region);
+    SweepMarginSettings sweepMarginSettings;
+    loadSweepMarginSettingsFromSD(sweepMarginSettings);
+    radioSetEnergySweepMarginDbmX10(sweepMarginSettings.margin_dbm_x10);
+    CaptureSettings captureSettings;
+    loadCaptureSettingsFromSD(captureSettings);
+    radioSetEnergySweepHomeListenMs(captureWindowMsForIndex(captureSettings.window_index));
     // A mounted card with no override file is a fine, expected state, not
     // a checklist failure — this is SD.begin()'s own result, not "was a
     // config applied" (that detail is still in serial/the CHANNEL page).

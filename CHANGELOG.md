@@ -33,6 +33,55 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
   (Cell) was never part of the gate; its two open items (a real cell-band
   RSSI rise near a tower, `cell.csv`/`session.csv` column verification)
   are known, tracked gaps post-`v1.0`, not blockers.
+- Made Sweep's Pass-A peak margin operator-adjustable (`v1.0.1`):
+  System > Tuning > Margin, 15.0-50.0dB in 5.0dB steps, persisted to
+  `/loratrace/sweep_margin.txt`. Prompted by a field report of weak
+  (-55 to -72dBm) deck-range readings, after the dwell-timing
+  investigation above had already cleared the margin as the cause at a
+  much stronger 6ft/59dB-clearance test — a weaker signal's clearance can
+  still drop under the 35dB default even with clean SNR at the receiver.
+  Region moved into a new nested "Tuning" group alongside it so System's
+  own list stays at 4 rows.
+- Cut Sweep's per-bin retune cost ~4.1x (`v1.0.2`): `performEnergySweep()`
+  called a full `radio.begin()` (hardware reset, chip re-detect, TCXO
+  restart, full config reload) for every bin, even though only frequency
+  changes bin to bin — replaced with one real `begin()` per sweep plus a
+  three-SPI-command `standby()`/`setFrequency()`/`startReceive()` retune
+  for the rest. Hardware-confirmed at a fixed 35.0dB margin (zero Pass-B
+  noise either side): 3463ms avg → 850ms avg across four 85-bin US-region
+  sweeps each way. Also surfaced a bigger, separate cost: Pass-B's own
+  bounded receive-on-hit window can now add up to ~20s to a sweep when the
+  margin is sensitive enough to find several peaks — evaluated and left
+  as-is this session (docs/STATUS.md).
+- **Repeat-mode Sweep now captures real packets instead of going blind
+  (`v1.0.3`).** After each lap it parks on the home channel with RX armed
+  for 2s and services packets through the same path Trace uses. Measured
+  against the operator's pyMC repeater as ground truth, back-to-back
+  4-minute windows: **0/42 packets (0.0%) before, 22/27 (81.5%) after**,
+  zero CRC errors, lap time unchanged. Also reverted `v1.0.2`'s
+  samples-per-bin 4→34: real packet airtime (142-490ms) is orders of
+  magnitude longer than any per-bin dwell, so capture is bounded by share
+  of time parked on the channel, not by dwell width — which is why no
+  amount of sample-count tuning could reach the operator's 50% target and
+  timesharing cleared it on the first try. Pooled across both treatment
+  runs: 30/44 = 68% (95% CI 54-82%).
+- Added System > Tuning > Capture (Off/1s/2s/4s, `/loratrace/capture.txt`)
+  so the survey-cadence-vs-capture trade is an operator choice rather than
+  a silent default, per CLAUDE.md's house rule. Also added compile-time
+  cross-checks that every nested menu group's hand-written `itemCount`
+  matches its array length — the stale-count bug that silently hid the
+  Region row in `v0.8.9` is now a build error, verified by deliberately
+  breaking it.
+- **Waterfall now shows packet captures, not just energy (`v1.0.5`).**
+  Green = a packet was demodulated and CRC-checked on the home channel
+  during that row's listen window; yellow stays energy-over-margin. Green
+  routinely appears without yellow, because Pass A's per-bin glance is
+  milliseconds against a 142-490ms packet — so the page no longer reads a
+  flat "QUIET" while traffic is actively being captured. Stored as its own
+  row channel rather than packed into the RSSI byte, and refused rather
+  than clamped when the bin falls outside the swept range. Verified over
+  45 consecutive rows on hardware (bin 34 = 910.525MHz, 15 rows carrying
+  21 packets). Analyzer footprint 6728 → 6824 of 8192 bytes.
 
 ## 2026-09-01
 

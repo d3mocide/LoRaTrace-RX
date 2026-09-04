@@ -15,6 +15,7 @@
 #include "analyzer_state.h"
 #include "battery.h"
 #include "capture_history.h"
+#include "capture_settings.h"
 #include "cell_plan.h"
 #include "detection.h"
 #include "discovery_plan.h"
@@ -1048,8 +1049,53 @@ const char *menuEntryValue(MenuAction action) {
             return radioDiscoverySweepIsActive() ? "RUNNING" : "";
         case MenuAction::IDLE_TIMEOUT_CYCLE: return IDLE_TIMEOUT_OPTIONS[idleTimeoutIndex].label;
         case MenuAction::REGION_CYCLE: return regionLabel(radioEnergySweepRegion());
+        case MenuAction::CAPTURE_WINDOW_CYCLE: {
+            // Resolve the live ms back to its option label rather than
+            // caching an index here — radio_task.cpp owns the value.
+            const uint32_t ms = radioEnergySweepHomeListenMs();
+            for (uint8_t i = 0; i < CAPTURE_WINDOW_OPTION_COUNT; i++) {
+                if (CAPTURE_WINDOW_OPTIONS_MS[i] == ms) return CAPTURE_WINDOW_LABELS[i];
+            }
+            return "";
+        }
         // BRIGHTNESS_UP/DOWN aren't ACTION rows, so they never reach here.
         default: return "";
+    }
+}
+
+// A SLIDER row's live value, formatted for both the list row and the
+// slider screen itself (drawMenuSlider() below) — one switch on
+// sliderIncrease (unique per slider row) rather than one function per
+// slider, same "data-driven over MenuAction" shape as menuEntryValue()
+// above. Revisit if a third slider is added and this switch starts feeling
+// cramped.
+void sliderValueLabel(const MenuItem &item, char *out, size_t outSize) {
+    switch (item.sliderIncrease) {
+        case MenuAction::BRIGHTNESS_UP:
+            snprintf(out, outSize, "%u%%", (unsigned)activeBrightnessPercent);
+            break;
+        case MenuAction::SWEEP_MARGIN_UP:
+            snprintf(out, outSize, "%.1fdB", (double)radioEnergySweepMarginDbmX10() / 10.0);
+            break;
+        default:
+            if (outSize > 0) out[0] = '\0';
+            break;
+    }
+}
+
+// Same switch, for the slider screen's fill-bar fraction (0..1) — kept
+// separate from sliderValueLabel() rather than folded together since one
+// formats text and the other computes geometry; same MenuAction-per-case
+// shape either way.
+float sliderFraction(const MenuItem &item) {
+    switch (item.sliderIncrease) {
+        case MenuAction::BRIGHTNESS_UP:
+            return (float)(activeBrightnessPercent - BRIGHTNESS_MIN) / (float)(BRIGHTNESS_MAX - BRIGHTNESS_MIN);
+        case MenuAction::SWEEP_MARGIN_UP:
+            return (float)(radioEnergySweepMarginDbmX10() - ENERGY_SWEEP_MARGIN_MIN_DBM_X10) /
+                   (float)(ENERGY_SWEEP_MARGIN_MAX_DBM_X10 - ENERGY_SWEEP_MARGIN_MIN_DBM_X10);
+        default:
+            return 0.0f;
     }
 }
 
@@ -1061,13 +1107,10 @@ void drawMenuList() {
     const uint8_t count = menu.currentCount();
     for (uint8_t i = 0; i < count; i++) {
         const MenuItem &item = list[i];
-        char label[24];
         if (item.kind == ItemKind::SLIDER) {
-            // Brightness is the only SLIDER row today, so this reaches
-            // straight for activeBrightnessPercent rather than being fully
-            // generic — revisit if a second slider is added.
-            snprintf(label, sizeof(label), "Brightness: %u%%", (unsigned)activeBrightnessPercent);
-            drawMenuRow(HEADER_H + 10 + i * 24, label, nullptr, menu.currentIndex() == i);
+            char valueBuf[12];
+            sliderValueLabel(item, valueBuf, sizeof(valueBuf));
+            drawMenuRow(HEADER_H + 10 + i * 24, item.label, valueBuf, menu.currentIndex() == i);
         } else if (item.items == PROFILE_GROUP_ITEMS) {
             // "Profile: Meshtastic" — surfaces the live profile without
             // drilling into the group. Goes through the same label/value
@@ -1089,20 +1132,23 @@ void drawMenuList() {
     uiTft->print(",/. move   Enter select   ` back");
 }
 
-// Brightness slider screen — the one SLIDER view today. Large live readout
-// plus a filled-bar track, same outline+fill visual language as
+// Slider screen — generic over whichever SLIDER row is currently open
+// (Brightness or Margin, ui_menu.h's MenuItem). Large live readout plus a
+// filled-bar track, same outline+fill visual language as
 // drawHeapBar()/drawFreqBar() rather than a third bar style.
 void drawMenuSlider() {
+    const MenuItem &item = menu.currentItem();
+
     uiTft->setTextSize(2);
     uiTft->setTextColor(COL_FG, COL_BG);
     uiTft->setCursor(2, HEADER_H + 10);
-    char pctBuf[8];
-    snprintf(pctBuf, sizeof(pctBuf), "%u%%", (unsigned)activeBrightnessPercent);
-    uiTft->print(pctBuf);
+    char valueBuf[12];
+    sliderValueLabel(item, valueBuf, sizeof(valueBuf));
+    uiTft->print(valueBuf);
 
     constexpr int16_t BAR_X = 2, BAR_Y = HEADER_H + 40, BAR_W = 200, BAR_H = 14;
     uiTft->drawRect(BAR_X, BAR_Y, BAR_W, BAR_H, COL_GOOD);
-    const float frac = (float)(activeBrightnessPercent - BRIGHTNESS_MIN) / (float)(BRIGHTNESS_MAX - BRIGHTNESS_MIN);
+    const float frac = sliderFraction(item);
     const int16_t fill = (int16_t)((BAR_W - 2) * frac);
     if (fill > 0) uiTft->fillRect(BAR_X + 1, BAR_Y + 1, fill, BAR_H - 2, COL_GOOD);
 
@@ -1378,12 +1424,22 @@ void waterfallRowToColumns(const WaterfallRow &row, uint8_t *outColumns, uint16_
 }
 
 // Waterfall: one row per completed Sweep, newest at top, x = frequency bin
-// mapped to a plot column. This slice's WaterfallHistory rows are occupancy
-// only (analyzer_state.cpp's own comment on analyzerNoteSweepComplete()
-// explains why) — quiet bins and no-data bins both render as background, so
-// this reads as a scrolling history of drawSweepOccupancy()'s existing tick
+// mapped to a plot column. Energy bins are occupancy only
+// (analyzer_state.cpp's own comment on analyzerNoteSweepComplete() explains
+// why) — quiet bins and no-data bins both render as background, so this
+// reads as a scrolling history of drawSweepOccupancy()'s existing tick
 // marks rather than a genuine RSSI-graded heatmap. Real Phase 9 sweep rows
 // only (§8.6: "no fabricated vertical texture").
+//
+// Two colours, two different claims, deliberately never blended:
+//   COL_WARN yellow — Pass A measured energy over the margin in this bin.
+//   COL_GOOD green  — a real packet was demodulated and CRC-checked on the
+//                     home channel during this row's listen window (v1.0.3).
+// Green is the stronger fact and frequently appears without yellow: Pass
+// A's per-bin glance is milliseconds against a 142-490ms packet, so it
+// misses traffic the receiver then decodes cleanly. Before v1.0.3 this page
+// could read a flat "QUIET" while packets were actively being captured —
+// that gap is what the green channel exists to close.
 //
 // Laid out to match drawScope()'s shape (operator request, 2026-09-03: "we
 // should model this for some of these other pages"): a headline callout,
@@ -1419,6 +1475,7 @@ void drawWaterfallPage() {
     // shape drawSweepPage()/drawCellPage() already use (peaks / strongest
     // signal), for a consistent headline across all three pages.
     uint32_t totalHits = 0;
+    uint32_t totalCaptures = 0;
     uint16_t latestBinCount = 0;
     WaterfallRow row;
     for (uint8_t r = 0; r < rowCount; r++) {
@@ -1427,6 +1484,7 @@ void drawWaterfallPage() {
         for (uint16_t b = 0; b < row.bin_count; b++) {
             if (row.bins[b] >= 200) totalHits++;
         }
+        totalCaptures += row.capture_count;
     }
 
     uiTft->setTextSize(2);
@@ -1435,6 +1493,15 @@ void drawWaterfallPage() {
         uiTft->setTextColor(COL_WARN, COL_BG);
         uiTft->print(totalHits);
         uiTft->print(totalHits == 1 ? " HIT" : " HITS");
+    } else if (totalCaptures > 0) {
+        // Energy found nothing but packets were still decoded on the home
+        // channel — the exact case that used to read a flat "QUIET" while
+        // real traffic was being captured (docs/STATUS.md's dwell-timing
+        // entry). Saying QUIET here would be false, so the capture count
+        // becomes the headline in its own colour instead.
+        uiTft->setTextColor(COL_GOOD, COL_BG);
+        uiTft->print(totalCaptures);
+        uiTft->print(totalCaptures == 1 ? " PKT" : " PKTS");
     } else {
         uiTft->setTextColor(COL_DIM, COL_BG);
         uiTft->print("QUIET");
@@ -1462,9 +1529,17 @@ void drawWaterfallPage() {
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
     uiTft->setCursor(2, HEADER_H + 24);
-    char meta[40];
-    snprintf(meta, sizeof(meta), "%u rows, newest first  %u bins", (unsigned)rowCount,
-             (unsigned)latestBinCount);
+    char meta[48];
+    // Captures get named here rather than left to the green marks alone —
+    // the legend is what makes the two colours readable as two different
+    // claims instead of one gradient.
+    if (totalCaptures > 0) {
+        snprintf(meta, sizeof(meta), "%u rows  %u bins  %lu pkt", (unsigned)rowCount,
+                 (unsigned)latestBinCount, (unsigned long)totalCaptures);
+    } else {
+        snprintf(meta, sizeof(meta), "%u rows, newest first  %u bins", (unsigned)rowCount,
+                 (unsigned)latestBinCount);
+    }
     uiTft->print(meta);
 
     // Fixed-height bordered box, same visual language as drawScope()'s own
@@ -1501,6 +1576,21 @@ void drawWaterfallPage() {
             if (columns[c] == WATERFALL_NO_DATA || columns[c] <= 1) continue; // quiet/no-data: background
             const uint16_t colour = columns[c] >= 200 ? COL_WARN : COL_DIM;
             uiTft->drawFastVLine(PLOT_X + (int16_t)c, y, ROW_H - 1, colour);
+        }
+
+        // Packets decoded on the home channel during this row's listen
+        // window, drawn last so they win the pixel over an energy tick at
+        // the same column. Two different facts share this plot and must
+        // stay visually distinct (CLAUDE.md's truthful-visualization rule):
+        // COL_WARN yellow = "Pass A measured energy over the margin here",
+        // COL_GOOD green = "a real packet was demodulated and CRC-checked
+        // here" — the stronger claim, and one Pass A frequently misses
+        // entirely because its per-bin glance is milliseconds against a
+        // 142-490ms packet. A green mark with no yellow under it is the
+        // normal, expected case, not a contradiction.
+        if (row.capture_bin != WATERFALL_NO_CAPTURE_BIN && row.capture_count > 0) {
+            const uint16_t col = waterfallColumnForBin(row.capture_bin, row.bin_count, PLOT_W);
+            uiTft->drawFastVLine(PLOT_X + (int16_t)col, y, ROW_H - 1, COL_GOOD);
         }
     }
     // Frequency axis below the box (operator request, 2026-09-04) — the

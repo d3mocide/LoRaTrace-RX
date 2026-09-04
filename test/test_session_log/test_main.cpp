@@ -93,6 +93,13 @@ static SessionStats healthySample() {
     // NodeRoster) fails this test as a deliberate reminder to update the
     // documented memory-budget numbers (docs/STATUS.md/version.h), not a
     // silent drift.
+    // Real constant in, literal expected value below — deliberately not
+    // derived from ANALYZER_STATIC_BYTES, so any change to Field
+    // Analyzer's static footprint fails here and gets looked at against
+    // the design doc's 8192-byte ceiling rather than silently absorbed.
+    // 6728 -> 6824 on 2026-09-04: WaterfallRow gained capture_bin/
+    // capture_count for the Waterfall's green packet marks (+96B across
+    // 24 rows); 1368 bytes of headroom remain.
     s.analyzer_static_bytes = ANALYZER_STATIC_BYTES;
     return s;
 }
@@ -117,7 +124,7 @@ void test_row_with_fix_carries_position_and_counters() {
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7,"
         "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,"
-        "9,2,3,1,0,3,1500,6728",
+        "9,2,3,1,0,3,1500,6824",
         row);
 }
 
@@ -233,7 +240,7 @@ void test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters() {
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     const char *suffix =
-        "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,9,2,3,1,0,3,1500,6728";
+        "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,9,2,3,1,0,3,1500,6824";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -248,7 +255,7 @@ void test_cell_diagnostics_precede_analyzer_static_bytes() {
     SessionStats s = healthySample();
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
-    const char *suffix = "9,2,3,1,0,3,1500,6728";
+    const char *suffix = "9,2,3,1,0,3,1500,6824";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }

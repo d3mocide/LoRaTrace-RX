@@ -76,6 +76,22 @@ enum class MenuAction : uint8_t {
     // live value by 5% instead of jumping between 4 fixed points.
     BRIGHTNESS_UP,
     BRIGHTNESS_DOWN,
+    // Sweep's Pass-A peak-detection margin above the rolling noise floor
+    // (System > Tuning > Margin, energy_observation.h's
+    // ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10/radio_task.h's
+    // radioSetEnergySweepMarginDbmX10() — operator request 2026-09-03,
+    // docs/STATUS.md's "Sweep silence" investigation). Second SLIDER row,
+    // same shape as BRIGHTNESS_UP/DOWN.
+    SWEEP_MARGIN_UP,
+    SWEEP_MARGIN_DOWN,
+    // Cycles repeat-mode Sweep's home-channel capture window
+    // (Off/1s/2s/4s, capture_settings.h) — how long each lap pauses on the
+    // home channel to actually receive packets. Same "fires and stays in
+    // the list" cycling shape as IDLE_TIMEOUT_CYCLE/REGION_CYCLE below.
+    // It's a toggle rather than a constant because it trades survey
+    // cadence against packet capture, which is an operator call: measured
+    // 0/42 packets at Off vs 22/27 at 2s (docs/STATUS.md, v1.0.3).
+    CAPTURE_WINDOW_CYCLE,
     // A plain on/off toggle replaced by a cycling value (Off/30s/60s/2min/
     // 5min) — same "fires and stays in the list" shape WIFI_TOGGLE/
     // DEBUG_TOGGLE already have, just cycling instead of flipping a bool.

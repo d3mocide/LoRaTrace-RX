@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "energy_observation.h"
+#include "radio_task.h"
 
 namespace {
 
@@ -155,8 +156,18 @@ bool benchSweepMarginConfigure(const char *argument) {
 
 int16_t benchSweepMarginDbmX10() {
 #if !defined(LORATRACE_BENCH_FAULTS)
-    return ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10;
+    // Production firmware: the operator's own System > Tuning > Margin
+    // setting (radio_task.h), defaulting to
+    // ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10 the same way it always did
+    // before that setting existed (2026-09-03, docs/STATUS.md's "Sweep
+    // silence" investigation) — this function's name/callers are unchanged,
+    // only what "the real margin" resolves to on this build.
+    return radioEnergySweepMarginDbmX10();
 #else
+    // Dedicated cardputer-adv-bench image: the bench harness's own
+    // BENCH_SWEEP_MARGIN override always wins here, regardless of any menu
+    // setting, so scripts/phase9_sweep_margin_bench.py's calibration matrix
+    // stays deterministic.
     return sweepMarginDbmX10;
 #endif
 }

@@ -13,6 +13,7 @@
 #include <stdio.h>
 
 #include "backlight.h"
+#include "capture_settings.h"
 #include "display_settings.h"
 #include "logger_task.h"
 #include "serial_control.h"
@@ -223,6 +224,25 @@ void fireMenuAction(MenuAction action) {
             backlightSetPercent(activeBrightnessPercent);
             break; // no toast — the slider screen's own live "NN%" readout is the feedback
         }
+        case MenuAction::SWEEP_MARGIN_UP:
+        case MenuAction::SWEEP_MARGIN_DOWN: {
+            // Same live-applied-but-not-saved-per-step shape as Brightness
+            // above (save happens once, on BACK/SELECT out of the slider —
+            // see ui_task.cpp's leavingSliderKind). Unlike Brightness this
+            // has no local shadow variable: radio_task.cpp is the value's
+            // one owner (it's the task that actually reads it, at each
+            // Sweep bin's peak decision), so this reads/writes straight
+            // through radioEnergySweepMarginDbmX10()/
+            // radioSetEnergySweepMarginDbmX10() every step instead of
+            // mirroring it into ui_task_shared.h state.
+            int32_t next = (int32_t)radioEnergySweepMarginDbmX10() +
+                            (action == MenuAction::SWEEP_MARGIN_UP ? ENERGY_SWEEP_MARGIN_STEP_DBM_X10
+                                                                    : -ENERGY_SWEEP_MARGIN_STEP_DBM_X10);
+            if (next < ENERGY_SWEEP_MARGIN_MIN_DBM_X10) next = ENERGY_SWEEP_MARGIN_MIN_DBM_X10;
+            if (next > ENERGY_SWEEP_MARGIN_MAX_DBM_X10) next = ENERGY_SWEEP_MARGIN_MAX_DBM_X10;
+            radioSetEnergySweepMarginDbmX10((int16_t)next);
+            break; // no toast — the slider screen's own live "NN.NdB" readout is the feedback
+        }
         case MenuAction::IDLE_TIMEOUT_CYCLE: {
             // Plain local state this file owns directly (not an async
             // cross-task flag like WiFi's apActive), so there's no
@@ -276,6 +296,28 @@ void fireMenuAction(MenuAction action) {
             } else {
                 showToast("Scope: UNAVAILABLE");
             }
+            break;
+        }
+        case MenuAction::CAPTURE_WINDOW_CYCLE: {
+            // Lives in radio_task.cpp (mirrors Region/Margin above), not
+            // local ui_task state — the radio task is the one that reads
+            // it, once per repeat lap.
+            uint8_t index = CAPTURE_WINDOW_DEFAULT_INDEX;
+            for (uint8_t i = 0; i < CAPTURE_WINDOW_OPTION_COUNT; i++) {
+                if (CAPTURE_WINDOW_OPTIONS_MS[i] == radioEnergySweepHomeListenMs()) {
+                    index = i;
+                    break;
+                }
+            }
+            index = (uint8_t)((index + 1) % CAPTURE_WINDOW_OPTION_COUNT);
+            radioSetEnergySweepHomeListenMs(captureWindowMsForIndex(index));
+            snprintf(msg, sizeof(msg), "Capture: %s", captureWindowLabelForIndex(index));
+            showToast(msg);
+            // One write per press — a discrete tap, not a scrub, so no
+            // save-on-exit debounce needed (same as Idle dim/Region).
+            CaptureSettings captureSettings;
+            captureSettings.window_index = index;
+            writeCaptureSettingsToSD(captureSettings);
             break;
         }
         case MenuAction::REGION_CYCLE: {

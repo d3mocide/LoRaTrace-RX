@@ -20,6 +20,7 @@
 #include "backlight.h"
 #include "board_pins.h"
 #include "display_settings.h"
+#include "sweep_margin_settings.h"
 #include "keyboard.h"
 #include "serial_control.h"
 #include "serial_lock.h"
@@ -138,18 +139,54 @@ constexpr MenuItem DIAGNOSTICS_GROUP_ITEMS[] = {
     {"Debug", ItemKind::ACTION, MenuAction::DEBUG_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"SD", ItemKind::ACTION, MenuAction::SD_RETRY, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
+// Sweep's own tuning knobs, their own nested group under System (operator
+// request 2026-09-03: adding a Margin slider alongside the existing
+// Region cycle here — rather than as a 5th flat row on System's own list —
+// keeps that list at its already-calibrated 4-row headroom; see
+// CONNECTIVITY/DIAGNOSTICS_GROUP_ITEMS' own comment for the footer-
+// collision math that headroom was set against). Named "Tuning", not
+// "Sweep" (operator request, same day, after using it live) — the group
+// sits right next to Tools > Sweep, the actual radio action, and reusing
+// that name for a settings container read as two different things sharing
+// one word. Same "category, not feature name" naming Display/
+// Connectivity/Diagnostics already use. Margin is a SLIDER row, same shape
+// as Display's Brightness — see energy_observation.h's
+// ENERGY_SWEEP_MARGIN_MIN_DBM_X10/MAX/STEP for its bounds and
+// docs/STATUS.md's "Sweep silence" investigation for why it became
+// operator-adjustable.
+constexpr MenuItem TUNING_GROUP_ITEMS[] = {
+    {"Region", ItemKind::ACTION, MenuAction::REGION_CYCLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Margin", ItemKind::SLIDER, MenuAction::NONE, MenuAction::SWEEP_MARGIN_UP, MenuAction::SWEEP_MARGIN_DOWN, nullptr, 0},
+    // Repeat Sweep's home-channel capture window (Off/1s/2s/4s) — the
+    // survey-cadence-vs-packet-capture trade, see ui_menu.h's own comment
+    // on CAPTURE_WINDOW_CYCLE.
+    {"Capture", ItemKind::ACTION, MenuAction::CAPTURE_WINDOW_CYCLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+};
+// Cross-check further down, once SYSTEM_GROUP_ITEMS exists, that its
+// "Tuning" row's itemCount actually matches this array's real length.
 constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
     {"Connectivity", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, CONNECTIVITY_GROUP_ITEMS, 2},
     {"Diagnostics", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DIAGNOSTICS_GROUP_ITEMS, 2},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
-    // Cycles Sweep's scanned band (US/Global) — a flat row here rather than
-    // its own nested group, same "2-value cycle" shape as Idle dim, and
-    // System's top-level list was fine at 4 rows before the operator-
-    // requested 5-row split above (see CONNECTIVITY/DIAGNOSTICS_GROUP_ITEMS'
-    // own comment), so this has the same headroom that split was
-    // calibrated against.
-    {"Region", ItemKind::ACTION, MenuAction::REGION_CYCLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Tuning", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, TUNING_GROUP_ITEMS, 3},
 };
+// A GROUP row's itemCount is hand-written and nothing at runtime notices
+// when it drifts below its array's real length — the extra rows just
+// silently never render. That exact bug shipped once (Region became
+// System's 4th row while the count still said 3, docs/STATUS.md's Region
+// entry) and was only caught by an operator not seeing the row on
+// hardware. These make it a build error instead. One per nested group, so
+// adding a row to any of them fails loudly rather than quietly.
+template <size_t N>
+constexpr size_t menuItemCount(const MenuItem (&)[N]) { return N; }
+static_assert(SYSTEM_GROUP_ITEMS[0].itemCount == menuItemCount(CONNECTIVITY_GROUP_ITEMS),
+              "System > Connectivity itemCount does not match CONNECTIVITY_GROUP_ITEMS");
+static_assert(SYSTEM_GROUP_ITEMS[1].itemCount == menuItemCount(DIAGNOSTICS_GROUP_ITEMS),
+              "System > Diagnostics itemCount does not match DIAGNOSTICS_GROUP_ITEMS");
+static_assert(SYSTEM_GROUP_ITEMS[2].itemCount == menuItemCount(DISPLAY_GROUP_ITEMS),
+              "System > Display itemCount does not match DISPLAY_GROUP_ITEMS");
+static_assert(SYSTEM_GROUP_ITEMS[3].itemCount == menuItemCount(TUNING_GROUP_ITEMS),
+              "System > Tuning itemCount does not match TUNING_GROUP_ITEMS");
 // Trace remains the root-level operating toggle. Probe has no duplicate menu
 // row: P is the global start/cancel shortcut and the dedicated second card
 // also exposes it through Enter. Label has no baked-in colon -- drawMenuRow
@@ -795,13 +832,18 @@ void uiTask(void *) {
         } else if (action != KeyAction::NONE) {
             // Menu open (root/group/slider) — MenuState owns navigation;
             // this file only reacts to what fired. Captured before handle()
-            // runs: leaving the Brightness slider (BACK or SELECT, SLIDER ->
-            // ROOT — ui_menu.h's handleSlider() treats both the same way,
+            // runs: leaving a slider (BACK or SELECT, SLIDER -> ROOT —
+            // ui_menu.h's handleSlider() treats both the same way,
             // 2026-08-29) is the debounce point for persisting it (see
             // BRIGHTNESS_UP/DOWN in ui_actions.cpp for why saves don't
-            // happen every step).
+            // happen every step). Which slider is captured too (via its
+            // sliderIncrease action, unique per slider) — inSlider() flips
+            // false the instant handle() below processes this same
+            // BACK/SELECT, so menu.currentItem() must be read before that
+            // call, not after.
             const bool leavingSlider = menu.inSlider() &&
                                        (action == KeyAction::BACK || action == KeyAction::SELECT);
+            const MenuAction leavingSliderKind = leavingSlider ? menu.currentItem().sliderIncrease : MenuAction::NONE;
             // UP/DOWN (';'/'.', split off PREV/NEXT 2026-09-03 for the
             // Analyze hub — see keyboard.h's KeyAction::UP comment)
             // translate back to PREV/NEXT here so the settings menu and
@@ -813,7 +855,11 @@ void uiTask(void *) {
                                                                       : action;
             const MenuAction fired = menu.handle(menuAction);
             if (fired != MenuAction::NONE) fireMenuAction(fired);
-            if (leavingSlider) {
+            if (leavingSliderKind == MenuAction::SWEEP_MARGIN_UP) {
+                SweepMarginSettings settings;
+                settings.margin_dbm_x10 = radioEnergySweepMarginDbmX10();
+                writeSweepMarginSettingsToSD(settings);
+            } else if (leavingSlider) {
                 DisplaySettings settings;
                 settings.brightness_pct = activeBrightnessPercent;
                 settings.idle_timeout_index = idleTimeoutIndex;

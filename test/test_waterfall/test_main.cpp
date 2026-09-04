@@ -105,6 +105,57 @@ void test_history_row_bin_count_narrower_than_max_leaves_no_data_tail() {
     TEST_ASSERT_EQUAL_UINT8(WATERFALL_NO_DATA, r->bins[WATERFALL_MAX_BINS - 1]);
 }
 
+// --- capture marks (v1.0.3/v1.0.4) -------------------------------------
+// The green "a packet was decoded here" channel is deliberately separate
+// storage from bins[], so these assert it stays independent of the energy
+// data and refuses to plot a capture it can't honestly place.
+
+void test_capture_defaults_to_none() {
+    WaterfallHistory history;
+    int16_t bins[4] = {0, 0, 0, 0};
+    waterfallHistoryPushRow(history, bins, 4, 100);
+    const WaterfallRow *row = waterfallHistoryRowAt(history, 0);
+    TEST_ASSERT_NOT_NULL(row);
+    TEST_ASSERT_EQUAL_UINT16(WATERFALL_NO_CAPTURE_BIN, row->capture_bin);
+    TEST_ASSERT_EQUAL_UINT8(0, row->capture_count);
+}
+
+void test_capture_recorded_independently_of_energy() {
+    WaterfallHistory history;
+    // Every bin quiet: a capture must still record, since Pass A missing
+    // the traffic is the normal case this exists for.
+    int16_t bins[8];
+    for (int i = 0; i < 8; i++) bins[i] = WATERFALL_RSSI_FLOOR_DBM_X10;
+    waterfallHistoryPushRow(history, bins, 8, 100, /*capture_bin=*/3, /*capture_count=*/5);
+    const WaterfallRow *row = waterfallHistoryRowAt(history, 0);
+    TEST_ASSERT_NOT_NULL(row);
+    TEST_ASSERT_EQUAL_UINT16(3, row->capture_bin);
+    TEST_ASSERT_EQUAL_UINT8(5, row->capture_count);
+    // ...and the energy channel is untouched by it.
+    TEST_ASSERT_EQUAL_UINT8(0, row->bins[3]);
+}
+
+void test_capture_outside_swept_range_is_refused_not_clamped() {
+    WaterfallHistory history;
+    int16_t bins[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    // bin 9 does not exist in an 8-bin row — clamping it onto bin 7 would
+    // draw a packet mark at a frequency it never happened at.
+    waterfallHistoryPushRow(history, bins, 8, 100, /*capture_bin=*/9, /*capture_count=*/2);
+    const WaterfallRow *row = waterfallHistoryRowAt(history, 0);
+    TEST_ASSERT_NOT_NULL(row);
+    TEST_ASSERT_EQUAL_UINT16(WATERFALL_NO_CAPTURE_BIN, row->capture_bin);
+    TEST_ASSERT_EQUAL_UINT8(0, row->capture_count);
+}
+
+void test_zero_count_records_no_capture_bin() {
+    WaterfallHistory history;
+    int16_t bins[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    waterfallHistoryPushRow(history, bins, 8, 100, /*capture_bin=*/3, /*capture_count=*/0);
+    const WaterfallRow *row = waterfallHistoryRowAt(history, 0);
+    TEST_ASSERT_NOT_NULL(row);
+    TEST_ASSERT_EQUAL_UINT16(WATERFALL_NO_CAPTURE_BIN, row->capture_bin);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_budget_ceiling_matches_design_doc);
@@ -117,5 +168,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_history_push_and_recency_order);
     RUN_TEST(test_history_ring_wraps_and_evicts_oldest);
     RUN_TEST(test_history_row_bin_count_narrower_than_max_leaves_no_data_tail);
+    RUN_TEST(test_capture_defaults_to_none);
+    RUN_TEST(test_capture_recorded_independently_of_energy);
+    RUN_TEST(test_capture_outside_swept_range_is_refused_not_clamped);
+    RUN_TEST(test_zero_count_records_no_capture_bin);
     return UNITY_END();
 }

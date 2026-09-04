@@ -38,10 +38,15 @@ unsigned char benchCadSymbols();
 
 // Bench-image-only Sweep noise-floor margin override, for the Phase 9
 // margin-calibration matrix (energy_observation.h's
-// ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10 is an explicit placeholder
-// pending exactly this). Argument is tenths of dB (e.g. "150" = 15.0dB).
-// Production firmware always returns the same placeholder default and
-// rejects changes, same production/bench split as the CAD selector above.
+// ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10 is the resulting calibrated
+// default). Argument is tenths of dB (e.g. "150" = 15.0dB). Production
+// firmware rejects changes here (benchSweepMarginConfigure() always fails)
+// — the operator-facing equivalent is System > Tuning > Margin
+// (radio_task.h's radioSetEnergySweepMarginDbmX10()). benchSweepMarginDbmX10()
+// resolves to that operator setting on production firmware and to this
+// bench override on the dedicated cardputer-adv-bench image, so
+// radio_task.cpp's Pass-A call sites don't need to know which build they're
+// in — see its own two branches for the split.
 bool benchSweepMarginConfigure(const char *argument);
 int16_t benchSweepMarginDbmX10();
 

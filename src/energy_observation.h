@@ -95,6 +95,22 @@ constexpr int16_t energyNoiseFloorUpdate(int16_t floor_dbm_x10, int16_t sample_d
 // warrant revisiting this with the same bench.
 constexpr int16_t ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10 = 350; // 35.0dB
 
+// Operator-adjustable bounds (System > Tuning > Margin, radio_task.h's
+// radioSetEnergySweepMarginDbmX10()/radioEnergySweepMarginDbmX10()) — the
+// above default stays a single quiet-room/close-range calibration, and a
+// weaker/more distant real signal can sit under its 35dB bar even with a
+// clean receiver SNR (docs/STATUS.md's 2026-09-03 "Sweep silence"
+// investigation measured a 59dB clearance at 6ft — nowhere near marginal —
+// so the same bar can plausibly bind at longer range where clearance is far
+// smaller). Floor of 150 (15.0dB) keeps this above the "every bin is a
+// peak" nonsense zone bench_fault.cpp's own parseSweepMargin() guards
+// against at 0; ceiling of 500 (50.0dB) matches that same file's bench
+// bound so the operator range never exceeds what the bench harness itself
+// considers plausible.
+constexpr int16_t ENERGY_SWEEP_MARGIN_MIN_DBM_X10 = 150; // 15.0dB
+constexpr int16_t ENERGY_SWEEP_MARGIN_MAX_DBM_X10 = 500; // 50.0dB
+constexpr int16_t ENERGY_SWEEP_MARGIN_STEP_DBM_X10 = 50; // 5.0dB per NEXT/PREV, same step count as Brightness's 5%
+
 constexpr bool energyExceedsFloor(int16_t value_dbm_x10, int16_t floor_dbm_x10,
                                    int16_t margin_dbm_x10 = ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10) {
     return value_dbm_x10 >= (int16_t)(floor_dbm_x10 + margin_dbm_x10);

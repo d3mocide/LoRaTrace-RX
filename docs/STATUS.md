@@ -8,7 +8,7 @@ prose that used to be duplicated (and drifting) across `CLAUDE.md`,
 
 ## Current version
 
-**v1.0.0** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
+**v1.0.5** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
 *reached*, not the phase in progress — see ROADMAP.md's Versioning
 section. Phase 9 (`ENERGY_SWEEP`/"Sweep") reached 2026-09-03: all five
 ROADMAP.md exit criteria closed, including two full 8-hour endurance
@@ -461,14 +461,142 @@ the lo/hi labels above or the disclaimer line below.
     back-to-back single-shot) monopolizes the radio. Not a bug, an
     inherent trade-off worth knowing about, not previously measured.
   
-  No firmware change indicated by this investigation — the margin, the
-  reception path, and the dwell design are all working as built. Making
-  the margin operator-configurable (floated earlier) is no longer
-  motivated by a suspected miscalibration, though it could still be
-  useful as a general tuning knob if a future need justifies the menu-
-  toggle work CLAUDE.md requires for it. `RXP`/`RXC` stay on `STATUS`
-  going forward — genuinely useful for future "is Trace actually
-  receiving" questions, not just this one.
+  No firmware change was indicated by this investigation itself — the
+  margin, the reception path, and the dwell design were all working as
+  built for the case tested. `RXP`/`RXC` stay on `STATUS` going forward —
+  genuinely useful for future "is Trace actually receiving" questions,
+  not just this one.
+  - ~~Margin operator-configurability~~ — done, `v1.0.1` (2026-09-03,
+    same day, a separate follow-up report): a field test at real deck
+    range (-55 to -72dBm) has far less clearance over the floor than this
+    investigation's 6ft/59dB test did, so the 35dB default can plausibly
+    still gate a weak, distant, clean-SNR signal even though it wasn't
+    the cause here. System > Tuning > Margin, 15.0-50.0dB/5.0dB steps,
+    `/loratrace/sweep_margin.txt`.
+  - ~~Per-bin retune cost~~ — cut ~4.1x, `v1.0.2` (2026-09-03/04, same
+    session): `performEnergySweep()` was calling a full `radio.begin()`
+    (RadioLib -> `modSetup()`: hardware reset, chip re-detect, TCXO
+    restart, full config reload) for every bin, even though SF/BW/CR/sync
+    never change across a sweep — only frequency does, and RadioLib's own
+    `setFrequency()` only re-runs image calibration past a 20MHz jump
+    (this sweep's 250kHz step never crosses that). Replaced with one real
+    `begin()` per sweep (and again right after any bin that ran a Pass-B
+    CAD attempt, which leaves the radio on that candidate's own SF/BW/
+    sync) plus `standby()`/`setFrequency()`/`startReceive()` — three
+    single-SPI-command calls — for every other bin. Hardware-confirmed at
+    a fixed 35.0dB margin (zero Pass-A peaks either side, so zero Pass-B
+    time muddying the comparison): four back-to-back 85-bin US-region
+    sweeps before vs. after — 3471/3435/3475/3472ms (avg 3463ms,
+    ~40.7ms/bin) vs. 834/866/833/866ms (avg 850ms, ~10.0ms/bin). The
+    earlier, less-isolated attempt at this same measurement (at a
+    then-sensitive -20dB margin) is *why* it needed isolating: several
+    Pass-A peaks per sweep triggered Pass-B CAD, and that inflated results
+    up to 14-20s — which is the next finding, below.
+  - **New, bigger cost found while measuring the above: Pass-B's own
+    bounded receive-on-hit window.** `passBCadAtBin()` reuses Probe's CAD
+    + bounded-receive-on-hit sequence at each of the first
+    `PASS_B_MAX_PEAKS_PER_SWEEP` (8) Pass-A peaks per sweep; a CAD hit
+    opens `DISCOVERY_RX_WINDOW_MS` (2.5s) waiting for a full packet. At a
+    sensitive margin finding several real peaks, that's up to ~20s added
+    on top of the now-~850ms Pass-A scan — an order of magnitude bigger
+    than the per-bin cost just fixed above. Evaluated same session
+    (operator call: "I think that's fine") and left as-is — not fixed,
+    tracked here as the next lever if sweep duration at a sensitive
+    margin becomes a real problem. Dwell timing itself (the RTL-SDR-
+    confirmed root cause of the original "Sweep silence" case above) is
+    still open as a design limitation, not a bug — the freed per-bin time
+    hasn't yet been reinvested into more samples/bin; that sizing was
+    deliberately deferred to a real before/after measurement rather than
+    guessed (see `radioEnergyLastAwayMs()`, already exposed on `STATUS`'s
+    `EA` field and the Sweep card, for exactly that measurement).
+  - ~~Reinvesting the freed time into more samples/bin~~ — sized and
+    shipped as `ENERGY_SWEEP_SAMPLES_PER_BIN = 34` (`radio_task.cpp`), same
+    session: an isolated N=1 hardware measurement put fixed per-bin
+    overhead at ~6.98ms/bin, each additional 1ms-spaced sample at ~1.0ms/
+    bin, and 34 lands total per-bin cost back at ~39.9ms/bin — the same
+    total sweep duration as before the retune fix, just ~34ms of it now
+    real dwell instead of ~3-4ms. `CELL_SAMPLES_PER_BIN` (4) keeps
+    `performCellSweep()` — never touched by this retune work — at its
+    original dwell, since sharing the constant would have silently
+    stretched Cell's own sweep by the same ~30ms/bin as a side effect.
+  - **Real-traffic correlation against pyMC_Repeater: inconclusive between
+    wide-dwell and narrow-dwell, not a confirmation of either.** Two
+    back-to-back ~4.1-minute windows, each driving bounded sweeps
+    single-shot from a host script (`radioEnergyPeakCount()` returns the
+    live counter, not a stable per-lap snapshot — true on-device repeat
+    mode's own no-delay next-lap loop can reset it before a poll reads the
+    terminal value, so polling only between host-orchestrated bounded
+    sweeps sidesteps that race) against the operator's pyMC repeater's
+    live `/api/stats` as independent ground truth
+    (`docs/hardware-results/private/dwell-reinvest-20260904T005831Z-wide-
+    dwell-N34.results.jsonl` and `...T011142Z-narrow-dwell-N4.results.jsonl`,
+    gitignored — real packet content):
+    - **Wide dwell (shipped `ENERGY_SWEEP_SAMPLES_PER_BIN=34`, ~3.4s/lap
+      quiet):** 28 laps, 8 whole-band peak events against 35 real packets
+      in-window = 22.9% (95% CI 8.9-36.8%).
+    - **Narrow dwell (`N=4`, ~0.85s/lap quiet):** 63 laps — 2.25x more
+      revisits in the same wall-clock window — 11 whole-band peak events
+      against 44 real packets in-window = 25.0% (95% CI 12.2-37.8%).
+    - The two intervals overlap almost entirely — this pair of runs
+      cannot distinguish the conditions. An earlier read of the wide-dwell
+      run alone (before the narrow-dwell follow-up existed) reasoned from
+      real packet airtime (142-490ms, median 244ms — one to two orders of
+      magnitude longer than either dwell width) that revisit frequency
+      should dominate over dwell width, and predicted narrow-dwell's 2.25x
+      more revisits would show a materially higher catch fraction. It
+      didn't, at least not distinguishably in this sample — that
+      airtime-based theory is not confirmed by this data, and neither is
+      the original "wider dwell helps" premise the whole reinvestment was
+      built on. Both conditions also land in the same range as the
+      original RTL-SDR-confirmed ~26% figure at the old pre-any-of-this-
+      session dwell.
+    - Real limitations on trusting this too far either way: `WP` is a
+      whole-band count with no per-bin attribution over Serial Control (a
+      "peak" isn't confirmed as pyMC's own 910.525MHz traffic specifically,
+      just the closest available proxy — the same gap that made the first
+      attempt at the plain retune-timing measurement need isolating from
+      Pass-B noise); n=8 and n=11 hit events are both too small to resolve
+      anything but a large effect; and the two windows sampled different
+      moments of real, non-stationary ambient traffic (44 vs. 35 packets),
+      not a repeatable controlled source. A conclusive answer would need
+      either many more repeat trials or bin-specific ground truth
+      (RTL-SDR, the same tool the original dwell-timing root-cause finding
+      used and this follow-up deliberately didn't reach for).
+  - **Resolved, `v1.0.3` — it was the wrong variable all along; capture is
+    a timeshare problem, not a dwell problem.** Asked to get capture to a
+    usable rate, the model that settles it is simple: *decoding* a packet
+    needs the receiver parked on its frequency when the preamble lands AND
+    held there for the packet's whole airtime (142-490ms measured, median
+    244ms). No full-band sweep can offer any single bin that, at any dwell
+    width — 85 bins means each gets a few ms per lap. So capture is bounded
+    by the share of wall-clock time parked on the channel, which is why
+    `ENERGY_SWEEP_SAMPLES_PER_BIN` could never reach it and why both arms
+    of the A/B above landed in the same range. Measured directly, with
+    repeat Sweep running continuously and pyMC as ground truth
+    (`docs/hardware-results/private/capture-rate-*`): **0 of 42 real
+    packets captured, 0.0%** — not the ~15x degradation recorded earlier
+    but effectively total blindness while sweeping.
+    The fix is to timeshare the radio rather than tune it:
+    `performEnergySweepHomeListen()` parks on the home channel with RX
+    armed for `ENERGY_SWEEP_HOME_LISTEN_MS` (2000ms) after each lap in
+    repeat mode, servicing packets through HOME_LISTEN's own
+    `readDetectionLocked()`/`enqueueDetection()` path — same `Detection`,
+    same `RXP`, same `detections.csv` row, no second definition of "a real
+    packet". Single-shot Sweep is untouched. Immediately-following window,
+    same conditions: **22 of 27 captured, 81.5%**, zero CRC errors, lap
+    time unchanged at ~833ms, full-band survey cadence ~2.9s instead of
+    ~0.9s. `ENERGY_SWEEP_SAMPLES_PER_BIN` reverted 34 → 4 in the same
+    change, the reinvestment having never been justified by real traffic.
+    Shipped with an on-device toggle in `v1.0.4` (System > Tuning >
+    Capture: Off/1s/2s/4s, persisted to `/loratrace/capture.txt`), since
+    the cadence-vs-capture trade is an operator call, not a constant.
+    Pooling both treatment runs gives the honest figure: **30/44 = 68%
+    (95% CI 54-82%)** — the single-run 81.5% was optimistic at n=27.
+    `v1.0.5` closes the display half of the same gap: Waterfall marks
+    those captures green (energy stays yellow), so the page can no longer
+    read "QUIET" while packets are being decoded — the visible symptom
+    this whole investigation started from. Verified over 45 consecutive
+    rows (bin 34 = 910.525MHz, 15 rows carrying 21 packets).
 - **Cell hardware verification** (Phase 11, above) — C key, mutual
   exclusion against Probe/Sweep (both directions), and the carousel card
   are now confirmed on real hardware (2026-09-01). Still open: confirm a
