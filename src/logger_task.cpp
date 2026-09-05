@@ -10,6 +10,7 @@
 #include "cell_observation.h"
 #include "detection.h"
 #include "energy_observation.h"
+#include "focus_observation.h"
 #include "gps_task.h"
 #include "memory_stats.h"
 #include "serial_control.h"
@@ -30,6 +31,7 @@ constexpr const char *PROBE_LEAF = "probe.csv";
 constexpr const char *ENERGY_LEAF = "energy.csv";
 constexpr const char *NODES_LEAF = "nodes.csv";
 constexpr const char *CELL_LEAF = "cell.csv";
+constexpr const char *FOCUS_LEAF = "focus.csv";
 
 // Resolved once, on the first successful mount of this power-on.
 uint16_t runIndex = 0;
@@ -39,6 +41,7 @@ char probePath[RUN_PATH_MAX];
 char energyPath[RUN_PATH_MAX];
 char nodesPath[RUN_PATH_MAX];
 char cellPath[RUN_PATH_MAX];
+char focusPath[RUN_PATH_MAX];
 
 // ~2KB holds a few complete raw-frame rows. Sized to keep a single flush
 // short (see the header): bigger buffers mean longer bus holds, which is
@@ -67,6 +70,7 @@ QueueHandle_t scanObservationQueue = nullptr;
 QueueHandle_t energyObservationQueue = nullptr;
 QueueHandle_t identityQueue = nullptr;
 QueueHandle_t cellObservationQueue = nullptr;
+QueueHandle_t focusObservationQueue = nullptr;
 bool sdReady = false;
 bool initialSdMounted = false;
 volatile bool sdRetryRequested = false;
@@ -99,6 +103,9 @@ volatile uint32_t identityRowsDropped = 0;
 volatile uint32_t maxCellMs = 0;
 volatile uint32_t cellRowsWritten = 0;
 volatile uint32_t cellRowsDropped = 0;
+volatile uint32_t maxFocusMs = 0;
+volatile uint32_t focusRowsWritten = 0;
+volatile uint32_t focusRowsDropped = 0;
 
 // Highest runNNNN index already on the card, or 0 if there are none.
 // Assumes the caller holds the bus and SD is mounted.
@@ -185,6 +192,9 @@ bool openLogsLocked(bool remount) {
         if (runFilePath(cellPath, sizeof(cellPath), LOG_DIR, runIndex, CELL_LEAF) == 0) {
             return false;
         }
+        if (runFilePath(focusPath, sizeof(focusPath), LOG_DIR, runIndex, FOCUS_LEAF) == 0) {
+            return false;
+        }
     }
 
     if (!ensureCsvLocked(detectionsPath, LOG_CSV_HEADER)) return false;
@@ -202,6 +212,7 @@ bool openLogsLocked(bool remount) {
     // Same durability tier as probePath/energyPath: Cell is mission
     // output too when an operator runs it.
     if (!ensureCsvLocked(cellPath, CELL_CSV_HEADER)) return false;
+    if (!ensureCsvLocked(focusPath, FOCUS_CSV_HEADER)) return false;
     return true;
 }
 
@@ -523,6 +534,35 @@ void appendCellObservation(const CellObservation &observation) {
     }
 }
 
+void appendFocusObservation(const FocusObservation &observation) {
+    if (!sdReady) {
+        focusRowsDropped++;
+        return;
+    }
+    GpsFix fix;
+    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
+    const uint32_t now = millis();
+    const bool fresh = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+    char timestamp[24];
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+                             fix.month, fix.day, fix.hour, fix.minute, fix.second);
+    char row[FOCUS_CSV_ROW_MAX];
+    const size_t n = focusObservationFormatCsv(
+        observation, row, sizeof(row), timestamp, fresh, fix.lat, fix.lon,
+        haveFix ? fix.fix_quality : 0, runIndex);
+    if (n == 0) {
+        focusRowsDropped++;
+        return;
+    }
+    row[n] = '\n';
+    const WriteResult result = appendToFile(focusPath, row, n + 1, maxFocusMs);
+    if (result == WriteResult::OK) focusRowsWritten++;
+    else {
+        focusRowsDropped++;
+        if (result == WriteResult::FILE_ERROR) sdReady = false;
+    }
+}
+
 void appendNodeIdentity(const NodeIdentity &identity) {
     if (!sdReady) {
         identityRowsDropped++;
@@ -615,6 +655,12 @@ void loggerTask(void *) {
                 appendCellObservation(observation);
             }
         }
+        if (focusObservationQueue != nullptr) {
+            FocusObservation observation;
+            if (xQueueReceive(focusObservationQueue, &observation, 0) == pdTRUE) {
+                appendFocusObservation(observation);
+            }
+        }
 
         const uint32_t analyzerSweepRuns = radioEnergySweepCount();
         if (analyzerSweepRuns != lastAnalyzerSweepSeen) {
@@ -659,12 +705,14 @@ void loggerTask(void *) {
 } // namespace
 
 bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, QueueHandle_t energyQueue,
-                     QueueHandle_t nodesQueue, QueueHandle_t cellQueue, bool mountedAtBoot) {
+                     QueueHandle_t nodesQueue, QueueHandle_t cellQueue,
+                     QueueHandle_t focusQueue, bool mountedAtBoot) {
     detectionQueue = queue;
     scanObservationQueue = scanQueue;
     energyObservationQueue = energyQueue;
     identityQueue = nodesQueue;
     cellObservationQueue = cellQueue;
+    focusObservationQueue = focusQueue;
     initialSdMounted = mountedAtBoot;
     sdReady = false;
     sdRetryRequested = false;
@@ -743,6 +791,8 @@ uint32_t loggerCellRowsWritten() {
 uint32_t loggerCellRowsDropped() {
     return cellRowsDropped;
 }
+uint32_t loggerFocusRowsWritten() { return focusRowsWritten; }
+uint32_t loggerFocusRowsDropped() { return focusRowsDropped; }
 
 void loggerDebugToggle() {
     loggerDebugSetEnabled(!debugVerbose);

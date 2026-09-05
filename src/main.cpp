@@ -33,6 +33,7 @@
 #include "board_pins.h"
 #include "capture_settings.h"
 #include "cell_observation.h"
+#include "focus_observation.h"
 #include "channel_plans.h"
 #include "config.h"
 #include "detection.h"
@@ -115,6 +116,7 @@ constexpr UBaseType_t ENERGY_OBSERVATION_QUEUE_DEPTH = 32;
 // covers a full sweep between logger drains — a starting choice, not a
 // measured one, same as the other queue depths here.
 constexpr UBaseType_t CELL_OBSERVATION_QUEUE_DEPTH = 16;
+constexpr UBaseType_t FOCUS_OBSERVATION_QUEUE_DEPTH = 4;
 // How long the completed boot checklist stays on screen before uiTaskStart()
 // takes over the panel with the main status pages.
 constexpr uint32_t BOOT_CHECKLIST_HOLD_MS = 1000;
@@ -123,6 +125,7 @@ QueueHandle_t scanObservationQueue = nullptr;
 QueueHandle_t energyObservationQueue = nullptr;
 QueueHandle_t identityQueue = nullptr;
 QueueHandle_t cellObservationQueue = nullptr;
+QueueHandle_t focusObservationQueue = nullptr;
 
 void splashLine(const String &msg, uint16_t color = SPLASH_FG) {
     if (!displayReady) return;
@@ -406,6 +409,10 @@ void setup() {
     if (cellObservationQueue == nullptr) {
         fatal(F("FATAL: could not allocate the cell queue."), F("FATAL: cell queue alloc"));
     }
+    focusObservationQueue = xQueueCreate(FOCUS_OBSERVATION_QUEUE_DEPTH, sizeof(FocusObservation));
+    if (focusObservationQueue == nullptr) {
+        fatal(F("FATAL: could not allocate the Focus queue."), F("FATAL: Focus queue alloc"));
+    }
 
     // Consumers before producer: the logger must be draining before the
     // radio starts filling, or the first burst is dropped for no reason.
@@ -427,7 +434,7 @@ void setup() {
     }
 
     if (!loggerTaskStart(detectionQueue, scanObservationQueue, energyObservationQueue, identityQueue,
-                         cellObservationQueue, sdMounted)) {
+                         cellObservationQueue, focusObservationQueue, sdMounted)) {
         fatal(F("FATAL: logger task failed to start."), F("FATAL: logger task"));
     }
     // No splash line on success: this is RTOS resource allocation, not a
@@ -441,7 +448,7 @@ void setup() {
     // override the same way this boot resolved `bootProfile`'s.
     if (!radioTaskStart(activeChannel, bootProfile, channelOverrides, detectionQueue,
                         scanObservationQueue, energyObservationQueue, identityQueue,
-                        cellObservationQueue)) {
+                        cellObservationQueue, focusObservationQueue)) {
         {
             SerialLock lock(pdMS_TO_TICKS(200));
             if (lock.held()) {

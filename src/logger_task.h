@@ -42,6 +42,7 @@
 
 #include "cell_observation.h"
 #include "energy_observation.h"
+#include "focus_observation.h"
 #include "node_identity.h"
 #include "scan_observation.h"
 
@@ -54,7 +55,8 @@
 // it down and immediately remounting it. Returns false if the task could
 // not be created.
 bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, QueueHandle_t energyQueue,
-                     QueueHandle_t identityQueue, QueueHandle_t cellQueue, bool initialSdMounted);
+                     QueueHandle_t identityQueue, QueueHandle_t cellQueue,
+                     QueueHandle_t focusQueue, bool initialSdMounted);
 
 // True once SD is mounted and the log file is writable. When false the
 // task keeps draining the queue and discarding — a missing card must not
@@ -89,6 +91,8 @@ uint32_t loggerIdentityRowsWritten();
 uint32_t loggerIdentityRowsDropped();
 uint32_t loggerCellRowsWritten();
 uint32_t loggerCellRowsDropped();
+uint32_t loggerFocusRowsWritten();
+uint32_t loggerFocusRowsDropped();
 
 // This power-on's run index, or 0 before SD has mounted. Matches the
 // runNNNN directory the logs are being written into.

@@ -9,6 +9,103 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- Ran Workstream 12's §6.2 controlled dwell matrix: 900 trials in 54.7 min,
+  zero transport errors, zero drops, home restored on every trial; 14 of 15
+  arms separated a controlled source from ambient 30/30 vs 0/30. The finding
+  that matters is a limit — **detection tracks the source's airtime against
+  Focus's sample spacing, not dwell length**. With a fixed 8 samples, spacing
+  is dwell/7, so a 2000 ms dwell observes eight instants rather than 2000 ms;
+  worst-case detection degraded monotonically as source airtime approached
+  that spacing and one arm stopped separating. That is §3's "observation time
+  is not coverage" rule with numbers behind it, and it means a later slice
+  should scale samples with dwell. Bin-center offset turned out not to be the
+  dominant term after all. No single fixed RSSI condition separates every arm,
+  so §3.1 gets a candidate rather than a constant. Summary in
+  `docs/hardware-results/2026-09-04-phase12-focus-matrix.md`.
+
+- Two methodology bugs found by running the §6.2 matrix rather than by
+  reading it. A single armed pulse at a fixed delay cannot cover every dwell
+  arm — at 100 ms the pulse began after the window closed, and source-on was
+  indistinguishable from source-off across 18 trials. Re-arming continuously
+  fixed that but at SF12's ~275 ms airtime the sends overlapped and their tail
+  bled into the next trial, making source-off read -26 dBm. The runner now
+  paces the burst by the transmitter's own `TX_DONE` and waits for the tail to
+  clear before a trial ends: 100 ms arms then separate cleanly (-25/-27 dBm
+  against -97/-101 dBm). Both failure modes are recorded in the design doc so
+  the next harness doesn't rediscover them.
+
+- Added `scripts/phase12_watch_opportunity.py` for §6.3, the measurement that
+  gates Focus's maximum radio-away budget: Watch-only versus Watch-with-Focus
+  against one independently timed pulse train, reported as Wilson intervals
+  plus away time, completed requests, and restored-Watch gap distribution. It
+  refuses to run unless the device's home channel matches the reference train,
+  since otherwise both arms hear nothing and their equality would read as a
+  reassuring result, and it reports the away fraction alongside the loss
+  because a small loss at a small duty cycle predicts nothing about a larger
+  one.
+
+- Built Workstream 12's §6.2 matrix tooling: `scripts/phase12_focus_matrix.py`
+  runs paired source-on/source-off Focus trials across dwell arms and writes
+  one durable JSONL row each, and `scripts/phase12_focus_matrix_report.py` does
+  the offline analysis — per-arm distributions, the lowest separating 1 dB
+  condition or an explicit "these overlap", and Wilson 95% intervals rather
+  than bare proportions. Neither can emit a coverage label. Validated on
+  hardware with a 4-trial smoke run at 912.750 MHz: source-on P90 -66/-68 dBm
+  against -97/-98 dBm quiet, 573 ms radio-away, no drops.
+
+- Found that none of §6.1's three fixture frequencies sits on a Focus bin
+  center. Focus tunes at the home channel's bandwidth (125 kHz here), so the
+  offset changes what a pass can observe: low and mid are +62.5 kHz off bins 13
+  and 43, and the high position sits exactly on a bin boundary, 125 kHz from
+  either neighbour — outside the passband. A null there would measure geometry,
+  not sensitivity, so the matrix now also runs two exactly bin-centered
+  controls from the same transmitter table, and every trial records its offset.
+
+- Closed Workstream 12's last Engineering-gate item by measuring the Focus
+  budgets off the built image instead of estimating them
+  (`docs/research/phase12-survey-truth-design.md` §4.2): 12 B request, 40 B
+  result, 148 B histogram, 188 B working state against a 256 B target, 159 B
+  of Focus statics, a 1,072 B `radioTask` frame in a 6,144 B stack, and a
+  189 B worst-case `focus.csv` row against a 256 B buffer that drops rather
+  than truncates. Everything landed inside the bounds §4.1 had set, so
+  nothing needed resizing. The row buffer now comes from one shared
+  `FOCUS_CSV_ROW_MAX` and a test formats the saturated row, so the writer and
+  its budget can't drift the way `STATUS`'s hand-sized buffer did.
+
+- Phase 12: bounded a Focus request in wall-clock time, not just in samples.
+  Each sample waits on the shared SPI bus, so a contended bus could stretch a
+  pass past its dwell with the radio away from home and nothing to stop it —
+  `focusRuntimeTimeout()` existed but no code path reached it. A request now
+  carries a dwell-plus-slack deadline and terminates as `timeout`, restoring
+  home like every other exit. Bench-only additions make the remaining Device
+  gate reproducible: `BENCH_FOCUS`'s optional 4th field arms a one-shot
+  sample-loop stall (production only times out under real contention), and
+  `BENCH_ACTION` starts/cancels/reports Cell and Scope, which are menu-only in
+  production, so Focus's mutual exclusion against them can be driven by a
+  fixture. Verified on hardware the same day: a stalled request timed out,
+  restored home, and wrote its durable row inside a 1,573 ms radio-away
+  window, and Cell and Scope each arbitrated with Focus in both directions.
+
+- Fixed a latent silent-drop in Serial Control's `STATUS`: its argument buffer
+  was hand-sized to 240 bytes against a frame budget of ~230, and
+  `serialControlFormatFrame()` drops an over-long frame rather than truncating
+  — so a long session's wider counters would have lost the whole status frame,
+  newest fields first, with no error. The argument budget is now derived from
+  the frame size, the frame limit is 384, and a host test formats at
+  saturation. The formatter also builds in place instead of staging through a
+  second full-size buffer, which nets less stack on the 4KB UI task than
+  before.
+
+- Phase 12 engineering: wired one bounded, bench-only Focus Survey through
+  Core 1, the Core-0 `focus.csv` writer, and restore-before-publish terminal
+  state. Added framed `BENCH_FOCUS` and GPS-free compact
+  `BENCH_FOCUS_RESULT` readback, durable-write health counters, and the
+  explicit-transmit-gated `scripts/phase12_focus_bench.py` plus
+  non-transmitting `scripts/phase12_focus_behavior_bench.py` fixture
+  harnesses. Quiet/source-on, cancel, injected-failure, and Probe/Sweep
+  arbitration hardware checks completed with successful home restore and SD
+  rows; they do not set a coverage/activity threshold.
+
 - `pages.yml`'s "Download stable release assets" step now retries (6x/20s)
   instead of failing hard: a maintainer publishing a draft release before
   release.yml's build job finishes uploading assets makes `release:
@@ -77,6 +174,34 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
   listening for any reason, manual pause or a bounded action running.
 
 ## 2026-09-04
+
+- Archived the completed v1 roadmap at the immutable `v1.0.7` tag and
+  streamlined `docs/ROADMAP.md` into the active V2 gate board. Updated
+  `CLAUDE.md`, `AGENTS.md`, and documentation indexes so future work opens
+  V2 gates/design first and searches v1 history only when needed.
+
+- Opened V2 Workstream 12 (Survey truth) at Design entry: one selected-bin
+  Focus Survey, fixed streaming statistics, durable `focus.csv` contract,
+  controlled transmitter/RTL-SDR truthfulness matrix, and Portland metro,
+  Oregon as the privacy-preserving field-validation area. No firmware scope
+  has entered implementation; radio-away and coverage thresholds remain
+  evidence-gated.
+
+- Began Workstream 12 Engineering with host-tested, radio-free Focus request
+  and `focus.csv` contracts: a single sourced bin, 1 dB bounded RSSI histogram
+  (median/P90/peak), explicit completion states, and an intentionally blank
+  `coverage` column. No menu, radio task, logger, or coverage conclusion is
+  wired yet.
+
+- Tightened the Focus bench-request contract before radio integration: exactly
+  one pass, 2--2,000 ms dwell, and 2--64 samples. Added a host-tested state
+  machine that records restoration before a terminal result and makes restore
+  failure override partial/cancelled work.
+
+- Wired the bench-only Focus vertical slice: a Core-1 one-bin RSSI request,
+  mutually exclusive ownership/restoration, four-row Core-1-to-Core-0 queue,
+  durable `focus.csv`, and framed `BENCH_FOCUS bin:dwell_ms:samples` control.
+  The production image rejects the command; hardware evidence is still open.
 
 - Ran a `/code-review` pass and then a whole-project audit
   (`docs/research/2026-09-04-project-audit.md`), and fixed what it found

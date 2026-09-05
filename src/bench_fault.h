@@ -113,6 +113,24 @@ bool benchSweepFloorQuery(uint16_t bin, int16_t &rssi_avg_dbm_x10);
 // holds still long enough to. Same production/bench split as the rest of
 // this file.
 bool benchRssiWindowTriggerAllowed();
+// Phase 12 bench-only Focus request gate. Production keeps Focus unreachable
+// until its on-device control and claim gate are ready.
+bool benchFocusSurveyTriggerAllowed();
+
+// Bench-image-only one-shot stall injected into the Focus sample loop, in ms
+// (0-4000). It is the only way to reach the timeout path deliberately:
+// production Focus only times out when the SPI bus is genuinely contended,
+// which a bench fixture cannot arrange on demand. Consumed once by the next
+// accepted request; production stores nothing and always reports 0.
+bool benchFocusStallConfigure(uint32_t stall_ms);
+uint16_t benchFocusStallTakeMs();
+
+// Bench-image-only gate for entering Cell and Scope from framed control.
+// Both are UI-only actions in production, so a fixture otherwise cannot prove
+// Focus's mutual exclusion against them
+// (docs/research/phase12-survey-truth-design.md §8's Device gate). It grants
+// no new radio behavior -- it calls the same request functions the menu does.
+bool benchArbitrationTriggerAllowed();
 
 // Bench-image-only readback of the most recent BENCH_PASS_B_CAD attempt's
 // raw result (research/phase9-sweep-pass-b-design.md's standing

@@ -23,6 +23,8 @@
 #include "channel_plans.h"
 #include "detection.h"
 #include "energy_observation.h"
+#include "focus_observation.h"
+#include "focus_runtime.h"
 #include "node_identity.h"
 #include "region_plan.h"
 #include "scan_observation.h"
@@ -45,7 +47,8 @@
 bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
                     const ProfileOverrides &overrides, QueueHandle_t queue,
                     QueueHandle_t scanQueue, QueueHandle_t energyQueue,
-                    QueueHandle_t identityQueue, QueueHandle_t cellQueue);
+                    QueueHandle_t identityQueue, QueueHandle_t cellQueue,
+                    QueueHandle_t focusQueue);
 
 void radioIdentityCaptureSetEnabled(bool enabled);
 bool radioIdentityCaptureIsEnabled();
@@ -238,6 +241,17 @@ uint32_t radioEnergyCancelCount();
 uint32_t radioEnergyFailureCount();
 uint32_t radioEnergyRecoveryCount();
 uint32_t radioEnergyLastAwayMs();
+
+bool radioRequestFocusSurvey(const FocusRequest &request);
+bool radioCancelFocusSurvey();
+bool radioFocusSurveyIsActive();
+FocusRuntimeState radioFocusSurveyState();
+uint32_t radioFocusLastAwayMs();
+uint32_t radioFocusObservationCount();
+uint32_t radioFocusObservationDropCount();
+// Copies the last completed Focus result under a short cross-core lock.
+// It contains no GPS/run fields; Core 0 alone adds those while writing CSV.
+bool radioFocusLastObservation(FocusObservation &out);
 
 // Phase 9 Pass B (research/phase9-sweep-pass-b-design.md): CAD attempts run
 // at the first PASS_B_MAX_PEAKS_PER_SWEEP Pass-A peaks this sweep, and how
