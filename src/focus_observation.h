@@ -102,6 +102,40 @@ inline int16_t focusHistogramP90DbmX10(const FocusRssiHistogram &histogram) {
     return focusHistogramPercentileDbmX10(histogram, 90);
 }
 
+// How many accepted samples read at or above `threshold_dbm_x10`.
+//
+// A count is a different instrument from a summary statistic. `peak` is one
+// sample and therefore noise-prone; a count integrates over the pass, which
+// is what the 2026-09-05 field-level measurement suggested was missing when
+// every summary statistic failed to separate a known source from ambient
+// (docs/hardware-results/2026-09-04-phase12-focus-matrix.md). Pure, so the
+// rule can be evaluated on the host before any of it is trusted on-device.
+inline uint16_t focusHistogramCountAtLeast(const FocusRssiHistogram &histogram,
+                                           int16_t threshold_dbm_x10) {
+    const int16_t threshold_dbm = focusRssiDbmX10ToNearestDbm(threshold_dbm_x10);
+    if (threshold_dbm > FOCUS_RSSI_HISTOGRAM_MAX_DBM) return 0;
+    const int16_t lowest = threshold_dbm < FOCUS_RSSI_HISTOGRAM_MIN_DBM
+                               ? FOCUS_RSSI_HISTOGRAM_MIN_DBM
+                               : threshold_dbm;
+    uint16_t total = 0;
+    for (uint16_t i = (uint16_t)(lowest - FOCUS_RSSI_HISTOGRAM_MIN_DBM);
+         i < FOCUS_RSSI_HISTOGRAM_BUCKET_COUNT; ++i) {
+        total = (uint16_t)(total + histogram.bucket_counts[i]);
+    }
+    return total;
+}
+
+// The same count expressed relative to the pass's own median, so the rule
+// adapts to the ambient floor where it ran instead of assuming one. An
+// absolute threshold was measured and rejected at field levels; this is the
+// candidate that replaced it, and it is still a candidate.
+inline uint16_t focusHistogramCountAboveMedian(const FocusRssiHistogram &histogram,
+                                               int16_t margin_dbm_x10) {
+    const int16_t median = focusHistogramMedianDbmX10(histogram);
+    if (median == FOCUS_RSSI_NO_SAMPLE_DBM_X10) return 0;
+    return focusHistogramCountAtLeast(histogram, (int16_t)(median + margin_dbm_x10));
+}
+
 enum class FocusRequestStatus : uint8_t {
     COMPLETE = 0,
     CANCELLED,

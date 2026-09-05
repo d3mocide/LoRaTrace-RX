@@ -429,6 +429,38 @@ void handleFrame(const SerialControlFrame &frame) {
             sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
             break;
         }
+        case SerialControlOpcode::BENCH_FOCUS_COUNTS: {
+            // A ladder of counts above the pass's own median, so one run lets
+            // a host evaluate any adaptive activity rule offline instead of
+            // reflashing per candidate margin. Relative, not absolute: an
+            // absolute threshold was measured and rejected at field levels
+            // (docs/hardware-results/2026-09-04-phase12-focus-matrix.md).
+            if (!benchFocusSurveyTriggerAllowed()) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+                break;
+            }
+            FocusRssiHistogram histogram;
+            if (!radioFocusLastHistogram(histogram)) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "NO_RESULT");
+                break;
+            }
+            static const int16_t MARGINS_DBM_X10[] = {20, 40, 60, 80, 100, 150, 200};
+            char argument[SERIAL_CONTROL_ARGUMENT_MAX + 1] = {};
+            int written = snprintf(argument, sizeof(argument), "N=%u;MED=%d;P90=%d;MAX=%d",
+                                   (unsigned)histogram.sample_count,
+                                   (int)focusHistogramMedianDbmX10(histogram),
+                                   (int)focusHistogramP90DbmX10(histogram),
+                                   (int)histogram.peak_dbm_x10);
+            for (size_t i = 0; i < sizeof(MARGINS_DBM_X10) / sizeof(MARGINS_DBM_X10[0]); ++i) {
+                if (written < 0 || (size_t)written >= sizeof(argument)) break;
+                written += snprintf(argument + written, sizeof(argument) - (size_t)written,
+                                    ";C%d=%u", (int)(MARGINS_DBM_X10[i] / 10),
+                                    (unsigned)focusHistogramCountAboveMedian(histogram,
+                                                                            MARGINS_DBM_X10[i]));
+            }
+            sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+            break;
+        }
         case SerialControlOpcode::BENCH_ACTION: {
             // Cell and Scope are menu-only actions in production, so a fixture
             // has no other way to prove Focus refuses them and is refused by

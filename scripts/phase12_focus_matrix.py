@@ -160,7 +160,18 @@ def run_focus_request(card, spec, dwell_ms, samples, start):
         max(12.0, dwell_ms / 1000.0 + 10.0),
         "Focus completion, home restore, and focus.csv commit",
     )
-    return terminal, parse_fields(require_ack(card, "BENCH_FOCUS_RESULT", "-", timeout=12.0))
+    result = parse_fields(require_ack(card, "BENCH_FOCUS_RESULT", "-", timeout=12.0))
+    # Counts above the pass's own median, laddered, so any adaptive activity
+    # rule can be evaluated offline from one run. Optional: a bench image
+    # without it simply reports nothing and the trial row omits the counts.
+    counts = {}
+    try:
+        opcode, payload = card.request("BENCH_FOCUS_COUNTS", "-", timeout=12.0)
+        if opcode == "ACK":
+            counts = parse_fields(payload)
+    except (RuntimeError, TimeoutError):
+        pass
+    return terminal, result, counts
 
 
 def run_trial(card, transmitter, position, dwell_ms, samples, source_on, gap_ms):
@@ -172,12 +183,12 @@ def run_trial(card, transmitter, position, dwell_ms, samples, source_on, gap_ms)
     pulses = 0
     if source_on:
         with PulseBurst(transmitter, gap_ms / 1000.0) as burst:
-            terminal, result = run_focus_request(card, spec, dwell_ms, samples, start)
+            terminal, result, counts = run_focus_request(card, spec, dwell_ms, samples, start)
         pulses = burst.fired
         if burst.fired == 0:
             raise RuntimeError("the transmitter never fired during a source-on trial")
     else:
-        terminal, result = run_focus_request(card, spec, dwell_ms, samples, start)
+        terminal, result, counts = run_focus_request(card, spec, dwell_ms, samples, start)
 
     # §6.2: an arm is rejected if it loses ownership, cannot restore home, or
     # has unexplained queue/row drops. Fail the trial, not the whole matrix's
@@ -215,6 +226,8 @@ def run_trial(card, transmitter, position, dwell_ms, samples, source_on, gap_ms)
         "home_restore": result["HR"],
         "radio_status": int(result["E"]),
         "pulses_fired": pulses,
+        # C<N> = samples at or above the pass's median + N dB.
+        "counts_above_median": {k: int(v) for k, v in counts.items() if k.startswith("C")},
     }
 
 

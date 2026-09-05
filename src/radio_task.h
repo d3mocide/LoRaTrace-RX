@@ -252,6 +252,10 @@ uint32_t radioFocusObservationDropCount();
 // Copies the last completed Focus result under a short cross-core lock.
 // It contains no GPS/run fields; Core 0 alone adds those while writing CSV.
 bool radioFocusLastObservation(FocusObservation &out);
+// Bench images only: the last pass's full RSSI histogram, so a host can test
+// candidate activity rules offline rather than one reflash per candidate.
+// Production always returns false.
+bool radioFocusLastHistogram(FocusRssiHistogram &out);
 
 // Phase 9 Pass B (research/phase9-sweep-pass-b-design.md): CAD attempts run
 // at the first PASS_B_MAX_PEAKS_PER_SWEEP Pass-A peaks this sweep, and how

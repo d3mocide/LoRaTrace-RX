@@ -141,6 +141,37 @@ void test_worst_case_row_fits_the_logger_buffer_with_margin() {
     TEST_ASSERT_TRUE(n <= 200);
 }
 
+void test_sample_counts_integrate_where_a_peak_would_not() {
+    FocusRssiHistogram histogram;
+    // A quiet pass with one stray strong sample: peak says -40, but only one
+    // sample in 50 is anywhere near it. A count is what tells those apart.
+    for (int i = 0; i < 49; ++i) focusHistogramAddSample(histogram, -1000);
+    focusHistogramAddSample(histogram, -400);
+    TEST_ASSERT_EQUAL_INT16(-400, histogram.peak_dbm_x10);
+    TEST_ASSERT_EQUAL_UINT16(50, focusHistogramCountAtLeast(histogram, -1000));
+    TEST_ASSERT_EQUAL_UINT16(1, focusHistogramCountAtLeast(histogram, -900));
+    TEST_ASSERT_EQUAL_UINT16(1, focusHistogramCountAboveMedian(histogram, 60));
+    TEST_ASSERT_EQUAL_UINT16(0, focusHistogramCountAtLeast(histogram, -300));
+
+    // A genuinely busy pass reads the same peak but many elevated samples.
+    FocusRssiHistogram busy;
+    for (int i = 0; i < 25; ++i) focusHistogramAddSample(busy, -1000);
+    for (int i = 0; i < 25; ++i) focusHistogramAddSample(busy, -400);
+    TEST_ASSERT_EQUAL_INT16(-400, busy.peak_dbm_x10);
+    TEST_ASSERT_EQUAL_UINT16(25, focusHistogramCountAboveMedian(busy, 60));
+}
+
+void test_count_thresholds_clamp_outside_the_histogram_range() {
+    FocusRssiHistogram histogram;
+    for (int i = 0; i < 10; ++i) focusHistogramAddSample(histogram, -1000);
+    // Below the range counts everything; above it counts nothing.
+    TEST_ASSERT_EQUAL_UINT16(10, focusHistogramCountAtLeast(histogram, -2000));
+    TEST_ASSERT_EQUAL_UINT16(0, focusHistogramCountAtLeast(histogram, 100));
+    // No samples at all must not report a phantom count.
+    FocusRssiHistogram empty;
+    TEST_ASSERT_EQUAL_UINT16(0, focusHistogramCountAboveMedian(empty, 60));
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_focus_working_state_stays_below_one_result_budget);
@@ -152,5 +183,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_focus_csv_without_fix_or_samples_keeps_unknown_values_blank);
     RUN_TEST(test_focus_csv_truncation_is_reported);
     RUN_TEST(test_worst_case_row_fits_the_logger_buffer_with_margin);
+    RUN_TEST(test_sample_counts_integrate_where_a_peak_would_not);
+    RUN_TEST(test_count_thresholds_clamp_outside_the_histogram_range);
     return UNITY_END();
 }

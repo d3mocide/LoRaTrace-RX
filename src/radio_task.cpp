@@ -54,6 +54,12 @@ MissionProfile activeProfile = MissionProfile::MESHTASTIC;
 portMUX_TYPE focusResultMux = portMUX_INITIALIZER_UNLOCKED;
 FocusObservation lastFocusObservation;
 bool haveLastFocusObservation = false;
+#if defined(LORATRACE_BENCH_FAULTS)
+// Bench images retain the pass's full histogram so a host can evaluate any
+// candidate activity rule offline, from one run, instead of reflashing per
+// guess. Production keeps only the fixed summary that reaches focus.csv.
+FocusRssiHistogram lastFocusHistogram;
+#endif
 
 // Both writers and readers go through these so the locking cannot be
 // forgotten at a call site. Radio-task-internal code that already knows it
@@ -715,6 +721,9 @@ void enqueueFocusObservation(const FocusRequest &request, const FocusRssiHistogr
     observation.radio_status = operationStatus;
     portENTER_CRITICAL(&focusResultMux);
     lastFocusObservation = observation;
+#if defined(LORATRACE_BENCH_FAULTS)
+    lastFocusHistogram = histogram;
+#endif
     haveLastFocusObservation = true;
     portEXIT_CRITICAL(&focusResultMux);
     focusObservationCount++;
@@ -2482,6 +2491,19 @@ FocusRuntimeState radioFocusSurveyState() { return focusState; }
 uint32_t radioFocusLastAwayMs() { return focusLastAwayMs; }
 uint32_t radioFocusObservationCount() { return focusObservationCount; }
 uint32_t radioFocusObservationDropCount() { return focusObservationDropCount; }
+bool radioFocusLastHistogram(FocusRssiHistogram &out) {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    (void)out;
+    return false;
+#else
+    portENTER_CRITICAL(&focusResultMux);
+    const bool available = haveLastFocusObservation;
+    if (available) out = lastFocusHistogram;
+    portEXIT_CRITICAL(&focusResultMux);
+    return available;
+#endif
+}
+
 bool radioFocusLastObservation(FocusObservation &out) {
     portENTER_CRITICAL(&focusResultMux);
     const bool available = haveLastFocusObservation;

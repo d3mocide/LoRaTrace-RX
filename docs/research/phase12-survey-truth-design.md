@@ -361,9 +361,18 @@ local spectrum identity or coverage of the city.
   [the evidence summary](../hardware-results/2026-09-04-phase12-focus-matrix.md).
   Coverage reporting is unaffected; what is refused is the step from "RSSI was
   elevated" to "something transmitted", which is the step §3 forbids anyway.
-  Two routes remain untested: a per-pass **count** of samples above an adaptive
-  floor (`qualifying_count` is already reserved in the schema and never
-  populated), and CAD/packet evidence as §3 already contemplates.
+  The count route named there has since been **measured and survives**: a
+  per-pass count of samples above the pass's own median separates where every
+  summary statistic failed. `C6 >= 2` (two or more samples at median + 6 dB)
+  detected 57/60 source-on trials, 95% CI [0.863, 0.983], with one flagged
+  source-off trial that read -63 dBm against a -101 dBm median — a real
+  transmission, not ours, so the 1.7% false rate is an upper bound rather than
+  a measurement against true silence. It is a **viable candidate, not yet a
+  constant**: the threshold is a count out of 101 samples, and the sampling
+  policy now scales sample count with dwell, so "2 samples" means 2% at a
+  2,000 ms pass and 33% at a 100 ms one. Expressing it as a fraction of
+  accepted samples, or validating per dwell, is the next measurement.
+  CAD/packet evidence remains the alternative basis §3 contemplates.
 - [ ] Coverage thresholds (`sampled`/`repeated`) remain unselected. They are
   about pass counts and accumulated time across repeated requests, which no
   single-pass measurement can supply.

@@ -119,6 +119,17 @@ the time away is half the packets. Time between restored Watch windows ran to
 a 7.45 s maximum. The maximum away-time budget is deliberately still
 unapproved; the measurement supplies the exchange rate, not the policy.
 
+A per-pass **count** above an adaptive floor then succeeded where the summary
+statistics failed. Counting samples at or above the pass's own median plus
+6 dB, a threshold of two detected 57/60 source-on trials (95% CI
+[0.863, 0.983]) at the same field-level configuration, with a single flagged
+control trial that read -63 dBm against a -101 dBm median — a real
+transmission that was not ours, so the 1.7% false rate is an upper bound. It
+is a candidate, not a constant: the threshold is a count out of 101 samples
+and the sampling policy scales sample count with dwell, so it must become a
+fraction of accepted samples or be validated per dwell first.
+`qualifying_count` stays unpopulated until then.
+
 The existing Phase 11 Cell feature remains partially hardware-verified and
 visible in "What's still open." It is deliberately scheduled as **V2
 Workstream 16 — Cell closeout**, an optional post-core-V2 bonus: it does not

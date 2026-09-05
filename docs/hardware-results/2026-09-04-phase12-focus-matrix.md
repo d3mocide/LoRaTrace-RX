@@ -323,3 +323,78 @@ rate: **at this dwell, Watch packet opportunity falls in direct proportion to
 the fraction of time Focus holds the radio.** Choosing what fraction is
 acceptable — and whether Focus should bound it automatically rather than
 leaving it to whoever is pressing the button — remains open.
+
+
+---
+
+# Follow-up 4: a count survives where every summary statistic failed
+
+**Raw evidence:** `private/phase12-counts-20260905T050037Z.{jsonl,log}`.
+120 trials (2 positions x 30 source-on + 30 source-off), 11.4 min, zero
+transport errors, zero drops, home restored on every trial. Same porch
+configuration and 2,000 ms / 101-sample passes as Follow-up 2, which rejected
+every RSSI summary statistic at this signal level.
+
+Follow-up 2 ended by naming one untested idea: `peak` is a single sample and
+therefore noise-prone, so **count** the samples above an adaptive floor rather
+than taking an extreme of them. The bench image now reports a ladder of counts
+at median + 2/4/6/8/10/15/20 dB, so one run evaluates any such rule offline.
+
+## Result
+
+Pooled across both positions, best operating point **`C6 >= 2`** — at least two
+of a pass's samples at or above that pass's own median plus 6 dB:
+
+| | count | 95% CI |
+|---|---|---|
+| detected, source on | **57/60 (95.0%)** | [0.863, 0.983] |
+| detected, source off | **1/60 (1.7%)** | [0.003, 0.089] |
+
+Per position:
+
+| position | detect | false |
+|---|---|---|
+| low-aligned (908.75) | 30/30 | 1/30 |
+| mid-aligned (918.5) | 27/30 | 0/30 |
+
+`C4 >= 5` performs identically (57/60 and 1/60); the ladder has a broad
+plateau rather than one lucky point, which is what a real effect looks like.
+
+For contrast, at this same signal level Follow-up 2 found `p90` and `peak`,
+absolute and floor-relative, could not separate the two populations at all.
+
+## The one false positive is not a false positive
+
+The single source-off trial flagged by `C6 >= 2` read `peak = -63 dBm` against
+a -101 dBm median — 38 dB above its own floor, with six elevated samples.
+Nothing 38 dB over noise is noise. That is a real transmission that was not
+ours, correctly identified by the detector and mislabelled by the experiment,
+which cannot distinguish "our fixture is quiet" from "the band is quiet". The
+true false-alarm rate against genuine silence may therefore be 0/60; this
+evidence cannot separate the two, and the reported 1.7% should be read as an
+upper bound.
+
+The three misses are all mid-aligned at `peak = -95/-96 dBm`, within a couple
+of dB of the floor. A detector that misses signals at the noise floor is
+behaving correctly; one that claimed them would be the problem.
+
+## What still has to be settled before this is a constant
+
+**The threshold is a count out of 101 samples — about 2% — and the sample
+count now scales with dwell.** Under the measured 20 ms sampling policy a
+100 ms pass takes 6 samples, where "2 samples" is 33% rather than 2%. A fixed
+count therefore means something completely different at another dwell. The
+rule must be expressed as a fraction of accepted samples, or validated
+separately per dwell, before it can be written into firmware. That is the next
+measurement, not a detail to decide at a keyboard.
+
+Also unestablished: one distance, one indoor/outdoor geometry, two
+frequencies, one 2,000 ms dwell. And the margin is relative to the pass's own
+median, which assumes the median represents the floor — true when the source
+is present for a minority of samples, and less true as occupancy rises toward
+50%.
+
+Until those close, `qualifying_count` stays unpopulated and `coverage` stays
+blank. What this run establishes is narrower and still worth having: **an
+adaptive count is a viable basis for an activity claim where every summary
+statistic measured here was not.**

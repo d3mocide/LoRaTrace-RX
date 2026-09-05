@@ -9,6 +9,21 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- Found an activity basis that survives field levels. After every RSSI summary
+  statistic was rejected, the remaining idea was to count samples above an
+  adaptive floor rather than take an extreme of them — `peak` is one sample and
+  noise-prone; a count integrates. Bench images now report a ladder of counts
+  at median + 2/4/6/8/10/15/20 dB, so one run evaluates any such rule offline
+  instead of reflashing per candidate. Across 120 trials at the same porch
+  configuration, `C6 >= 2` detected 57/60 source-on (95% CI [0.863, 0.983])
+  against 1/60 source-off — and that one flagged control trial read -63 dBm
+  against a -101 dBm median, a real transmission that was not ours, so the
+  false rate is an upper bound rather than a measurement against silence.
+  Still a candidate, not a constant: the threshold is a count out of 101
+  samples, and since sample count now scales with dwell, "2 samples" is 2% at
+  2,000 ms and 33% at 100 ms. `qualifying_count` stays unpopulated until that
+  is expressed as a fraction or validated per dwell.
+
 - Ran Workstream 12's §6.3 Watch-opportunity comparison. Two 240 s arms
   against one independently timed reference train: Watch alone received 0.883,
   Watch with Focus interleaved at a 48.1% away fraction received 0.463,

@@ -23,6 +23,8 @@ constexpr size_t SERIAL_CONTROL_FRAME_MAX = 384;
 // budget has to account for the rest. Derived, not eyeballed: the previous
 // 240-byte STATUS buffer was set by hand and silently exceeded its frame.
 constexpr size_t SERIAL_CONTROL_OPCODE_NAME_MAX = 23;  // BENCH_PASS_B_CAD_RESULT
+// A host test walks every opcode name against this, so adding a longer one
+// fails there rather than silently overrunning buffers sized from it.
 constexpr size_t SERIAL_CONTROL_FRAME_FIXED_BYTES =
     8 /* "@LTRX/1 " */ + 5 /* sequence */ + 1 + SERIAL_CONTROL_OPCODE_NAME_MAX +
     1 + 5 /* " " + 4 CRC digits */;
@@ -58,6 +60,7 @@ enum class SerialControlOpcode : uint8_t {
     BENCH_FOCUS,
     BENCH_FOCUS_CANCEL,
     BENCH_FOCUS_RESULT,
+    BENCH_FOCUS_COUNTS,
     BENCH_ACTION,
     KEY_DUMP,
     SD_RETRY,
@@ -108,6 +111,7 @@ inline const char *serialControlOpcodeName(SerialControlOpcode opcode) {
         case SerialControlOpcode::BENCH_FOCUS: return "BENCH_FOCUS";
         case SerialControlOpcode::BENCH_FOCUS_CANCEL: return "BENCH_FOCUS_CANCEL";
         case SerialControlOpcode::BENCH_FOCUS_RESULT: return "BENCH_FOCUS_RESULT";
+        case SerialControlOpcode::BENCH_FOCUS_COUNTS: return "BENCH_FOCUS_COUNTS";
         case SerialControlOpcode::BENCH_ACTION: return "BENCH_ACTION";
         case SerialControlOpcode::KEY_DUMP: return "KEY_DUMP";
         case SerialControlOpcode::SD_RETRY: return "SD_RETRY";
@@ -142,6 +146,7 @@ inline SerialControlOpcode serialControlOpcodeFromName(const char *name) {
     if (strcmp(name, "BENCH_FOCUS") == 0) return SerialControlOpcode::BENCH_FOCUS;
     if (strcmp(name, "BENCH_FOCUS_CANCEL") == 0) return SerialControlOpcode::BENCH_FOCUS_CANCEL;
     if (strcmp(name, "BENCH_FOCUS_RESULT") == 0) return SerialControlOpcode::BENCH_FOCUS_RESULT;
+    if (strcmp(name, "BENCH_FOCUS_COUNTS") == 0) return SerialControlOpcode::BENCH_FOCUS_COUNTS;
     if (strcmp(name, "BENCH_ACTION") == 0) return SerialControlOpcode::BENCH_ACTION;
     if (strcmp(name, "KEY_DUMP") == 0) return SerialControlOpcode::KEY_DUMP;
     if (strcmp(name, "SD_RETRY") == 0) return SerialControlOpcode::SD_RETRY;
