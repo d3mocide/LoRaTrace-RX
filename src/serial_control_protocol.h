@@ -9,15 +9,26 @@
 #include <stdio.h>
 #include <string.h>
 
-// 160 was tight even before WIFI_SET/EA (2026-09-02): STATUS's own
-// argument alone can realistically approach 155-170 bytes once cumulative
-// counters (PBA/PBD) grow past a few digits during a long-running session
-// (the Phase 9 24-hour soak exit criterion, ROADMAP.md, being the exact
-// case that would hit this) -- serialControlFormatFrame() silently drops
-// the frame (returns 0, nothing sent) rather than truncating, so this
-// would have failed quietly. 256 gives real headroom, not just enough for
-// today's field set.
-constexpr size_t SERIAL_CONTROL_FRAME_MAX = 256;
+// STATUS's argument is what sizes this, and it only ever grows: 160 was tight
+// before WIFI_SET/EA (2026-09-02) and 256 became tight again once Phase 12
+// added six FS/FA/FO/FD/FW/FL fields (2026-09-05). Counted against a
+// long-running session's realistic digit counts -- not all-uint32-max --
+// STATUS reaches ~240 bytes of argument, past 256's ~230-byte budget.
+// serialControlFormatFrame() drops an over-long frame silently (returns 0,
+// nothing sent) rather than truncating, so overrunning this loses exactly
+// the newest fields, with no error to notice. 384 restores real headroom.
+constexpr size_t SERIAL_CONTROL_FRAME_MAX = 384;
+
+// Frames are "@LTRX/1 <sequence> <OPCODE> <argument> <CRC>", so an argument
+// budget has to account for the rest. Derived, not eyeballed: the previous
+// 240-byte STATUS buffer was set by hand and silently exceeded its frame.
+constexpr size_t SERIAL_CONTROL_OPCODE_NAME_MAX = 23;  // BENCH_PASS_B_CAD_RESULT
+constexpr size_t SERIAL_CONTROL_FRAME_FIXED_BYTES =
+    8 /* "@LTRX/1 " */ + 5 /* sequence */ + 1 + SERIAL_CONTROL_OPCODE_NAME_MAX +
+    1 + 5 /* " " + 4 CRC digits */;
+// Longest argument that still frames, for any opcode, with room for the NUL.
+constexpr size_t SERIAL_CONTROL_ARGUMENT_MAX =
+    SERIAL_CONTROL_FRAME_MAX - SERIAL_CONTROL_FRAME_FIXED_BYTES - 1;
 
 // Enum value names below are the actual wire opcode strings (via
 // serialControlOpcodeName()/serialControlOpcodeFromName()) and stay stable
@@ -44,6 +55,10 @@ enum class SerialControlOpcode : uint8_t {
     BENCH_RSSI_WINDOW,
     BENCH_RSSI_RESULT,
     BENCH_PASS_B_CAD_RESULT,
+    BENCH_FOCUS,
+    BENCH_FOCUS_CANCEL,
+    BENCH_FOCUS_RESULT,
+    BENCH_ACTION,
     KEY_DUMP,
     SD_RETRY,
     WIFI_SET,
@@ -90,6 +105,10 @@ inline const char *serialControlOpcodeName(SerialControlOpcode opcode) {
         case SerialControlOpcode::BENCH_RSSI_WINDOW: return "BENCH_RSSI_WINDOW";
         case SerialControlOpcode::BENCH_RSSI_RESULT: return "BENCH_RSSI_RESULT";
         case SerialControlOpcode::BENCH_PASS_B_CAD_RESULT: return "BENCH_PASS_B_CAD_RESULT";
+        case SerialControlOpcode::BENCH_FOCUS: return "BENCH_FOCUS";
+        case SerialControlOpcode::BENCH_FOCUS_CANCEL: return "BENCH_FOCUS_CANCEL";
+        case SerialControlOpcode::BENCH_FOCUS_RESULT: return "BENCH_FOCUS_RESULT";
+        case SerialControlOpcode::BENCH_ACTION: return "BENCH_ACTION";
         case SerialControlOpcode::KEY_DUMP: return "KEY_DUMP";
         case SerialControlOpcode::SD_RETRY: return "SD_RETRY";
         case SerialControlOpcode::WIFI_SET: return "WIFI_SET";
@@ -120,6 +139,10 @@ inline SerialControlOpcode serialControlOpcodeFromName(const char *name) {
     if (strcmp(name, "BENCH_RSSI_WINDOW") == 0) return SerialControlOpcode::BENCH_RSSI_WINDOW;
     if (strcmp(name, "BENCH_RSSI_RESULT") == 0) return SerialControlOpcode::BENCH_RSSI_RESULT;
     if (strcmp(name, "BENCH_PASS_B_CAD_RESULT") == 0) return SerialControlOpcode::BENCH_PASS_B_CAD_RESULT;
+    if (strcmp(name, "BENCH_FOCUS") == 0) return SerialControlOpcode::BENCH_FOCUS;
+    if (strcmp(name, "BENCH_FOCUS_CANCEL") == 0) return SerialControlOpcode::BENCH_FOCUS_CANCEL;
+    if (strcmp(name, "BENCH_FOCUS_RESULT") == 0) return SerialControlOpcode::BENCH_FOCUS_RESULT;
+    if (strcmp(name, "BENCH_ACTION") == 0) return SerialControlOpcode::BENCH_ACTION;
     if (strcmp(name, "KEY_DUMP") == 0) return SerialControlOpcode::KEY_DUMP;
     if (strcmp(name, "SD_RETRY") == 0) return SerialControlOpcode::SD_RETRY;
     if (strcmp(name, "WIFI_SET") == 0) return SerialControlOpcode::WIFI_SET;
@@ -208,11 +231,14 @@ inline size_t serialControlFormatFrame(char *out, size_t outSize, uint16_t seque
         argument == nullptr || strchr(argument, ' ') != nullptr) {
         return 0;
     }
-    char body[SERIAL_CONTROL_FRAME_MAX] = {};
-    const int bodyLen = snprintf(body, sizeof(body), "@LTRX/1 %u %s %s",
+    // Built in place: a second SERIAL_CONTROL_FRAME_MAX staging buffer cost
+    // the 4KB UI task stack as much as the frame itself, and the CRC covers
+    // the body prefix either way.
+    const int bodyLen = snprintf(out, outSize, "@LTRX/1 %u %s %s",
                                  (unsigned)sequence, serialControlOpcodeName(opcode), argument);
-    if (bodyLen < 0 || (size_t)bodyLen >= sizeof(body)) return 0;
-    const int total = snprintf(out, outSize, "%s %04X", body,
-                               (unsigned)serialControlCrc16(body, (size_t)bodyLen));
-    return total >= 0 && (size_t)total < outSize ? (size_t)total : 0;
+    if (bodyLen < 0 || (size_t)bodyLen >= outSize) return 0;
+    const int crcLen = snprintf(out + bodyLen, outSize - (size_t)bodyLen, " %04X",
+                                (unsigned)serialControlCrc16(out, (size_t)bodyLen));
+    if (crcLen < 0 || (size_t)(bodyLen + crcLen) >= outSize) return 0;
+    return (size_t)(bodyLen + crcLen);
 }

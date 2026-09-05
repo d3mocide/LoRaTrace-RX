@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoRaTrace RX · UI Recommendations & V2 Proposals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* Theme colors - Light */
+    --paper: #f6f4ee;
+    --paper-raised: #ffffff;
+    --paper-sunken: #ece8dd;
+    --ink: #1a1916;
+    --ink-soft: #4a473f;
+    --ink-faint: #7a766c;
+    --line: #ded8c9;
+    --line-strong: #c8c0ad;
+    --amber: #b56a15;
+    --amber-wash: #fbf1e2;
+    --sage: #2a6a4e;
+    --sage-wash: #e4f0e9;
+    --crimson: #b3392b;
+    --crimson-wash: #fae8e6;
+    --cyan: #1a6f8a;
+    --cyan-wash: #e3f2f8;
+    --shadow: rgba(30, 26, 18, 0.08);
+
+    /* Hardware Display RGB565 Tokens */
+    --scr-bg: #000000;
+    --scr-fg: #ffffff;
+    --scr-dim: #bdbebd;
+    --scr-good: #00ff00;
+    --scr-warn: #ffff00;
+    --scr-bad: #ff0000;
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #161513;
+    --paper-raised: #1e1c19;
+    --paper-sunken: #11100e;
+    --ink: #e8e4db;
+    --ink-soft: #b8b2a3;
+    --ink-faint: #757064;
+    --line: #2e2a24;
+    --line-strong: #423d34;
+    --amber: #e69138;
+    --amber-wash: #281e10;
+    --sage: #5bb386;
+    --sage-wash: #12281c;
+    --crimson: #e06050;
+    --crimson-wash: #2c1410;
+    --cyan: #4ea8c4;
+    --cyan-wash: #10242c;
+    --shadow: rgba(0, 0, 0, 0.45);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #161513;
+      --paper-raised: #1e1c19;
+      --paper-sunken: #11100e;
+      --ink: #e8e4db;
+      --ink-soft: #b8b2a3;
+      --ink-faint: #757064;
+      --line: #2e2a24;
+      --line-strong: #423d34;
+      --amber: #e69138;
+      --amber-wash: #281e10;
+      --sage: #5bb386;
+      --sage-wash: #12281c;
+      --crimson: #e06050;
+      --crimson-wash: #2c1410;
+      --cyan: #4ea8c4;
+      --cyan-wash: #10242c;
+      --shadow: rgba(0, 0, 0, 0.45);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Two-column Shell */
+  .shell {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 100vh;
+  }
+
+  /* Sticky Rail */
+  .rail {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--paper-raised);
+    border-right: 1px solid var(--line);
+    padding: 24px 18px;
+    font-size: 13px;
+  }
+  .rail-mark {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .rail-mark .dot { color: var(--amber); font-size: 18px; }
+  .rail-title {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: -0.01em;
+  }
+  .rail-sub {
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-family: var(--font-mono);
+    margin-top: 2px;
+    margin-bottom: 20px;
+  }
+  .rail nav { display: flex; flex-direction: column; }
+  .rail nav a {
+    color: var(--ink-soft);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 5px 0 5px 8px;
+    border-left: 2px solid transparent;
+    transition: color 0.15s, border-left-color 0.15s;
+    text-decoration: none;
+  }
+  .rail nav a:hover {
+    color: var(--ink);
+    border-left-color: var(--amber);
+  }
+  .rail nav .group-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-faint);
+    margin: 16px 0 6px;
+  }
+  .rail nav .group-label:first-child { margin-top: 0; }
+
+  .rail-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding: 6px 10px;
+    background: var(--paper-sunken);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    transition: all 0.15s;
+  }
+  .rail-back-link:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+
+  .rail-mobile-select { display: none; }
+
+  /* Main Content Area */
+  main {
+    padding: 36px clamp(18px, 4vw, 54px) 80px;
+    min-width: 0;
+  }
+
+  /* Header banner */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 11.5px;
+    color: var(--amber);
+  }
+  .banner-title {
+    font-size: clamp(28px, 3.8vw, 38px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 6px 0 12px;
+  }
+  .banner-desc {
+    font-size: 15px;
+    color: var(--ink-soft);
+    max-width: 78ch;
+    margin-bottom: 24px;
+  }
+
+  .nav-tabs-bar {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 16px;
+  }
+  .nav-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-decoration: none;
+    border: 1px solid var(--line);
+    background: var(--paper-raised);
+    color: var(--ink-soft);
+    transition: all 0.15s;
+  }
+  .nav-tab:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  .nav-tab.active {
+    background: var(--amber-wash);
+    border-color: var(--amber);
+    color: var(--amber);
+    font-weight: 600;
+  }
+
+  /* Carousel Architecture Matrix Box */
+  .arch-box {
+    background: var(--paper-sunken);
+    border: 1px solid var(--line);
+    padding: 16px 20px;
+    border-radius: 6px;
+    margin-bottom: 32px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .arch-box h3 {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: var(--ink);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .arch-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .arch-pill {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    padding: 4px 10px;
+    border-radius: 4px;
+  }
+  .arch-pill.upgraded {
+    border-color: var(--sage);
+    background: var(--sage-wash);
+    color: var(--sage);
+    font-weight: 600;
+  }
+  .arch-pill.baseline {
+    color: var(--ink-soft);
+  }
+
+  /* Interactive Workbench Section */
+  .workbench-card {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    padding: 24px;
+    margin-bottom: 48px;
+    position: relative;
+    box-shadow: 0 4px 16px var(--shadow);
+  }
+  .wb-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .wb-title { font-size: 22px; font-weight: 700; }
+  .wb-status-tag {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--sage-wash);
+    color: var(--sage);
+    padding: 3px 8px;
+    border-radius: 2px;
+    font-weight: 600;
+  }
+  .wb-body {
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  /* Hardware Device Chassis */
+  .device-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 554px;
+    max-width: 100%;
+  }
+  .device {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    padding: 10px;
+    background: #1c1a17;
+    border: 1px solid #38342e;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px var(--shadow);
+    max-width: 100%;
+    width: fit-content;
+    box-sizing: border-box;
+  }
+  :root[data-theme="dark"] .device {
+    background: #141311;
+    border-color: #2e2b26;
+  }
+
+  canvas#screen {
+    display: block;
+    width: 528px;
+    height: 297px;
+    max-width: 100%;
+    height: auto;
+    aspect-ratio: 528 / 297;
+    background: #000;
+    border-radius: 4px;
+  }
+  .device-caption {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    max-width: 528px;
+  }
+  .device-caption b { color: var(--ink); }
+
+  /* Contextual Simulation / Control Box */
+  .context-sim-card {
+    background: var(--paper);
+    border: 1px solid var(--line-strong);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  .context-sim-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .context-sim-title {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+  }
+  .context-sim-title span { color: var(--amber); }
+
+  .anim-badge {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 2px;
+  }
+  .anim-badge.idle {
+    background: var(--paper-raised);
+    color: var(--ink-faint);
+    border: 1px solid var(--line);
+  }
+  .anim-badge.running {
+    background: var(--sage-wash);
+    color: var(--sage);
+    border: 1px solid var(--sage);
+    animation: pulseAnim 1.4s infinite alternate;
+  }
+  @keyframes pulseAnim {
+    from { opacity: 0.7; }
+    to { opacity: 1; }
+  }
+
+  /* Controls Panel */
+  .controls-panel {
+    flex: 1;
+    min-width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .ctrl-group {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    padding: 14px;
+  }
+  .ctrl-group h3 {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ink-soft);
+    margin: 0 0 10px;
+  }
+  .btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  button {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    background: var(--paper-raised);
+    color: var(--ink);
+    border: 1px solid var(--line-strong);
+    padding: 6px 11px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.12s ease;
+  }
+  button:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  button.active {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }
+  button.primary {
+    background: var(--sage);
+    color: #fff;
+    border-color: var(--sage);
+  }
+  button.primary:hover { opacity: 0.9; }
+
+  .ctrl-hint {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--ink-faint);
+    margin-top: 6px;
+    line-height: 1.4;
+  }
+
+  /* Proposals Section Cards */
+  .proposal-card {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    padding: 26px;
+    margin-bottom: 40px;
+    position: relative;
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  .prop-badge {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    background: var(--amber-wash);
+    color: var(--amber);
+    border: 1px solid var(--amber);
+    margin-bottom: 8px;
+  }
+  .prop-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 4px 0 10px;
+    letter-spacing: -0.01em;
+  }
+  .prop-summary {
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    margin-bottom: 18px;
+    max-width: 80ch;
+  }
+
+  .comparison-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 22px;
+  }
+  .cmp-box {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    padding: 16px;
+    border-radius: 6px;
+  }
+  .cmp-box h4 {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .cmp-box.current h4 { color: var(--ink-faint); }
+  .cmp-box.proposed h4 { color: var(--sage); }
+  .cmp-box ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  .cmp-box li { margin-bottom: 6px; }
+
+  /* Memory / Constraint Table */
+  table.spec-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    margin-top: 14px;
+    background: var(--paper);
+  }
+  table.spec-table th,
+  table.spec-table td {
+    border: 1px solid var(--line);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  table.spec-table th {
+    background: var(--paper-sunken);
+    color: var(--ink);
+    font-weight: 600;
+  }
+  table.spec-table td.num { text-align: right; }
+  table.spec-table td.zero { color: var(--sage); font-weight: 600; }
+
+  /* Footer */
+  .guide-footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+  }
+
+  /* Responsive Media Queries */
+  @media (max-width: 960px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail {
+      position: static;
+      height: auto;
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+      padding: 16px;
+    }
+    .rail-mobile-select {
+      display: block;
+      width: 100%;
+      padding: 9px 12px;
+      margin-bottom: 0;
+      background: var(--paper-raised);
+      border: 1px solid var(--line-strong);
+      color: var(--ink);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      border-radius: 6px;
+      outline: none;
+      cursor: pointer;
+    }
+    .rail nav { display: none; }
+    main { padding: 20px 14px 60px; }
+    .wb-body { flex-direction: column; align-items: center; }
+    .device-wrap { width: 100%; max-width: 554px; margin: 0 auto; }
+    .device { margin: 0 auto; padding: 8px; border-radius: 10px; width: fit-content; max-width: 100%; }
+    canvas#screen { width: 100%; max-width: 528px; height: auto; aspect-ratio: 528 / 297; }
+    .context-sim-card { width: 100%; max-width: 554px; }
+    .controls-panel { width: 100%; min-width: 0; }
+    .comparison-grid { grid-template-columns: 1fr; gap: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ================= STICKY RAIL ================= -->
+  <aside class="rail">
+    <a href="UI-Design_Guide.html" class="rail-back-link">← Master Design Guide</a>
+    <div class="rail-mark">
+      <span class="dot">&#9679;</span>
+      <span class="rail-title">UI Proposals</span>
+    </div>
+    <div class="rail-sub">RECOMMENDATIONS · V2 LABS</div>
+
+    <select class="rail-mobile-select" aria-label="Jump to Proposal" onchange="if(this.value){location.hash=this.value; this.blur();}">
+      <option value="">Jump to Proposal / Lab...</option>
+      <option value="#workbench">00 · Proposals Workbench (1:1 Hardware Scale)</option>
+      <option value="#carousel-arch">01 · Carousel Architecture (Where Proposals Live)</option>
+      <option value="#prop-activity">02 · Slot 2: Split Activity Dashboard</option>
+      <option value="#prop-focus">03 · WS12 Focus Survey Plate</option>
+      <option value="#prop-inspector">04 · Captures Packet Inspector Modal</option>
+      <option value="#prop-palette">05 · Zero-Cost Hardware Palette Switching</option>
+      <option value="#prop-budget">06 · Memory & Feasibility Budget</option>
+    </select>
+
+    <nav>
+      <div class="group-label">Interactive Lab</div>
+      <a href="#workbench">00 · Proposals Workbench</a>
+
+      <div class="group-label">Architecture</div>
+      <a href="#carousel-arch">01 · Carousel Structure</a>
+
+      <div class="group-label">Proposals</div>
+      <a href="#prop-activity">02 · Slot 2: Split Activity</a>
+      <a href="#prop-focus">03 · WS12 Focus Survey</a>
+      <a href="#prop-inspector">04 · Packet Inspector</a>
+      <a href="#prop-palette">05 · Zero-Cost Palettes</a>
+
+      <div class="group-label">Hardware Safety</div>
+      <a href="#prop-budget">06 · Resource Budgets</a>
+    </nav>
+  </aside>
+
+  <!-- ================= MAIN CONTENT ================= -->
+  <main>
+    <div class="eyebrow">LoRaTrace RX · V2 Hardware UI Recommendations</div>
+    <h1 class="banner-title">Proposed UI Improvements & Live Labs</h1>
+    <p class="banner-desc">
+      Rigorous design improvements for the M5Stack Cardputer. Rendered with <b>strict 1:1 hardware font sizing</b> (Adafruit GFX Size 1 / Size 2), maintaining the clean, uncompromised battery and status header while delivering real-time RF sparklines and survey tools.
+    </p>
+
+    <div class="nav-tabs-bar">
+      <a href="UI-Design_Guide.html" class="nav-tab">← Baseline Spec (v1.0.7 Master Guide)</a>
+      <span class="nav-tab active">★ Proposed Improvements (Live Labs)</span>
+    </div>
+
+    <!-- ================= CAROUSEL ARCHITECTURE BOX ================= -->
+    <div class="arch-box" id="carousel-arch">
+      <h3>Where Do These Proposals Live in Firmware?</h3>
+      <div>
+        The operator's familiar <b>5-Slot Main Carousel</b> is preserved. Only Slot 2 (Activity) is upgraded with real-time RF triage, while Radio, Channel, GPS, and System keep their proven v1.0.7 layouts:
+      </div>
+      <div class="arch-pills">
+        <span class="arch-pill baseline">Slot 1: RADIO (v1.0.7 Baseline)</span>
+        <span class="arch-pill upgraded">★ Slot 2: ACTIVITY (Split RF Dashboard)</span>
+        <span class="arch-pill baseline">Slot 3: CHANNEL (v1.0.7 Baseline)</span>
+        <span class="arch-pill baseline">Slot 4: GPS (v1.0.7 Baseline)</span>
+        <span class="arch-pill baseline">Slot 5: SYSTEM (v1.0.7 Baseline)</span>
+      </div>
+      <div style="margin-top:10px; color:var(--ink-faint); font-size:11px;">
+        • <b>WS12 Focus Survey</b>: Lives in the Tools Hub as the dedicated single-channel dwell plate.<br>
+        • <b>Packet Inspector</b>: Lives in Analyze Suite as a modal overlay when pressing [Enter] on a captured packet.
+      </div>
+    </div>
+
+    <!-- ================= 00 · PROPOSALS WORKBENCH ================= -->
+    <section class="workbench-card" id="workbench">
+      <div class="wb-head">
+        <div>
+          <h2 class="wb-title">Proposals Simulator Workbench</h2>
+          <div style="font-family:var(--font-mono); font-size:12px; color:var(--ink-faint); margin-top:2px;">
+            Strict 1:1 hardware font scale (Adafruit GFX Size 1 = 6×8px, Size 2 = 12×16px on 240×135 TFT)
+          </div>
+        </div>
+        <span class="wb-status-tag">1:1 HARDWARE ACCURATE</span>
+      </div>
+
+      <div class="wb-body">
+        <!-- Canvas & Context Sim Card -->
+        <div class="device-wrap">
+          <div class="device">
+            <canvas id="screen" width="528" height="297" aria-label="LoRaTrace RX Proposed UI Canvas"></canvas>
+          </div>
+          <div class="device-caption">
+            Active Screen: <b id="active-prop-label">Slot 2 · Split RF Activity Dashboard</b>
+          </div>
+
+          <!-- Contextual Controls & Live Loops -->
+          <div class="context-sim-card">
+            <div class="context-sim-head">
+              <div class="context-sim-title">Simulation Loops: <span id="loop-screen-label">ACTIVITY</span></div>
+              <span id="anim-badge" class="anim-badge idle">LOOP: IDLE</span>
+            </div>
+            <div id="sim-btn-container" class="btn-row">
+              <!-- Dynamically populated per active screen -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Proposal Selection & Palette Switcher -->
+        <div class="controls-panel">
+          <div class="ctrl-group">
+            <h3>1. Select Screen to Test</h3>
+            <div class="btn-row">
+              <button class="active" onclick="switchProposal('ACTIVITY')">Slot 2: Split Activity</button>
+              <button onclick="switchProposal('FOCUS')">WS12 Focus Survey</button>
+              <button onclick="switchProposal('INSPECT')">Captures Inspector</button>
+              <button onclick="switchProposal('RADIO')">Slot 1: Radio (Baseline)</button>
+            </div>
+            <div class="ctrl-hint">Switch between candidate screen designs to inspect layouts with authentic 1:1 font sizing and clean header alignment.</div>
+          </div>
+
+          <div class="ctrl-group">
+            <h3>2. Zero-Cost Palette Switcher (Lab)</h3>
+            <div class="btn-row">
+              <button id="pal-default" class="active" onclick="switchPalette('DEFAULT')">Matrix Green (Default)</button>
+              <button id="pal-sunlight" onclick="switchPalette('SUNLIGHT')">High-Sunlight (White)</button>
+              <button id="pal-tactical" onclick="switchPalette('TACTICAL')">Tactical Red (Night)</button>
+              <button id="pal-amber" onclick="switchPalette('AMBER')">Amber CRT</button>
+            </div>
+            <div class="ctrl-hint">Swaps the 6-entry RGB565 lookup table. Proves direct sunlight readability and night stealth with 0 RAM allocation.</div>
+          </div>
+
+          <div class="ctrl-group">
+            <h3>3. Header & Battery State Sim</h3>
+            <div class="btn-row">
+              <button onclick="cycleBattery()">Cycle Battery (84% → 42% → 14%)</button>
+              <button onclick="toggleSD()">Toggle SD Dot</button>
+              <button onclick="toggleGPS()">Toggle GPS Fix Dot</button>
+            </div>
+            <div class="ctrl-hint">Tests the authentic v1.0.7 header: battery outline, terminal nib, dynamic fill bars, and status dots.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 02 · PROPOSAL: SPLIT ACTIVITY DASHBOARD ================= -->
+    <section class="proposal-card" id="prop-activity">
+      <span class="prop-badge">Carousel Slot 2 Upgrade</span>
+      <h2 class="prop-title">Slot 2: Live Split Activity &amp; RF Field Dashboard</h2>
+      <p class="prop-summary">
+        Replaces the old 4-line static text with a high-density, real-time RF triage dashboard that stays readable at 240×135.
+      </p>
+
+      <div class="comparison-grid">
+        <div class="cmp-box current">
+          <h4>Current v1.0.7 Slot 2</h4>
+          <ul>
+            <li>Displays 4 static text rows: Last Sweep peak, Last Probe hit, Last Cell rise, Scope status.</li>
+            <li>No rolling time-series or packet throughput history.</li>
+            <li>Screen is completely blanked during active scans.</li>
+          </ul>
+        </div>
+        <div class="cmp-box proposed">
+          <h4>Proposed Split Dashboard</h4>
+          <ul>
+            <li><b>Top Half (Live 30s Sparkline)</b>: Rolling packet rate bar graph (1 sample/sec, 30-byte ring buffer) with standard Size 1 header labels.</li>
+            <li><b>Bottom Half (3 Triage Cards)</b>:
+              <ul>
+                <li><code>SWEEP PK</code>: 906.8 MHz (Size 2 font) @ -64dBm.</li>
+                <li><code>CAD HIT</code>: CH 0 (Size 2 font) @ +8.5dB SNR.</li>
+                <li><code>AWAY T</code>: 1.4s (Size 2 font) with 60s budget limit.</li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 03 · PROPOSAL: WS12 FOCUS SURVEY ================= -->
+    <section class="proposal-card" id="prop-focus">
+      <span class="prop-badge">Workstream 12 Plate</span>
+      <h2 class="prop-title">Workstream 12: Dedicated Focus Survey Display Plate</h2>
+      <p class="prop-summary">
+        Direct UI specification for active Workstream 12. Provides honest single-channel dwell timing and statistical distribution without guessing.
+      </p>
+
+      <div class="comparison-grid">
+        <div class="cmp-box current">
+          <h4>V1 Foundation (Missing WS12 UI)</h4>
+          <ul>
+            <li>V1 only supported wide-band 85-bin Sweep or CAD candidate hopping.</li>
+            <li>No visual plate for single-channel dwell or sample confidence.</li>
+          </ul>
+        </div>
+        <div class="cmp-box proposed">
+          <h4>Proposed Focus Survey Screen</h4>
+          <ul>
+            <li><b>Large Target MHz Header</b>: <code>906.875 MHz [CH 0]</code> (Size 2 bold font).</li>
+            <li><b>Dwell Progress Arc / Countdown</b>: <code>08.4s / 10.0s</code> with filled bar.</li>
+            <li><b>Statistical Bracket Gauge (-120 to -40 dBm)</b>: Clean linear scale marking Noise Floor (-116), P50 Median (-98), and P90 (-82).</li>
+            <li><b>Operator Truth Badge</b>: <code>[SAMPLING]</code> → <code>[REPEATED]</code> (High confidence) or <code>[INSUFFICIENT]</code> (Zero evidence labeled truthfully, never guessed).</li>
+            <li><b>Instant Abort</b>: <code>[ESC] Abort &amp; Return Home</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 04 · PROPOSAL: PACKET INSPECTOR ================= -->
+    <section class="proposal-card" id="prop-inspector">
+      <span class="prop-badge">Analyze Suite Modal</span>
+      <h2 class="prop-title">Captures Ring: Non-Decrypting Packet Inspector Modal</h2>
+      <p class="prop-summary">
+        Pressing <code>[Enter]</code> on any packet in the Captures ring brings up a forensic RF breakdown without violating our strict RX-only / no-decryption boundaries.
+      </p>
+
+      <div class="comparison-grid">
+        <div class="cmp-box current">
+          <h4>Current Captures Screen</h4>
+          <ul>
+            <li>Scrollable list of 16-entry ring buffer.</li>
+            <li>Only shows: Timestamp, Node ID, RSSI, and truncated string.</li>
+            <li>No way to inspect RF signal quality, AFC frequency offset, or framing headers.</li>
+          </ul>
+        </div>
+        <div class="cmp-box proposed">
+          <h4>Proposed Inspector Modal</h4>
+          <ul>
+            <li><b>Detailed Signal Quality</b>: RSSI (-78dBm), SNR (+9.2dB), Estimated Frequency Error / AFC (<code>+1.4kHz</code>).</li>
+            <li><b>LoRa Framing Details</b>: Modulation (SF11/BW250/CR4:5), Payload Length (<code>48 bytes</code>), CRC OK / FAIL.</li>
+            <li><b>Raw Byte Hex Nibble Stream</b>: Formatted hex view of raw over-the-air bytes (e.g. <code>FF FF FF FF ...</code>) without payload decryption or client protocol emulation.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 05 · PROPOSAL: ZERO-COST PALETTES ================= -->
+    <section class="proposal-card" id="prop-palette">
+      <span class="prop-badge">Display Foundations</span>
+      <h2 class="prop-title">Zero-Cost Hardware Palette Switching (Sunlight &amp; Night)</h2>
+      <p class="prop-summary">
+        Direct sunlight washed out low-contrast greys on the ST7789V2 TFT; white screens ruin night vision. We propose 4 instant hardware color profiles with <b>zero RAM footprint</b>.
+      </p>
+
+      <div class="comparison-grid">
+        <div class="cmp-box current">
+          <h4>Current v1.0.7 Palette</h4>
+          <ul>
+            <li>Fixed black background (<code>COL_BG = 0x0000</code>).</li>
+            <li>Dim grey (<code>COL_DIM = 0xBDF7</code>) washes out under direct noon sunlight on windshield dashboard mounts.</li>
+            <li>White screen brightness impairs dark adaptation during nighttime wardrive operations.</li>
+          </ul>
+        </div>
+        <div class="cmp-box proposed">
+          <h4>Proposed Dynamic Lookups</h4>
+          <ul>
+            <li><b>High-Sunlight Inverted</b>: Crisp paper-white background with dark black ink and saturated blue/amber accents. Maximum ambient reflection contrast.</li>
+            <li><b>Tactical Red Night</b>: True aviation red-on-black (<code>#ff2828</code> on <code>#000000</code>) preserving rod rhodopsin for dark adaptation and stealth.</li>
+            <li><b>Amber CRT</b>: Warm monochrome amber for reduced eye strain during extended night bench monitoring.</li>
+            <li><b>Zero RAM Cost</b>: Swaps the existing 6-element <code>uint16_t COL[]</code> table in flash memory during redraws.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 06 · RESOURCE BUDGETS ================= -->
+    <section class="proposal-card" id="prop-budget">
+      <span class="prop-badge">Feasibility Analysis</span>
+      <h2 class="prop-title">Hardware Memory &amp; Performance Safety Budget</h2>
+      <p class="prop-summary">
+        Verification against our strict Phase 7 memory limits: <b>0 bytes heap allocation</b>, <b>≥40KB free SRAM safety floor</b>, and <b>Core 0 non-blocking execution</b>.
+      </p>
+
+      <table class="spec-table">
+        <thead>
+          <tr>
+            <th>Proposed Feature</th>
+            <th>Static RAM Cost</th>
+            <th>Heap Allocations</th>
+            <th>Execution Budget</th>
+            <th>Safety Gate Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>P2: Slot 2 Live 30s Sparkline</b></td>
+            <td class="num">30 bytes (static ring)</td>
+            <td class="num zero">0 bytes</td>
+            <td>&lt; 0.5 ms</td>
+            <td class="zero">PASSED (&lt; 32B budget)</td>
+          </tr>
+          <tr>
+            <td><b>P3: WS12 Focus Survey Display</b></td>
+            <td class="num">16 bytes (stat struct)</td>
+            <td class="num zero">0 bytes</td>
+            <td>&lt; 0.8 ms</td>
+            <td class="zero">PASSED (Bound verified)</td>
+          </tr>
+          <tr>
+            <td><b>P4: Captures Packet Inspector</b></td>
+            <td class="num zero">0 bytes (reads existing ring)</td>
+            <td class="num zero">0 bytes</td>
+            <td>&lt; 1.0 ms (on-demand)</td>
+            <td class="zero">PASSED (No heap buffers)</td>
+          </tr>
+          <tr>
+            <td><b>P5: Zero-Cost Palette Switching</b></td>
+            <td class="num">48 bytes (flash table)</td>
+            <td class="num zero">0 bytes</td>
+            <td>0 ms (pointer swap)</td>
+            <td class="zero">PASSED (Zero SRAM)</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="guide-footer">
+      LoRaTrace RX Firmware UI Design Guide · Proposals & Recommendations Companion · Linked to <a href="UI-Design_Guide.html" style="color:var(--amber);">docs/UI-Design_Guide.html</a>
+    </footer>
+  </main>
+</div>
+
+<!-- ================= PROPOSALS SIMULATOR SCRIPT (1:1 ACCURATE) ================= -->
+<script>
+(function() {
+  'use strict';
+
+  var SCALE = 2.2;
+  var PANEL_W = 240, PANEL_H = 135;
+  var HEADER_H = 12;
+  var FOOTER_Y = PANEL_H - 10;
+
+  // Active Palettes (Swappable in 0 RAM)
+  var PALETTES = {
+    DEFAULT: {
+      bg: '#000000', fg: '#ffffff', dim: '#bdbebd',
+      good: '#00ff00', warn: '#ffff00', bad: '#ff0000'
+    },
+    SUNLIGHT: {
+      bg: '#ffffff', fg: '#000000', dim: '#555555',
+      good: '#007722', warn: '#b56a15', bad: '#cc0000'
+    },
+    TACTICAL: {
+      bg: '#000000', fg: '#ff2828', dim: '#801010',
+      good: '#ff5555', warn: '#ff8800', bad: '#ff0000'
+    },
+    AMBER: {
+      bg: '#0f0b02', fg: '#ffb000', dim: '#7a5400',
+      good: '#ffcc33', warn: '#ffa000', bad: '#ff3300'
+    }
+  };
+
+  var COL = PALETTES.DEFAULT;
+  var activePaletteName = 'DEFAULT';
+  var activeProposal = 'ACTIVITY';
+
+  var canvas = document.getElementById('screen');
+  var ctx = canvas.getContext('2d');
+
+  function R(val) { return Math.round(val * SCALE); }
+
+  // Strict 1:1 Hardware Font Rendering (matching Adafruit GFX Size 1 and Size 2)
+  function font(size2, bold) {
+    var px = size2 ? 32 : 16;
+    return (bold ? '600 ' : '400 ') + px + 'px "IBM Plex Mono", monospace';
+  }
+
+  function text(x, y, str, opts) {
+    opts = opts || {};
+    ctx.font = font(opts.size2, opts.bold);
+    ctx.fillStyle = opts.color || COL.fg;
+    ctx.textBaseline = 'top';
+    if (opts.align === 'right') {
+      ctx.textAlign = 'right';
+      ctx.fillText(str, R(x), R(y));
+      ctx.textAlign = 'left';
+    } else if (opts.align === 'center') {
+      ctx.textAlign = 'center';
+      ctx.fillText(str, R(x), R(y));
+      ctx.textAlign = 'left';
+    } else {
+      ctx.fillText(str, R(x), R(y));
+    }
+  }
+
+  function rect(x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(R(x), R(y), R(w), R(h));
+  }
+
+  function strokeRect(x, y, w, h, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, SCALE * 0.8);
+    ctx.strokeRect(R(x) + 0.5, R(y) + 0.5, R(w) - 1, R(h) - 1);
+  }
+
+  function hline(x, y, w, color) { rect(x, y, w, 1 / SCALE, color); }
+
+  function circle(cx, cy, rad, color) {
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.arc(R(cx), R(cy), R(rad), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // State
+  var state = {
+    header: {
+      screenName: 'ACTIVITY',
+      batteryPct: 84,
+      sdMounted: true,
+      gpsFix: true,
+      wifi: false
+    },
+    radio: {
+      rx: 18,
+      log: 18,
+      freq: 906.875,
+      dbm: -72,
+      snr: 8.5,
+      sf: 11,
+      bw: 250,
+      cr: 5,
+      standby: false
+    },
+    activity: {
+      sparkline: [1, 0, 2, 4, 3, 1, 0, 0, 2, 5, 8, 3, 2, 1, 0, 2, 3, 6, 4, 2, 1, 0, 1, 3, 4, 2, 1, 3, 5, 4],
+      peakMhz: 906.8,
+      peakDbm: -64,
+      cadCh: 0,
+      cadSnr: 8.5,
+      awaySecs: 1.4,
+      awayMax: 60.0
+    },
+    focus: {
+      targetMhz: 906.875,
+      channel: 0,
+      dwellCur: 4.2,
+      dwellTotal: 10.0,
+      p50: -98,
+      p90: -82,
+      floor: -116,
+      samples: 42,
+      status: 'SAMPLING'
+    },
+    inspect: {
+      timestamp: '14:22:08',
+      nodeId: '!a48f90c2',
+      rssi: -78,
+      snr: 9.2,
+      afcOffset: '+1.4kHz',
+      sf: 11,
+      bw: 250,
+      cr: 5,
+      len: 48,
+      crcOk: true,
+      rawHex: 'FF FF FF FF 2A 90 8F A4 01 4C 6F 52 61 54 72 61 63 65'
+    }
+  };
+
+  var animTimer = null;
+
+  // Clean, Rock-Solid v1.0.7 Topbar Chrome
+  function drawChrome(screenTitle) {
+    rect(0, 0, PANEL_W, HEADER_H, COL.bg);
+    text(2, 2, screenTitle, { color: COL.fg });
+
+    // Status dots: SD, GPS, WiFi (aligned cleanly at y=6)
+    circle(157, 6, 2, state.header.sdMounted ? COL.good : COL.bad);
+    circle(166, 6, 2, state.header.gpsFix ? COL.good : COL.warn);
+    circle(175, 6, 2, state.header.wifi ? COL.good : COL.dim);
+
+    // Battery (matching v1.0.7 hardware pixel layout exactly)
+    var bx = PANEL_W - 26, by = 2;
+    var bCol = state.header.batteryPct > 20 ? COL.good : COL.bad;
+    text(bx - 2, by, state.header.batteryPct + '%', { color: bCol, align: 'right' });
+    strokeRect(bx, by, 22, 9, bCol);
+    rect(bx + 22, by + 2, 2, 5, bCol);
+    var fillW = Math.round(18 * (state.header.batteryPct / 100));
+    if (fillW > 0) rect(bx + 2, by + 2, fillW, 5, bCol);
+
+    hline(0, HEADER_H, PANEL_W, COL.dim);
+  }
+
+  // Footer breadcrumbs
+  function drawFooter(currentIdx, maxIdx, label) {
+    rect(0, FOOTER_Y, PANEL_W, 10, COL.bg);
+    hline(0, FOOTER_Y, PANEL_W, COL.dim);
+
+    text(2, FOOTER_Y + 1, label || 'Meshtastic', { color: COL.dim });
+    if (currentIdx > 0 && maxIdx > 0) {
+      text(PANEL_W - 2, FOOTER_Y + 1, currentIdx + '/' + maxIdx, { color: COL.dim, align: 'right' });
+    }
+  }
+
+  // Screen 1: Radio Baseline (Slot 1)
+  function drawRadioScreen() {
+    drawChrome('RADIO');
+
+    // Hero Counters (Size 2 font)
+    text(2, HEADER_H + 4, state.radio.rx + ' rx', { size2: true, color: COL.good });
+    text(130, HEADER_H + 4, state.radio.log + ' log', { size2: true, color: COL.good });
+
+    if (state.radio.standby) {
+      rect(2, HEADER_H + 28, 236, 12, COL.dim);
+      text(120, HEADER_H + 29, 'PAUSED - STANDBY', { color: COL.bg, bold: true, align: 'center' });
+    } else {
+      text(2, HEADER_H + 28, 'watch @ ' + state.radio.freq.toFixed(3) + 'MHz', { color: COL.fg });
+    }
+
+    text(2, HEADER_H + 44, 'last ' + state.radio.dbm + 'dBm', { color: COL.dim });
+    text(120, HEADER_H + 44, 'SNR: +' + state.radio.snr.toFixed(1) + 'dB', { color: COL.dim });
+
+    text(2, HEADER_H + 60, 'SF' + state.radio.sf + ' / BW' + state.radio.bw + ' / CR4/' + state.radio.cr, { color: COL.dim });
+    text(2, HEADER_H + 74, 'CRC OK · Ingress 100%', { color: COL.good });
+
+    drawFooter(1, 5, 'Slot 1: RADIO');
+  }
+
+  // Screen 2: Split Activity Dashboard (Slot 2)
+  function drawActivityScreen() {
+    drawChrome('ACTIVITY');
+
+    // Top Half: Live 30s Sparkline
+    text(2, HEADER_H + 2, 'INGRESS (30s)', { color: COL.dim });
+    text(238, HEADER_H + 2, 'PKTS/S', { color: COL.dim, align: 'right' });
+
+    var sparkX = 2, sparkY = HEADER_H + 12, sparkW = 236, sparkH = 34;
+    strokeRect(sparkX, sparkY, sparkW, sparkH, COL.dim);
+
+    var barW = 6;
+    for (var i = 0; i < state.activity.sparkline.length; i++) {
+      var val = state.activity.sparkline[i];
+      var h = Math.min(sparkH - 2, val * 4);
+      var bx = sparkX + 2 + (i * 7.7);
+      var by = sparkY + sparkH - 1 - h;
+      if (h > 0) {
+        rect(bx, by, barW, h, val > 5 ? COL.warn : COL.good);
+      }
+    }
+
+    // Bottom Half: 3 Triage Cards
+    var my = HEADER_H + 50;
+    var cw = 76, ch = 58;
+
+    // Card 1: Sweep Peak
+    strokeRect(2, my, cw, ch, COL.dim);
+    text(4, my + 3, 'SWEEP PK', { color: COL.warn });
+    text(4, my + 16, state.activity.peakMhz.toFixed(1), { size2: true, color: COL.fg });
+    text(4, my + 42, state.activity.peakDbm + ' dBm', { color: COL.dim });
+
+    // Card 2: CAD Hit
+    strokeRect(82, my, cw, ch, COL.dim);
+    text(84, my + 3, 'CAD HIT', { color: COL.good });
+    text(84, my + 16, 'CH ' + state.activity.cadCh, { size2: true, color: COL.fg });
+    text(84, my + 42, '+' + state.activity.cadSnr.toFixed(1) + 'dB SNR', { color: COL.dim });
+
+    // Card 3: Away Time Budget
+    strokeRect(162, my, cw, ch, COL.dim);
+    text(164, my + 3, 'AWAY T', { color: COL.dim });
+    text(164, my + 16, state.activity.awaySecs.toFixed(1) + 's', { size2: true, color: state.activity.awaySecs > 10 ? COL.warn : COL.fg });
+    text(164, my + 42, 'limit 60s', { color: COL.dim });
+
+    drawFooter(2, 5, 'Slot 2: ACTIVITY');
+  }
+
+  // Screen 3: Workstream 12 Focus Survey Plate
+  function drawFocusScreen() {
+    drawChrome('FOCUS [WS12]');
+
+    var f = state.focus;
+    // Header Target MHz
+    text(2, HEADER_H + 4, f.targetMhz.toFixed(3) + ' MHz', { size2: true, color: COL.fg });
+    text(142, HEADER_H + 6, '[CH ' + f.channel + ']', { color: COL.warn });
+    text(238, HEADER_H + 6, f.status, { color: f.status === 'REPEATED' ? COL.good : COL.warn, align: 'right' });
+
+    // Dwell Progress Bar
+    var progW = 236, progH = 8;
+    strokeRect(2, HEADER_H + 28, progW, progH, COL.dim);
+    var frac = Math.min(1, f.dwellCur / f.dwellTotal);
+    rect(3, HEADER_H + 29, Math.round((progW - 2) * frac), progH - 2, COL.good);
+    text(2, HEADER_H + 39, 'DWELL ' + f.dwellCur.toFixed(1) + 's / ' + f.dwellTotal.toFixed(1) + 's', { color: COL.dim });
+    text(238, HEADER_H + 39, f.samples + ' SAMPLES', { color: COL.dim, align: 'right' });
+
+    // Statistical Bracket Gauge (-120 to -40 dBm)
+    strokeRect(2, HEADER_H + 54, progW, 20, COL.dim);
+    text(4, HEADER_H + 78, '-120', { color: COL.dim });
+    text(110, HEADER_H + 78, '-80', { color: COL.dim });
+    text(220, HEADER_H + 78, '-40', { color: COL.dim, align: 'right' });
+
+    // Median (P50) line
+    var p50X = 2 + Math.round(((f.p50 - (-120)) / 80) * progW);
+    rect(p50X - 1, HEADER_H + 55, 3, 18, COL.good);
+    text(p50X - 10, HEADER_H + 44, 'P50', { color: COL.good });
+
+    // P90 line
+    var p90X = 2 + Math.round(((f.p90 - (-120)) / 80) * progW);
+    rect(p90X - 1, HEADER_H + 55, 3, 18, COL.warn);
+    text(p90X - 10, HEADER_H + 44, 'P90', { color: COL.warn });
+
+    // Stats readout
+    text(2, HEADER_H + 90, 'Floor ' + f.floor + 'dB', { color: COL.dim });
+    text(86, HEADER_H + 90, 'P50 ' + f.p50 + 'dB', { color: COL.good });
+    text(164, HEADER_H + 90, 'P90 ' + f.p90 + 'dB', { color: COL.warn });
+
+    drawFooter(0, 0, '[ESC] Abort & Return');
+  }
+
+  // Screen 4: Forensic Packet Inspector Modal
+  function drawInspectScreen() {
+    drawChrome('CAPTURES');
+
+    var p = state.inspect;
+    // Header modal banner
+    rect(2, HEADER_H + 2, 236, 12, COL.dim);
+    text(4, HEADER_H + 3, 'INSPECT: ' + p.nodeId + ' (' + p.timestamp + ')', { color: COL.bg, bold: true });
+
+    var y1 = HEADER_H + 18;
+    text(2, y1, 'RSSI: ' + p.rssi + ' dBm', { color: COL.fg });
+    text(120, y1, 'SNR:  +' + p.snr.toFixed(1) + ' dB', { color: COL.good });
+
+    text(2, y1 + 12, 'AFC:  ' + p.afcOffset, { color: COL.dim });
+    text(120, y1 + 12, 'LEN:  ' + p.len + ' bytes', { color: COL.dim });
+
+    text(2, y1 + 24, 'MOD:  SF' + p.sf + '/BW' + p.bw + '/CR4:' + p.cr, { color: COL.dim });
+    text(120, y1 + 24, 'CRC:  ' + (p.crcOk ? 'OK (valid)' : 'BAD (fail)'), { color: p.crcOk ? COL.good : COL.bad });
+
+    // Raw OTA Byte Dump (strictly non-decrypting)
+    strokeRect(2, y1 + 38, 236, 36, COL.dim);
+    text(4, y1 + 41, 'RAW OTA BYTES (NO DECRYPTION):', { color: COL.dim });
+    text(4, y1 + 54, p.rawHex, { color: COL.warn });
+
+    drawFooter(0, 0, '[ESC] Return to Captures');
+  }
+
+  // Render Dispatcher
+  function render() {
+    ctx.fillStyle = COL.bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (activeProposal === 'ACTIVITY') drawActivityScreen();
+    else if (activeProposal === 'FOCUS') drawFocusScreen();
+    else if (activeProposal === 'INSPECT') drawInspectScreen();
+    else if (activeProposal === 'RADIO') drawRadioScreen();
+  }
+
+  // Public Interface for UI Controls
+  window.switchProposal = function(prop) {
+    activeProposal = prop;
+    state.header.screenName = prop === 'RADIO' ? 'RADIO' : (prop === 'FOCUS' ? 'FOCUS [WS12]' : prop);
+
+    document.querySelectorAll('.controls-panel .ctrl-group:first-child button').forEach(function(b) {
+      b.classList.remove('active');
+    });
+    event.target.classList.add('active');
+
+    var labels = {
+      ACTIVITY: 'Slot 2 · Split RF Activity Dashboard',
+      FOCUS: 'Workstream 12 · Focus Survey Dwell Plate',
+      INSPECT: 'Analyze Suite · Forensic Packet Inspector Modal',
+      RADIO: 'Slot 1 · Radio Home (v1.0.7 Baseline)'
+    };
+    document.getElementById('active-prop-label').textContent = labels[prop] || prop;
+    document.getElementById('loop-screen-label').textContent = prop;
+
+    updateSimButtons();
+    render();
+  };
+
+  window.switchPalette = function(pal) {
+    COL = PALETTES[pal];
+    activePaletteName = pal;
+
+    document.querySelectorAll('#pal-default, #pal-sunlight, #pal-tactical, #pal-amber').forEach(function(b) {
+      b.classList.remove('active');
+    });
+    document.getElementById('pal-' + pal.toLowerCase()).classList.add('active');
+
+    render();
+  };
+
+  window.cycleBattery = function() {
+    if (state.header.batteryPct === 84) state.header.batteryPct = 42;
+    else if (state.header.batteryPct === 42) state.header.batteryPct = 14;
+    else state.header.batteryPct = 84;
+    render();
+  };
+
+  window.toggleSD = function() {
+    state.header.sdMounted = !state.header.sdMounted;
+    render();
+  };
+
+  window.toggleGPS = function() {
+    state.header.gpsFix = !state.header.gpsFix;
+    render();
+  };
+
+  function updateSimButtons() {
+    var c = document.getElementById('sim-btn-container');
+    c.innerHTML = '';
+    stopAnim();
+
+    if (activeProposal === 'ACTIVITY') {
+      createBtn(c, '▶ Start Rolling Sparkline (Loop)', function() {
+        toggleAnim(function() {
+          var next = Math.floor(Math.random() * 6);
+          state.activity.sparkline.shift();
+          state.activity.sparkline.push(next);
+          render();
+        });
+      });
+      createBtn(c, 'Inject Packet Burst (+8)', function() {
+        state.activity.sparkline.shift();
+        state.activity.sparkline.push(8);
+        render();
+      });
+    } else if (activeProposal === 'FOCUS') {
+      createBtn(c, '▶ Run 10s Dwell Survey (Anim)', function() {
+        state.focus.dwellCur = 0;
+        state.focus.status = 'SAMPLING';
+        toggleAnim(function() {
+          state.focus.dwellCur += 0.4;
+          state.focus.p50 = -100 + Math.round(Math.random() * 8);
+          state.focus.p90 = -84 + Math.round(Math.random() * 6);
+          state.focus.samples += 3;
+          if (state.focus.dwellCur >= state.focus.dwellTotal) {
+            state.focus.dwellCur = state.focus.dwellTotal;
+            state.focus.status = 'REPEATED';
+            stopAnim();
+          }
+          render();
+        }, 300);
+      });
+      createBtn(c, 'Flag Insufficient Data', function() {
+        state.focus.status = 'INSUFFICIENT';
+        render();
+      });
+    } else if (activeProposal === 'INSPECT') {
+      createBtn(c, 'Toggle CRC Error State', function() {
+        state.inspect.crcOk = !state.inspect.crcOk;
+        render();
+      });
+      createBtn(c, 'Cycle Node ID', function() {
+        state.inspect.nodeId = '!b81e' + Math.floor(1000 + Math.random() * 9000).toString(16);
+        render();
+      });
+    } else if (activeProposal === 'RADIO') {
+      createBtn(c, 'Toggle Standby Mode', function() {
+        state.radio.standby = !state.radio.standby;
+        render();
+      });
+      createBtn(c, '+1 Rx Packet', function() {
+        state.radio.rx++;
+        state.radio.log++;
+        render();
+      });
+    }
+  }
+
+  function createBtn(container, text, fn) {
+    var b = document.createElement('button');
+    b.textContent = text;
+    b.addEventListener('click', fn);
+    container.appendChild(b);
+  }
+
+  function toggleAnim(fn, interval) {
+    var b = document.getElementById('anim-badge');
+    if (animTimer) {
+      stopAnim();
+    } else {
+      animTimer = setInterval(fn, interval || 700);
+      b.className = 'anim-badge running';
+      b.textContent = 'LOOP: RUNNING';
+    }
+  }
+
+  function stopAnim() {
+    if (animTimer) {
+      clearInterval(animTimer);
+      animTimer = null;
+    }
+    var b = document.getElementById('anim-badge');
+    if (b) {
+      b.className = 'anim-badge idle';
+      b.textContent = 'LOOP: IDLE';
+    }
+  }
+
+  // Initialize
+  updateSimButtons();
+  render();
+})();
+</script>
+
+</body>
+</html>

@@ -28,6 +28,11 @@ volatile uint16_t sweepSettleMs = ENERGY_SWEEP_SETTLE_DEFAULT_MS;
 volatile EnergyObservationResult passBCadLastResult = EnergyObservationResult::RADIO_ERROR;
 volatile bool passBCadHaveResult = false;
 
+// Wide enough to overrun focusRequestTimeoutMs() for the longest legal
+// request (2,000ms dwell + 1,000ms slack) and no wider.
+constexpr uint32_t FOCUS_BENCH_STALL_MAX_MS = 4000;
+volatile uint16_t focusStallMs = 0;
+
 #if defined(LORATRACE_BENCH_FAULTS)
 // energy_plan.h's own ENERGY_BIN_RESERVED_COUNT -- the same hard ceiling
 // Pass A's bin loop is already bounded by, so this array is sized to hold
@@ -264,6 +269,43 @@ bool benchSweepFloorQuery(uint16_t bin, int16_t &rssi_avg_dbm_x10) {
 }
 
 bool benchRssiWindowTriggerAllowed() {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    return false;
+#else
+    return true;
+#endif
+}
+
+bool benchFocusSurveyTriggerAllowed() {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    return false;
+#else
+    return true;
+#endif
+}
+
+bool benchFocusStallConfigure(uint32_t stall_ms) {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    (void)stall_ms;
+    return false;
+#else
+    if (stall_ms > FOCUS_BENCH_STALL_MAX_MS) return false;
+    focusStallMs = (uint16_t)stall_ms;
+    return true;
+#endif
+}
+
+uint16_t benchFocusStallTakeMs() {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    return 0;
+#else
+    const uint16_t stall = focusStallMs;
+    focusStallMs = 0;
+    return stall;
+#endif
+}
+
+bool benchArbitrationTriggerAllowed() {
 #if !defined(LORATRACE_BENCH_FAULTS)
     return false;
 #else

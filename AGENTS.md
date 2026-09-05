@@ -14,10 +14,12 @@ should be fixed to match, not the other way around.
 Also relevant, referenced from CLAUDE.md:
 - [docs/STATUS.md](docs/STATUS.md) — current status, what's
   hardware-verified, and what's still open.
-- [docs/DESIGN.md](docs/DESIGN.md) — the "why" behind RF/architecture
-  decisions.
-- [docs/ROADMAP.md](docs/ROADMAP.md) — phase-by-phase build order and
-  scope.
+- [docs/DESIGN.md](docs/DESIGN.md) — the "why" behind the shipped v1
+  RF/architecture foundation.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — active V2 workstreams, gates, and
+  release policy.
+- [docs/research/V2_DESIGN.md](docs/research/V2_DESIGN.md) — V2 product
+  boundaries and design direction; read it before V2 architecture work.
 - [CHANGELOG.md](CHANGELOG.md) — short, ongoing changelog; full
   pre-2026-08-29 session-by-session decisions log is archived at
   [docs/history/CHANGELOG.md](docs/history/CHANGELOG.md).
@@ -25,8 +27,8 @@ Also relevant, referenced from CLAUDE.md:
 - [docs/HARDWARE_TESTING.md](docs/HARDWARE_TESTING.md) — repeatable bench
   matrix and Phase 7 memory acceptance rules.
 
-**Don't read `docs/history/PROGRESS.md` or `docs/history/CHANGELOG.md`
-end-to-end by default.** They're a frozen pre-2026-08-29 development log,
-not required context for every task — `docs/STATUS.md` already gives the
-current-state summary. Search them for the specific date/version/topic you
-need instead of reading front to back.
+**Don't read `docs/history/PROGRESS.md`, `docs/history/CHANGELOG.md`, or
+`docs/history/ROADMAP_V1.md` end-to-end by default.** They're historical
+records, not required context for active V2 work — `docs/STATUS.md` and the
+active roadmap give the current-state summary. Search history for the specific
+date/version/topic you need instead of reading front to back.

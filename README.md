@@ -64,24 +64,23 @@ not a laptop-tethered tool.
 
 ## Version
 
-No tagged `vX.Y.Z` release has been published yet — `main` builds a
-rolling
+The stable release is **v1.0.7**. `main` also builds a rolling
 [`dev-latest`](https://github.com/d3mocide/LoRaTrace-RX/releases/tag/dev-latest)
-prerelease on every merge (see [Install](#flash-from-your-browser) below),
-which is what the **dev-latest** badge above tracks. The firmware's own
-semantic version lives in `src/version.h` and is bumped by hand when a
-build-order phase lands — see
-**[docs/STATUS.md](docs/STATUS.md)** for the current version, what's
-hardware-verified, and what's still open, rather than a number restated
-here that can drift out of sync.
+prerelease on every merge for hardware iteration (see
+[Install](#flash-from-your-browser)); it is not a stable release. The firmware
+semantic version lives in `src/version.h` and is bumped by hand only when its
+release gate lands. See **[docs/STATUS.md](docs/STATUS.md)** for current
+hardware verification and open work rather than treating this summary as a
+release record.
 
 ## Documentation
 
 | Doc | For |
 |---|---|
 | **[docs/STATUS.md](docs/STATUS.md)** | Current version, what's hardware-verified, what's still open. Start here. |
-| [docs/DESIGN.md](docs/DESIGN.md) | Hardware, RF parameters, and architecture rationale — read before making architecture changes. |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Build-order phases, MVP-Beta scope, and an honest feasibility read against this hardware's real limits. |
+| [docs/DESIGN.md](docs/DESIGN.md) | Shipped v1 hardware, RF parameters, and architecture rationale — read before changing those foundations. |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Active V2 workstreams, gates, and release policy. |
+| [docs/research/V2_DESIGN.md](docs/research/V2_DESIGN.md) | V2 product direction and permanent boundaries. |
 | [docs/LOG_GUIDE.md](docs/LOG_GUIDE.md) | Operator guide to run folders, CSV fields, identity observations, health checks, and privacy-aware export. |
 | [docs/HARDWARE_TESTING.md](docs/HARDWARE_TESTING.md) | Repeatable device-validation matrix and Phase 7 memory acceptance rules. |
 | [docs/BRAND.md](docs/BRAND.md) | Naming, tone, and on-device UI copy conventions. |

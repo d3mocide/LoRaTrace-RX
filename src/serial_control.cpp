@@ -112,11 +112,14 @@ void sendStatus(uint16_t sequence) {
     // question that R= (Probe's recovery count, not a packet count
     // despite the letter) could not answer; distinct names on purpose so
     // a host script can't confuse them the way this session just did.
-    char argument[200] = {};
+    // Sized from the protocol's own frame budget rather than by hand: this
+    // buffer was 240 against a 230-byte budget, which silently dropped the
+    // whole STATUS frame once the counters grew (serial_control_protocol.h).
+    char argument[SERIAL_CONTROL_ARGUMENT_MAX + 1] = {};
     snprintf(argument, sizeof(argument),
              "P=%s;T=%u;B=%s;SD=%u;F=%lu;R=%lu;I=%u;N=%u;C=%u,%u,%u,%u;M=%04X;"
              "W=%s;WI=%u;WN=%u;WP=%u;PBA=%lu;PBD=%lu;BPC=%u;RW=%u;WIFI=%u;EA=%lu;"
-             "RXP=%lu;RXC=%lu",
+             "RXP=%lu;RXC=%lu;FS=%u;FA=%lu;FO=%lu;FD=%lu;FW=%lu;FL=%lu",
              profile, radioIsTracePaused() ? 0U : 1U, probe, loggerSdReady() ? 1U : 0U,
              (unsigned long)(channel.freq_mhz * 1000.0f),
              (unsigned long)radioDiscoveryRecoveryCount(),
@@ -132,7 +135,12 @@ void sendStatus(uint16_t sequence) {
              (unsigned long)radioPassBAttemptCount(), (unsigned long)radioPassBDetectionCount(),
              radioBenchPassBCadIsActive() ? 1U : 0U, radioBenchRssiWindowIsActive() ? 1U : 0U,
              wifiIsEnabled() ? 1U : 0U, (unsigned long)radioEnergyLastAwayMs(),
-             (unsigned long)radioPacketCount(), (unsigned long)radioCrcErrorCount());
+             (unsigned long)radioPacketCount(), (unsigned long)radioCrcErrorCount(),
+             (unsigned)radioFocusSurveyState(), (unsigned long)radioFocusLastAwayMs(),
+             (unsigned long)radioFocusObservationCount(),
+             (unsigned long)radioFocusObservationDropCount(),
+             (unsigned long)loggerFocusRowsWritten(),
+             (unsigned long)loggerFocusRowsDropped());
     sendFrame(sequence, SerialControlOpcode::STATUS, argument);
 }
 
@@ -317,6 +325,161 @@ void handleFrame(const SerialControlFrame &frame) {
                 snprintf(argument, sizeof(argument), "MAX=%d;AVG=%d;N=%u",
                          (int)maxVal, (int)avgVal, (unsigned)sampleCount);
                 sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+            }
+            break;
+        }
+        case SerialControlOpcode::BENCH_FOCUS: {
+            if (!benchFocusSurveyTriggerAllowed()) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+                break;
+            }
+            if (!loggerSdReady()) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "SD_REQUIRED");
+                break;
+            }
+            char argument[40] = {};
+            if (strlen(frame.argument) >= sizeof(argument)) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
+                break;
+            }
+            strcpy(argument, frame.argument);
+            char *a = argument;
+            char *b = strchr(a, ':');
+            if (b == nullptr) { sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT"); break; }
+            *b++ = '\0';
+            char *c = strchr(b, ':');
+            if (c == nullptr) { sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT"); break; }
+            *c++ = '\0';
+            // Optional 4th field: a one-shot sample-loop stall in ms, the only
+            // way to reach Focus's timeout on demand (bench_fault.h). Omitting
+            // it keeps the original bin:dwell:samples grammar working.
+            char *d = strchr(c, ':');
+            if (d != nullptr) *d++ = '\0';
+            uint32_t bin, dwell, samples, stall = 0;
+            if (!serialControlParseUint32(a, bin) || !serialControlParseUint32(b, dwell) ||
+                !serialControlParseUint32(c, samples) || bin > UINT16_MAX || dwell > UINT16_MAX ||
+                samples > UINT16_MAX ||
+                (d != nullptr && !serialControlParseUint32(d, stall))) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
+                break;
+            }
+            if (d != nullptr && !benchFocusStallConfigure(stall)) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
+                break;
+            }
+            FocusRequest request;
+            request.region = radioEnergySweepRegion();
+            request.selection_source = FocusSelectionSource::SWEEP_BIN;
+            request.selection_bin_index = (uint16_t)bin;
+            request.requested_dwell_ms = (uint16_t)dwell;
+            request.requested_samples = (uint16_t)samples;
+            request.requested_passes = FOCUS_BENCH_REQUESTED_PASSES;
+            const bool accepted = radioRequestFocusSurvey(request);
+            // A refused request never reaches Core 1's one-shot take, so the
+            // stall would otherwise fire on whichever request ran next.
+            if (!accepted) benchFocusStallConfigure(0);
+            sendFrame(frame.sequence, accepted ? SerialControlOpcode::ACK : SerialControlOpcode::ERROR,
+                      accepted ? "QUEUED" : "UNAVAILABLE");
+            break;
+        }
+        case SerialControlOpcode::BENCH_FOCUS_CANCEL:
+            if (!benchFocusSurveyTriggerAllowed()) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            } else if (radioCancelFocusSurvey()) {
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, "CANCEL_QUEUED");
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, "IDLE");
+            }
+            break;
+        case SerialControlOpcode::BENCH_FOCUS_RESULT: {
+            if (!benchFocusSurveyTriggerAllowed()) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+                break;
+            }
+            FocusObservation observation;
+            if (!radioFocusLastObservation(observation)) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "NO_RESULT");
+                break;
+            }
+            if (strcmp(frame.argument, "HEALTH") == 0) {
+                char argument[32] = {};
+                snprintf(argument, sizeof(argument), "RS=%u;HR=%u;E=%d",
+                         (unsigned)observation.request_status,
+                         observation.home_restore ? 1U : 0U,
+                         (int)observation.radio_status);
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+                break;
+            }
+            // Fixed-point dBm fields preserve exact device values without
+            // locale/float formatting or leaking CSV's GPS/run columns.
+            char argument[144] = {};
+            snprintf(argument, sizeof(argument),
+                     "ID=%u;BIN=%u;F=%lu;N=%u;MED=%d;P90=%d;MAX=%d;OBS=%lu;RS=%u;HR=%u;E=%d",
+                     (unsigned)observation.focus_id,
+                     (unsigned)observation.selection_bin_index,
+                     (unsigned long)(observation.freq_mhz * 1000.0f),
+                     (unsigned)observation.sample_count,
+                     (int)observation.rssi_median_dbm_x10,
+                     (int)observation.rssi_p90_dbm_x10,
+                     (int)observation.rssi_peak_dbm_x10,
+                     (unsigned long)observation.observation_ms,
+                     (unsigned)observation.request_status,
+                     observation.home_restore ? 1U : 0U,
+                     (int)observation.radio_status);
+            sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+            break;
+        }
+        case SerialControlOpcode::BENCH_ACTION: {
+            // Cell and Scope are menu-only actions in production, so a fixture
+            // has no other way to prove Focus refuses them and is refused by
+            // them (docs/research/phase12-survey-truth-design.md §8). This
+            // calls the same request functions the menu does -- both toggle to
+            // cancel while their own action is active -- and adds no radio
+            // behavior of its own.
+            if (!benchArbitrationTriggerAllowed()) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+                break;
+            }
+            if (strcmp(frame.argument, "STATE") == 0) {
+                char argument[32] = {};
+                snprintf(argument, sizeof(argument), "CELL=%u;SCOPE=%u;FOCUS=%u",
+                         radioCellSweepIsActive() ? 1U : 0U,
+                         radioScopeAcquireIsActive() ? 1U : 0U,
+                         radioFocusSurveyIsActive() ? 1U : 0U);
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+                break;
+            }
+            const bool cell = strncmp(frame.argument, "CELL:", 5) == 0;
+            const bool scope = strncmp(frame.argument, "SCOPE:", 6) == 0;
+            if (!cell && !scope) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
+                break;
+            }
+            const char *verb = frame.argument + (cell ? 5 : 6);
+            const bool start = strcmp(verb, "START") == 0;
+            if (!start && strcmp(verb, "CANCEL") != 0) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
+                break;
+            }
+            const bool active = cell ? radioCellSweepIsActive() : radioScopeAcquireIsActive();
+            if (start && active) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "ACTIVE");
+                break;
+            }
+            if (!start && !active) {
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, "IDLE");
+                break;
+            }
+            // Scope parks at one frequency; the resolved home channel keeps the
+            // fixture from inventing one and keeps the hop short.
+            const uint32_t scopeFreqKhz = (uint32_t)(radioActiveChannel().freq_mhz * 1000.0f);
+            const bool accepted = cell ? radioRequestCellSweep()
+                                       : radioRequestScopeAcquire(scopeFreqKhz);
+            if (!accepted) {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNAVAILABLE");
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ACK,
+                          start ? "QUEUED" : "CANCEL_QUEUED");
             }
             break;
         }

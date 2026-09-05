@@ -3,14 +3,16 @@
 The one place "where is this project right now" lives. Replaces status
 prose that used to be duplicated (and drifting) across `CLAUDE.md`,
 `PROGRESS.md`, and `README.md`. For *how* we got here, see
-`docs/history/CHANGELOG.md`; for the phase-by-phase build order, see
-[ROADMAP.md](ROADMAP.md).
+`docs/history/CHANGELOG.md`; for active V2 workstream gates, see
+[ROADMAP.md](ROADMAP.md); for the completed v1 phase record, see
+[ROADMAP_V1.md](history/ROADMAP_V1.md).
 
 ## Current version
 
-**v1.0.6** (`src/version.h`). `MAJOR.MINOR` tracks the build-order phase
-*reached*, not the phase in progress — see ROADMAP.md's Versioning
-section. Phase 9 (`ENERGY_SWEEP`/"Sweep") reached 2026-09-03: all five
+**v1.0.7** (`src/version.h`). In the completed v1 series, `MAJOR.MINOR`
+tracks the build-order phase *reached*, not the phase in progress — see
+ROADMAP.md's Versioning section for the V2 workstream policy. Phase 9
+(`ENERGY_SWEEP`/"Sweep") reached 2026-09-03: all five
 ROADMAP.md exit criteria closed, including two full 8-hour endurance
 soaks that caught and fixed a real `logger_task` stack overflow and a
 proactive `radio_task` stack margin fix — see "What's hardware-verified"
@@ -32,6 +34,71 @@ that's done. Phase 11 (Cell) was never part of the gate (added out of
 sequence, outside the original four-profile scope); its own two open
 items (below) are known, tracked gaps post-`v1.0`, an explicit operator
 call, not an oversight.
+
+`v1.0.7` is the stable V2 planning baseline. It is an operator-navigation
+PATCH release (Tools and Analyze moved into the menu and Activity became the
+read-only bounded-action status page); it does not change any completed phase
+gate or the two open Cell evidence items.
+
+## V2 entry state
+
+The V2 product direction is adopted for planning, with its canonical workstream
+and gate policy in `docs/ROADMAP.md` and the detailed design in
+`docs/research/V2_DESIGN.md`. **Workstream 12 (Survey truth) is in
+Engineering.** Its bench-only first slice locks one-bin request, bounded RSSI
+summary, and `focus.csv` contracts; it has not added a production control or
+coverage label. The active
+[design-entry and acceptance plan](research/phase12-survey-truth-design.md)
+keeps radio-away budgets and coverage thresholds open until controlled evidence
+selects them.
+
+The bench image now has one bounded Core-1 Focus request and a Core-0
+`focus.csv` writer. Two paired 500 ms/eight-sample smoke checks at US Sweep
+bin 43 (912.750 MHz) observed P90/peak at -101.0/-101.0 dBm while quiet and
+-82.0/-82.0 then -87.0/-87.0 dBm during capped controlled 912.8125 MHz Heltec
+pulses—a 14--19 dB rise. Every request restored home listening and durably
+wrote its row. This is only fixture/transport evidence, not a calibration,
+coverage label, or activity claim. The repeatable bench harness is
+`scripts/phase12_focus_bench.py`; its pulse path requires explicit
+`--with-pulse --allow-transmit`.
+
+The non-transmitting Focus behavior fixture also proved cancelled and injected
+failed rows restore before their durable write, and proved two-way refusal
+with Probe and Sweep.
+
+A Focus request is now bounded in wall-clock time as well as in samples: past
+a dwell-plus-slack deadline it stops sampling and terminates as `timeout`,
+restoring home like every other exit path. That path and two-way Cell/Scope
+refusal are hardware-verified as of 2026-09-04 on bench build `3e31daa-dirty`.
+An injected 1,500 ms sample-loop stall against a 100 ms request (1,100 ms
+deadline) produced a `timeout` row with successful home restore and 1,573 ms
+radio-away time; Focus and Cell, then Focus and Scope, each refused the other
+while it owned RX. Six terminal requests wrote six durable rows with zero
+queue or row drops. Reaching those paths on demand needs bench-image-only
+entrypoints (the stall is `BENCH_FOCUS`'s optional fourth field;
+`BENCH_ACTION` starts and cancels the otherwise menu-only Cell and Scope);
+production rejects both. No coverage/activity claim is enabled.
+
+The §6.2 controlled dwell matrix ran on 2026-09-04: 900 trials (5 positions x
+3 dwell arms x 30 source-on and 30 source-off) in 54.7 min with zero transport
+errors, zero queue or row drops, and successful home restore on every trial.
+14 of 15 arms separated a controlled source from ambient completely (30/30 vs
+0/30). Its most consequential result is a limit, not a capability: **detection
+tracks the source's airtime against Focus's sample spacing, not dwell length**
+— with a fixed 8 samples a 2000 ms dwell observes eight instants, not 2000 ms,
+and one arm with a 94 ms source stopped separating there entirely. Bin-center
+offset was not the dominant term. Radio-away measured dwell plus ~73 ms, worst
+case 2,139 ms. No single fixed RSSI condition separates every arm, so the
+qualifying condition has a candidate (`p90 >= -90 dBm`) but not an accepted
+constant, and the coverage thresholds remain unselected. Full location-redacted
+summary: [hardware-results/2026-09-04-phase12-focus-matrix.md](hardware-results/2026-09-04-phase12-focus-matrix.md).
+The §6.3 Watch-opportunity comparison has tooling but has not run, so Focus's
+maximum radio-away budget is still unapproved.
+
+The existing Phase 11 Cell feature remains partially hardware-verified and
+visible in "What's still open." It is deliberately scheduled as **V2
+Workstream 16 — Cell closeout**, an optional post-core-V2 bonus: it does not
+block Workstreams 12–15 or the V2.0 composition release.
 
 ## What's hardware-verified
 

@@ -98,6 +98,78 @@ void test_bench_pass_b_cad_opcode_round_trips() {
     TEST_ASSERT_EQUAL_STRING("7", frame.argument);
 }
 
+void test_bench_focus_opcode_round_trips() {
+    char line[SERIAL_CONTROL_FRAME_MAX];
+    TEST_ASSERT_TRUE(serialControlFormatFrame(line, sizeof(line), 24,
+                                           SerialControlOpcode::BENCH_FOCUS,
+                                           "43:500:8") > 0);
+    SerialControlFrame frame;
+    TEST_ASSERT_TRUE(serialControlParseFrame(line, frame));
+    TEST_ASSERT_EQUAL_INT((int)SerialControlOpcode::BENCH_FOCUS, (int)frame.opcode);
+    TEST_ASSERT_EQUAL_STRING("43:500:8", frame.argument);
+}
+
+void test_bench_focus_result_opcode_round_trips() {
+    char line[SERIAL_CONTROL_FRAME_MAX];
+    TEST_ASSERT_TRUE(serialControlFormatFrame(line, sizeof(line), 25,
+                                           SerialControlOpcode::BENCH_FOCUS_RESULT,
+                                           "-") > 0);
+    SerialControlFrame frame;
+    TEST_ASSERT_TRUE(serialControlParseFrame(line, frame));
+    TEST_ASSERT_EQUAL_INT((int)SerialControlOpcode::BENCH_FOCUS_RESULT, (int)frame.opcode);
+    TEST_ASSERT_EQUAL_STRING("-", frame.argument);
+}
+
+void test_bench_focus_cancel_opcode_round_trips() {
+    char line[SERIAL_CONTROL_FRAME_MAX];
+    TEST_ASSERT_TRUE(serialControlFormatFrame(line, sizeof(line), 26,
+                                           SerialControlOpcode::BENCH_FOCUS_CANCEL,
+                                           "-") > 0);
+    SerialControlFrame frame;
+    TEST_ASSERT_TRUE(serialControlParseFrame(line, frame));
+    TEST_ASSERT_EQUAL_INT((int)SerialControlOpcode::BENCH_FOCUS_CANCEL, (int)frame.opcode);
+    TEST_ASSERT_EQUAL_STRING("-", frame.argument);
+}
+
+void test_bench_action_opcode_round_trips() {
+    char line[SERIAL_CONTROL_FRAME_MAX];
+    TEST_ASSERT_TRUE(serialControlFormatFrame(line, sizeof(line), 27,
+                                           SerialControlOpcode::BENCH_ACTION,
+                                           "CELL:START") > 0);
+    SerialControlFrame frame;
+    TEST_ASSERT_TRUE(serialControlParseFrame(line, frame));
+    TEST_ASSERT_EQUAL_INT((int)SerialControlOpcode::BENCH_ACTION, (int)frame.opcode);
+    TEST_ASSERT_EQUAL_STRING("CELL:START", frame.argument);
+}
+
+void test_argument_budget_covers_the_longest_opcode_name() {
+    // SERIAL_CONTROL_ARGUMENT_MAX is derived from this; a longer opcode name
+    // added later would quietly overrun every buffer sized from it.
+    for (int value = (int)SerialControlOpcode::HELLO; value <= (int)SerialControlOpcode::ERROR;
+         ++value) {
+        const char *name = serialControlOpcodeName((SerialControlOpcode)value);
+        TEST_ASSERT_TRUE(strlen(name) <= SERIAL_CONTROL_OPCODE_NAME_MAX);
+    }
+}
+
+void test_formatter_frames_a_saturated_status_argument() {
+    // STATUS is the longest frame the device emits, and an over-long one is
+    // dropped silently rather than truncated -- so the budget has to hold at
+    // the maximum, not at today's typical field widths.
+    char argument[SERIAL_CONTROL_ARGUMENT_MAX + 2];
+    memset(argument, 'x', sizeof(argument) - 1);
+    argument[sizeof(argument) - 1] = '\0';
+
+    char line[SERIAL_CONTROL_FRAME_MAX];
+    TEST_ASSERT_EQUAL_UINT(0, serialControlFormatFrame(line, sizeof(line), 65535,
+                                                       SerialControlOpcode::BENCH_PASS_B_CAD_RESULT,
+                                                       argument));
+    argument[SERIAL_CONTROL_ARGUMENT_MAX] = '\0';
+    TEST_ASSERT_TRUE(serialControlFormatFrame(line, sizeof(line), 65535,
+                                              SerialControlOpcode::BENCH_PASS_B_CAD_RESULT,
+                                              argument) > 0);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_valid_frame_round_trips);
@@ -109,5 +181,11 @@ int main(int argc, char **argv) {
     RUN_TEST(test_sweep_opcodes_round_trip);
     RUN_TEST(test_sd_retry_opcode_round_trips);
     RUN_TEST(test_bench_pass_b_cad_opcode_round_trips);
+    RUN_TEST(test_bench_focus_opcode_round_trips);
+    RUN_TEST(test_bench_focus_result_opcode_round_trips);
+    RUN_TEST(test_bench_focus_cancel_opcode_round_trips);
+    RUN_TEST(test_bench_action_opcode_round_trips);
+    RUN_TEST(test_argument_budget_covers_the_longest_opcode_name);
+    RUN_TEST(test_formatter_frames_a_saturated_status_argument);
     return UNITY_END();
 }

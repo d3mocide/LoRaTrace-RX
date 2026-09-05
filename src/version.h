@@ -4,11 +4,12 @@
 //
 // TWO different things live here, deliberately kept separate:
 //
-// 1. FIRMWARE_VERSION — the semantic version, bumped BY HAND. MAJOR.MINOR
-//    tracks the build-order phase reached (docs/ROADMAP.md Versioning); PATCH is
-//    for fixes that add no phase scope. This is a *statement* that a phase
-//    was reached, so it must not auto-increment — a number that changes on
-//    every build asserts nothing.
+// 1. FIRMWARE_VERSION — the semantic version, bumped BY HAND. In completed
+//    v1, MAJOR.MINOR tracked the build-order phase reached and PATCH covered
+//    fixes adding no phase scope; V2 uses docs/ROADMAP.md's workstream/release
+//    policy. This is a *statement* that a release gate was reached, so it
+//    must not auto-increment — a number that changes on every build asserts
+//    nothing.
 //
 //    **Bump this when a phase lands, and before pushing the matching
 //    `vX.Y.Z` tag.** CI enforces the tag/version match in release.yml, so a

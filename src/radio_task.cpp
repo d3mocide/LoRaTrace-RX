@@ -48,6 +48,13 @@ portMUX_TYPE activeChannelMux = portMUX_INITIALIZER_UNLOCKED;
 ChannelParams activeChannel;
 MissionProfile activeProfile = MissionProfile::MESHTASTIC;
 
+// Focus finishes on Core 1 but its bench-only compact result readback is
+// served by Serial Control on Core 0. A 40-byte critical copy avoids a torn
+// summary; it never carries GPS/run data and does not affect radio ownership.
+portMUX_TYPE focusResultMux = portMUX_INITIALIZER_UNLOCKED;
+FocusObservation lastFocusObservation;
+bool haveLastFocusObservation = false;
+
 // Both writers and readers go through these so the locking cannot be
 // forgotten at a call site. Radio-task-internal code that already knows it
 // owns the radio still reads the raw fields directly; only the
@@ -217,6 +224,20 @@ volatile uint32_t energyCancelCount = 0;
 volatile uint32_t energyFailureCount = 0;
 volatile uint32_t energyRecoveryCount = 0;
 volatile uint32_t energyLastAwayMs = 0;
+
+QueueHandle_t focusRequestQueue = nullptr;
+QueueHandle_t focusObservationQueue = nullptr;
+volatile bool focusActive = false;
+// Reservation closes the cross-core window between accepting a Focus request
+// and Core 1 taking it from its mailbox. Other bounded actions must refuse in
+// this state, rather than queue behind Focus and run after it.
+volatile bool focusPending = false;
+volatile bool focusCancelRequested = false;
+volatile FocusRuntimeState focusState = FocusRuntimeState::IDLE;
+volatile uint32_t focusLastAwayMs = 0;
+volatile uint32_t focusObservationCount = 0;
+volatile uint32_t focusObservationDropCount = 0;
+uint16_t focusNextId = 0;
 
 // Phase 9 Pass B (research/phase9-sweep-pass-b-design.md). Cumulative
 // across sweeps, same convention as the counters above.
@@ -551,6 +572,24 @@ bool energyAbortPending() {
     return false;
 }
 
+bool focusAbortPending() {
+    return focusCancelRequested ||
+           (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) ||
+           (pauseQueue != nullptr && uxQueueMessagesWaiting(pauseQueue) > 0);
+}
+
+bool applyFocusBenchFault(BenchFaultPoint point, FocusRuntime &runtime) {
+    BenchFaultAction action;
+    if (!benchFaultTake(point, action)) return false;
+    if (action == BenchFaultAction::CANCEL) {
+        focusRuntimeCancel(runtime);
+    } else {
+        lastError = RADIOLIB_ERR_UNKNOWN;
+        focusRuntimeFail(runtime);
+    }
+    return true;
+}
+
 bool cellAbortPending() {
     if (cellCancelRequested) return true;
     if (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) return true;
@@ -648,6 +687,156 @@ bool restoreHomeListen(const ChannelParams &homeChannel, MissionProfile homeProf
     if (lastError != RADIOLIB_ERR_NONE) return false;
     setActiveChannelLocked(homeChannel, homeProfile);
     return true;
+}
+
+void enqueueFocusObservation(const FocusRequest &request, const FocusRssiHistogram &histogram,
+                             FocusRuntime &runtime, uint16_t focusId, bool restored,
+                             int16_t operationStatus) {
+    FocusObservation observation;
+    observation.rx_millis = millis();
+    observation.observation_ms = runtime.observation_ms;
+    observation.freq_mhz = focusRequestFrequencyMhz(request);
+    observation.focus_id = focusId;
+    observation.selection_bin_index = request.selection_bin_index;
+    observation.requested_dwell_ms = request.requested_dwell_ms;
+    observation.requested_samples = request.requested_samples;
+    observation.sample_count = histogram.sample_count;
+    observation.rssi_median_dbm_x10 = focusHistogramMedianDbmX10(histogram);
+    observation.rssi_p90_dbm_x10 = focusHistogramP90DbmX10(histogram);
+    observation.rssi_peak_dbm_x10 = histogram.peak_dbm_x10;
+    observation.profile = (uint8_t)activeProfile;
+    observation.requested_passes = request.requested_passes;
+    observation.valid_passes = (uint8_t)runtime.valid_passes;
+    observation.selection_source = request.selection_source;
+    observation.request_status = focusRuntimeFinishRestore(runtime, restored);
+    observation.home_restore = restored;
+    // Recovery must overwrite the live radio error to resume Watch, but the
+    // Focus row reports the request operation that led to this terminal state.
+    observation.radio_status = operationStatus;
+    portENTER_CRITICAL(&focusResultMux);
+    lastFocusObservation = observation;
+    haveLastFocusObservation = true;
+    portEXIT_CRITICAL(&focusResultMux);
+    focusObservationCount++;
+    if (focusObservationQueue == nullptr ||
+        xQueueSend(focusObservationQueue, &observation, 0) != pdTRUE) {
+        focusObservationDropCount++;
+    }
+}
+
+void performFocusSurvey(const FocusRequest &request) {
+    if (focusActive || discoveryActive || energyActive || cellActive || scopeActive ||
+        benchPassBCadActive || benchRssiWindowActive) {
+        focusPending = false;
+        return;
+    }
+    FocusRuntime runtime;
+    if (!focusRuntimeBegin(runtime, request)) {
+        focusPending = false;
+        return;
+    }
+    focusActive = true;
+    focusPending = false;
+    focusState = FocusRuntimeState::SURVEYING;
+    focusCancelRequested = false;
+    const uint32_t awayStarted = millis();
+    const ChannelParams homeChannel = activeChannel;
+    const MissionProfile homeProfile = activeProfile;
+    const uint16_t focusId = ++focusNextId;
+    FocusRssiHistogram histogram;
+    const float frequency = focusRequestFrequencyMhz(request);
+    // Consumed here, not at the delay below, so an armed stall cannot survive
+    // a request that never reaches sampling and fire on a later one. Bench
+    // images only; production always returns 0 (bench_fault.h).
+    const uint16_t stallMs = benchFocusStallTakeMs();
+
+    const bool skipSampling = applyFocusBenchFault(BenchFaultPoint::BEFORE_RETUNE, runtime);
+    int beginState = RADIOLIB_ERR_NONE;
+    if (!skipSampling) {
+        SpiBusLock lock(BUS_WAIT);
+        if (!lock.held()) {
+            busMissCount++;
+            beginState = RADIOLIB_ERR_SPI_CMD_TIMEOUT;
+        } else {
+            beginState = radio.begin(frequency, homeChannel.bw_khz, homeChannel.sf,
+                                     homeChannel.cr_denom, homeChannel.sync_word);
+            if (beginState == RADIOLIB_ERR_NONE) beginState = radio.startReceive();
+        }
+        lastError = beginState;
+    }
+    if (!skipSampling && beginState != RADIOLIB_ERR_NONE) {
+        lastError = beginState;
+        focusRuntimeFail(runtime);
+    } else if (!skipSampling &&
+               !applyFocusBenchFault(BenchFaultPoint::AFTER_RETUNE, runtime)) {
+        const uint32_t passStarted = millis();
+        // The dwell schedule alone does not bound radio-away time: every
+        // sample waits on the shared SPI bus, so a contended bus stretches
+        // the pass. Past this the request stops sampling and terminates as
+        // `timeout` rather than holding the radio (focus_plan.h).
+        const uint32_t deadline = passStarted + focusRequestTimeoutMs(request);
+        if (stallMs > 0) vTaskDelay(pdMS_TO_TICKS(stallMs));
+        uint32_t firstSample = 0;
+        uint32_t lastSample = 0;
+        uint16_t passSamples = 0;
+        for (uint16_t sample = 0; sample < request.requested_samples; ++sample) {
+            if (focusAbortPending()) {
+                focusRuntimeCancel(runtime);
+                break;
+            }
+            if ((int32_t)(millis() - deadline) >= 0) {
+                focusRuntimeTimeout(runtime);
+                break;
+            }
+            const uint32_t target = passStarted +
+                (uint32_t)sample * request.requested_dwell_ms / (request.requested_samples - 1);
+            while ((int32_t)(millis() - target) < 0) {
+                if (focusAbortPending()) {
+                    focusRuntimeCancel(runtime);
+                    break;
+                }
+                if ((int32_t)(millis() - deadline) >= 0) {
+                    focusRuntimeTimeout(runtime);
+                    break;
+                }
+                vTaskDelay(1);
+            }
+            if (runtime.cancelled || runtime.timed_out) break;
+            float rssi = 0.0f;
+            bool gotSample = false;
+            {
+                SpiBusLock lock(BUS_WAIT);
+                if (lock.held()) {
+                    rssi = radio.getRSSI(false);
+                    gotSample = true;
+                } else {
+                    busMissCount++;
+                }
+            }
+            if (!gotSample) {
+                focusRuntimeFail(runtime);
+                break;
+            }
+            const uint32_t sampledAt = millis();
+            if (passSamples == 0) firstSample = sampledAt;
+            lastSample = sampledAt;
+            passSamples++;
+            focusHistogramAddSample(histogram, energyRssiDbmToFixed(rssi));
+        }
+        if (!runtime.cancelled && !runtime.failed && passSamples == request.requested_samples) {
+            focusRuntimeNoteValidPass(runtime, lastSample - firstSample);
+        }
+    }
+    focusRuntimeBeginRestore(runtime);
+    int16_t operationStatus = (int16_t)lastError;
+    const bool restored = restoreHomeListen(homeChannel, homeProfile);
+    // A failed recovery is more actionable than the original request error.
+    if (!restored) operationStatus = (int16_t)lastError;
+    enqueueFocusObservation(request, histogram, runtime, focusId, restored, operationStatus);
+    focusState = runtime.state;
+    focusLastAwayMs = millis() - awayStarted;
+    focusCancelRequested = false;
+    focusActive = false;
 }
 
 void performDiscoverySweep() {
@@ -1744,6 +1933,14 @@ void radioTask(void *) {
             continue;
         }
 
+        FocusRequest focusRequest;
+        if (focusRequestQueue != nullptr &&
+            xQueueReceive(focusRequestQueue, &focusRequest, 0) == pdTRUE) {
+            if (!paused) performFocusSurvey(focusRequest);
+            else focusPending = false; // a concurrent pause must not reserve Focus forever
+            continue;
+        }
+
         bool cellReq;
         if (cellSweepQueue != nullptr && xQueueReceive(cellSweepQueue, &cellReq, 0) == pdTRUE) {
             if (cellReq && !paused) {
@@ -1825,7 +2022,7 @@ void radioTask(void *) {
 bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
                     const ProfileOverrides &overrides, QueueHandle_t queue,
                     QueueHandle_t scanQueue, QueueHandle_t energyQueue,
-                    QueueHandle_t nodesQueue, QueueHandle_t cellQueue) {
+                    QueueHandle_t nodesQueue, QueueHandle_t cellQueue, QueueHandle_t focusQueue) {
     // Boot-time and single-threaded (the task below does not exist yet), so
     // the lock is uncontended here -- taken anyway so every write to this
     // state goes through one path.
@@ -1836,6 +2033,7 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
     energyObservationQueue = energyQueue;
     identityQueue = nodesQueue;
     cellObservationQueue = cellQueue;
+    focusObservationQueue = focusQueue;
 
     // Depth-1 mailbox for radioRequestProfileSwitch(). Created here, not
     // lazily, so a switch request right after boot can't race a
@@ -1851,6 +2049,9 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
 
     energySweepQueue = xQueueCreate(1, sizeof(bool));
     if (energySweepQueue == nullptr) return false;
+
+    focusRequestQueue = xQueueCreate(1, sizeof(FocusRequest));
+    if (focusRequestQueue == nullptr) return false;
 
     cellSweepQueue = xQueueCreate(1, sizeof(bool));
     if (cellSweepQueue == nullptr) return false;
@@ -2035,7 +2236,7 @@ bool radioRequestDiscoverySweep() {
     // none can preempt another; see radioRequestEnergySweep()'s/
     // radioRequestCellSweep()'s/radioRequestScopeAcquire()'s matching
     // guards.
-    if (tracePaused || energyActive || cellActive || scopeActive) return false;
+    if (tracePaused || energyActive || cellActive || scopeActive || focusActive || focusPending) return false;
     const bool start = true;
     xQueueOverwrite(discoveryQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -2053,7 +2254,7 @@ bool radioRequestEnergySweep() {
         xTaskNotifyGive(radioTaskHandle);
         return true;
     }
-    if (tracePaused || discoveryActive || cellActive || scopeActive) return false;
+    if (tracePaused || discoveryActive || cellActive || scopeActive || focusActive || focusPending) return false;
     const bool start = true;
     xQueueOverwrite(energySweepQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -2082,7 +2283,8 @@ bool radioRequestEnergySweepRepeat() {
         }
         return true;
     }
-    if (energyActive || tracePaused || discoveryActive || cellActive || scopeActive) return false;
+    if (energyActive || tracePaused || discoveryActive || cellActive || scopeActive || focusActive ||
+        focusPending) return false;
     energyRepeatActive = true;
     energyRepeatCount = 0;
     const bool start = true;
@@ -2136,7 +2338,8 @@ bool radioRequestBenchPassBCadTrigger(uint8_t comboIndex) {
     if (!benchPassBCadTriggerAllowed()) return false;
     if (radioTaskHandle == nullptr || benchPassBCadQueue == nullptr) return false;
     if (comboIndex >= PASS_B_SF_BW_CANDIDATE_COUNT) return false;
-    if (benchPassBCadActive || energyActive || discoveryActive || tracePaused || scopeActive) {
+    if (benchPassBCadActive || energyActive || discoveryActive || tracePaused || scopeActive ||
+        focusActive || focusPending) {
         return false;
     }
     xQueueOverwrite(benchPassBCadQueue, &comboIndex);
@@ -2153,7 +2356,7 @@ bool radioRequestBenchRssiWindow(uint32_t freq_khz) {
     if (radioTaskHandle == nullptr || benchRssiWindowQueue == nullptr) return false;
     if (freq_khz < 860000UL || freq_khz > 930000UL) return false;
     if (benchRssiWindowActive || benchPassBCadActive || energyActive || discoveryActive ||
-        cellActive || tracePaused || scopeActive) {
+        cellActive || tracePaused || scopeActive || focusActive || focusPending) {
         return false;
     }
     xQueueOverwrite(benchRssiWindowQueue, &freq_khz);
@@ -2242,6 +2445,51 @@ uint32_t radioEnergyLastAwayMs() {
     return energyLastAwayMs;
 }
 
+bool radioRequestFocusSurvey(const FocusRequest &request) {
+    if (!focusRequestIsValid(request) || radioTaskHandle == nullptr || focusRequestQueue == nullptr) {
+        return false;
+    }
+    if (focusActive) {
+        focusCancelRequested = true;
+        xTaskNotifyGive(radioTaskHandle);
+        return true;
+    }
+    if (focusPending || tracePaused || discoveryActive || energyActive || cellActive || scopeActive ||
+        benchPassBCadActive || benchRssiWindowActive ||
+        (discoveryQueue != nullptr && uxQueueMessagesWaiting(discoveryQueue) > 0) ||
+        (energySweepQueue != nullptr && uxQueueMessagesWaiting(energySweepQueue) > 0) ||
+        (cellSweepQueue != nullptr && uxQueueMessagesWaiting(cellSweepQueue) > 0) ||
+        (scopeAcquireQueue != nullptr && uxQueueMessagesWaiting(scopeAcquireQueue) > 0) ||
+        (benchPassBCadQueue != nullptr && uxQueueMessagesWaiting(benchPassBCadQueue) > 0) ||
+        (benchRssiWindowQueue != nullptr && uxQueueMessagesWaiting(benchRssiWindowQueue) > 0)) {
+        return false;
+    }
+    if (xQueueOverwrite(focusRequestQueue, &request) != pdPASS) return false;
+    focusPending = true;
+    xTaskNotifyGive(radioTaskHandle);
+    return true;
+}
+
+bool radioCancelFocusSurvey() {
+    if (!focusActive) return false;
+    focusCancelRequested = true;
+    xTaskNotifyGive(radioTaskHandle);
+    return true;
+}
+
+bool radioFocusSurveyIsActive() { return focusActive; }
+FocusRuntimeState radioFocusSurveyState() { return focusState; }
+uint32_t radioFocusLastAwayMs() { return focusLastAwayMs; }
+uint32_t radioFocusObservationCount() { return focusObservationCount; }
+uint32_t radioFocusObservationDropCount() { return focusObservationDropCount; }
+bool radioFocusLastObservation(FocusObservation &out) {
+    portENTER_CRITICAL(&focusResultMux);
+    const bool available = haveLastFocusObservation;
+    if (available) out = lastFocusObservation;
+    portEXIT_CRITICAL(&focusResultMux);
+    return available;
+}
+
 uint32_t radioPassBAttemptCount() {
     return passBAttemptCount;
 }
@@ -2259,7 +2507,7 @@ bool radioRequestCellSweep() {
     }
     // Mutually exclusive with Probe, Sweep, and Scope — same convention as
     // their own guards above.
-    if (tracePaused || discoveryActive || energyActive || scopeActive) return false;
+    if (tracePaused || discoveryActive || energyActive || scopeActive || focusActive || focusPending) return false;
     const bool start = true;
     xQueueOverwrite(cellSweepQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -2285,7 +2533,8 @@ bool radioRequestCellSweepRepeat() {
         }
         return true;
     }
-    if (cellActive || tracePaused || discoveryActive || energyActive || scopeActive) return false;
+    if (cellActive || tracePaused || discoveryActive || energyActive || scopeActive || focusActive ||
+        focusPending) return false;
     cellRepeatActive = true;
     cellRepeatCount = 0;
     const bool start = true;
@@ -2359,7 +2608,7 @@ bool radioRequestScopeAcquire(uint32_t freq_khz) {
     }
     // Mutually exclusive with Probe, Sweep, and Cell — same convention as
     // their own guards above.
-    if (tracePaused || discoveryActive || energyActive || cellActive) return false;
+    if (tracePaused || discoveryActive || energyActive || cellActive || focusActive || focusPending) return false;
     xQueueOverwrite(scopeAcquireQueue, &freq_khz);
     xTaskNotifyGive(radioTaskHandle);
     return true;

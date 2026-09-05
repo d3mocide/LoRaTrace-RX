@@ -1,7 +1,7 @@
 # LoRaTrace RX — Version 2 Design
 
 **Status:** draft for product decisions and phased validation.  
-**Baseline:** v1.0.0, released 2026-09-03.  
+**Baseline:** v1.0.7, released 2026-09-04.
 **Purpose:** describe the post-v1 direction without rewriting the hardware-verified v1 design, roadmap, or status record.
 
 ## 1. Product thesis
@@ -214,23 +214,25 @@ transmitter, or packet decoder into the Cardputer.
 
 ## 6. Proposed build order
 
-The following is a priority order, not a committed release calendar. A phase
-lands only after its scope, static-memory cost, host tests, and applicable
-hardware evidence are complete. Version numbers should be decided in the
-canonical roadmap when the first post-v1 phase is accepted.
+The following is a priority order, not a committed release calendar. A
+workstream lands only after its scope, static-memory cost, host tests, and
+applicable hardware evidence are complete. The canonical gate and version
+policy live in `docs/ROADMAP.md`.
 
 | Workstream | Outcome | Why it comes here |
 |---|---|---|
-| **11. Cell closeout** | Validate a real tower-adjacent RSSI rise and verify cell/session output on SD. | Finishes existing, partially verified scope before broadening the product. |
 | **12. Survey truth** | Coverage vocabulary, persistent per-survey evidence, and bounded Focus Survey. | Directly fixes the most important interpretation gap revealed by V1 testing. |
 | **13. Field Missions** | Drive, Stationary, and Investigate recipes with visible Watch availability and radio-time accounting. | Turns individual tools into a coherent operator workflow. |
 | **14. Companion analysis** | Offline run report, comparison, and export bundle. | Delivers more value from existing and V2 logs without consuming device heap. |
 | **15. Field markers and privacy-aware sharing** | Preset annotations and shareable, redacted report options. | Makes collected data interpretable and responsibly reusable. |
-| **16. Region packs** | First rigorously sourced, validated non-US profile pack(s). | High value, but research-heavy and easy to get wrong if rushed. |
+| **16. Cell closeout** | Validate the existing Cell feature's real tower-adjacent RSSI rise and fresh `cell.csv`/`session.csv` output. | A useful bonus feature, deliberately deferred so it does not block the core V2 field-survey workflow. |
 
 The following stay as later candidates until a concrete field question justifies
-them: richer passive node-activity dossiers, antenna/install comparative
-surveys, battery/endurance guidance, and additional lab correlation tooling.
+them: rigorously sourced region packs, richer passive node-activity dossiers,
+antenna/install comparative surveys, battery/endurance guidance, and additional
+lab correlation tooling. Region packs require their own source-quality,
+regulatory/range, and real-hardware-access entry gate; they are not a V2.0
+release dependency.
 
 ## 7. Architecture and resource rules
 
@@ -321,4 +323,3 @@ observation coverage, device health, and field context.
 
 It does **not** need to become a transmitter, decoder, protocol client, cloud
 platform, or unlimited-band analyzer to achieve that.
-
