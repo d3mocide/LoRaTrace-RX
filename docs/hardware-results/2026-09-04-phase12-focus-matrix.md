@@ -398,3 +398,82 @@ Until those close, `qualifying_count` stays unpopulated and `coverage` stays
 blank. What this run establishes is narrower and still worth having: **an
 adaptive count is a viable basis for an activity claim where every summary
 statistic measured here was not.**
+
+
+---
+
+# Follow-up 5: what the count rule actually detects
+
+**Raw evidence:** `private/phase12-dwell-20260905T053804Z.jsonl` (240 trials)
+and `private/phase12-occ-20260905T053804Z.jsonl` (240 trials). Zero arm
+failures. Same porch configuration.
+
+Follow-up 4 left two questions: is the rule a fixed count or a fraction of
+samples, and does "median as the floor" survive rising occupancy. Both were
+measured rather than argued.
+
+## 1. A fraction, with a hard minimum sample count
+
+Sample count now scales with dwell (20 ms spacing), so the same rule was
+re-derived at each dwell:
+
+| dwell | samples/pass | best rule | as a fraction | detect | false |
+|---|---|---|---|---|---|
+| 100 ms | 6 | `C4 >= 1` | 16.7% | **23/60 (38%)** | 1/60 |
+| 500 ms | 26 | `C6 >= 1` | 3.8% | **60/60 (100%)** | 2/60 |
+| 2,000 ms | 101 | `C4 >= 5` | 5.0% | 57/60 (95%) | 1/60 |
+
+A fraction of roughly **4-5% of accepted samples** transfers between the
+500 ms and 2,000 ms passes. It does not rescue the 100 ms pass, which fails at
+every threshold: with six samples there is no rule that both catches the
+source and rejects ambient. That is a floor on the instrument, not a tuning
+problem — **a short pass can report coverage honestly, but must not report
+activity at all.** 500 ms / 26 samples was the strongest arm measured.
+
+## 2. Median-as-floor held, but was not tested where it should break
+
+Across source duty from 28.6% to 57.2%, the pass median read -101.0 dBm for
+source-on and source-off alike. It never tracked the signal, so the adaptive
+floor is sound over the range tested.
+
+The reason is worth stating, because it bounds the result: at these levels
+most samples read like noise even while the transmitter is radiating, which is
+the same effect that made `p90` useless in Follow-up 2. A **strong** source at
+the same occupancy would pull the median up and break the assumption. This
+sweep did not reach that regime and does not license a claim about it.
+
+## 3. Detection is a function of occupancy, and that is the limitation
+
+Same dwell, same rule, only the source's duty within the window varied:
+
+| source duty | detect (`C6 >= 5`, n=30) | 95% CI |
+|---|---|---|
+| 57.2% | 27/30 (90%) | [0.74, 0.97] |
+| 42.9% | 28/30 (93%) | [0.79, 0.98] |
+| 28.6% | 11/30 (37%) | [0.22, 0.54] |
+| 28.6% | 13/30 (43%) | [0.27, 0.61] |
+
+Detection collapses below roughly 40% occupancy. **This rule detects a
+persistently occupied channel; it does not detect individual packets.** A
+single SF8 packet inside a 2,000 ms pass is on the order of 3-7% occupancy —
+far below where this measurement shows the rule already failing more than half
+the time.
+
+That is not a defect to tune away. It is the honest scope of an RSSI-sampling
+instrument: it can say "this frequency was busy while I listened", and it
+cannot say "a transmission occurred". The latter needs a primitive that
+detects a signal rather than sampling energy — CAD, or actual packet
+reception, which §3 has contemplated as the alternative basis from the start.
+
+## Consequences for the phase
+
+- Any activity condition is a **fraction** of accepted samples (~4-5%), never
+  a fixed count, and applies only above a minimum sample count. 6 samples is
+  below it; 26 is comfortably above.
+- An activity claim, if one is ever surfaced, must be worded as channel
+  occupancy during the pass, not as evidence that something transmitted.
+- Detecting individual packets needs CAD or packet reception. That is now the
+  better-supported route for §3's "observed activity", and this sweep is the
+  reason to prefer it rather than a hunch.
+- `qualifying_count` remains unpopulated. What to populate it with is now a
+  design decision with evidence behind it rather than an open guess.

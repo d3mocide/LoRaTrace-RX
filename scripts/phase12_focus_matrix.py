@@ -226,6 +226,9 @@ def run_trial(card, transmitter, position, dwell_ms, samples, source_on, gap_ms)
         "home_restore": result["HR"],
         "radio_status": int(result["E"]),
         "pulses_fired": pulses,
+        # Recorded because it sets the source's duty cycle within the window,
+        # which is the independent variable of an occupancy sweep.
+        "pulse_gap_ms": gap_ms,
         # C<N> = samples at or above the pass's median + N dB.
         "counts_above_median": {k: int(v) for k, v in counts.items() if k.startswith("C")},
     }
