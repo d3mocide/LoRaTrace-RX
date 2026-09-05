@@ -549,3 +549,71 @@ Drive occupancy below 21.5% at the stronger link — a single short-airtime
 pulse per pass is about 5% — and find where detection actually fails when the
 link is not the binding constraint. That, not a CAD rewrite, is the open
 question for §3's activity basis.
+
+
+---
+
+# Follow-up 7: a single packet is detectable
+
+**Raw evidence:** `private/phase12-singlepulse-20260905T173222Z.jsonl`
+(120 trials, no arm failures). Same ~25 dB link as Follow-up 6. One armed
+transmission placed inside each 2,000 ms pass instead of a burst — a burst
+answers a different question however its duty is tuned.
+
+| position | packet | occupancy | detect (`C6 >= 4`) | false |
+|---|---|---|---|---|
+| mid-aligned | 148 ms | 7.4% | **29/30 (97%)**, [0.83, 0.99] | **0/30** |
+| low-aligned | 286 ms | 14.3% | 20/30 (67%), [0.49, 0.81] | 2/30 |
+
+Source-on peak at mid-aligned: median -74 dBm against a -97 dBm floor.
+
+**This settles the question Follow-up 5 got wrong.** That entry concluded the
+rule "detects a persistently occupied channel, not individual packets".
+Follow-up 6 withdrew it on the grounds that the occupancy cliff was a property
+of a weak link; this measures the positive case directly. At an adequate link,
+a single packet occupying 7% of the pass is detected essentially every time,
+with no false positives in thirty controls.
+
+The arithmetic behind it is unremarkable in hindsight: a 148 ms packet sampled
+every 20 ms yields roughly seven elevated samples, comfortably above the four
+the rule requires. Nothing about the instrument prevented this. The first
+link did.
+
+## low-aligned was contaminated, and that is informative
+
+The weaker result at low-aligned comes with a source-off control that peaked
+at **-57 dBm** — 44 dB above its own floor. That is real traffic on 908.75
+during the run, not noise, and it cuts both ways: it produces the two false
+positives, and by lifting the median in affected passes it suppresses counts
+and produces misses. An adaptive floor is only as good as the assumption that
+the floor is quiet.
+
+Two consequences worth carrying forward. A frequency with real activity is
+harder to measure on, not easier, so controlled work should prefer quiet
+positions. And in the field the same effect applies in reverse: Focus will be
+least reliable exactly where a band is busiest.
+
+## Limits
+
+- One link (~25 dB SNR) and one dwell. At the ~12 dB link of Follow-ups 4-5
+  this would be substantially worse; the rate is not a property of Focus alone.
+- The runner verifies that the pulse fired, not precisely *when* it fired
+  relative to the window. An attempt to classify placement from log timestamps
+  was invalid and discarded: `TX_STARTED` reaches the host only when the
+  harness next polls the socket, so its timestamp records host polling rather
+  than RF timing. 29/30 detection implies placement was mostly correct, but it
+  is inferred rather than measured. Timing the pulse against the window needs
+  a device-side timestamp, not a host-side one.
+- 30 trials per cell. The intervals are wide enough to matter: [0.83, 0.99]
+  is consistent with a true rate anywhere from about six-in-seven to
+  essentially always.
+
+## Where this leaves the activity claim
+
+An RSSI-sampling pass **can** support a packet-level activity signal at an
+adequate link, using a count above an adaptive floor. What it cannot do is
+support it *unconditionally* — the same rule at a weaker link failed on
+sources occupying four times as much of the window. Any operator-facing
+activity indication has to be honest that it is a function of link quality,
+which the device cannot know. That is a wording and product problem now,
+rather than an open measurement.

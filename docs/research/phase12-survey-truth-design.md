@@ -367,12 +367,35 @@ local spectrum identity or coverage of the city.
   detected 57/60 source-on trials, 95% CI [0.863, 0.983], with one flagged
   source-off trial that read -63 dBm against a -101 dBm median — a real
   transmission, not ours, so the 1.7% false rate is an upper bound rather than
-  a measurement against true silence. It is a **viable candidate, not yet a
-  constant**: the threshold is a count out of 101 samples, and the sampling
-  policy now scales sample count with dwell, so "2 samples" means 2% at a
-  2,000 ms pass and 33% at a 100 ms one. Expressing it as a fraction of
-  accepted samples, or validating per dwell, is the next measurement.
-  CAD/packet evidence remains the alternative basis §3 contemplates.
+  a measurement against true silence. Three further campaigns (1,200 trials) then
+  characterised it.
+
+  **Form.** It is a *fraction* of accepted samples, roughly 4-8%, which
+  transfers between 500 ms and 2,000 ms passes. No threshold rescues a 100 ms
+  pass: six samples cannot both catch the source and reject ambient, and 13 dB
+  of link improvement barely moved it (23/60 to 28/60), so that is a sampling
+  limit rather than a link limit. **A short pass may report coverage and must
+  not report activity.** 500 ms / 26 samples was the strongest arm at both
+  measured links.
+
+  **Scope, after a correction.** An earlier reading of one link concluded the
+  rule "detects a persistently occupied channel, not individual packets". A
+  second baseline withdrew it: at 28.6% occupancy, 13 dB took detection from
+  37% to 87%, so the apparent cliff belonged to that link. The positive case
+  was then measured directly — one armed 148 ms packet inside a 2,000 ms pass,
+  7.4% occupancy, detected **29/30 with 0/30 false positives**. A 148 ms
+  packet sampled every 20 ms yields about seven elevated samples against the
+  four the rule needs, so nothing about the instrument prevented it.
+
+  **The condition that remains.** Detection is a function of link quality the
+  device cannot know: the same rule at the weaker link failed on sources
+  occupying four times as much of the pass. And a position carrying real
+  traffic measured *worse*, not better — a -57 dBm event in a control trial
+  both produced false positives and suppressed counts by lifting the median,
+  so Focus is least reliable exactly where a band is busiest. Wording an
+  activity indication that stays true under those conditions is a product
+  decision now, not an open measurement. CAD or packet reception remains §3's
+  alternative, neither favoured nor excluded by this evidence.
 - [ ] Coverage thresholds (`sampled`/`repeated`) remain unselected. They are
   about pass counts and accumulated time across repeated requests, which no
   single-pass measurement can supply.

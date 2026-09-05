@@ -9,6 +9,21 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- Measured the positive case the withdrawal left open: **a single packet is
+  detectable**. One armed 148 ms transmission placed inside a 2,000 ms pass —
+  7.4% occupancy — was caught 29/30 with 0/30 false positives at the stronger
+  link. A 148 ms packet sampled every 20 ms yields about seven elevated
+  samples against the four the rule needs, so nothing about the instrument
+  prevented it; the first link did. Not unconditional, though: the same rule
+  at the weaker link failed on sources filling four times as much of the pass,
+  and the companion position carrying real traffic measured *worse* — a
+  -57 dBm event in a control trial both produced false positives and
+  suppressed counts by lifting the median, so Focus is least reliable exactly
+  where a band is busiest. Also discarded a placement analysis that tried to
+  time the pulse against the window from log timestamps: `TX_STARTED` reaches
+  the host only when the harness next polls, so it records host polling rather
+  than RF timing, and its output was self-contradictory.
+
 - Ran a second baseline at ~25 dB SNR (600 trials) and **withdrew** the
   occupancy conclusion drawn from the first. Replacing the transmitter's
   stubby with a matched whip and standing both antennas vertical gained ~13 dB

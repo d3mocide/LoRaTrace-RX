@@ -137,9 +137,19 @@ link improvement took detection at 28.6% occupancy from 37% to 87%, so the
 cliff belonged to the first link, not to the instrument. Detection depends on
 occupancy and SNR together, and single-packet detection is untested rather
 than excluded. The 100 ms floor did survive both links (13 dB bought almost
-nothing there), as did the fraction-of-samples form. `qualifying_count` stays
-unpopulated, and the open question is where detection fails once the link is
-not the binding constraint.
+nothing there), as did the fraction-of-samples form.
+
+That open question is now answered: one armed 148 ms packet inside a 2,000 ms
+pass — 7.4% occupancy — was detected **29/30 with 0/30 false positives** at
+the stronger link. An RSSI-sampling pass can support a packet-level activity
+signal, but not unconditionally: the same rule at the weaker link failed on
+sources occupying four times as much of the pass, and a position carrying real
+traffic measured worse rather than better (a -57 dBm event in a control trial
+both raised false positives and suppressed counts by lifting the median). So
+Focus is least reliable where a band is busiest, and detection depends on link
+quality the device cannot know. `qualifying_count` stays unpopulated: wording
+an activity indication that stays true under those conditions is now a product
+decision rather than an open measurement.
 
 The existing Phase 11 Cell feature remains partially hardware-verified and
 visible in "What's still open." It is deliberately scheduled as **V2
