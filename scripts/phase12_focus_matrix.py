@@ -174,14 +174,52 @@ def run_focus_request(card, spec, dwell_ms, samples, start):
     return terminal, result, counts
 
 
-def run_trial(card, transmitter, position, dwell_ms, samples, source_on, gap_ms):
-    """One bounded Focus request, with the transmitter radiating throughout it or not at all."""
+def run_trial(card, transmitter, position, dwell_ms, samples, source_on, gap_ms,
+              single_pulse_delay_ms=None):
+    """One bounded Focus request, with the transmitter radiating during it or not at all.
+
+    Two source modes. The burst keeps the transmitter radiating for the whole
+    window, which is what the qualifying-condition work needed. `single_pulse`
+    arms exactly one transmission placed inside the window instead, which is
+    the only way to ask whether a *single packet* is detectable: a burst
+    answers a different question no matter how its duty is tuned. A single
+    pulse can only be placed reliably when the window is long relative to the
+    timing jitter, so this mode is for long dwells, not for 100 ms passes.
+    """
     spec = POSITIONS[position]
     before = card_status(card)
     start = counters(before)
 
     pulses = 0
-    if source_on:
+    if source_on and single_pulse_delay_ms is not None:
+        transmitter.observed.clear()
+        require_ack(card, "BENCH_FOCUS", f"{spec['bin']}:{dwell_ms}:{samples}", timeout=12.0)
+        require_ack(transmitter, "ARM", str(single_pulse_delay_ms), timeout=5.0)
+        terminal = wait_for(
+            card,
+            lambda status: status.get("FS") == "3"
+            and int(status.get("FO", "0")) > start["FO"]
+            and int(status.get("FW", "0")) > start["FW"],
+            max(12.0, dwell_ms / 1000.0 + 10.0),
+            "Focus completion, home restore, and focus.csv commit",
+        )
+        result = parse_fields(require_ack(card, "BENCH_FOCUS_RESULT", "-", timeout=12.0))
+        counts = {}
+        try:
+            opcode, payload = card.request("BENCH_FOCUS_COUNTS", "-", timeout=12.0)
+            if opcode == "ACK":
+                counts = parse_fields(payload)
+        except (RuntimeError, TimeoutError):
+            pass
+        # The pulse must actually have happened, or a miss is the fixture's
+        # fault rather than the receiver's.
+        transmitter.request("STATUS", "-", timeout=5.0)
+        fired = {op for _, op, _ in transmitter.observed} & {"TX_STARTED", "TX_DONE"}
+        if fired != {"TX_STARTED", "TX_DONE"}:
+            raise RuntimeError(f"single pulse incomplete: {sorted(fired)}")
+        transmitter.observed.clear()
+        pulses = 1
+    elif source_on:
         with PulseBurst(transmitter, gap_ms / 1000.0) as burst:
             terminal, result, counts = run_focus_request(card, spec, dwell_ms, samples, start)
         pulses = burst.fired
@@ -229,6 +267,7 @@ def run_trial(card, transmitter, position, dwell_ms, samples, source_on, gap_ms)
         # Recorded because it sets the source's duty cycle within the window,
         # which is the independent variable of an occupancy sweep.
         "pulse_gap_ms": gap_ms,
+        "single_pulse_delay_ms": single_pulse_delay_ms,
         # C<N> = samples at or above the pass's median + N dB.
         "counts_above_median": {k: int(v) for k, v in counts.items() if k.startswith("C")},
     }
@@ -257,7 +296,7 @@ def settle(card, timeout_s=20.0):
 
 
 def run_trial_with_retry(card, transmitter, position, dwell_ms, samples, source_on,
-                         gap_ms, results, attempts):
+                         gap_ms, results, attempts, single_pulse_delay_ms=None):
     """A transport failure is a harness event, not an RF result — retry it, loudly.
 
     The retry is a genuinely new bounded request, and the failure is recorded
@@ -267,7 +306,7 @@ def run_trial_with_retry(card, transmitter, position, dwell_ms, samples, source_
     for attempt in range(1, attempts + 1):
         try:
             row = run_trial(card, transmitter, position, dwell_ms, samples,
-                            source_on, gap_ms)
+                            source_on, gap_ms, single_pulse_delay_ms)
             if attempt > 1:
                 row["retried_attempts"] = attempt
             return row
@@ -317,6 +356,9 @@ def main():
     parser.add_argument("--pulse-gap-ms", type=int, default=30,
                         help="idle gap between completed transmissions during a source-on "
                              "trial; the burst is paced by TX_DONE, not by this alone")
+    parser.add_argument("--single-pulse-delay-ms", type=int, default=None,
+                        help="arm exactly one pulse this many ms after the request is "
+                             "accepted, instead of a burst; for long dwells only")
     parser.add_argument("--attempts", type=int, default=3,
                         help="attempts per trial before the run gives up (transport retries)")
     parser.add_argument("--allow-transmit", action="store_true",
@@ -393,7 +435,7 @@ def main():
                         row = run_trial_with_retry(card, transmitter, position, dwell,
                                                    samples, source_on,
                                                    args.pulse_gap_ms, results,
-                                                   args.attempts)
+                                                   args.attempts, args.single_pulse_delay_ms)
                         row.update({"event": "trial", "arm_index": index})
                         results.write(row)
                         completed += 1

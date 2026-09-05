@@ -64,6 +64,49 @@ cost acceptable; the measurement is part of the decision.
 | **14 — Companion analysis** | Not entered | Deliver an offline, reproducible tool that reads copied run folders without changing original evidence. Test deterministic reports, multi-run comparison, coverage warnings, and privacy-safe export behavior. |
 | **15 — Field markers and sharing** | Not entered | Add fixed, safe marker presets and `marker.csv`, then integrate redacted sharing. Prove markers cannot affect radio behavior and realistic exports remove selected location/identity detail. |
 | **16 — Cell closeout** | Deferred bonus | Close the existing V1 Phase 11 evidence gap: a real tower-adjacent RSSI rise plus fresh SD verification of `cell.csv` and Cell's appended `session.csv` fields. This preserves V1 history; it does not renumber it. |
+| **17 — Sweep/Waterfall sampling review** | Candidate | Re-evaluate whether Sweep's per-bin sampling and Waterfall's presentation can support what they imply, using the measurement apparatus Workstream 12 built. Entry needs a two-baseline sensitivity measurement, not an argument from analogy. See below. |
+
+## Candidate — Workstream 17 (Sweep/Waterfall sampling review)
+
+Raised 2026-09-05 out of Workstream 12's measurements, and deliberately parked
+rather than acted on. Phase 9 already recorded that "a normal Sweep's short bin
+dwell can miss genuine traffic"; what Workstream 12 adds is the quantitative
+form of that statement, plus a fixture capable of testing it.
+
+What transfers from Workstream 12's evidence
+([2026-09-04-phase12-focus-matrix.md](hardware-results/2026-09-04-phase12-focus-matrix.md)):
+
+- Detection requires the source's airtime to exceed the sampling spacing.
+  Sweep dwells on each bin for tens of ms with a handful of samples — a
+  shorter, sparser pass than the 100 ms / 6-sample arm that failed at both
+  measured signal levels.
+- Six samples per pass is below a usable floor, and 13 dB of link improvement
+  did not rescue it. That was a sampling limit, not a link limit.
+- A count of samples above an adaptive floor outperformed every extreme
+  statistic. Pass A currently keeps a per-bin average and peak and thresholds
+  on them; the peak is the noise-prone half of that pair.
+
+What that does **not** establish, and why this is a candidate rather than a
+finding:
+
+- **Sweep is aimed at persistent energy, not packets.** Short per-bin dwells
+  are a reasonable trade when covering 200+ bins, and Pass B's CAD step exists
+  precisely because a Pass-A energy peak is not packet evidence. The
+  architecture already encodes the distinction Workstream 12 measured.
+- **One link is not a baseline.** Workstream 12 drew three conclusions from a
+  single link; two held and the most confident one inverted on a second. Any
+  claim about Sweep's sensitivity needs the same two-baseline discipline
+  before it is written down.
+- Waterfall is downstream of whatever Sweep's sampling delivers, so it is not
+  a separate question. Its own risk is presentational: a cell empty because
+  nothing transmitted looks identical to a cell empty because the pass did not
+  sample long enough — the §3 "absence is not silence" trap in a new surface.
+
+Entry would need: a controlled sensitivity measurement of Pass A's per-bin
+sampling at two or more signal levels, reusing Workstream 12's transmitter
+fixture and `benchSweepFloorQuery`'s existing per-bin floor readback; and a
+decision about whether Waterfall should distinguish "sampled and quiet" from
+"barely sampled" in what it draws.
 
 Rigorously sourced region packs are later candidates, not Workstream 16 and
 not V2.0 blockers. Each proposed pack needs a separate entry gate with source
