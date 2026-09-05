@@ -131,12 +131,15 @@ Two further sweeps (480 trials) then bounded it. The rule is a **fraction** of
 accepted samples (~4-5%), transferring between 500 ms and 2,000 ms passes, but
 no threshold works at 100 ms — six samples cannot both catch the source and
 reject ambient, so a short pass may report coverage and must not report
-activity. More importantly, detection tracks how much of the pass the source
-occupies: 90-93% at 43-57% occupancy, 37-43% at 28.6%. A single SF8 packet in
-a 2,000 ms pass is 3-7% occupancy. **The rule detects a persistently occupied
-channel, not individual packets**, which makes CAD or packet reception the
-better-supported basis for an activity claim. `qualifying_count` stays
-unpopulated; what to populate it with is now an evidenced design decision.
+activity. Detection also appeared to collapse below ~40% occupancy — but a second
+baseline at ~25 dB SNR (600 trials) **withdrew that conclusion**: 13 dB of
+link improvement took detection at 28.6% occupancy from 37% to 87%, so the
+cliff belonged to the first link, not to the instrument. Detection depends on
+occupancy and SNR together, and single-packet detection is untested rather
+than excluded. The 100 ms floor did survive both links (13 dB bought almost
+nothing there), as did the fraction-of-samples form. `qualifying_count` stays
+unpopulated, and the open question is where detection fails once the link is
+not the binding constraint.
 
 The existing Phase 11 Cell feature remains partially hardware-verified and
 visible in "What's still open." It is deliberately scheduled as **V2

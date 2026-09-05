@@ -9,6 +9,21 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- Ran a second baseline at ~25 dB SNR (600 trials) and **withdrew** the
+  occupancy conclusion drawn from the first. Replacing the transmitter's
+  stubby with a matched whip and standing both antennas vertical gained ~13 dB
+  — vertical alignment mattered more than the antenna, the horizontal pair
+  having sat in each other's pattern null at 918.5 MHz. At 28.6% occupancy
+  that took detection from 37% to 87%, so the "cliff" was a property of the
+  first link, not a statistical limit of the instrument. The claim that the
+  rule "detects a persistently occupied channel, not individual packets" is
+  therefore withdrawn, along with the argument that the evidence favours CAD
+  over sampling for §3's activity basis. Two conclusions did survive both
+  links: the 100 ms six-sample floor (13 dB bought almost nothing) and the
+  rule's fraction-of-samples form. Recorded as a method note too — three
+  conclusions came from one link, two held and the most confident one
+  inverted.
+
 - Bounded the count rule with two more sweeps (480 trials, no arm failures).
   It is a **fraction** of accepted samples (~4-5%), which transfers between
   500 ms and 2,000 ms passes; no threshold rescues a 100 ms pass, whose six
