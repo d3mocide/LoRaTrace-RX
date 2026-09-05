@@ -188,3 +188,77 @@ The `p90 >= -90 dBm` qualifying-condition candidate from the main matrix was
 measured under the old 8-sample policy and a source ~70 dB above ambient. It
 should be re-selected against this sampling and a weaker source before any
 operator-facing use.
+
+
+---
+
+# Follow-up 2: qualifying condition at a realistic signal level (120 trials)
+
+**Raw evidence:** `private/phase12-step2-20260905T035952Z.{jsonl,log}`.
+120 trials (2 positions x 30 source-on + 30 source-off), 9.4 min, zero
+transport errors, zero drops, home restored on every trial. 2,000 ms dwell at
+the measured 20 ms sampling policy (101 samples per pass).
+
+The earlier matrix chose `p90 >= -90 dBm` as a candidate qualifying condition
+while the source sat ~70 dB above ambient. This run repeats the question at a
+level a field deployment might actually see: transmitter on an outdoor porch,
+driven over the WiFi control bridge, receiver with its antenna fitted so the
+ambient floor is real.
+
+**Configuration:** source-on peak reads about -85 dBm against a -99/-100 dBm
+ambient floor, versus -24 dBm against -98 dBm on the bench. Receiver antenna
+fitted; transmitter at roughly one building's distance with a small stubby
+antenna.
+
+## The candidate does not survive
+
+| metric | low-aligned (908.75) | mid-aligned (918.5) |
+|---|---|---|
+| `p90` (the previous candidate) | overlap | overlap |
+| `peak` | separates by **2.0 dB** | overlap |
+| `peak - median` | separates by 2.0 dB | overlap (-2.0 dB) |
+| `peak - p90` | 1.0 dB, 3 false positives in 30 | overlap (-3.0 dB) |
+| `p90 - median` | overlap | overlap |
+
+One of ten combinations separates, by 2 dB. That is inside ordinary RSSI
+variance and would not survive a temperature change, a different antenna, or a
+different room. **`p90 >= -90 dBm` is rejected**, and so is every relative
+(floor-referenced) variant tested here. Both families fail for the same
+reason, so this is not an artifact of picking the wrong statistic.
+
+Two observations explain it:
+
+- **`p90` collapses at low SNR even when the source is present most of the
+  time.** At `low-aligned` the transmitter radiated 57-71% of the window, yet
+  `p90` still read -94 to -97 dBm against a -100 floor. If the received signal
+  were steady, `p90` would equal `peak`. It does not: at these levels the
+  instantaneous RSSI during a weak transmission mostly fails to stand above
+  noise, and only its best moments do. That is why `peak` outperforms every
+  other summary here, and why none of them is reliable.
+- **Real traffic is indistinguishable from the controlled source.** At
+  `mid-aligned` (918.5 MHz, a live MeshOregon channel) source-off trials
+  reached -94 dBm. That is not measurement error; it is a real transmission
+  arriving during a control trial. An RSSI condition cannot tell a controlled
+  fixture from a neighbour's node, and should not be expected to.
+
+## What this means
+
+An RSSI *summary statistic* cannot carry an activity claim at realistic signal
+levels. Coverage reporting is unaffected: valid passes, observation time, and
+the median/P90/peak summary itself remain honest and useful. What the evidence
+refuses is the inference from "RSSI was elevated" to "something transmitted" —
+precisely the inference §3's contract was written to prevent. The design was
+right; the constant was wrong.
+
+Two untested routes remain, in order of cost:
+
+1. **A count, not a statistic.** `peak` is one sample and therefore noise-prone;
+   counting how many of a pass's 101 samples exceed an adaptive floor
+   integrates instead. `FocusObservation` already reserves `qualifying_count`
+   for this and never populates it. Needs firmware, and can reuse this fixture.
+2. **CAD or packet evidence**, which §3 already contemplates as the alternative
+   basis for observed activity. A different primitive, and a larger change.
+
+Until one of those is measured, `coverage` stays blank, the activity count
+stays unpopulated, and Focus reports what it observed rather than what it
+concludes.

@@ -9,6 +9,21 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- Measured Focus's qualifying RSSI condition at a realistic signal level and
+  **rejected it**. The `p90 >= -90 dBm` candidate came from a bench source ~70
+  dB above ambient, where every metric separates and the choice looks easy.
+  Repeated with the transmitter outdoors (source peak ~-85 dBm against a
+  -99/-100 dBm floor, 120 trials, zero drops), it fails — and so does every
+  floor-relative variant tested: one of ten metric/position combinations
+  separates, by 2 dB, which is inside ordinary RSSI variance. Two reasons: at
+  low SNR `p90` collapses even when the source radiates most of the window,
+  and real MeshOregon traffic reached -94 dBm during control trials, which no
+  RSSI condition can distinguish from a controlled source. Coverage reporting
+  is unaffected; what the evidence refuses is the step from "RSSI was
+  elevated" to "something transmitted", which §3 forbids anyway. Remaining
+  routes: a per-pass count above an adaptive floor (`qualifying_count` is
+  reserved and unpopulated), or CAD/packet evidence.
+
 - Selected Focus's sampling policy from measurement instead of reasoning:
   `FOCUS_SAMPLE_SPACING_MS = 20`, with the sample count derived from the dwell
   (`ceil(dwell/spacing) + 1`) rather than fixed at 8. A 360-trial sweep held

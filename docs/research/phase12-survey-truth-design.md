@@ -351,12 +351,22 @@ local spectrum identity or coverage of the city.
 - [x] V2 boundaries, one-bin first slice, result vocabulary, fixed-statistics
   direction, controlled matrix, and Portland field-validation handling are
   recorded here.
-- [~] Choose the qualifying RSSI condition and coverage thresholds from the
-  matrix rather than from a desk estimate. §6.4 supplies a *candidate* RSSI
-  condition (`p90 >= -90 dBm`) and, more importantly, shows why one fixed
-  number is not sufficient on its own: the condition's meaning depends on
-  sample spacing, and no single threshold separates all 900 trials. The
-  coverage thresholds are untouched by this matrix and stay open.
+- [x] Choose the qualifying RSSI condition from measurement rather than a desk
+  estimate — **measured and rejected**. §6.4's `p90 >= -90 dBm` candidate came
+  from a source ~70 dB above ambient. Repeated at a realistic level (source
+  peak ~-85 dBm against a -99/-100 dBm floor, 120 trials), it fails, and so
+  does every floor-relative variant: one of ten metric/position combinations
+  separates, by 2 dB, which is inside ordinary RSSI variance. An RSSI summary
+  statistic cannot support an activity claim at field levels. See
+  [the evidence summary](../hardware-results/2026-09-04-phase12-focus-matrix.md).
+  Coverage reporting is unaffected; what is refused is the step from "RSSI was
+  elevated" to "something transmitted", which is the step §3 forbids anyway.
+  Two routes remain untested: a per-pass **count** of samples above an adaptive
+  floor (`qualifying_count` is already reserved in the schema and never
+  populated), and CAD/packet evidence as §3 already contemplates.
+- [ ] Coverage thresholds (`sampled`/`repeated`) remain unselected. They are
+  about pass counts and accumulated time across repeated requests, which no
+  single-pass measurement can supply.
 - [ ] Approve the maximum radio-away budget after the Watch-opportunity result.
 - [x] Count actual static SRAM, stack frame, queue, row-length, and SD-rate
   budgets (§4.2). Counted after the vertical slice rather than before it, on

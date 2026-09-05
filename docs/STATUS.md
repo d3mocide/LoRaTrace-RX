@@ -95,6 +95,19 @@ summary: [hardware-results/2026-09-04-phase12-focus-matrix.md](hardware-results/
 The §6.3 Watch-opportunity comparison has tooling but has not run, so Focus's
 maximum radio-away budget is still unapproved.
 
+The qualifying RSSI condition was then measured at a realistic signal level
+(transmitter outdoors on the WiFi control bridge, receiver antenna fitted:
+source peak ~-85 dBm against a -99/-100 dBm ambient floor) and **rejected**.
+The `p90 >= -90 dBm` candidate came from a source ~70 dB hot; across 120
+trials it fails, as does every floor-relative variant — one of ten
+metric/position combinations separates, by 2 dB, which is inside ordinary RSSI
+variance. An RSSI summary statistic cannot carry an activity claim at field
+levels. Coverage reporting is unaffected: valid passes, observation time and
+the RSSI summary stay honest. `coverage` stays blank, the activity count stays
+unpopulated, and the remaining routes are a per-pass count above an adaptive
+floor (`qualifying_count`, already reserved in the schema) or CAD/packet
+evidence.
+
 The existing Phase 11 Cell feature remains partially hardware-verified and
 visible in "What's still open." It is deliberately scheduled as **V2
 Workstream 16 — Cell closeout**, an optional post-core-V2 bonus: it does not
