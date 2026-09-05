@@ -108,6 +108,17 @@ unpopulated, and the remaining routes are a per-pass count above an adaptive
 floor (`qualifying_count`, already reserved in the schema) or CAD/packet
 evidence.
 
+The §6.3 Watch-opportunity comparison also completed: two 240 s arms against
+one independently timed reference train. Watch alone received 0.883 of the
+train; with Focus interleaved at a 48.1% away fraction it received 0.463, with
+non-overlapping 95% intervals. The loss is proportional to away time and
+nothing more (0.459 predicted against 0.463 measured), so **Focus's recorded
+radio-away duration is an honest proxy for what a request costs Watch** — no
+hidden retune or recovery penalty — and equally, there is no mitigation: half
+the time away is half the packets. Time between restored Watch windows ran to
+a 7.45 s maximum. The maximum away-time budget is deliberately still
+unapproved; the measurement supplies the exchange rate, not the policy.
+
 The existing Phase 11 Cell feature remains partially hardware-verified and
 visible in "What's still open." It is deliberately scheduled as **V2
 Workstream 16 — Cell closeout**, an optional post-core-V2 bonus: it does not

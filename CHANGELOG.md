@@ -9,6 +9,18 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- Ran Workstream 12's §6.3 Watch-opportunity comparison. Two 240 s arms
+  against one independently timed reference train: Watch alone received 0.883,
+  Watch with Focus interleaved at a 48.1% away fraction received 0.463,
+  intervals non-overlapping, zero CRC errors either side. The loss is
+  proportional to away time and nothing else — 0.459 predicted from the
+  baseline against 0.463 measured — which means Focus's recorded away duration
+  is an honest proxy for what a request costs Watch, with no hidden retune or
+  recovery penalty. It also means there is no mitigation: half the listening
+  time away is half the packets, with restored-Watch gaps reaching 7.45 s. The
+  away-time budget decision stays open on purpose; the measurement gives the
+  exchange rate, not the policy.
+
 - Measured Focus's qualifying RSSI condition at a realistic signal level and
   **rejected it**. The `p90 >= -90 dBm` candidate came from a bench source ~70
   dB above ambient, where every metric separates and the choice looks easy.

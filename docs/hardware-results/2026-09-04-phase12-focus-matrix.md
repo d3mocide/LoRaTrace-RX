@@ -262,3 +262,64 @@ Two untested routes remain, in order of cost:
 Until one of those is measured, `coverage` stays blank, the activity count
 stays unpopulated, and Focus reports what it observed rather than what it
 concludes.
+
+
+---
+
+# Follow-up 3: Watch-opportunity comparison (§6.3)
+
+**Raw evidence:** `private/phase12-watch-20260905T042817Z.{jsonl,log}`.
+Two 240 s arms against one independently timed reference train (`MESH_OREGON`,
+918.5 MHz SF8/BW125, one pulse every 2 s), transmitter outdoors on the WiFi
+control bridge, receiver on its resolved home channel. Zero CRC errors in
+either arm. Focus requests were 2,000 ms dwell at the measured 20 ms sampling
+policy (101 samples).
+
+| arm | reference | received | fraction | 95% CI |
+|---|---|---|---|---|
+| Watch only | 120 | 106 | 0.883 | [0.814, 0.929] |
+| Watch + Focus | 121 | 56 | **0.463** | [0.377, 0.551] |
+
+Focus completed 56 requests, was refused none, and held the radio for
+116,142 ms — **48.1% of its arm**. Time between restored Watch windows:
+median 4.04 s, maximum 7.45 s. The intervals do not overlap, so the
+difference is not a small-sample artifact.
+
+## The cost is proportional, with nothing hidden
+
+If Focus simply stops the receiver hearing anything while away, and costs
+nothing else, the predicted reception is the baseline scaled by the time
+remaining at home: `0.883 x (1 - 0.481) = 0.459`. Measured: **0.463**. The
+difference is well inside the interval.
+
+That is the useful part of this result. It says the loss is entirely
+accounted for by away time — there is no additional penalty from retuning,
+from recovery, or from any lingering effect once home listening is restored.
+**The radio-away duration Focus already records is an honest proxy for what a
+request costs Watch**, which is what makes an operator-facing away-time
+display meaningful rather than decorative.
+
+The other half is that there is no mitigation either. Half the listening time
+away is half the packets. A displayed cost is still a cost.
+
+## Limits
+
+- The baseline is 0.883, not 1.0: about 12% of reference pulses were missed
+  with no Focus running. These are relative figures against a real link, not
+  absolute capture rates, and the comparison is valid only because both arms
+  saw the same link and the same train.
+- One duty cycle (48%) at one dwell (2,000 ms) at one pulse interval (2 s).
+  Proportionality held here; it is not established across other duty cycles,
+  and a much shorter dwell has proportionally more retune overhead per unit
+  of observation.
+- The reference train is a controlled fixture, not real mesh traffic. Real
+  traffic is bursty and correlated in ways a fixed 2 s interval is not.
+
+## What it does not decide
+
+A maximum radio-away budget is an operator product decision, and this
+measurement deliberately does not make it. What it supplies is the exchange
+rate: **at this dwell, Watch packet opportunity falls in direct proportion to
+the fraction of time Focus holds the radio.** Choosing what fraction is
+acceptable — and whether Focus should bound it automatically rather than
+leaving it to whoever is pressing the button — remains open.

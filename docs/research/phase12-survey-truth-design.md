@@ -367,7 +367,17 @@ local spectrum identity or coverage of the city.
 - [ ] Coverage thresholds (`sampled`/`repeated`) remain unselected. They are
   about pass counts and accumulated time across repeated requests, which no
   single-pass measurement can supply.
-- [ ] Approve the maximum radio-away budget after the Watch-opportunity result.
+- [~] Approve the maximum radio-away budget. **The measurement is complete**
+  ([evidence](../hardware-results/2026-09-04-phase12-focus-matrix.md)): at a
+  2,000 ms dwell and 48.1% away fraction, Watch reception fell from 0.883 to
+  0.463 of a reference train, with non-overlapping 95% intervals. The loss is
+  proportional to away time and nothing else — predicted 0.459 against a
+  measured 0.463 — so Focus's recorded away duration is an honest proxy for
+  what a request costs, and there is no hidden retune or recovery penalty.
+  **The budget decision itself remains open**, deliberately: this supplies the
+  exchange rate, not the policy, and §6.3 requires the decision to be an
+  operator product judgement made after the measurement rather than implied
+  by it.
 - [x] Count actual static SRAM, stack frame, queue, row-length, and SD-rate
   budgets (§4.2). Counted after the vertical slice rather than before it, on
   the built image instead of on paper; the numbers land inside the bounds this
@@ -437,12 +447,13 @@ local spectrum identity or coverage of the city.
   zero queue or row drops (`FW` 0->6, `FD`/`FL` 0), which is the logger's
   post-write counter, not an enqueue count. Timing evidence is the receiver's
   own; it is not a coverage, calibration, or activity claim.
-- [~] The controlled matrix is complete with durable SD evidence and a
-  location-redacted summary
+- [x] The controlled matrix and the Watch-opportunity comparison are both
+  complete, with durable evidence and a location-redacted summary
   ([2026-09-04-phase12-focus-matrix.md](../hardware-results/2026-09-04-phase12-focus-matrix.md)).
-  The Watch-opportunity comparison has tooling
-  (`scripts/phase12_watch_opportunity.py`) but has not run, so the maximum
-  radio-away budget stays unapproved.
+  Between them they settled the sampling policy, rejected the qualifying RSSI
+  condition, and measured Watch's cost. What they left open is recorded above:
+  the away-time budget decision, the coverage thresholds, and an activity
+  basis that is not an RSSI summary.
 - [ ] WiFi-off/on resource matrix, Portland field validation, `STATUS.md`,
   `LOG_GUIDE.md`, release notes, and any companion-schema update reconcile.
 

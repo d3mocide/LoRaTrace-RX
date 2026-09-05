@@ -111,8 +111,11 @@ def run_arm(card, results, label, duration_s, train, focus_request):
             time.sleep(0.25)
             continue
         bin_index, dwell_ms, samples = focus_request
+        # Generous like the matrix runner's: native USB-CDC occasionally
+        # truncates a reply under sustained round trips, and the command is
+        # idempotent on the device, so re-sends cannot start a second survey.
         opcode, payload = card.request("BENCH_FOCUS", f"{bin_index}:{dwell_ms}:{samples}",
-                                       timeout=5.0)
+                                       timeout=12.0)
         if opcode != "ACK":
             focus_refused += 1
             continue
@@ -121,9 +124,10 @@ def run_arm(card, results, label, duration_s, train, focus_request):
             status = card_status(card)
             if status.get("FS") == "3":
                 break
+            time.sleep(0.2)
         else:
             raise RuntimeError("a Focus request did not reach a terminal state in this arm")
-        result = parse_fields(require_ack(card, "BENCH_FOCUS_RESULT", "HEALTH"))
+        result = parse_fields(require_ack(card, "BENCH_FOCUS_RESULT", "HEALTH", timeout=12.0))
         if result.get("HR") != "1":
             raise RuntimeError(f"Focus failed to restore home listening: {result}")
         focus_completed += 1
