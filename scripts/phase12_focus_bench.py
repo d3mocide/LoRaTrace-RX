@@ -79,7 +79,7 @@ def main():
         card = Endpoint("cardputer", args.cardputer_port, CARD_MARKER, log)
         transmitter = None
         try:
-            require_ack(card, "HELLO", "-", timeout=15.0)
+            require_ack(card, "HELLO", "-", timeout=45.0)
             transmitter = Endpoint("heltec", args.heltec_port, TX_MARKER, log)
             require_ack(transmitter, "HELLO", "-")
             require_ack(transmitter, "QUIET", "-")

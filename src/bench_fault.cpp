@@ -305,6 +305,21 @@ uint16_t benchFocusStallTakeMs() {
 #endif
 }
 
+bool benchHomeChannelOverride(ProfileOverrides &overrides) {
+#if !defined(LORATRACE_BENCH_FAULTS) || !defined(LORATRACE_BENCH_HOME_FREQ_MHZ)
+    (void)overrides;
+    return false;
+#else
+    overrides.meshtastic_set = true;
+    overrides.meshtastic.freq_mhz = LORATRACE_BENCH_HOME_FREQ_MHZ;
+    overrides.meshtastic.sf = LORATRACE_BENCH_HOME_SF;
+    overrides.meshtastic.bw_khz = LORATRACE_BENCH_HOME_BW_KHZ;
+    overrides.meshtastic.cr_denom = LORATRACE_BENCH_HOME_CR;
+    overrides.meshtastic.sync_word = LORATRACE_BENCH_HOME_SYNC;
+    return true;
+#endif
+}
+
 bool benchArbitrationTriggerAllowed() {
 #if !defined(LORATRACE_BENCH_FAULTS)
     return false;

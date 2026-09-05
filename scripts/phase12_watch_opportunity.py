@@ -200,7 +200,7 @@ def main():
         card = Endpoint("cardputer", args.cardputer_port, CARD_MARKER, log)
         transmitter = None
         try:
-            identity = require_ack(card, "HELLO", "-", timeout=15.0)
+            identity = require_ack(card, "HELLO", "-", timeout=45.0)
             status = card_status(card)
             home_khz = int(status.get("F", "0"))
             if abs(home_khz - HOME_CANDIDATE_MHZ * 1000) > 1:

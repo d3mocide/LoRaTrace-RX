@@ -292,7 +292,10 @@ def main():
                         help=f"repeatable; default {' '.join(str(d) for d in DEFAULT_DWELLS_MS)}")
     parser.add_argument("--trials", type=int, default=30,
                         help="trials per source state per arm (§6.2 requires at least 30)")
-    parser.add_argument("--samples", type=int, default=8)
+    parser.add_argument("--samples", action="append", type=int,
+                        help="repeatable; sample count per pass (spacing is dwell/(n-1))")
+    parser.add_argument("--expect-home-khz", type=int, default=None,
+                        help="refuse to run unless the resolved home channel matches")
     parser.add_argument("--order", choices=("alternating", "random"), default="alternating")
     parser.add_argument("--seed", type=int, default=20260904, help="--order random seed")
     parser.add_argument("--pulse-gap-ms", type=int, default=30,
@@ -311,8 +314,10 @@ def main():
     for dwell in dwells:
         if not 2 <= dwell <= 2000:
             parser.error(f"--dwell-ms {dwell} outside the bounded 2..2000 request range")
-    if not 2 <= args.samples <= 208:
-        parser.error("--samples must be 2..208 (focus_plan.h's bench ceiling)")
+    sample_counts = args.samples or [8]
+    for count in sample_counts:
+        if not 2 <= count <= 208:
+            parser.error(f"--samples {count} outside focus_plan.h's bench range 2..208")
     if args.trials < 1:
         parser.error("--trials must be positive")
     if args.trials < 30:
@@ -330,27 +335,47 @@ def main():
         card = Endpoint("cardputer", args.cardputer_port, CARD_MARKER, log)
         transmitter = None
         try:
-            identity = require_ack(card, "HELLO", "-", timeout=15.0)
-            boot = card_status(card)
-            if boot.get("SD") != "1":
-                raise RuntimeError(f"the matrix needs durable focus.csv rows: {boot}")
+            # Generous: opening native USB-CDC resets the board, but *when*
+            # that reset lands varies, and the harness's fixed settle can
+            # expire before boot even starts. HELLO is idempotent and retried
+            # once a second, so a wide window costs nothing on a healthy boot.
+            identity = require_ack(card, "HELLO", "-", timeout=45.0)
+            # SD readiness lags HELLO: the logger task mounts the card and opens
+            # its logs several seconds into boot, so polling once can read SD=0
+            # on a perfectly healthy device (and a boot-time status also predates
+            # config.txt's channel override).
+            boot = wait_for(card, lambda status: status.get("SD") == "1", 30.0,
+                            "SD to mount for durable focus.csv rows")
+            # A boot that missed the card also missed config.txt's channel
+            # override and silently resolves a different home channel -- and
+            # Focus tunes at the *home* bandwidth, so trials would land at a
+            # different bandwidth than the run they are being compared with,
+            # with nothing in the output to show it. Observed 2026-09-04:
+            # a no-SD boot came up SF11/BW250 instead of SF8/BW125.
+            if args.expect_home_khz and int(boot.get("F", "0")) != args.expect_home_khz:
+                raise RuntimeError(
+                    f"home channel is {boot.get('F')} kHz, expected {args.expect_home_khz}; "
+                    "this boot resolved a different channel (check config.txt applied)")
             transmitter = Endpoint("heltec", args.heltec_port, TX_MARKER, log)
             require_ack(transmitter, "HELLO", "-")
             require_ack(transmitter, "QUIET", "-")
             results.write({"event": "boot", "identity": identity, "status": boot,
                            "positions": positions, "dwells_ms": dwells,
-                           "trials_per_state": args.trials, "samples": args.samples,
+                           "trials_per_state": args.trials, "samples": sample_counts,
                            "order": args.order, "seed": args.seed})
 
             for position in positions:
                 require_ack(transmitter, "CONFIG", POSITIONS[position]["candidate"])
                 for dwell in dwells:
+                  for samples in sample_counts:
                     plan = trial_order(args.trials, args.order, rng)
-                    print(f"[{position} {dwell}ms] {len(plan)} trials "
-                          f"(offset {position_offset_khz(position):+.1f} kHz)", flush=True)
+                    spacing = dwell / (samples - 1)
+                    print(f"[{position} {dwell}ms x{samples} samples] {len(plan)} trials "
+                          f"(offset {position_offset_khz(position):+.1f} kHz, "
+                          f"{spacing:.0f}ms spacing)", flush=True)
                     for index, source_on in enumerate(plan):
                         row = run_trial_with_retry(card, transmitter, position, dwell,
-                                                   args.samples, source_on,
+                                                   samples, source_on,
                                                    args.pulse_gap_ms, results,
                                                    args.attempts)
                         row.update({"event": "trial", "arm_index": index})

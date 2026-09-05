@@ -30,6 +30,7 @@
 #include "analyzer_state.h"
 #include "backlight.h"
 #include "battery.h"
+#include "bench_fault.h"
 #include "board_pins.h"
 #include "capture_settings.h"
 #include "cell_observation.h"
@@ -367,6 +368,16 @@ void setup() {
     // needed for this read.
     bool sdMounted = false;
     loadProfileOverridesFromSD(channelOverrides, PIN_SD_CS, sharedSpi(), &sdMounted);
+    // Bench images only, and only when built with the -D flags; production
+    // changes nothing here (bench_fault.h). Announced loudly so a bench
+    // channel can never be mistaken for the card's own configuration.
+    if (benchHomeChannelOverride(channelOverrides)) {
+        SerialLock lock(pdMS_TO_TICKS(200));
+        if (lock.held()) {
+            Serial.println(F("[bench] home channel overridden by build flags, "
+                             "ignoring config.txt's Meshtastic block."));
+        }
+    }
     // Last profile an operator actually selected via the menu, not always
     // Meshtastic — see profile_state.h for why this used to be hardcoded.
     MissionProfile bootProfile = MissionProfile::MESHTASTIC;

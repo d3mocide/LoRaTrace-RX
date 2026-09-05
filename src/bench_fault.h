@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "channel_plans.h"
 #include "energy_observation.h"
 
 // Deterministic fault hooks used only by the dedicated cardputer-adv-bench
@@ -124,6 +125,17 @@ bool benchFocusSurveyTriggerAllowed();
 // accepted request; production stores nothing and always reports 0.
 bool benchFocusStallConfigure(uint32_t stall_ms);
 uint16_t benchFocusStallTakeMs();
+
+// Bench-image-only home-channel override, applied after the SD config load.
+// The bench's channel lives in config.txt on the bench SD card, so replacing
+// a failed card silently moves `home` to the built-in default -- and Focus
+// receives at the *home* bandwidth, so a bench measurement would quietly
+// change bandwidth with nothing in its output to show it (2026-09-04: a card
+// swap moved home from 918.5/SF8/BW125 to 906.875/SF11/BW250).
+//
+// Returns false, changing nothing, unless the bench image was built with
+// -D LORATRACE_BENCH_HOME_* flags. Production always returns false.
+bool benchHomeChannelOverride(ProfileOverrides &overrides);
 
 // Bench-image-only gate for entering Cell and Scope from framed control.
 // Both are UI-only actions in production, so a fixture otherwise cannot prove

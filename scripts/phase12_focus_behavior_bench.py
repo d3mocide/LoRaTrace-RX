@@ -114,7 +114,7 @@ def main():
     with log_path.open("a", encoding="utf-8") as log:
         card = Endpoint("cardputer", args.cardputer_port, CARD_MARKER, log)
         try:
-            identity = require_ack(card, "HELLO", "-", timeout=15.0)
+            identity = require_ack(card, "HELLO", "-", timeout=45.0)
             initial = card_status(card)
             if initial.get("SD") != "1":
                 raise RuntimeError(f"Focus requires an SD-backed result row: {initial}")
