@@ -436,14 +436,41 @@ local spectrum identity or coverage of the city.
 - [ ] WiFi-off/on resource matrix, Portland field validation, `STATUS.md`,
   `LOG_GUIDE.md`, release notes, and any companion-schema update reconcile.
 
-Implementation proceeds in two bounded parts. The Engineering foundation now
-has pure plan/statistics/CSV tests. The bench request is one pass, 2--2,000 ms
-and 2--64 RSSI samples; the matrix gets 30 trials from 30 durable requests,
-not one long radio-away loop. Its next slice adds the radio request/recovery
-path, logger/health integration, and the bench harness with no coverage label.
-Only after §6 selects the thresholds and Watch budget may the operator menu,
-Activity surface, durable final schema, and field validation enter the
-Device/claim gates.
+### Next, in order
+
+The Engineering gate is closed and the bench slice is hardware-proven, so what
+remains is ordered by what blocks what. **The sampling change comes first: it
+invalidates any threshold or budget chosen before it.**
+
+1. **Scale the sample budget with the dwell** (§6.4 finding 1). Today's fixed
+   8 samples mean a long dwell observes a handful of instants, so a dwell or
+   observation-time figure does not mean what an operator would read it to
+   mean. Decide what a pass should sample — a target spacing, a rate, or a
+   dwell-proportional count — inside the existing static-RAM budget (§4.2 has
+   66 B of row margin and 68 B under the working-state target). Re-run the
+   affected §6.2 arms afterwards; the shorter-airtime positions are the ones
+   that move.
+2. **Re-select the qualifying RSSI condition** against the new sampling, and
+   at a source closer to realistic levels than this bench's ~-26 dBm. §6.4's
+   `p90 >= -90 dBm` is a candidate measured under the old sampling and a very
+   strong source; it should not survive into the product unexamined.
+3. **Run §6.3's Watch-opportunity comparison**
+   (`scripts/phase12_watch_opportunity.py`) and approve, or refuse, a maximum
+   radio-away budget. Measured away time is already known (dwell + ~73 ms);
+   what is unknown is what repeated requests cost Watch.
+4. **Select the coverage thresholds.** These are about valid-pass counts and
+   accumulated observation time across repeated requests, which no
+   single-pass matrix can supply — it needs its own repeated-request
+   measurement, once 1--3 have settled what a pass is worth.
+5. Only then: the operator menu control, the Activity/status surface, the
+   durable final schema with a populated `coverage`, `LOG_GUIDE.md`'s
+   operator-facing `focus.csv` section, and Portland field validation. Until
+   an operator control exists, `focus.csv` is deliberately absent from the
+   operator log guide — documenting a file nobody can produce would be worse
+   than omitting it.
+
+A release is further out than the closed gates suggest: Focus is reachable
+only from the bench image, and step 1 is a design change, not a tuning pass.
 
 ## Sources
 
