@@ -1,6 +1,6 @@
 #include <unity.h>
 
-#include "../../src/focus_plan.h"
+#include "../../src/focus_observation.h"
 
 void test_focus_request_is_small_and_starts_with_one_selected_bin() {
     TEST_ASSERT_EQUAL_UINT8(1, FOCUS_SELECTED_BIN_COUNT);
@@ -45,9 +45,22 @@ void test_focus_request_rejects_empty_or_out_of_band_work() {
     request.requested_dwell_ms = 100;
     request.requested_samples = FOCUS_BENCH_SAMPLES_MIN - 1;
     TEST_ASSERT_FALSE(focusRequestIsValid(request));
+    request.requested_samples = FOCUS_BENCH_SAMPLES_MAX + 1;
+    TEST_ASSERT_FALSE(focusRequestIsValid(request));
     request.requested_samples = FOCUS_BENCH_SAMPLES_MIN;
     request.requested_passes = 0;
     TEST_ASSERT_FALSE(focusRequestIsValid(request));
+}
+
+void test_sample_ceiling_keeps_every_quantile_exact() {
+    // All samples landing in one 1 dB bucket is the worst case; above 255 the
+    // bucket saturates and the histogram refuses to report a percentile.
+    FocusRssiHistogram histogram;
+    for (uint16_t i = 0; i < FOCUS_BENCH_SAMPLES_MAX; ++i) {
+        focusHistogramAddSample(histogram, -1000);
+    }
+    TEST_ASSERT_TRUE(focusHistogramHasExactQuantiles(histogram));
+    TEST_ASSERT_EQUAL_INT16(-1000, focusHistogramP90DbmX10(histogram));
 }
 
 void test_focus_request_is_bounded_in_time_not_only_in_samples() {
@@ -79,5 +92,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_focus_request_resolves_a_sourced_energy_bin_frequency);
     RUN_TEST(test_focus_request_rejects_empty_or_out_of_band_work);
     RUN_TEST(test_focus_request_is_bounded_in_time_not_only_in_samples);
+    RUN_TEST(test_sample_ceiling_keeps_every_quantile_exact);
     return UNITY_END();
 }

@@ -162,3 +162,37 @@ Opening the monitor can reset the board through DTR, which creates a new run
 directory. Start the retained serial capture at that reset and use the new
 run number. Launcher SD-drop remains valid for release-like verification,
 but direct USB flashing is preferred while Phase 7 is iterating.
+
+### Never target a board by `/dev/ttyACM*`
+
+With the Cardputer-Adv and the bench Heltec both attached, they enumerate as
+identical `Espressif USB JTAG serial debug unit` devices and **the `ttyACMn`
+numbering swaps between resets.** Address a board by its stable per-device
+path instead, which is keyed to the USB serial:
+
+```text
+ls /dev/serial/by-id/
+pio run -e cardputer-adv-bench -t upload \
+  --upload-port "/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_<MAC>-if00"
+```
+
+Identify which MAC is which once, by resetting each and reading its boot
+banner: the transmitter prints `[lttx] Heltec V4 R8 deterministic
+transmitter`, the receiver prints `LoRaTrace RX v...`. The framed harnesses
+are self-checking (they speak `@LTRX/1` and `@LTTX/1` and simply fail to
+handshake if pointed at the wrong board), but **flashing is not** — it writes
+whatever image you named to whatever is on that path.
+
+The signature of getting this wrong is unmistakable and worth recognizing at
+a glance, because it looks like a dead receiver:
+
+```text
+LoRaTrace RX v1.0.7 (...) — tasks + GPS + SD logging + WiFi + ...
+FATAL: IO expander init failed — no I2C ACK at 0x43.
+       Antenna switch off and GPS unpowered.
+```
+
+That is LoRaTrace running on the *Heltec*, which has no PI4IOE5V6408 at
+0x43. Repeated RTS resets will not clear it, because the banner is real
+firmware booting correctly on the wrong board. Recover by reflashing
+`bench/heltec-v4r8-transmitter` to that board (2026-09-04).

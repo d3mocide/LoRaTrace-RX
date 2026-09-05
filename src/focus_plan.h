@@ -16,7 +16,21 @@ constexpr uint8_t FOCUS_BENCH_REQUESTED_PASSES = 1;
 constexpr uint16_t FOCUS_BENCH_DWELL_MIN_MS = 2;
 constexpr uint16_t FOCUS_BENCH_DWELL_MAX_MS = 2000;
 constexpr uint16_t FOCUS_BENCH_SAMPLES_MIN = 2;
-constexpr uint16_t FOCUS_BENCH_SAMPLES_MAX = 64;
+// Raised from 64 to sweep sample spacing at a fixed dwell: the 2026-09-04
+// matrix showed detection tracks the source's airtime against
+// dwell/(samples-1), not against dwell, so selecting a real sampling policy
+// needs spacings down to ~10 ms across a 2,000 ms dwell (201 samples).
+//
+// The ceiling is set by the histogram, not by RAM: bucket_counts are uint8_t,
+// so a pass whose samples all land in one 1 dB bucket saturates at 255 and
+// focusHistogramHasExactQuantiles() then refuses to report a percentile at
+// all. Staying below that keeps every quantile exact in the worst case. The
+// histogram itself is a fixed 141 bytes regardless of sample count, so this
+// costs no additional static RAM (docs/research/phase12-survey-truth-design.md
+// §4.2).
+constexpr uint16_t FOCUS_BENCH_SAMPLES_MAX = 208;
+static_assert(FOCUS_BENCH_SAMPLES_MAX < 255,
+              "a pass must not be able to saturate a uint8 histogram bucket");
 
 // A bounded request must be bounded in wall-clock time, not just in samples:
 // each sample waits on the shared SPI bus (radio_task.cpp's 250ms BUS_WAIT),

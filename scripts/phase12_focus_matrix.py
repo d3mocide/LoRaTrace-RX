@@ -311,8 +311,8 @@ def main():
     for dwell in dwells:
         if not 2 <= dwell <= 2000:
             parser.error(f"--dwell-ms {dwell} outside the bounded 2..2000 request range")
-    if not 2 <= args.samples <= 64:
-        parser.error("--samples must be 2..64")
+    if not 2 <= args.samples <= 208:
+        parser.error("--samples must be 2..208 (focus_plan.h's bench ceiling)")
     if args.trials < 1:
         parser.error("--trials must be positive")
     if args.trials < 30:
