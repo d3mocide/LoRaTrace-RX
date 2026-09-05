@@ -64,7 +64,7 @@ cost acceptable; the measurement is part of the decision.
 | **14 — Companion analysis** | Not entered | Deliver an offline, reproducible tool that reads copied run folders without changing original evidence. Test deterministic reports, multi-run comparison, coverage warnings, and privacy-safe export behavior. |
 | **15 — Field markers and sharing** | Not entered | Add fixed, safe marker presets and `marker.csv`, then integrate redacted sharing. Prove markers cannot affect radio behavior and realistic exports remove selected location/identity detail. |
 | **16 — Cell closeout** | Deferred bonus | Close the existing V1 Phase 11 evidence gap: a real tower-adjacent RSSI rise plus fresh SD verification of `cell.csv` and Cell's appended `session.csv` fields. This preserves V1 history; it does not renumber it. |
-| **17 — Sweep/Waterfall sampling review** | Candidate | Re-evaluate whether Sweep's per-bin sampling and Waterfall's presentation can support what they imply, using the measurement apparatus Workstream 12 built. Entry needs a two-baseline sensitivity measurement, not an argument from analogy. See below. |
+| **17 — Sweep/Waterfall sampling review** | **Design entry** | Re-evaluate whether Sweep's per-bin sampling and Waterfall's presentation can support what they imply, using the measurement apparatus Workstream 12 built. Entry needs a two-baseline sensitivity measurement, not an argument from analogy. See below. |
 
 ## Candidate — Workstream 17 (Sweep/Waterfall sampling review)
 

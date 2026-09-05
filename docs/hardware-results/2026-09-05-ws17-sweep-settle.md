@@ -136,3 +136,79 @@ one.
   open and is now better approached with real repeater traffic on two known
   channels (bins 34 and 66), using the other 83 bins as within-run controls,
   than with a fixture whose presence during a 3 ms visit cannot be guaranteed.
+
+
+---
+
+# The under-read is not cosmetic: Pass A misses real traffic because of it
+
+**Raw:** `private/ws17-traffic-20260905T182652Z.jsonl`. 68 laps, **fully
+passive — this run transmitted nothing.** The sources are two live repeaters
+on known channels; the bench transmitter was explicitly quieted. Settle
+alternated 0 ms and 3 ms lap by lap so both configurations saw the same
+traffic. Ended early at lap 68 of 200 on a USB-CDC transport timeout: this
+script lacks the retry hardening the Focus matrix runner has.
+
+Bins 34 (MeshCore, 910.525 MHz) and 66 (MeshOregon, 918.5 MHz) carry traffic;
+seven bins spread across the band are read in the *same lap* as controls, so
+the comparison needs no external ground truth.
+
+| | control median | control max | bin 34 max | bin 66 max |
+|---|---|---|---|---|
+| 0 ms (shipped), 34 laps | -115.2 | -112.3 | **-95.3** | **-113.8** |
+| 3 ms, 34 laps | -102.8 | -96.4 | **-56.5** | **-50.8** |
+
+Laps where a traffic bin exceeded the control maximum: 2/34 and 0/34 at 0 ms;
+2/34 and 2/34 at 3 ms. Adjacent bins (33/35/65/67) were clean at 0/34 except
+one 1/34 excursion at bin 67, so energy lands in the intended bin.
+
+## Pass A's own threshold would reject what it caught
+
+`ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10` is 350, i.e. a bin must sit **35 dB**
+above the noise floor to be flagged as a peak. Applying that to what was
+actually measured:
+
+| | floor | best traffic reading | excursion | flagged? |
+|---|---|---|---|---|
+| **0 ms (shipped)** | -115.2 | bin 34 at -95.3 | **19.9 dB** | **no** |
+| | | bin 66 at -113.8 | 1.4 dB | no |
+| **3 ms** | -102.8 | bin 34 at -56.5 | **46.3 dB** | yes |
+| | | bin 66 at -50.8 | 52.0 dB | yes |
+
+**As shipped, Pass A would not have flagged either repeater in this run. With
+a 3 ms settle it would have flagged both.** That is the same traffic on
+alternating laps, so it is not a difference in conditions.
+
+This is what makes the settle a defect rather than a calibration curiosity.
+The floor measurement showed the noise floor read 9.5-17.6 dB low; this shows
+the *signal* is under-read far more — the same repeater burst read -95.3 dBm
+at 0 ms and -56.5 dBm at 3 ms, a 39 dB difference — which matches
+`version.h`'s note that the under-read grows with signal strength. A floor
+that is 13 dB low and a signal that is 39 dB low do not cancel: the excursion
+that the margin tests collapses from 46 dB to 20 dB, and falls under the
+threshold.
+
+## What this does and does not support
+
+Supported: at the shipped settle, real traffic that Pass A physically sampled
+did not reach its own flagging threshold, and a 3 ms settle fixed that in the
+same run. The mechanism is consistent across the floor sweep, this run, and
+the prior Cell finding.
+
+Not supported: any rate claim. Two detections in 34 laps per configuration is
+a tiny count, the hit rate is limited by the ~3 ms bin visit coinciding with a
+burst rather than by sensitivity, and 0 ms versus 3 ms hit counts (2 and 0
+against 2 and 2) are not distinguishable at that size. **The decisive evidence
+here is the magnitude of the excursion, not the number of hits.** Traffic was
+also uncontrolled; alternating laps controls for drift but not for a burst
+happening to fall in one arm.
+
+Also unchanged: one environment, one link, one repeater pair.
+
+## Recommendation
+
+Pass A should settle before sampling, and the margin must be re-derived in the
+same change. 3 ms costs about 0.26 s of a 1.7 s lap. Shipping the settle alone
+would leave a 35 dB margin calibrated against under-read values now being
+applied to correctly-read ones, which changes peak decisions in an untested
+direction — the fix is one change, not two.
