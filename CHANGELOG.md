@@ -9,6 +9,21 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- Bounded the count rule with two more sweeps (480 trials, no arm failures).
+  It is a **fraction** of accepted samples (~4-5%), which transfers between
+  500 ms and 2,000 ms passes; no threshold rescues a 100 ms pass, whose six
+  samples cannot both catch the source and reject ambient — so a short pass
+  may report coverage and must not report activity. The occupancy sweep is the
+  consequential one: detection runs 90-93% while the source fills 43-57% of
+  the pass and collapses to 37-43% at 28.6%. A single SF8 packet inside a
+  2,000 ms pass is 3-7% occupancy, far below that. **The rule detects a
+  persistently occupied channel, not individual packets**, which is the honest
+  scope of an RSSI-sampling instrument and makes CAD or packet reception the
+  better-supported basis for §3's observed activity. Median-as-floor held at
+  every occupancy tested, but only because a weak source leaves most samples
+  reading like noise; a strong source would break it and that regime was not
+  reached.
+
 - Found an activity basis that survives field levels. After every RSSI summary
   statistic was rejected, the remaining idea was to count samples above an
   adaptive floor rather than take an extreme of them — `peak` is one sample and

@@ -125,10 +125,18 @@ statistics failed. Counting samples at or above the pass's own median plus
 [0.863, 0.983]) at the same field-level configuration, with a single flagged
 control trial that read -63 dBm against a -101 dBm median — a real
 transmission that was not ours, so the 1.7% false rate is an upper bound. It
-is a candidate, not a constant: the threshold is a count out of 101 samples
-and the sampling policy scales sample count with dwell, so it must become a
-fraction of accepted samples or be validated per dwell first.
-`qualifying_count` stays unpopulated until then.
+is a candidate, not a constant.
+
+Two further sweeps (480 trials) then bounded it. The rule is a **fraction** of
+accepted samples (~4-5%), transferring between 500 ms and 2,000 ms passes, but
+no threshold works at 100 ms — six samples cannot both catch the source and
+reject ambient, so a short pass may report coverage and must not report
+activity. More importantly, detection tracks how much of the pass the source
+occupies: 90-93% at 43-57% occupancy, 37-43% at 28.6%. A single SF8 packet in
+a 2,000 ms pass is 3-7% occupancy. **The rule detects a persistently occupied
+channel, not individual packets**, which makes CAD or packet reception the
+better-supported basis for an activity claim. `qualifying_count` stays
+unpopulated; what to populate it with is now an evidenced design decision.
 
 The existing Phase 11 Cell feature remains partially hardware-verified and
 visible in "What's still open." It is deliberately scheduled as **V2
