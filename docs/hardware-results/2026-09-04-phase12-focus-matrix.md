@@ -477,3 +477,75 @@ reception, which §3 has contemplated as the alternative basis from the start.
   reason to prefer it rather than a hunch.
 - `qualifying_count` remains unpopulated. What to populate it with is now a
   design decision with evidence behind it rather than an open guess.
+
+
+---
+
+# Follow-up 6: a second baseline, and a correction
+
+**Raw evidence:** `private/phase12-b2-{occ,counts,dwell}-20260905T134743Z.jsonl`
+(600 trials, no arm failures). Same porch position and geometry as Follow-up 5;
+the only change is the link.
+
+Every conclusion in Follow-ups 4 and 5 came from one link at roughly 12 dB SNR.
+This repeats the SNR-sensitive tests at roughly 25 dB, to separate properties
+of Focus from properties of that link.
+
+**Link change:** the transmitter's stubby was replaced with a matched whip and
+both antennas were stood vertical. Vertical alignment mattered more than the
+antenna: at 918.5 MHz the horizontal pair was losing about 13 dB, consistent
+with each whip sitting in the other's pattern null. Source peak moved from
+-85/-86 dBm to -77/-66 dBm at 908.75 and from -87/-89 to -69/-75 at 918.5,
+against an unchanged -98/-101 dBm floor.
+
+## The occupancy cliff was an SNR limit — Follow-up 5's conclusion is withdrawn
+
+| source duty | detect at ~12 dB | detect at ~25 dB |
+|---|---|---|
+| 57.2% | 27/30 (90%) | 30/30 (100%) |
+| 42.9% | 28/30 (93%) | 29/30 (97%) |
+| **28.6%** | **11/30 (37%)** | **26/30 (87%)** |
+| 21.5% | not tested | 22/30 (73%) |
+
+Follow-up 5 concluded that "the rule detects a persistently occupied channel,
+not individual packets", and reasoned from there that CAD or packet reception
+was the better-supported basis for an activity claim. **That conclusion does
+not survive a second link.** At 28.6% occupancy, 13 dB of link improvement
+took detection from 37% to 87%. The cliff moved, so it was not the statistical
+limit it was presented as; it was where *that* link stopped delivering samples
+above the margin.
+
+What can be said now is narrower and conditional: **detection depends on
+occupancy and SNR together**, and the occupancy at which it fails is a
+property of the link, not of the instrument. Single-packet detection is
+untested and is no longer ruled out — a 150 ms packet at 20 ms sampling yields
+roughly seven elevated samples, comfortably above the four or five the best
+rules require, provided the samples clear the margin. The lowest occupancy
+measured is 21.5%, so anything below that remains unmeasured in both
+directions.
+
+## What did survive
+
+- **The 100 ms floor is real.** Six samples per pass detected 23/60 at 12 dB
+  and 28/60 at 25 dB. Thirteen decibels bought almost nothing, so this is a
+  sampling limit rather than a link limit: a short pass may report coverage
+  and must not report activity.
+- **The rule is a fraction.** Best thresholds landed at 3.8-5.0% of samples at
+  12 dB and 4.0-7.7% at 25 dB. Roughly stable, and clearly not a fixed count.
+- **500 ms / 26 samples remains the strongest arm** at both SNRs (60/60 each),
+  with zero false positives at 25 dB.
+
+## Method note
+
+This is why a single link is not a baseline. Three conclusions were drawn from
+the first one; two held and one inverted. The one that inverted was the most
+consequential and the most confidently worded, and it would have sent the next
+slice toward CAD on the strength of an artifact. Where a conclusion depends on
+signal level, it now needs at least two levels before it goes in this file.
+
+## Next measurement
+
+Drive occupancy below 21.5% at the stronger link — a single short-airtime
+pulse per pass is about 5% — and find where detection actually fails when the
+link is not the binding constraint. That, not a CAD rewrite, is the open
+question for §3's activity basis.
