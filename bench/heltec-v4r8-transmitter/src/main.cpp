@@ -1,6 +1,8 @@
 #include <Arduino.h>
+#include <Preferences.h>
 #include <RadioLib.h>
 #include <U8g2lib.h>
+#include <WiFi.h>
 #include <Wire.h>
 #include <string.h>
 
@@ -68,7 +70,7 @@ constexpr uint32_t BUTTON_LONG_PRESS_MS = 1500;
 constexpr uint32_t BUTTON_PANIC_STOP_MS = 5000;
 constexpr uint16_t FIRE_BUTTON_DELAY_MS = 250; // same delay phase8_bench.py's own ARM calls typically use
 
-enum class MenuScreen : uint8_t { HOME = 0, CANDIDATE, FIRE, SWEEP, BEACON, COUNT };
+enum class MenuScreen : uint8_t { HOME = 0, CANDIDATE, FIRE, SWEEP, BEACON, WIFI, COUNT };
 
 // Bench-only field/range-test beacon: periodic capped-count TX pulses at
 // the selected candidate, for verifying Cardputer detection/range with a
@@ -123,6 +125,53 @@ bool buttonActionFired = false;
 bool buttonPanicFired = false;
 uint32_t buttonPressedAtMs = 0;
 bool beaconActive = false;
+
+// --- Optional WiFi control bridge ---------------------------------------
+//
+// Exists so the transmitter can be physically separated from the receiver
+// (across a room, outdoors) while a host still drives it: bench measurements
+// need real path loss between the two boards, and USB does not reach. The
+// bridge speaks the exact same @LTTX/1 framed protocol as USB, so the host
+// harness needs no changes -- bench_harness.py already opens ports through
+// serial_for_url(), which accepts socket://host:port.
+//
+// SECURITY: this listens on the local network and its commands key a
+// transmitter. It is off unless explicitly enabled, but once enabled there is
+// no authentication -- anything that can reach the port can trigger a pulse.
+// That is acceptable only because this is a bench fixture on a trusted LAN,
+// output is capped at TX_POWER_DBM, and every transmit path is bounded. Do
+// not expose the port beyond a trusted network, and turn the bridge off
+// (WIFI_OFF) when the fixture is not in use.
+//
+// Credentials live in NVS, set once over USB, and are never stored in the
+// repository. The frame grammar splits on spaces, so an SSID or password
+// containing a space cannot be carried by WIFI_SSID/WIFI_PASS.
+constexpr uint16_t WIFI_BRIDGE_PORT = 4227;
+constexpr char WIFI_NVS_NAMESPACE[] = "lttxwifi";
+constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 15000;
+
+WiFiServer bridgeServer(WIFI_BRIDGE_PORT);
+WiFiClient bridgeClient;
+char bridgeInput[FRAME_MAX] = {};
+size_t bridgeInputLength = 0;
+bool wifiEnabled = false;
+bool bridgeListening = false;
+uint32_t lastWifiAttemptMs = 0;
+String wifiSsid;
+String wifiPass;
+
+// Replies follow whichever transport issued the command, and stay there until
+// another command arrives -- ARM's asynchronous TX_STARTED/TX_DONE are emitted
+// from loop() long after the command returned, and a host driving the bridge
+// must receive them rather than have them go out the USB port nobody is
+// reading.
+Print *replyStream = &Serial;
+
+// Defined below pollSerial(); declared here because handle() dispatches the
+// WIFI_* commands before those definitions are in scope.
+void wifiPersist();
+void wifiStart();
+void wifiStop();
 uint16_t beaconPulseCount = 0;
 uint32_t beaconNextAtMs = 0;
 
@@ -133,6 +182,7 @@ const char *screenLabel(MenuScreen screen) {
         case MenuScreen::FIRE: return "FIRE";
         case MenuScreen::SWEEP: return "SWEEP";
         case MenuScreen::BEACON: return "BEACON";
+        case MenuScreen::WIFI: return "WIFI";
         default: return "?";
     }
 }
@@ -141,6 +191,12 @@ void drawMenu() {
     display.clearBuffer();
     display.setFont(u8g2_font_6x10_tf);
     display.drawStr(0, 10, screenLabel(currentScreen));
+    // Right-aligned so it never collides with the longest screen label.
+    const char *wifiBadge = !wifiEnabled ? "" : (WiFi.status() == WL_CONNECTED ? "wifi:ok"
+                                                                              : "wifi:..");
+    if (wifiBadge[0] != '\0') {
+        display.drawStr(128 - (int)(strlen(wifiBadge) * 6), 10, wifiBadge);
+    }
 
     char line1[24] = {};
     char line2[24] = {};
@@ -182,6 +238,22 @@ void drawMenu() {
             snprintf(line2, sizeof(line2), "Pulses: %u/%u", (unsigned)beaconPulseCount,
                      (unsigned)BEACON_MAX_PULSES);
             snprintf(line3, sizeof(line3), "%s", active->name);
+            break;
+        case MenuScreen::WIFI:
+            if (!wifiEnabled) {
+                snprintf(line1, sizeof(line1), "Bridge: OFF");
+                snprintf(line2, sizeof(line2), "USB control only");
+            } else if (WiFi.status() == WL_CONNECTED) {
+                snprintf(line1, sizeof(line1), "Bridge: LISTENING");
+                snprintf(line2, sizeof(line2), "%s", wifiSsid.c_str());
+                snprintf(line3, sizeof(line3), "%s", WiFi.localIP().toString().c_str());
+                snprintf(line4, sizeof(line4), "port %u", (unsigned)WIFI_BRIDGE_PORT);
+                haveLine4 = true;
+            } else {
+                snprintf(line1, sizeof(line1), "Bridge: JOINING");
+                snprintf(line2, sizeof(line2), "%s", wifiSsid.c_str());
+                snprintf(line3, sizeof(line3), "not connected");
+            }
             break;
         default:
             break;
@@ -264,7 +336,7 @@ void reply(uint16_t sequence, const char *event, const char *argument) {
     const int n = snprintf(body, sizeof(body), "@LTTX/1 %u %s %s", (unsigned)sequence,
                            event, argument);
     if (n < 0 || (size_t)n >= sizeof(body)) return;
-    Serial.printf("%s %04X\n", body, (unsigned)crc16(body, (size_t)n));
+    replyStream->printf("%s %04X\n", body, (unsigned)crc16(body, (size_t)n));
 }
 
 bool configure(const Candidate *candidate) {
@@ -500,8 +572,174 @@ void handle(char *line) {
         } else {
             reply(sequence, "ERROR", "BAD_ARG");
         }
+    } else if (strcmp(command, "WIFI_SSID") == 0) {
+        // USB only on purpose: credentials must not be settable through the
+        // bridge they authorize, and a wrong value taken over the bridge would
+        // disconnect the very transport that sent it.
+        if (replyStream != &Serial) {
+            reply(sequence, "ERROR", "USB_ONLY");
+        } else if (strlen(argument) == 0 || strlen(argument) > 32) {
+            reply(sequence, "ERROR", "BAD_SSID");
+        } else {
+            wifiSsid = argument;
+            wifiPersist();
+            reply(sequence, "ACK", "SSID_SET");
+        }
+    } else if (strcmp(command, "WIFI_PASS") == 0) {
+        if (replyStream != &Serial) {
+            reply(sequence, "ERROR", "USB_ONLY");
+        } else if (strlen(argument) > 63) {
+            reply(sequence, "ERROR", "BAD_PASS");
+        } else {
+            // "-" clears it, for an open network.
+            wifiPass = (strcmp(argument, "-") == 0) ? "" : argument;
+            wifiPersist();
+            reply(sequence, "ACK", "PASS_SET");
+        }
+    } else if (strcmp(command, "WIFI_ON") == 0) {
+        if (wifiSsid.length() == 0) {
+            reply(sequence, "ERROR", "NO_SSID");
+        } else {
+            wifiEnabled = true;
+            wifiPersist();
+            wifiStart();
+            reply(sequence, "ACK", "ENABLED");
+        }
+    } else if (strcmp(command, "WIFI_OFF") == 0) {
+        wifiEnabled = false;
+        wifiPersist();
+        // Answer before tearing the transport down, or a bridge client never
+        // learns its own command succeeded.
+        reply(sequence, "ACK", "DISABLED");
+        wifiStop();
+    } else if (strcmp(command, "NET_TEST") == 0) {
+        // Diagnostic only: does an *outbound* connection work? A station can
+        // be associated, hold a lease, and serve nothing reachable if inbound
+        // frames are being dropped somewhere. Outbound is board-initiated and
+        // does not depend on receiving a broadcast ARP, so comparing the two
+        // directions says whether a reverse-dialled bridge would help.
+        char target[48] = {};
+        if (strlen(argument) >= sizeof(target)) {
+            reply(sequence, "ERROR", "BAD_TARGET");
+        } else {
+            strcpy(target, argument);
+            char *colon = strrchr(target, ':');
+            uint16_t port = 0;
+            if (colon == nullptr || !parseU16(colon + 1, port)) {
+                reply(sequence, "ERROR", "BAD_TARGET");
+            } else {
+                *colon = '\0';
+                WiFiClient probe;
+                probe.setTimeout(4);
+                const bool ok = probe.connect(target, port);
+                char detail[64] = {};
+                snprintf(detail, sizeof(detail), "%s TO=%s:%u FROM=%s",
+                         ok ? "OPEN" : "REFUSED", target, (unsigned)port,
+                         WiFi.localIP().toString().c_str());
+                probe.stop();
+                reply(sequence, ok ? "ACK" : "ERROR", detail);
+            }
+        }
+    } else if (strcmp(command, "WIFI_STATUS") == 0) {
+        char status[80] = {};
+        snprintf(status, sizeof(status), "EN=%u;CONN=%u;IP=%s;PORT=%u;SSID=%s",
+                 wifiEnabled ? 1U : 0U, WiFi.status() == WL_CONNECTED ? 1U : 0U,
+                 WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "-",
+                 (unsigned)WIFI_BRIDGE_PORT,
+                 wifiSsid.length() ? wifiSsid.c_str() : "-");
+        reply(sequence, "STATUS", status);
     } else {
         reply(sequence, "ERROR", "UNSUPPORTED");
+    }
+}
+
+void wifiPersist() {
+    Preferences prefs;
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return;
+    prefs.putString("ssid", wifiSsid);
+    prefs.putString("pass", wifiPass);
+    prefs.putBool("enabled", wifiEnabled);
+    prefs.end();
+}
+
+void wifiLoadPersisted() {
+    Preferences prefs;
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, true)) return;
+    wifiSsid = prefs.getString("ssid", "");
+    wifiPass = prefs.getString("pass", "");
+    wifiEnabled = prefs.getBool("enabled", false);
+    prefs.end();
+}
+
+void wifiStop() {
+    if (bridgeClient) bridgeClient.stop();
+    if (bridgeListening) {
+        bridgeServer.stop();
+        bridgeListening = false;
+    }
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    // A transport that vanished must not keep receiving asynchronous replies.
+    replyStream = &Serial;
+}
+
+void wifiStart() {
+    if (wifiSsid.length() == 0) return;
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
+    lastWifiAttemptMs = millis();
+}
+
+void pollWifi() {
+    if (!wifiEnabled) return;
+
+    if (WiFi.status() != WL_CONNECTED) {
+        if (bridgeListening) {
+            bridgeServer.stop();
+            bridgeListening = false;
+            if (replyStream != &Serial) replyStream = &Serial;
+        }
+        if (millis() - lastWifiAttemptMs >= WIFI_RETRY_INTERVAL_MS) wifiStart();
+        return;
+    }
+    if (!bridgeListening) {
+        // Disabled *after* association, not before: setting it ahead of
+        // WiFi.begin() is silently discarded when the connection is
+        // established, which leaves the station in modem sleep. A sleeping
+        // station keeps its association -- the AP shows a healthy client with
+        // full signal -- but misses broadcast frames, so it never sees an ARP
+        // request and becomes unreachable for ping and for this server, while
+        // looking perfect from the router's side. Cost this bench an evening
+        // (2026-09-05). The fixture is mains powered; there is nothing to save.
+        WiFi.setSleep(false);
+        bridgeServer.begin();
+        bridgeServer.setNoDelay(true);  // Frames are tiny; Nagle would add latency.
+        bridgeListening = true;
+        Serial.printf("[lttx] bridge listening on %s:%u\n",
+                      WiFi.localIP().toString().c_str(), (unsigned)WIFI_BRIDGE_PORT);
+    }
+
+    if (!bridgeClient || !bridgeClient.connected()) {
+        WiFiClient incoming = bridgeServer.available();
+        if (incoming) {
+            if (bridgeClient) bridgeClient.stop();
+            bridgeClient = incoming;
+            bridgeInputLength = 0;
+        }
+    }
+    while (bridgeClient && bridgeClient.available() > 0) {
+        const int c = bridgeClient.read();
+        if (c < 0) break;
+        if (c == '\n') {
+            bridgeInput[bridgeInputLength] = '\0';
+            replyStream = &bridgeClient;
+            handle(bridgeInput);
+            bridgeInputLength = 0;
+        } else if (c != '\r' && bridgeInputLength + 1 < sizeof(bridgeInput)) {
+            bridgeInput[bridgeInputLength++] = (char)c;
+        } else if (bridgeInputLength + 1 >= sizeof(bridgeInput)) {
+            bridgeInputLength = 0;
+        }
     }
 }
 
@@ -511,6 +749,7 @@ void pollSerial() {
         if (c < 0) return;
         if (c == '\n') {
             input[inputLength] = '\0';
+            replyStream = &Serial;
             handle(input);
             inputLength = 0;
         } else if (c != '\r' && inputLength + 1 < sizeof(input)) {
@@ -654,6 +893,11 @@ void setup() {
     delay(2);
 
     Serial.println("[lttx] Heltec V4 R8 deterministic transmitter");
+    wifiLoadPersisted();
+    if (wifiEnabled) {
+        Serial.printf("[lttx] wifi bridge enabled, joining '%s'\n", wifiSsid.c_str());
+        wifiStart();
+    }
     if (configure(active)) {
         Serial.println("[lttx] radio ready; output capped at -9 dBm");
     } else {
@@ -666,6 +910,7 @@ void setup() {
 
 void loop() {
     pollSerial();
+    pollWifi();
     pollButton();
     serviceBeacon();
     if (armed && (int32_t)(millis() - armedAtMs) >= 0) transmitArmedPacket();
