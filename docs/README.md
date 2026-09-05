@@ -8,11 +8,12 @@ material once you're past that.
 
 - **[STATUS.md](STATUS.md)** — where the project actually is right now:
   current version, what's hardware-verified, what's still open.
-- **[DESIGN.md](DESIGN.md)** — hardware, RF parameters, and architecture
-  rationale. Read before making architecture changes; don't re-derive
-  decisions already made here.
-- **[ROADMAP.md](ROADMAP.md)** — build-order phases, MVP-Beta scope, and
-  an honest feasibility assessment against this hardware's real limits.
+- **[DESIGN.md](DESIGN.md)** — shipped v1 hardware, RF parameters, and
+  architecture rationale. Read before changing those foundations.
+- **[ROADMAP.md](ROADMAP.md)** — active V2 workstreams, gates, and release
+  policy. Start here for the next implementation decision.
+- **[research/V2_DESIGN.md](research/V2_DESIGN.md)** — V2 product direction,
+  permanent boundaries, and rationale behind the active roadmap.
 - **[LOG_GUIDE.md](LOG_GUIDE.md)** — operator guide to run folders, CSV
   fields, identity observations, health checks, and privacy-aware export.
 - **[HARDWARE_TESTING.md](HARDWARE_TESTING.md)** — repeatable
@@ -25,11 +26,12 @@ material once you're past that.
 Not onboarding reading — these are raw evidence and in-progress notes,
 kept for reference rather than written to be read start to finish.
 
-- **`history/`** — `PROGRESS.md` and `CHANGELOG.md` as they stood before
-  the 2026-08-29 documentation restructuring: a frozen, unedited
-  session-by-session development log. Search it for a specific
-  date/topic rather than reading it front to back; `STATUS.md` above and
-  the root `CHANGELOG.md` are what stay current going forward.
+- **`history/`** — the immutable v1.0.7 roadmap snapshot pointer
+  ([`ROADMAP_V1.md`](history/ROADMAP_V1.md)), plus `PROGRESS.md` and
+  `CHANGELOG.md` as they stood before the 2026-08-29 documentation
+  restructuring. Search history for a specific date/topic rather than
+  reading it front to back; `STATUS.md` above and the root `CHANGELOG.md`
+  are what stay current going forward.
 - **`research/`** — design/investigation notes written during specific
   phases (e.g. Phase 8/9 sweep design), not maintained after the phase
   they were written for.

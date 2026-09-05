@@ -78,7 +78,7 @@ jobs:
       # Rolling "latest main" build, separate from the versioned vX.Y.Z
       # releases in release.yml. Overwrites the same dev-latest tag/release
       # on every merge so there's always a one-click, no-login download for
-      # SD-drop/Launcher testing — see docs/ROADMAP.md Distribution section.
+      # SD-drop/Launcher testing — see the root README's install guidance.
       # Only on pushes to main (not PRs, not every commit on a branch).
       - name: Move dev-latest tag
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'

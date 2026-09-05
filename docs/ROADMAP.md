@@ -1,903 +1,139 @@
-# LoRaTrace RX — Roadmap
-
-This roadmap operationalizes the build order already decided in
-`docs/DESIGN.md` §9. It doesn't change any RF or architecture decision — it adds
-scope boundaries, exit criteria, and an honest read on what this specific
-hardware can and can't do, so "MVP-Beta" means something concrete instead
-of a vibe.
-
-## What "MVP-Beta" means here
-
-The smallest version of this firmware that's actually useful as a field
-tool: **Meshtastic War Drive, end to end.** RX locked to the LongFast (US)
-channel, every detection GPS-stamped and written to SD, running
-unattended on battery. That's docs/DESIGN.md §9 phases 1–2. Everything past
-that (MeshCore, discovery sweeps, energy sweep, UI, upload) is real
-project scope, but it's post-MVP-Beta.
-
-## Hardware feasibility — reality check
-
-Read this before assuming any phase below "just works." It's an honest
-accounting against the ESP32-S3FN8's actual limits (CLAUDE.md hardware
-assumptions), not a pitch.
-
-**Solid — low risk:**
-- RX-only detection on a known channel (`HOME_LISTEN`) for Meshtastic and
-  MeshCore. Continuous single-channel RX is cheap: no polling, no
-  scanning, minimal CPU. This is the easy 80% of the project's value.
-- The Core 1 (radio) / Core 0 (GPS+SD+UI) split with a FreeRTOS queue.
-  Standard ESP32-S3 pattern, and it's the right call given SD's latency
-  spikes — keeping those off the radio task is the one architectural
-  decision that actually matters for not dropping packets.
-- GPS fusion (NMEA over UART) and small-struct SD logging. Neither needs
-  meaningful RAM; TinyGPSPlus-class parsers and a ~40B detection struct
-  flushed often are well inside an 8MB-flash, no-PSRAM budget.
-- Keyboard + small-display UI, *if* it avoids a full framebuffer (see
-  below).
-
-**Achievable, but needs deliberate care:**
-- **No PSRAM means ~512KB SRAM total, shared with the RTOS, WiFi stack (if
-  enabled), display driver, and every task's stack.** docs/DESIGN.md's own
-  estimate of 250–380KB free heap is a guess pending `ESP.getFreeHeap()`
-  on real hardware — treat every RAM-hungry decision below as provisional
-  until that number is in hand.
-- **WiFi AP + web UI (Phase 3).** This used to sit in the "lowest priority"
-  tier below, gated behind a real free-heap number under full load. That
-  number now exists: `run0007`/`run0011` (session.csv) measured heap_free
-  settling at ~304KB with radio + GPS + logger + display all running,
-  flat with no decline across a 2.5-hour run — real headroom, not the
-  provisional estimate this gate was originally waiting on. Built
-  on-demand (off by default, toggled by an operator gesture) specifically
-  so its RAM/CPU/RF-noise cost is never present during an actual drive
-  unless asked for — see docs/history/CHANGELOG.md for the spike this was still worth
-  gating behind before building the rest of the feature on top of it.
-- **Display:** a naive full framebuffer at 240×135×16bpp is ~65KB — a
-  meaningful bite out of a few-hundred-KB heap. Use direct-to-panel
-  partial-window writes (LovyanGFX/M5GFX style) instead of buffering a
-  whole frame, especially once WiFi is in the picture.
-  **Superseded 2026-08-25 (Phase 6's own hardware bench pass):** real
-  glass proved direct-to-panel wrong for this UI — every intermediate draw
-  call is visible the instant it happens, causing real flicker/tearing a
-  build report can't catch. The actual fix was an off-screen
-  `Arduino_Canvas_Indexed` framebuffer, just an indexed 1-byte/pixel one
-  (~32KB, since this UI only ever uses 6 colours) rather than a full RGB565
-  one (~63KB) — see docs/history/CHANGELOG.md's v0.6.2 -> v0.6.3 entry for the full
-  root-cause and the near-miss (an `SPIClass::beginTransaction()` deadlock)
-  ruled out along the way.
-- **`ENERGY_SWEEP` (Reticulum / General Exploration):** a single SX1262
-  cannot listen to the whole 868–923MHz band at once. The design's
-  sweep-then-return-to-listen approach is the right shape for this
-  hardware, but it's a fundamental physical tradeoff, not a bug to code
-  around: short bursts on a non-home frequency *will* be missed during the
-  portion of the duty cycle spent elsewhere. Set that expectation in the
-  UI/docs rather than implying continuous full-band coverage.
-- **Front-end rolloff near 923–928MHz:** the module's tuned range tops out
-  around 923MHz; the top of US ISM (923–928MHz) is outside it. This is a
-  hardware fact, not fixable in firmware — it specifically dents General
-  Exploration's full-band sweep, since every named profile's actual
-  channel already sits inside 868–923 (docs/DESIGN.md §1). Needs an empirical
-  RSSI noise-floor sweep once hardware is in hand, then document the
-  sensitivity gap rather than pretend it isn't there.
-- **Meshtastic's 104-slot hash space:** Phase 1–2 only lock to the
-  LongFast US default (slot 20). That's most of the real-world traffic,
-  but a mesh running a non-default channel name lands on a different slot
-  and is invisible to `HOME_LISTEN`. `DISCOVERY_SWEEP` (Phase 8) is what
-  closes that gap — until then, be precise in docs/UI that "Meshtastic
-  profile" means "default channel," not "all Meshtastic traffic."
-
-**Genuinely open — blocks real functionality, not just polish:**
-- microSD bus (SPI vs SDMMC) on this board revision — docs/DESIGN.md §7,
-  unresolved. Blocks finalizing the Logger task's pin/driver choice.
-- Meshtastic's exact sync-word register value, and MeshCore's
-  encryption/PSK model — docs/DESIGN.md §7. Detection (RSSI/SF/BW/timing) works
-  without these; reliable protocol-level filtering and payload decode
-  don't. Don't hardcode a guessed value for either (CLAUDE.md house rule).
-
-**Deliberately out of scope:**
-- TX/injection of any kind — permanent non-goal per CLAUDE.md house rules,
-  not a phase-ordering question.
-
-## Phases
-
-Each phase maps 1:1 to docs/DESIGN.md §9. "Blocking unknowns" cross-reference
-docs/DESIGN.md §7 items that must be resolved (or explicitly deferred) before
-the phase can be called done, not just started.
-
-### Phase 0 — Project scaffold
-**Status:** done (this change).
-PlatformIO project, pin map, RF parameter tables, phase-1 bring-up code,
-this roadmap, and the tracking doc.
-
-### Phase 1 — RadioLib bring-up
-**Goal:** prove the radio path is alive.
-**Deliverable:** `src/main.cpp` — SPI init, IO-expander P0 high, SX1262 up,
-hardcoded RX on 906.875MHz/SF11/BW250/CR8, detections printed to Serial.
-**Exit criteria:** a real Meshtastic LongFast (US) packet in the air shows
-up on the serial monitor with plausible RSSI/SNR.
-**Blocking unknowns:** none functionally — but the IO-expander register
-map and SPI host assignment (see docs/history/PROGRESS.md) are unverified against real
-hardware and are the first suspects if the radio stays silent.
-**Status:** complete, hardware-verified. See docs/STATUS.md for current
-state and docs/history/CHANGELOG.md for the full session history.
-
-### Phase 2 — `HOME_LISTEN` + task/queue architecture + GPS + SD (= MVP-Beta)
-**Goal:** the smallest genuinely useful field tool.
-**Deliverable:** `radio_task`, `gps_task`, `logger_task` per the proposed
-layout in CLAUDE.md; FreeRTOS queue Core 1 → Core 0; GPS-stamped
-detections batched to SD per the §8 log schema.
-**Exit criteria:** unattended run — power on, GPS fix acquired, detections
-logged with correct lat/lon, no dropped packets attributable to SD
-latency, no crash from heap exhaustion over a multi-hour run.
-**Blocking unknowns:** none left. microSD is confirmed on the shared SPI
-bus (arbitrated by `spi_bus.h`), and GPS reached a fix on hardware
-2026-08-23 — the last piece that had never been proven.
-**Status:** see docs/STATUS.md for current state and
-docs/history/CHANGELOG.md for the full session history.
-
-### Phase 3 — Web Command Center (WiFi AP + web UI)
-**Goal:** get data and control off the device without ejecting the SD card.
-**Deliverable:** `wifi_task` — an on-demand (off by default, operator-
-toggled), WPA2-protected WiFi AP hosting a single embedded web page (no
-LittleFS/SPIFFS, no new `lib_deps` — built-in `WiFi.h`/`WebServer.h` only,
-see docs/history/PROGRESS.md) with three tabs: a live status dashboard (the same
-counters the Serial `[status]` line and `ui_task`'s pages already expose),
-a run browser to download `detections.csv`/`session.csv` per run, and a
-settings form that writes `/loratrace/config.txt` (`config.h`'s existing
-format/validation, reused not reimplemented) — applied on next boot, not
-hot-reloaded, so `radio_task`'s real-time critical section is never touched
-by another task. `ui_task` gains a long-press-any-key gesture to toggle the
-AP (no keymap needed, matching its existing "any key" discipline) and a
-WIFI status page.
-**Blocking unknowns:** none for the feature itself — pulled forward ahead
-of Phase 4 at the user's request, prioritizing operator convenience over
-protocol breadth. The one thing worth confirming on real hardware before
-trusting this at length is the heap/counter spike described in
-docs/history/PROGRESS.md: `ESP.getFreeHeap()` before/after `WiFi.softAP()` with the
-full Phase 2 task set already running, and `radioCrcErrorCount()`/
-`radioQueueDropCount()`/`radioBusMissCount()` staying at 0 with the AP
-active — the actual go/no-go this phase used to be gated behind, now
-answerable instead of estimated (see the heap numbers above).
-
-### Phase 4 — MeshCore profile
-**Deliverable:** same `HOME_LISTEN` engine, MeshCore US-narrow table
-(910.525MHz/SF7/BW62.5/CR5) wired in as a second selectable profile — the
-first phase where "selectable" is real, not aspirational. This is where
-docs/DESIGN.md §5's keyboard-gated profile switch (operator-selected, mutually
-exclusive — Meshtastic and MeshCore never listen at once) actually gets
-built, deliberately deferred from Phase 3 (docs/history/CHANGELOG.md) so it's designed
-and tested against a real second channel table instead of a stub.
-**Blocking unknowns:** none for basic detection; MeshCore's
-encryption/PSK model (§7) still blocks payload decode, not detection.
-**Status:** see docs/STATUS.md for current state and
-docs/history/CHANGELOG.md for the full session history.
-
-### Phase 5 — On-device menu UI
-**Deliverable:** a real menu on `ui_task`'s display, replacing the timed
-hold-gestures Phase 3/4 built as a stopgap. Pulled forward ahead of
-`DISCOVERY_SWEEP`/`ENERGY_SWEEP` at the user's request — same precedent as
-WiFi's Phase-3 pull-forward ahead of MeshCore — because the menu/settings
-framework built here is what the rest of the project gets built around, not
-because it was blocking anything below it.
-
-Scope, decided with the user up front rather than assumed: plain `,`/`.`
-move a selection (no Fn chord — the Cardputer-ADV has no dedicated arrow
-keys; directional intent there is Fn held + `;`/`,`/`.`/`/`, confirmed
-against M5Stack's own keyboard API docs, a dedicated Cardputer-ADV keyboard
-reference, and `bmorcelli/Launcher`'s own shipped interface code), Enter
-selects, Backspace goes back. Toggles only this phase — profile switch
-(Meshtastic/MeshCore, reusing Phase 4's `radioRequestProfileSwitch()`
-unchanged) and WiFi on/off (reusing Phase 3's `wifiToggle()` unchanged) —
-no on-device numeric editing of channel params; that stays on the existing
-web UI Settings tab / `config.txt`. A new read-only CHANNEL status page
-shows the actual active freq/SF/BW/CR/sync word, closing a real gap (that
-was previously visible only over Serial or the web UI). The two old
-hold-gestures are removed, not kept as parallel shortcuts, so there's
-exactly one way to trigger each action.
-
-This is what turns "decode the keyboard" from a 56-key project of its own
-into a small, low-risk slice: only four specific keys need to be identified
-correctly, not the whole QWERTY layout — see `src/keyboard.h` for the full
-sourcing (TCA8418 raw-event encoding, the raw-value-to-physical-position
-formula, and the physical-position-to-character table, each independently
-cited) and docs/DESIGN.md for the citation-level writeup.
-
-**Blocking unknowns:** none for the menu/toggle mechanism itself — every
-action it triggers already exists and was already exercised in Phase 3/4.
-The keyboard decode is sourced from three independent references but,
-per this project's own standing rule, not yet bench-verified against real
-hardware (see docs/history/PROGRESS.md's Phase 5 checklist): press each of the four keys
-once and confirm the firmware recognizes exactly that key and no other.
-
-### Phase 6 — UI architecture redesign
-**Goal:** rework `ui_task` before `DISCOVERY_SWEEP` (or anything after it)
-adds another ad hoc entry to a framework that was never designed to hold
-more than a couple of toggles. Pulled forward ahead of `DISCOVERY_SWEEP` at
-the user's request (2026-08-25) — same restructuring precedent as WiFi's
-Phase-3 pull-forward and the menu UI's own Phase-5 pull-forward, both
-already in this doc's history. Unlike those two, this isn't new subsystem
-bring-up: it's a scoped rework of `ui_task.cpp`/`.h`, the one file the next
-two phases would otherwise keep bolting onto.
-**Why now, not later:** Phase 5 shipped exactly two menu items by design
-(docs/history/CHANGELOG.md/docs/DESIGN.md §9) and had already grown a third — the verbose
-serial-debug toggle — by the end of the same day, with no framework change
-and a stale in-code comment (`ui_task.cpp`'s "the menu has exactly two
-items this phase") as the only trace of the drift. `DISCOVERY_SWEEP` would
-add at least a fourth item (a sweep trigger) and `ENERGY_SWEEP` a fifth
-after it; fixing the shape once beats letting two more features each bolt
-on their own row.
-**Deliverable:**
-- **Grouped menu**, replacing the flat, fixed-size list `MENU_ITEM_COUNT`
-  indexes into today. Root categories (e.g. Profile, Radio Mode, System)
-  open short sub-lists, same four input keys throughout (`,`/`.` move,
-  Enter act, backtick/ESC back/close) — a shape borrowed structurally from
-  M5PORKCHOP's (github.com/0ct0sec/M5PORKCHOP) "Sirloin-style grouped
-  modal" `Menu` class (`src/ui/menu.h` in that repo: `RootItem` entries are
-  either `DIRECT` actions or `GROUP`s that open a `MenuItem` sub-list) —
-  reviewed for that structural idea only, not its content or aesthetic
-  (see note below).
-- **Toast/notice layer** for transient feedback — a toggle firing, later a
-  sweep hit — that isn't tied to whichever carousel/menu row happens to be
-  on screen. Real RAM cost gets measured and reported before it ships,
-  same discipline as every other RAM-hungry addition this project has made
-  (WiFi AP's ~55-56KB measurement is the precedent, not an estimate).
-- **Redesigned status pages.** The current five (RADIO/CHANNEL/GPS/
-  SYSTEM/WIFI) are single-column stacked text (`ui_task.cpp`
-  `drawRadioPage()` etc.) with real unused width on a 240px panel. Group
-  related values into blocks instead of one value per line. (As-proposed
-  this assumed direct-to-panel partial-window writes, no framebuffer — the
-  real hardware bench pass overturned that; see the Hardware feasibility
-  section above and this phase's Status note below.)
-- **Adopt docs/BRAND.md's on-device labels** (`Watch`/`Probe`/`Sweep` for
-  HOME_LISTEN/DISCOVERY_SWEEP/ENERGY_SWEEP; plain profile names —
-  `Meshtastic`/`MeshCore`/`Reticulum`/`Spectrum` — grouped under one
-  "Profile" menu row, not branded per-profile names. docs/BRAND.md's Interface
-  Naming table went through two revisions the same day mid-implementation:
-  first a "Mesh Trace" family name over Meshtastic/MeshCore sub-profiles,
-  then walked back entirely once it was clear that branding every profile
-  its own "___ Trace" name made four settings on one sniffer read like
-  four separate tools — "Profile" was already this doc's preferred word
-  for the axis before either revision) as the strings the UI actually
-  displays. Kept as a separate UI-label layer, not a rename of the
-  internal identifiers: `detection.h`'s `missionProfileName()` keeps
-  emitting `meshtastic`/`meshcore` into `detections.csv` exactly as every
-  already-logged run expects — docs/DESIGN.md §8's own "don't concatenate runs
-  across a format change without checking the header" rule applies here
-  too, and there's no reason to risk it for a cosmetic rename.
-- **Design reference, not a dependency:** M5PORKCHOP was cloned locally
-  (read-only) and reviewed for its menu grouping, its `NoticeKind`/
-  `NoticeChannel` toast abstraction (`src/ui/display.h`), and how it
-  organizes a stats/status screen (`src/ui/swine_stats.h`). Its
-  gamification layer (XP/levels/achievements, `src/core/xp.h`), the piglet
-  mascot/mood system (`src/piglet/`), and its aesthetic and voice are
-  explicitly **not** part of this redesign — docs/BRAND.md's own guardrails
-  already rule out mascots, gamified framing, and anything outside the
-  "field instrument, not a consumer app" positioning. Structure was worth
-  learning from; the pig was not coming with it.
-**Blocking unknowns:** the toast layer's actual heap cost, unmeasured
-until built. Whether the ST7789V2's partial-window writes can carry the
-denser block layout above without needing a framebuffer — an assumption to
-confirm during implementation, not before.
-**Status:** see docs/STATUS.md for current state and
-docs/history/CHANGELOG.md for the full session history (canvas/framebuffer rework,
-bugs found/fixed, and the still-open WiFi AP heap/counter re-measurement).
-
-### Phase 7 — Device optimization
-
-**Status:** complete 2026-08-27 as v0.7.0. Hardware evidence, measured
-budgets, and the operator-approved same-build repetition waiver are recorded
-in docs/history/PROGRESS.md.
-
-**Goal:** turn the current memory assumptions into measured budgets before
-new scan states add load to the no-PSRAM device.
-
-**Deliverable:** internal-heap fragmentation metrics, stack high-water marks
-for all five tasks, lifecycle checkpoints around the display canvas/WiFi/CSV
-downloads, a repeatable real-device matrix (`docs/HARDWARE_TESTING.md`), and
-measured optimizations that preserve radio/GPS/SD/UI behavior.
-
-**Epic priority order:**
-
-1. **P0 — Observability and baseline.** Append largest-free-block, heap block
-   counts, and every task's stack watermark to `session.csv`; bracket known
-   large/transient allocations in serial; run the full WiFi+canvas workload.
-2. **P1 — Task stacks.** Right-size only stacks whose worst-case watermark
-   proves excess headroom. Preserve at least 25% and 1KB after the change.
-3. **P2 — WiFi lifecycle and requests.** Measure repeated AP cycles and CSV
-   downloads; reclaim the off-state task/server cost or remove request-time
-   churn only where the measurements identify a persistent cost.
-4. **P3 — Canvas allocation.** Keep the verified indexed canvas unless it is
-   the limiting allocation. Any tiled/partial alternative must repeat the
-   full real-glass regression pass; moving it to static RAM is not a saving.
-5. **P4 — Final budget.** Record normal, WiFi-on, largest-block, and per-task
-   stack budgets for Phases 8/9, explicitly accept or reject the provisional
-   2.5 KB transient-scan result buffer, then complete a combined-load soak.
-
-**Exit criteria:** every `docs/HARDWARE_TESTING.md` stage passes on one identified
-build; no continuing decline in current free heap or largest block after
-warm-up; `queue_drop`/`row_drop`/`bus_miss` stay 0 under combined load; task
-stack margins satisfy the acceptance rule; final budgets and results are
-recorded in `docs/history/PROGRESS.md`.
-
-**Scope guardrail:** Phase 7 does not add Discovery/Energy behavior and does
-not optimize from compile-time RAM percentages alone. One lever changes per
-measurement cycle so gains and regressions remain attributable.
-
-### Phase 8 — `DISCOVERY_SWEEP`
-
-**Operator label:** Probe.
-
-**Implementation status:** bounded acquisition slice started 2026-08-27. The
-source-backed, versioned fixed candidate-plan layer is documented in
-`research/phase8-discovery-research.md` and implemented in
-`src/discovery_plan.h`; radio-owned CAD/receive-on-hit, observation queues,
-durable Probe output, and the on-device trigger are now implemented. Hardware
-validation, transient mode, and deterministic cancellation/fault coverage
-remain open. This is not a phase-complete release.
-
-**Deliverable:** a bounded-duration, radio-task-owned CAD sweep of a curated
-candidate list per active profile — non-default Meshtastic slots and sourced
-legacy MeshCore tuples. Every complete, cancel, timeout, and failure path
-restores the resolved home configuration and reports total time away from
-Watch.
-
-Packet-bearing hits keep using the existing `Detection` pipeline. CAD-only
-observations use a separate fixed-size, non-blocking queue; cumulative retry,
-drop, recovery, and home-away values belong in the run summary/health log,
-not every observation.
-
-Durable Probe writes to SD. An explicitly selected transient mode may run
-without SD only if Phase 7 accepts a fixed result-buffer ceiling of 2.5 KB.
-It reuses the live measurement buffer, retains one result, stores no raw or
-historical stream, replaces the prior result on the next scan, and displays
-`NOT SAVED`. If the budget fails, Probe requires SD.
-
-**Blocking unknowns:** curated candidate lists should be weighted by
-MeshMapper-observed frequencies ([[meshmapper-pipeline]], per CLAUDE.md)
-where available, not scraped defaults alone. CAD `symNum` tuning (§7)
-needs bench testing against Semtech AN1200.48 before trusting false-
-positive/miss rates. New sweep results use the existing carousel and Probe
-controls, not a reason to reopen UI architecture a second time.
-
-Phase 8 ships with bounded, versioned built-in plans plus the existing
-per-profile home override. Persistent operator-edited candidate lists are a
-post-Phase-8 enhancement requiring their own bounded schema, validation,
-deduplication, provenance, and device/web editing design; they do not block
-Phase 8 completion.
-
-**Exit criteria:** correct built-in LongFast CR 4/5 is host- and OTA-verified;
-a known alternate transmitter is found; CAD false-positive/miss rates are
-measured; 1,000 Probe cycles pass through a deterministic automated bench
-mode; deterministic cancellation/fault injection covers every acquisition
-state; queues and memory remain stable; every exit restores Watch.
-
-### Phase 9 — `ENERGY_SWEEP`
-
-**Operator label:** Sweep.
-
-**Deliverable:** a truthful frequency-binned energy map across the supported
-868–923MHz front end, followed by selective LoRa CAD only at energy peaks,
-operator-selected bins, or a sparse sourced subset. This realizes Reticulum
-and General Exploration without claiming that energy is LoRa or that an
-off-grid CAD hit is Reticulum; those results are labeled `unknown LoRa
-candidate` until stronger evidence exists.
-
-Each bin retains only bounded streaming statistics. Durable energy peaks use
-a schema that cannot be confused with packet detections. Transient mode uses
-the same Phase 7-gated 2.5 KB ceiling and `NOT SAVED` behavior as Probe.
-
-**Blocking unknowns:** 923–928MHz front-end rolloff — **resolved,
-2026-09-01, no rolloff found.** A passive floor-only pass and a real
-injected-carrier pass (both real hardware, see STATUS.md for the full
-evidence and the bench tooling) agree: a real transmitted signal near the
-923MHz ceiling registers within ~2dB of the same strength as one at
-912.8MHz, and captures at least as reliably. Not a gap in coverage.
-
-**Exit criteria:** timing and home-away duration are measured (**done**,
-2026-09-02) — 3/3 real US-region sweeps: EA (device-measured away time)
-3386-3438ms, home channel restored every time. Quiet-band behavior is
-characterized with WiFi off/on (**done**, 2026-09-02) — 3 matched pairs,
-zero peaks and no meaningful timing difference (EA within ~50ms) whether
-the AP was on or off. CAD never promotes energy alone to LoRa (**done**,
-2026-09-02) — 10 real `BENCH_PASS_B_CAD` attempts at the noisiest known
-combo, 5 came back `CAD_DETECTED`, the real-packet-promotion counter
-(`PBD`) never moved once, confirming empirically (not just by code
-inspection) that a bare CAD hit never becomes a Detection. See
-`docs/STATUS.md` for the full numbers and how each was measured
-(`WIFI_SET`/`EA` are new Serial Control additions this session).
-Injected low/mid/high carriers land in the correct bins (**done**,
-2026-09-02) — `scripts/phase9_bin_accuracy_bench.py`, the dedicated test
-`research/LoRaTrace-Phases-7-10-Design.md`'s own hardware matrix already
-specified ("Sweep calibration... known signals at low/mid/high bins").
-Real sourced candidates at the low, mid, and high ends of the US region
-(`LONG_SLOW` 905.3125MHz, `LONG_MODERATE` 912.8125MHz, `SHORT_SLOW`
-920.625MHz): 11/24 attempts landed a real elevated reading via
-`BENCH_SWEEP_FLOOR`, and every single hit was at the exact pre-computed
-bin index for that candidate's frequency — never a neighbor, never a
-wrong bin. Sub-100% hit rate is expected and not a correctness problem:
-a live Sweep only dwells ~40ms per bin, so a repeatedly-fired pulse has
-to land inside that window by chance each lap (same timing reality the
-923MHz-edge work already established); what matters is that a hit is
-always at the *right* bin, which held 11/11 times.
-
-8-hour endurance soak (**done**, 2026-09-03, scoped down from 24h — see
-STATUS.md for why) — `scripts/phase9_soak.py`, production firmware.
-First run found a real bug: 5 of 4,148 laps failed, initially documented
-here as harmless dropped-response noise, which was wrong — pulling
-`session.csv` off the SD card afterward showed all 5 were the identical
-`Guru Meditation Error... Stack canary watchpoint triggered (logger)`
-crash, `logger_task`'s 5,120-byte stack genuinely overflowing under
-sustained operation and silently rebooting the device each time (also
-explaining that run's "WiFi went quiet" finding — the device rebooted,
-not a WiFi bug). Fixed (8,192 bytes). A second full 8-hour run with the
-fix in place: **4,353/4,353 laps, 0 failures, 0 crashes**, one
-continuous run directory on the SD card confirming no reboot of any
-kind. Real `session.csv` heap data from that run confirms bounded
-memory directly: a clean step function (flat, one legitimate one-time
-jump when WiFi switched on, flat again), no drift in either phase. The
-recurring slow-lap timing tail (19-35s vs the ~3.4s median) turned out
-to be fully explained, not a bug: 100% correlated with `wp>0` (Pass B
-correctly running its full CAD sequence on a real Sweep peak). The same
-real data also caught `radio_task`'s own stack margin sitting at 20.0%
-headroom (below the 25%-or-1KB house rule, though never actually
-overflowing) — fixed proactively (4,096 → 6,144) the same way, verified
-clean with a focused 2-hour run covering where the old watermark hit its
-floor. Full writeup in `docs/STATUS.md`.
-
-**All five exit criteria closed. Status: complete, hardware-verified,
-`v0.9.0`.**
-
-**Region setting (`v0.8.9`, added and hardware-verified 2026-09-01, out
-of sequence — same "appended, not inserted" convention as Cell below):**
-the full 868-923MHz range Sweep always scanned is the module's hardware
-ceiling, not a legal requirement — nothing legal for unlicensed US
-LoRa-type operation sits below 902MHz (47 CFR § 15.247). System > Region
-(`region_plan.h`, `energy_plan.h`'s `energySweepBandForRegion()`) lets
-Sweep default to 902-923MHz (US) instead of the full range (Global),
-roughly halving scan time for the common case, with Global one menu
-cycle away. Persisted to `/loratrace/region.txt`
-(`region_settings.h`/`.cpp`, mirrors `display_settings.h`/`.cpp`'s
-shape exactly). Confirmed on real hardware: the menu row cycles and
-persists across reboot, and both US and Global sweeps show the correct
-band on the frequency bar with the expected scan duration.
-
-**Follow-ups identified but explicitly out of scope for this change**
-(operator conversation, 2026-09-01) — larger, not scheduled:
-- **Cell regionalization.** Cell's A/B block markers (§5a of
-  `docs/DESIGN.md`) cite 47 CFR § 22.905, an FCC-only structure. A
-  non-US operator has no equivalent band to swap in — Cell would need
-  to stop presenting FCC-specific claims outside the US, not gain a
-  parallel per-region table.
-- **`channel_plans.h` per-region presets.** Meshtastic/MeshCore's
-  hardcoded "US default" channel tables would need real per-region
-  frequency-plan tables (Meshtastic alone ships a dozen-plus regions),
-  each individually sourced per CLAUDE.md's citation house rule — a
-  research project, not a mechanical change.
-
-### Phase 10 — Field Analyzer (closed 2026-09-03 — the `v1.0.x` release gate)
-
-**Deliverable:** Meter, truthful frequency waterfall, bounded live Scope,
-recent captures, and a passive node roster over data acquired by Watch,
-Probe, and Sweep. Field Analyzer is not another mission profile and never
-controls the SX1262 directly.
-
-Scope uses an explicit bounded `SCOPE_ACQUIRE` request owned by the radio
-task. It samples one displayed frequency, exposes `Watch paused`, and restores
-the resolved home configuration on complete, cancel, timeout, or failure.
-Ordinary analyzer page changes consume snapshots and never retune the radio.
-
-Analyzer storage is fixed-size and reuses the existing indexed canvas. The
-initial incremental ceiling is 8 KB beyond that canvas, subject to Phase 7 and
-the measured Phase 8/9 costs. Waterfall plot columns use deterministic,
-host-tested aggregation of real frequency bins; Scope is never presented as
-a spectrum.
-
-**Exit criteria:** bin-to-pixel and scope-source truthfulness are verified;
-bounded memory and deterministic roster eviction hold; a worst-case UI/radio
-run has no drops, deadlocks, or watchdog resets; outdoor readability and
-minimum-brightness rendering are tested as separate conditions.
-
-**Decided 2026-09-03, with Phase 9 hardware evidence in hand: Phase 10 is
-required for `v1.0.x`.** `v1.0.x` is not tagged until Field Analyzer's own
-exit criteria above are also closed, matching the original "all four
-profiles + UI stable" framing this doc has used since the 2026-08-25
-renumbering. Work starts now under an interim `v0.10.x` line, the same
-convention Phase 8/9 used while in progress (see Versioning below).
-
-**Gate satisfied the same day: promoted to `v1.0.0`, 2026-09-03.** All
-five exit criteria above hardware-confirmed (`v0.10.1`), plus real
-hardware-confirmed UI polish beyond them (`v0.10.2`/`v0.10.3`, below).
-Phase 11 (Cell) was never part of this gate — added out of sequence,
-appended after Phase 10 rather than inserted into it, outside the
-original four-profile scope this promotion tracks — its own two open
-items (docs/STATUS.md) are known, tracked gaps post-`v1.0`, not blockers,
-an explicit call rather than a silent omission.
-
-**Implementation status (`v0.10.0`, 2026-09-03):**
-- **Data layer — done, host-verified.** `waterfall.h`/`scope_trace.h`/
-  `capture_history.h`/`node_roster.h` (WaterfallHistory, ScopeTrace,
-  CaptureHistory, NodeRoster) plus `analyzer_state.h`/`.cpp`'s mutex-guarded
-  cross-task snapshot layer. 202+ host-native test cases
-  (`pio test -e native`). Row-at-a-time waterfall snapshot API deliberately
-  replaces a first cut that returned the whole ~5.5KB struct — that version
-  crashed `ui_task`'s 4096B stack on real hardware (Waterfall page,
-  2026-09-03); see `analyzer_state.h`'s own comment on
-  `analyzerWaterfallRowSnapshot()`.
-- **`SCOPE_ACQUIRE` — done, hardware-verified.** Bounded, radio-owned,
-  mutual-exclusion against Probe/Sweep/Cell/bench triggers in both
-  directions, home-config restore on complete/cancel/timeout/failure
-  (`radio_task.cpp`/`.h`).
-- **On-device UI — done, hardware-verified**, and materially reshaped from
-  the original one-page-per-view plan during this session at the operator's
-  request: rather than five analyzer views navigable directly on the main
-  carousel, they're gated behind a single **Analyze** hub card (page-local
-  row selection, UP/DOWN — `;`/`.` — to browse, SELECT to open, BACK to
-  return); Probe/Sweep/Cell were folded the same way into a second **Tools**
-  hub, both real scope additions beyond this section's original text, not a
-  deviation from the exit criteria above. Iterated live against
-  `docs/research/analyzer-preview.html` (an interactive Canvas mockup of
-  the exact device palette/coordinates/state machine, built specifically so
-  hub UX could be worked out before each real flash) before being ported to
-  firmware. Two real bugs were caught and fixed along the way: a whole-struct
-  Waterfall snapshot overflowing `ui_task`'s stack (above), and
-  `drawFooterStatus()` computing the card-count footer from the raw
-  `UiPage` enum ordinal instead of the main-carousel-relative position,
-  which would have shown "14/14" for Tools and "8/14" for Analyze instead of
-  the intended "2/6"/"3/6" — fixed via new `mainCarouselPosition()`/
-  `mainCarouselCount()` accessors.
-- **Memory/telemetry — landed, not yet confirmed against a real multi-hour
-  run.** `ANALYZER_STATIC_BYTES` (`analyzer_budget.h`, split out of
-  `analyzer_state.h` so it stays reachable without pulling in FreeRTOS.h,
-  same "keep it pure" reasoning as `session_log.h`'s own header comment) is
-  a compile-time `sizeof()` sum, not a runtime measurement — the four
-  analyzer structures commit **6,728 bytes** against this section's
-  8,192-byte incremental ceiling (82.1% used, 1,464 bytes headroom).
-  `session_log.h`'s `analyzer_static_bytes` column reports it on every
-  health row (added append-only, per this project's CSV-schema
-  convention). Real linked-firmware RAM delta since Phase 10 work began:
-  +6,472 bytes, within compiler-alignment noise of the computed number.
-**All five exit criteria closed, 2026-09-03:**
-- **Worst-case UI/radio run — closed.** WiFi on, Sweep repeat mode
-  running continuously, Waterfall open the whole time, for a full 60
-  minutes. A background Serial Control watch (231 `STATUS` polls at 15s
-  intervals) recorded **zero** dropped/unanswered requests and **zero**
-  `task_wdt`/`Guru Meditation` signatures for the entire hour. Confirms
-  the exit criterion directly, not just "nothing looked wrong."
-- **Outdoor and minimum-brightness readability — closed (operator
-  check, 2026-09-03):** confirmed good both in direct window sunlight and
-  indoors.
-- **A real, hardware-found Waterfall bug surfaced by the worst-case
-  run — found and fixed same day.** During the run, Pass A found 50
-  energy peaks (`PBA=50` cumulative, `STATUS`'s own field) worth
-  triggering Pass B CAD on, yet Waterfall showed nothing the entire hour.
-  Root cause: `analyzerNoteSweepComplete()` (`analyzer_state.cpp`) read
-  `radio_task.cpp`'s live `energyPeakBinMask` to build each Waterfall row,
-  but in repeat mode `radio_task`'s own do-while loop (`radio_task.cpp`
-  ~1443) calls straight back into `performEnergySweep()` for the next lap
-  with no delay — whose first line resets that same mask. `logger_task`
-  (Core 0) only polls `radioEnergySweepCount()` on its own ~100ms cadence,
-  so it almost always lost that race against Core 1 and read an
-  already-cleared mask: every repeat-mode Waterfall row reported quiet
-  regardless of what Pass A actually found. `energy.csv` itself was never
-  affected — `enqueueEnergyObservation()` pushes each peak to a queue the
-  instant Pass A finds it, independent of this mask, so all 50 peaks (with
-  bin/frequency/RSSI/`pass_b_confidence`) are real rows on the card.
-  **Fix:** a second, stable buffer (`energyPeakBinMaskAtComplete`)
-  snapshotted atomically at `energySweepCount++`, before the next lap can
-  touch it; a new accessor,
-  `radioEnergyPeakBinSetAtLastComplete()`, is what
-  `analyzerNoteSweepComplete()` reads now. `drawSweepOccupancy()`
-  (ui_pages.cpp, the Sweep page's own live occupancy ticks) is untouched
-  — it still reads the live mask on purpose, so it keeps rendering ticks
-  progressively as an active sweep runs. **Hardware-confirmed the same
-  day**: operator re-ran Waterfall during a live repeat Sweep against
-  real MeshCore traffic and confirmed hits now appear on the display.
-- **Bench SD card / boot-loop finding — found then resolved same day
-  (2026-09-03):** the bench Cardputer briefly hit a 100%-reproducible
-  `task_wdt` abort during SD bring-up on every cold boot, isolated to the
-  SD card (identical crash reproduced on the last tagged release,
-  `v0.9.0`/`b84d88c`, with no Phase 10 code at all — not a regression from
-  this work). Operator swapped the card; the fix was confirmed two ways:
-  a 20-minute passive Serial Control watch (zero `task_wdt`/`Guru
-  Meditation`, `SD=1` throughout), then the card itself pulled and
-  inspected directly — `run0006`'s real `session.csv` covers a clean
-  29-minute boot, `analyzer_static_bytes=6728` on every row, `sd=ok`
-  throughout, zero row/queue/bus drops, heap settling once early then
-  flat for the rest of the run. This closes Stage 4's memory/telemetry
-  confirmation for real, not just at compile time. Full writeup:
-  `docs/STATUS.md`'s Phase 10 section.
-- **Post-closure UI polish, same day (`v0.10.2`/`v0.10.3`), hardware-
-  confirmed:** real scope beyond the five exit criteria above, not a
-  deviation from them — Waterfall gained a frequency axis (lo/center/hi
-  MHz + reference ticks, later merged into the plot box's own bottom
-  border to remove a redundant line and reclaim height) and an Enter key
-  that starts/stops repeat Sweep straight from the page, sharing
-  `WATERFALL_SWEEP_REPEAT_TOGGLE` with the Tools/Sweep card's own R key
-  rather than a parallel mechanism. Meter — previously three lines of
-  text and a lot of unused screen — gained a real bar gauge (`drawMeterBar()`,
-  filled proportionally, deliberately not `drawFreqBar()`'s position-marker
-  convention since signal strength is a quantity, not a location), an SNR
-  line, and a right-column SF/BW/CR block, all three watch-sourced only
-  from data (`CaptureSummary`) this page already had and never showed. Bar
-  range widened -30 -> 0dBm same day after a real -16dBm reading clipped
-  flat against the original ceiling. Every layout change was workshopped
-  in `docs/research/analyzer-preview.html` before reaching real hardware,
-  same tool that already caught this session's real Waterfall footer-
-  collision bug once.
-
-### Phase 11 — Cell (added out of sequence, 2026-09-01)
-
-**Operator label:** Cell — same single-word register as Watch/Probe/Sweep
-(docs/BRAND.md), not a "___ Trace" name. Named "Cell Trace" for its first
-same-day revision; renamed once the operator noticed that collided with the
-product name's own "Trace" and read as a bigger decode claim than the
-feature (RSSI presence only) actually makes.
-
-Not part of the original four-profile plan (docs/DESIGN.md §3/§9) — added at
-the operator's request after real wardriving runs kept picking up energy in
-the 869-894MHz North American Cellular downlink band near cell towers.
-Unlike WiFi's Phase-3 pull-forward or the UI's Phase-5/6 pull-forwards
-(both of which *reordered* the existing sequence), this is *appended* after
-Phase 10 rather than inserted into it — Phase 9/10 keep their numbers and
-their own in-progress status is unaffected.
-
-**Deliberately not a fifth mission profile.** The SX1262 only demodulates
-FSK/GFSK/MSK/LoRa/OOK — it cannot decode GSM/CDMA/LTE, so there is no
-protocol to detect a channel for, and no HOME_LISTEN table to give it. It is
-instead a third bounded, radio-owned action alongside Probe (`DISCOVERY_SWEEP`)
-and Sweep (`ENERGY_SWEEP`): retune across a curated 101-bin, 250kHz grid
-covering 869-894MHz (`cell_plan.h`), sample RSSI at each bin
-(`radio.getRSSI(false)`, the same primitive Sweep's Pass A uses), log every
-bin — not threshold-filtered — to its own `cell.csv` (`cell_observation.h`).
-No CAD is attempted (CAD is a LoRa-preamble correlator; it will never fire on
-a cellular carrier) and no packet read is attempted (there is nothing to
-decode). This keeps the feature honest: it is a coarse RF-presence/strength
-survey ("a strong carrier sits near this frequency, here"), not a cell-tower
-identifier — no cell ID, LAC/TAC, or MCC/MNC is or can be extracted.
-
-**Deliberately isolated from `ENERGY_SWEEP`'s Pass A/B engine**
-(`performEnergySweep()`), not a parameterized reuse of it: Pass A's
-35.0dB noise-floor margin (`energy_observation.h`) was bench-calibrated
-against a LoRa/RF-quiet environment for *sparse* peak detection, not
-continuous cellular-strength carriers — reusing it here would dress up a
-guess as a calibration. `performCellSweep()` (`radio_task.cpp`) is its own
-function; it shares only the generic streaming-RSSI-statistics primitives
-(`EnergyBinStats`/`energyBinStatsAddSample()`/`energyRssiDbmToFixed()`,
-`energy_observation.h`) that Pass A itself uses, not Pass A's acquisition
-loop or its calibrated threshold.
-
-**869-894MHz** is FCC Part 22 Cellular Radiotelephone Service downlink /
-3GPP Band 5 downlink — a regulatory band edge, not a carrier-specific
-channel plan (no individual ARFCN/channel table is hardcoded, consistent
-with CLAUDE.md's house rule against hardcoding unverified RF parameters).
-It sits entirely inside the Cap LoRa-1262's tuned 868-923MHz front end
-(docs/DESIGN.md §1), so unlike General Exploration's 923-928MHz top end,
-there is no front-end rolloff caveat here.
-
-**Operator surface:** same shape as Probe/Sweep, not a menu row (`ui_menu.h`'s
-`CELL_TOGGLE`, same SD-required/start/cancel logic) — a global hotkey (C,
-`keyboard.h`'s `KEY_RAW_C_PRESS`) and a dedicated carousel results card
-(`UiPage::CELL`, `ui_pages.cpp`'s `drawCellPage()`), inserted as carousel
-position 4 and pushing CHANNEL/GPS/SYSTEM's digit-jump keys from 4/5/6 to
-5/6/7 (`keyboard.h`'s `KEY_RAW_7_PRESS`). An earlier same-day revision of
-this feature shipped it as a root-level menu row with no card, before the
-operator asked for the full Probe/Sweep treatment instead — reverted before
-merge, not kept as a parallel entry point.
-
-**Repeat mode (R), added 2026-09-01:** identical in shape to Sweep's own
-repeat — `radioRequestCellSweepRepeat()` re-runs `performCellSweep()`
-back-to-back until stopped, with a lap counter on the Cell card. This also
-changed Sweep's own R: it was previously a global hotkey (fired from
-anywhere, including with the menu open); R is now page-gated by
-`ui_task.cpp` to the Sweep/Cell cards specifically, matching how Enter
-(`SELECT`) already dispatches per-page. C/S/P remain global. Probe
-deliberately has no repeat mode — operator decision: "Repeat only on the
-Sweeps."
-
-**Implementation status:** code + host-native tests (`test_cell_plan`,
-`test_cell_observation`, and `test_session_log`'s extended coverage) landed
-2026-09-01. Single-shot Cell is now **partially hardware-verified**
-(2026-09-01, `v0.8.6`): the C key runs a scan end-to-end with a real
-MHz/dBm reading and correct home-channel restore, and the mutual-exclusion
-guard against Sweep holds in both directions — see `docs/STATUS.md`. Still
-open: a real cell-band RSSI reading confirmed rising near a known tower
-(vs. floor noise the whole way through), and `cell.csv`/`session.csv`'s new
-columns rendering correctly. Repeat mode (above, `v0.8.7`) is
-**hardware-verified** the same day: Sweep-repeat still works after
-becoming page-gated, Cell-repeat works with a correctly-placed lap
-counter, R is a confirmed no-op on Probe/other pages/menu-open, and mutual
-exclusion holds across a real repeat chain in both directions — see
-`docs/STATUS.md`.
-
-**FCC A/B block markers (`v0.8.8`, added and hardware-verified
-2026-09-01):** the Cell frequency bar now labels the FCC's own downlink
-sub-band split (`cell_plan.h`'s `CELL_BAND_BLOCKS`, cited to 47 CFR
-§ 22.905) — Block A (869-880MHz + 890-891.5MHz) and Block B (880-890MHz +
-891.5-894MHz), rendered as a two-shade tick row under the bar with letter
-labels on the two segments wide enough to hold one. Regulatory block letter
-only — see the "Non-goals" line below for why no carrier name is shown.
-Confirmed on real glass: renders cleanly with no overlap against the
-surrounding lo/hi labels or the disclaimer line.
-
-**Non-goals, same as the rest of this project:** no GSM/CDMA/LTE decode of
-any kind (impossible on this hardware, not just out of scope), no per-carrier
-or per-channel identification, no claim of tower triangulation from a single
-reading.
-
-## Distribution
-
-Two install paths, both real, serving different audiences:
-
-- **Direct flash (`pio run --target upload`)** — the dev-iteration path.
-  Fastest feedback loop, direct serial access for debugging. Primary
-  method through Phases 1–2 while bring-up is still being bench-verified.
-- **SD-drop via [bmorcelli/Launcher](https://github.com/bmorcelli/Launcher)**
-  — the preferred *end-user* install method once builds are stable.
-  Matches docs/BRAND.md's "field instrument, not a laptop-tethered tool"
-  positioning: swap firmware without reflashing.
-
-This costs us nothing extra to support. Launcher installs a plain
-PlatformIO app binary (`.pio/build/cardputer-adv/firmware.bin`, standard
-ESP32 image starting with the `0xE9` magic byte) straight off a FAT32 SD
-card — no merged image, no manifest. Launcher's own dynamic partition
-manager carves out or resizes an OTA app slot to fit whatever we hand it.
-
-**In practice, SD-drop is already the primary test path**, not just the
-eventual end-user one — it's how this gets tested on hardware that's
-already running a Launcher install the operator doesn't want to disturb
-with a direct USB flash. CI reflects that: every merge to `main` publishes
-a rolling `dev-latest` prerelease at a stable URL
-(`LoRaTraceRX-dev.bin` — see Versioning below) specifically so there's
-always a current build to drop on the card without waiting on a version
-tag. Direct flash remains useful when iterating fast enough that even the
-CI round-trip is overhead, or for the deepest debugging (upload errors,
-brick recovery).
-
-**Confirmed:** returning from a running LoRaTrace RX build back to
-Launcher is a manual restart + button combo — not something our firmware
-needs to implement. No return-to-launcher hook belongs in `ui_task`.
-**2026-08-22, confirmed against Launcher's own source (not a guess):** the
-combo is "press any key during Launcher's own ~5s post-reset boot window,
-before it auto-chains back into whatever ran last" — or, to remove the
-timing pressure entirely, enable Launcher's own Settings → "Boot to
-Launcher" toggle, which makes it always stop at its menu on reset instead
-of auto-booting the last app. See docs/history/PROGRESS.md "Open questions — Launcher
-distribution" for the full read of Launcher's boot logic.
-
-**Follows from this:** Launcher owns the flash partition table, not our
-static `platformio.ini` partition CSV — that only governs direct-flash
-installs. Any state we want to survive a user switching firmwares back
-and forth (settings, last-used profile, calibration data) has to live on
-SD, not in a custom NVS/data partition, since a custom partition isn't
-guaranteed to survive a later Launcher install. This is already
-docs/DESIGN.md's "SD is the datastore" philosophy — see docs/history/CHANGELOG.md — it just
-now extends to config, not only detection logs.
-
-**Binary size:** no documented hard ceiling was found for how much flash
-Launcher leaves free per app on an 8MB device, especially once Launcher
-itself plus other installed firmwares share the same flash (that's the
-whole point of a multi-firmware launcher — see docs/history/PROGRESS.md open
-questions). Rather than target an arbitrary number like "under 4MB,"
-treat it as an ongoing discipline: keep the binary as lean as the feature
-set allows, and measure the real number instead of assuming one.
-
-- **Measured, not estimated:** the Phase 1 scaffold (RadioLib + IO-expander
-  init, no GPS/SD/display/WiFi yet) compiles to **312KB** — 9.5% of the
-  ~3.19MB app partition our own `default_8MB.csv` direct-flash scheme
-  allocates (`pio run`, logged in CI now — see below). Adding SD, GPS
-  parsing, and a display library will grow this, but from a 312KB
-  baseline there's a lot of room before size becomes a real constraint
-  either for direct flash or for coexisting with Launcher + other apps.
-  **2026-08-22 update:** adding the boot-status splash's display library
-  (GFX Library for Arduino) plus SD's own footprint brought this to
-  **406KB** (12.2% of the same partition) — a real +94KB data point, not
-  an estimate, confirming there's still plenty of headroom.
-- **WiFi is the one feature with a real size lever**, same as it's the one
-  feature with the real RAM lever (`lwIP` + the WiFi driver stack is
-  typically the single biggest chunk of a "full" Arduino-ESP32 build). That
-  go/no-go already happened (Phase 3, shipped — see CLAUDE.md's Status
-  section for the real numbers this note used to be waiting on).
-- `RadioLib` compiles in support for many radio families by default;
-  disabling the ones we don't use (`RADIOLIB_EXCLUDE_*` build flags, only
-  SX126x needed here) is a cheap, real size reduction worth doing before
-  Phase 9 (`ENERGY_SWEEP`, the other RAM/flash-hungry feature after WiFi),
-  not just a nice-to-have.
-- CI now measures the actual `firmware.bin` size on every build (see
-  below) — track it there instead of trusting an estimate.
-
-## Versioning
-
-Formalizes the phase-mapped table below into an actual scheme CI and bug
-reports can use.
-
-- **Format:** `vMAJOR.MINOR.PATCH` (e.g. `v0.2.1`). MAJOR.MINOR tracks the
-  build-order phase reached; PATCH increments for fixes that don't add new
-  phase scope.
-- **Source of truth:** `src/version.h` (`FIRMWARE_VERSION`), printed on
-  the boot banner (Serial) and on `ui_task`'s SYSTEM status page (on-device,
-  since Phase 2). A bug report against a specific build should always be
-  traceable to this string.
-- **Release trigger:** pushing a `vX.Y.Z` git tag. `src/version.h` must be
-  bumped to match before tagging; release CI rejects a tag/header mismatch.
-- **CI:** `.github/workflows/build.yml` runs `pio run` (+ `pio test`) on
-  every push/PR — catches build breaks before they land, independent of
-  tagging. `.github/workflows/release.yml` runs only on a `vX.Y.Z` tag
-  push: builds, renames the output to `LoRaTraceRX-<version>.bin`
-  (Launcher/SD-drop-friendly naming, per its "use simple characters" SD
-  guidance), and attaches it to a **draft** GitHub Release.
-- **Rolling dev build, separate from the tagged scheme:** every push to
-  `main` also force-moves a `dev-latest` tag and republishes a prerelease
-  there with a fixed filename (`LoRaTraceRX-dev.bin`) — a stable,
-  no-tagging-required download for day-to-day hardware testing. It's
-  explicitly *not* versioned or draft-gated the way real releases are:
-  it can be broken, it reflects whatever's on `main` at that moment, and
-  its own release notes point back at the exact commit. Cutting a real
-  `vX.Y.Z` tag is a separate, deliberate step for when a phase is actually
-  bench-verified — see docs/STATUS.md for current status before trusting
-  either.
-
-| Version | Corresponds to |
+# LoRaTrace RX — V2 Roadmap
+
+This is the active, forward-looking gate board for LoRaTrace RX. It begins
+from stable `v1.0.7` and governs V2 work only. The completed v1 phase
+narrative, feasibility analysis, exit criteria, and versioning history remain
+at [history/ROADMAP_V1.md](history/ROADMAP_V1.md).
+
+Start with [STATUS.md](STATUS.md) for what is true on hardware now and
+[research/V2_DESIGN.md](research/V2_DESIGN.md) for V2 product boundaries.
+This document records what may enter implementation next, what proof it needs,
+and what earns a release.
+
+## Permanent boundaries
+
+V2 preserves the shipped foundation:
+
+- Receive-only; no transmit, beacon, injection, decryption, keys, payload
+  display, or protocol-client behavior.
+- One radio-owner task on Core 1; at most one bounded acquisition action owns
+  the SX1262. SD, display, GPS, and WiFi never block its real-time path.
+- Fixed/static storage, bounded queues, streaming metrics, and SD as the
+  datastore. New capability may not silently add unbounded RAM, SD backlog,
+  task lifetime, or radio-away time.
+- Watch remains the default. Every acquisition completion, cancel, timeout,
+  and failure restores the resolved home configuration and records its result.
+- RSSI/CAD/packet evidence never becomes a protocol identity merely by
+  inference. A missed dwell is not a quiet frequency.
+- WiFi remains opt-in and browser acquisition control remains out of scope
+  without a separate security decision.
+
+The detailed rationale and product wording live in
+[research/V2_DESIGN.md](research/V2_DESIGN.md); do not duplicate it here.
+
+## Status and gate model
+
+| Status | Meaning |
 |---|---|
-| v0.1.x | Phase 1 (serial bring-up) |
-| v0.2.x | Phase 2 (MVP-Beta: Meshtastic War Drive complete) |
-| v0.3.x | Phase 3 (Web Command Center: WiFi AP + web UI) |
-| v0.4.x | Phase 4 (MeshCore) |
-| v0.5.x | Phase 5 (on-device menu UI) |
-| v0.6.x | Phase 6 (UI architecture redesign) |
-| v0.7.x | Phase 7 (device optimization) |
-| v0.8.x | Phase 8 (discovery sweep) |
-| v0.9.x | Phase 9 (energy sweep: Reticulum + General Exploration) |
-| v0.10.x | Phase 10 (Field Analyzer), in progress |
-| v1.0.x | reached 2026-09-03 — Phase 10 (Field Analyzer)'s exit criteria closed same day, the doc's own gate for this promotion (decided 2026-09-03), see Phase 10 above |
+| **Not entered** | Entry decisions are not yet locked. |
+| **Design entry** | Scope and the measurement plan are being locked; there is no release claim. |
+| **Engineering** | Code and host validation are in progress. |
+| **Hardware pending** | The implementation gate is met, but device proof is incomplete. |
+| **Closed** | Every applicable gate has accepted evidence. |
 
-**Phase 11 (Cell) is a deliberate exception to this table.**
-It landed as a PATCH bump (`v0.8.6`, not `v0.9.x`) because it is not the
-*next* build-order phase — Phase 9 (`ENERGY_SWEEP`) is still in progress, and
-jumping MINOR to 9 (or past it to 11) would misrepresent Phase 9/10 as
-reached when they aren't. If a later phase completes Phase 9/10 first, this
-table's normal MAJOR.MINOR-tracks-phase-reached rule resumes as before; Phase
-11 doesn't get its own `v0.11.x` line unless a future revision of this table
-decides it should.
+Every workstream passes these gates in order:
 
-**Renumbered 2026-08-24** (same restructuring precedent as WiFi's Phase-3
-pull-forward): the on-device UI overhaul moved from a trailing "Phase 7
-polish" step to Phase 5, at the user's request, pushing `DISCOVERY_SWEEP`
-and `ENERGY_SWEEP` down one each. What `v1.0` means moved with it — it used
-to be "Phase 7, all profiles + UI stable," and Phase 7 was `ENERGY_SWEEP`
-at the time, not UI.
+| Gate | Required proof |
+|---|---|
+| **Design entry** | Scope, non-goals, operator promise, unresolved decisions, log-schema impact, and worst-case memory/queue/SD/radio-away budget are explicit. |
+| **Engineering** | Host tests cover plans, bounds, state transitions, CSV formatting, and coverage math; native tests and the production build pass. |
+| **Device behavior** | A real device proves request/refuse/cancel/timeout/failure paths, mutual exclusion, home restore, UI behavior, and fresh SD output. |
+| **Claim truth** | Controlled RF timing or RTL-SDR ground truth validates every RF/coverage claim; absence of an observation is never relabeled as silence. |
+| **Release** | WiFi-off/on resource evidence, redacted field summary, `STATUS.md` reconciliation, and operator release notes are complete. |
 
-**Renumbered again 2026-08-25**, same precedent a second time: reviewing
-Phase 5's own menu against what `DISCOVERY_SWEEP` would add to it surfaced
-that the menu had already grown past its documented two-item scope (a
-third, `Debug`, row landed the same day with no framework change) — see
-docs/history/CHANGELOG.md for the full session. Rather than let
-`DISCOVERY_SWEEP` and `ENERGY_SWEEP` each bolt on their own ad hoc entry, a
-UI architecture redesign now sits at Phase 6, pushing `DISCOVERY_SWEEP` to
-7 and `ENERGY_SWEEP` to 8. `v1.0`'s meaning (all four profiles + UI stable)
-is unchanged by this move — it's still a placeholder for the same total
-phase count, not a re-litigated decision — revisit if it stops fitting once
-Phase 6/7/8 are actually in hand.
+Focus Survey and Field Missions also require a before/after measurement of
+Watch packet opportunity. Displaying a radio-away duration does not make the
+cost acceptable; the measurement is part of the decision.
 
-**Renumbered again 2026-08-26:** the measured ~32KB Phase-6 display canvas
-now overlaps WiFi's ~55–56KB runtime cost, while only the logger task had a
-stack watermark and the post-canvas combined-load gate was still open.
-Device optimization therefore became Phase 7, before either new scan state.
-`DISCOVERY_SWEEP` moved to Phase 8 and `ENERGY_SWEEP` to Phase 9; their scope
-did not change. `v1.0` still meant all four profiles and their UI were stable
-at that point.
+## V2 workstreams
 
-**Phase 10 added to the plan 2026-08-26:** Field Analyzer is accepted as
-planned post-Sweep scope, including bounded radio-owned Scope acquisition.
-This does not silently move the release gate: after Phase 9 hardware evidence
-exists, explicitly decide whether Field Analyzer is part of `v1.0.x` or the
-first post-v1.0 phase.
+| Workstream | Status | Outcome and phase-specific exit gate |
+|---|---|---|
+| **12 — Survey truth** | **Engineering** | Define coverage vocabulary and persistent per-survey evidence, then add bounded Focus Survey. The active [design-entry and acceptance plan](research/phase12-survey-truth-design.md) locks the one-bin first slice and controlled matrix; radio-away budgets and sampled/repeated thresholds remain measurement-gated. |
+| **13 — Field Missions** | Not entered | Add Drive, Stationary, and Investigate as explicit recipes with visible WATCHING/SURVEYING/RESTORING and `mission.csv` accounting. Prove transitions do not hide radio-away time or weaken action arbitration. |
+| **14 — Companion analysis** | Not entered | Deliver an offline, reproducible tool that reads copied run folders without changing original evidence. Test deterministic reports, multi-run comparison, coverage warnings, and privacy-safe export behavior. |
+| **15 — Field markers and sharing** | Not entered | Add fixed, safe marker presets and `marker.csv`, then integrate redacted sharing. Prove markers cannot affect radio behavior and realistic exports remove selected location/identity detail. |
+| **16 — Cell closeout** | Deferred bonus | Close the existing V1 Phase 11 evidence gap: a real tower-adjacent RSSI rise plus fresh SD verification of `cell.csv` and Cell's appended `session.csv` fields. This preserves V1 history; it does not renumber it. |
 
-## Non-goals
+Rigorously sourced region packs are later candidates, not Workstream 16 and
+not V2.0 blockers. Each proposed pack needs a separate entry gate with source
+quality, regulatory/range rationale, fixed-table validation, and realistic
+hardware access.
 
-- Transmit or injection of any kind, beyond the one-time antenna-switch
-  init GPIO write. Permanent, per CLAUDE.md house rules — not a phase to
-  eventually reach.
-- Auto-detecting mission profile. Operator-selected via keyboard, by
-  design (docs/DESIGN.md §5).
-- Full protocol decode/decrypt, payload display, or key handling. LoRaTrace
-  remains a metadata-first passive field instrument; safe cleartext radio
-  headers are the boundary.
+## Current work — Workstream 12
+
+The workstream is in Engineering. Its bench-only first slice now exercises one
+bounded radio request, fixed statistics, and `focus.csv` persistence; it has
+not added a production control or coverage/activity claim. The plan sets the
+following constraints:
+
+- One selected Sweep/Waterfall bin or fixed preset per request; no free-form
+  frequency entry, arbitrary range, or multi-bin list in the first slice.
+- `focus.csv` is an append-only result record, not raw sample history.
+- A fixed histogram/statistics accumulator supplies median, P90, and maximum
+  without heap allocation; actual static/queue/row budgets must be measured.
+- `insufficient`, `sampled`, and `repeated` cannot be displayed until a
+  controlled transmitter/RTL-SDR matrix selects their pass/time thresholds.
+- Portland metro, Oregon is the privacy-preserving field-validation area;
+  exact location and raw GPS-bearing artifacts remain private.
+
+Engineering may build a bench-only raw-counter prototype so the matrix can
+measure the open decisions. It may not present a coverage label or a “no
+activity” conclusion until the Device/claim gate closes.
+
+## V2.0 composition release
+
+`v2.0.0` is earned only when Workstreams 12–15 pass together on one identified
+build. It repeats cross-feature risks rather than aggregating old checklists:
+
+- every bounded radio action mutually excludes correctly;
+- complete, cancel, timeout, and failure restore resolved home listening;
+- append-only CSVs remain readable by the companion;
+- WiFi-off/on resource trends remain healthy; and
+- a field workflow demonstrates Watch-first driving, deliberate investigation,
+  known radio-away cost, and an explainable offline report.
+
+Workstream 16 (Cell closeout) is intentionally not a V2.0 blocker.
+
+## Version and release policy
+
+- `src/version.h` is the semantic-version source of truth. A release tag must
+  match it; CI rejects a mismatch. Each tagged release needs operator-facing
+  notes in `docs/RELEASE_NOTES.md`.
+- `v1.0.x` is the stable maintenance line. The completed phase-number mapping
+  belongs to [the v1 archive](history/ROADMAP_V1.md).
+- A closed core V2 workstream may earn the next stable minor release:
+  `v1.1.0` through `v1.4.0` for Workstreams 12–15. Workstream numbers remain
+  roadmap identities, not version components.
+- `v2.0.0` requires the composition release gate above.
+- Workstream 16 evidence closeout without an operator-facing behavior change
+  updates status only. A later Cell improvement may earn a `v2.1.0`-class
+  release after its own gates.
+- A rolling `dev-latest` build remains for day-to-day hardware testing; it is
+  not a release gate and must be identified by build revision.
+
+## Evidence and history
+
+Use this order when deciding a gate:
+
+1. `docs/STATUS.md` for current accepted facts and open hardware work.
+2. The workstream's design-entry document for scope, measurement method, and
+   acceptance criteria.
+3. `docs/hardware-results/` for location-redacted evidence summaries; keep raw
+   serial/CSV/GPS artifacts in its git-ignored `private/` area.
+4. `CHANGELOG.md` for terse post-v1 decision history.
+5. [history/ROADMAP_V1.md](history/ROADMAP_V1.md) only for v1 Phase 0–11
+   questions or original v1 gate rationale.
+
+Historic code comments and changelog entries that mention a V1 Phase refer to
+the archive unless they name a later research or hardware-results record.

@@ -28,9 +28,10 @@ here depends on that choice except the specific API calls.
 
 ## Proposed layout
 
-`[x]` created, `[ ]` proposed but deferred until its build-order phase
-(docs/DESIGN.md §9) — see docs/ROADMAP.md/docs/STATUS.md for why the
-task/queue files aren't scaffolded yet.
+`[x]` created, `[ ]` a deferred legacy candidate. V1's build order is frozen
+at `docs/history/ROADMAP_V1.md`; active V2 workstreams and gates live in
+`docs/ROADMAP.md`, with detailed product decisions in
+`docs/research/V2_DESIGN.md`.
 
 ```
 src/
@@ -73,7 +74,7 @@ src/
   --- added during phase 8 foundation, not in the original proposal ---
   [x] discovery_plan.h           # fixed, source-backed candidate tuples
   [x] scan_observation.h         # fixed CAD result record + probe.csv formatter
-  --- added during phase 11, out of sequence (see docs/ROADMAP.md) ---
+  --- added during V1 Phase 11, out of sequence (see docs/history/ROADMAP_V1.md) ---
   [x] cell_plan.h                # Cell: 869-894MHz cell-band bin math
   [x] cell_observation.h         # fixed RSSI-reading record + cell.csv formatter
   --- present since earlier phases but never listed here until the
@@ -81,6 +82,9 @@ src/
   [x] radio_task.h               # (listed above as radio_task.cpp/.h)
   [x] energy_plan.h              # Sweep's frequency-bin math (phase 9)
   [x] energy_observation.h       # Pass-A working stats + energy.csv record
+  [x] focus_plan.h               # Phase 12 one-bin Focus request contract
+  [x] focus_observation.h        # Phase 12 bounded RSSI stats + focus.csv row
+  [x] focus_runtime.h            # Phase 12 restore-before-publish state contract
   [x] pass_b_plan.h              # Pass-B SF/BW candidate table + confidence
   [x] region_plan.h              # Region enum shared by Sweep's band choice
   [x] region_settings.h / .cpp   # System > Tuning > Region, /loratrace/region.txt
@@ -99,6 +103,9 @@ src/
   [x] bench_fault.h / .cpp       # bench-image-only fault/override hooks
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native
+  [x] test_focus_plan/           # one-bin request/source/selection math (phase 12)
+  [x] test_focus_observation/    # bounded RSSI summaries + focus.csv (phase 12)
+  [x] test_focus_runtime/        # bounded request terminal/restore rules (phase 12)
   [x] test_detection/            # queue-record + CSV, fixtures are REAL captured packets
   [x] test_gps_parse/            # NMEA -> fix, mostly about REFUSING a bad position
   [x] test_keyboard/             # raw TCA8418 event byte -> KeyAction, allowlist-only
@@ -120,9 +127,12 @@ docs/
   [x] STATUS.md                  # current version, hardware-verified state, open items
   [x] DESIGN.md
   [x] ROADMAP.md
+  [x] research/V2_DESIGN.md     # V2 product direction and permanent boundaries
+  [x] research/phase12-survey-truth-design.md # active Workstream 12 design entry
   [x] LOG_GUIDE.md
   [x] HARDWARE_TESTING.md
   [x] BRAND.md
+  [x] history/ROADMAP_V1.md      # immutable v1.0.7 roadmap snapshot pointer
   [x] history/PROGRESS.md        # frozen pre-2026-08-29 status doc, unedited
   [x] history/CHANGELOG.md       # frozen pre-2026-08-29 session log, unedited
 [x] CHANGELOG.md                 # short, terse, ongoing — points at docs/history/ for the rest
@@ -153,17 +163,18 @@ docs/
   a web-UI-only setting or a silent default. Established 2026-08-25 after
   Phase 5's menu grew a third item (verbose debug) the same day it
   shipped, with no framework change to absorb it — see
-  docs/history/CHANGELOG.md and docs/ROADMAP.md's Phase 6 (UI architecture
-  redesign).
+  docs/history/CHANGELOG.md and the V1 Phase 6 entry in
+  docs/history/ROADMAP_V1.md (UI architecture redesign).
   Doesn't apply to one-shot boot-time config (channel overrides,
   `config.txt`) — this is about anything that changes runtime behavior
   while the device is already running.
-- **Bump `src/version.h` when a phase lands.** `MAJOR.MINOR` tracks the
-  build-order phase (docs/ROADMAP.md Versioning: v0.1.x = phase 1, v0.2.x =
-  phase 2, ...), `PATCH` for fixes adding no phase scope. It is bumped by
-  hand on purpose — it asserts "this phase is reached", and a number that
-  auto-increments every build asserts nothing. `release.yml` now fails a
-  tag whose version doesn't match the header, so a mismatch can't ship.
+- **Bump `src/version.h` only when its release gate lands.** In the completed
+  v1 series, `MAJOR.MINOR` tracks the reached build-order phase and `PATCH`
+  fixes scope; V2 uses the workstream/release policy in `docs/ROADMAP.md`.
+  The number is bumped by hand on purpose — it asserts that a gate is reached,
+  and a number that auto-increments every build asserts nothing.
+  `release.yml` now fails a tag whose version doesn't match the header, so a
+  mismatch can't ship.
   Build *provenance* is the automated half: `scripts/build_rev.py` injects
   `FIRMWARE_BUILD_REV` (git short SHA, `-dirty` when the tree is modified)
   into every build, because a dozen `dev-latest` binaries otherwise share
@@ -206,14 +217,15 @@ docs/
 
 See [docs/STATUS.md](docs/STATUS.md) for the current version, what's
 hardware-verified, and what's still open — the single current-state doc,
-kept instead of duplicating status prose here. Build order is
-`docs/DESIGN.md` §9; `docs/ROADMAP.md` has the phase-by-phase scope.
+kept instead of duplicating status prose here. Active V2 gates are in
+`docs/ROADMAP.md`; `docs/research/V2_DESIGN.md` is the product/design source.
+The completed V1 build order remains in `docs/history/ROADMAP_V1.md`.
 
-**Don't read `docs/history/PROGRESS.md` or `docs/history/CHANGELOG.md`
-end-to-end by default** — they're a frozen pre-2026-08-29 development log,
-not required context for every task. Grep them for a specific date/topic
-instead of reading front to back; root `CHANGELOG.md` covers what's
-changed since.
+**Don't read `docs/history/PROGRESS.md`, `docs/history/CHANGELOG.md`, or
+`docs/history/ROADMAP_V1.md` end-to-end by default** — they are historical
+records, not required context for active V2 work. Search them for a specific
+date, version, or topic instead; root `CHANGELOG.md` covers what's changed
+since.
 
 Three hard-won rules from Phases 1–2, worth not relearning:
 - **The IO expander's P0 powers the GPS as well as switching the RF antenna
