@@ -9,6 +9,18 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- Selected Focus's sampling policy from measurement instead of reasoning:
+  `FOCUS_SAMPLE_SPACING_MS = 20`, with the sample count derived from the dwell
+  (`ceil(dwell/spacing) + 1`) rather than fixed at 8. A 360-trial sweep held
+  dwell at 2,000 ms and varied only the spacing: a 94 ms source was missed at
+  286 ms and 100 ms spacing (8/15 and 2/15) and caught 15/15 at both 50 ms and
+  20 ms, with worst-case reading improving from -97 to -66 dBm between them.
+  Detection collapses once spacing approaches the source's airtime. Finer
+  sampling turned out to be free -- radio-away measured 2,073-2,075 ms whether
+  a pass took 8 samples or 101 -- so the only real argument for coarse
+  sampling was one nobody had checked. Evidence appended to
+  `docs/hardware-results/2026-09-04-phase12-focus-matrix.md`.
+
 - Ran Workstream 12's §6.2 controlled dwell matrix: 900 trials in 54.7 min,
   zero transport errors, zero drops, home restored on every trial; 14 of 15
   arms separated a controlled source from ambient 30/30 vs 0/30. The finding

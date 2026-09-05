@@ -128,3 +128,63 @@ for the tail to clear before a trial ends. A source-on trial consequently means
 *the transmitter was radiating during the window*, which is the condition the
 qualifying-RSSI question needs — and explicitly **not** a catch-probability
 estimate for intermittent traffic.
+
+
+---
+
+# Follow-up: sample-spacing sweep (360 trials)
+
+**Raw evidence:** `private/phase12-spacing-20260905T010723Z.{jsonl,log}`.
+360 trials, 31.5 min, zero transport errors, zero drops, home restored on
+every trial. Same fixture and build family; home channel pinned to
+918.5 MHz / SF8 / BW125 by bench build flags rather than by the SD card.
+
+Finding 1 above said detection tracks the source's airtime against sample
+spacing. This sweep tests that directly: dwell held at 2,000 ms while the
+sample count varies, so spacing is the only thing changing.
+
+| source airtime | 286 ms spacing (8) | 100 ms (21) | 50 ms (41) | 20 ms (101) |
+|---|---|---|---|---|
+| 94 ms (`high`) | 8/15, -3.0 dB | 2/15, -1.0 dB | **15/15, +2.0 dB** | **15/15, +24.0 dB** |
+| 148 ms (`mid-aligned`) | 15/15, +53 dB | 15/15, +52 dB | 15/15, +54 dB | 15/15, +54 dB |
+| 286 ms (`low-aligned`) | 15/15, +26 dB | 15/15, +25 dB | 15/15, +35 dB | 15/15, +36 dB |
+
+`detects` counts source-on trials reading above that arm's strongest ambient
+reading; `margin` is worst source-on minus strongest source-off.
+
+**Detection collapses once spacing approaches the source's airtime.** The
+94 ms source is missed at 286 ms and 100 ms spacing and caught in every trial
+at 50 ms and 20 ms. Its worst-case reading also improves sharply between those
+two (-97 dBm at 50 ms, -66 dBm at 20 ms), so 50 ms is the edge of working
+rather than a safe choice. The two longer-airtime sources separate at every
+spacing tested, and their worst case still improves as spacing tightens
+(-71 to -64 dBm for the 286 ms source).
+
+**Finer sampling costs nothing measurable.** Radio-away time was 2,073-2,075 ms
+across all four arms, whether the pass took 8 samples or 101:
+
+| samples | spacing | radio-away (min/max) | observation_ms |
+|---|---|---|---|
+| 8 | 286 ms | 2,074 / 2,075 ms | 2,000 ms |
+| 21 | 100 ms | 2,074 / 2,075 ms | 2,000 ms |
+| 41 | 50 ms | 2,073 / 2,074 ms | 2,000 ms |
+| 101 | 20 ms | 2,074 / 2,074 ms | 2,000 ms |
+
+The cost of a longer dwell is the dwell. The sample count inside it is free,
+and the histogram is a fixed 141 bytes regardless (§4.2), so there is no
+memory argument for coarse sampling either.
+
+## Selected policy
+
+`FOCUS_SAMPLE_SPACING_MS = 20`, with `focusSamplesForDwell()` deriving the
+count as `ceil(dwell / spacing) + 1`. Rounding up matters: truncating would
+let a 30 ms dwell take two samples 30 ms apart and violate the constant it is
+derived from. This keeps roughly a 2x margin against the ~40-50 ms airtime of
+the fastest realistic mesh traffic, which is a judgement about what is worth
+observing rather than a measured limit -- the measurement says only that
+spacing at or above the airtime fails and half of it works.
+
+The `p90 >= -90 dBm` qualifying-condition candidate from the main matrix was
+measured under the old 8-sample policy and a source ~70 dB above ambient. It
+should be re-selected against this sampling and a weaker source before any
+operator-facing use.

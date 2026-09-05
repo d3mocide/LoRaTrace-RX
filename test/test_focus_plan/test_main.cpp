@@ -85,6 +85,22 @@ void test_focus_request_is_bounded_in_time_not_only_in_samples() {
     TEST_ASSERT_TRUE(FOCUS_MAX_SAMPLING_MS <= 3000);
 }
 
+void test_sampling_policy_scales_with_dwell_and_stays_bounded() {
+    // The measured policy: spacing stays fixed, so the count follows the dwell.
+    TEST_ASSERT_EQUAL_UINT16(6, focusSamplesForDwell(100));
+    TEST_ASSERT_EQUAL_UINT16(26, focusSamplesForDwell(500));
+    TEST_ASSERT_EQUAL_UINT16(101, focusSamplesForDwell(2000));
+
+    // Actual spacing must never exceed the policy at any legal dwell -- that
+    // is the property the 2026-09-04 sweep bought, not the sample counts.
+    for (uint16_t dwell = FOCUS_BENCH_DWELL_MIN_MS; dwell <= FOCUS_BENCH_DWELL_MAX_MS; ++dwell) {
+        const uint16_t samples = focusSamplesForDwell(dwell);
+        TEST_ASSERT_TRUE(samples >= FOCUS_BENCH_SAMPLES_MIN);
+        TEST_ASSERT_TRUE(samples <= FOCUS_BENCH_SAMPLES_MAX);
+        TEST_ASSERT_TRUE(dwell / (samples - 1) <= FOCUS_SAMPLE_SPACING_MS);
+    }
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_focus_request_is_small_and_starts_with_one_selected_bin);
@@ -93,5 +109,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_focus_request_rejects_empty_or_out_of_band_work);
     RUN_TEST(test_focus_request_is_bounded_in_time_not_only_in_samples);
     RUN_TEST(test_sample_ceiling_keeps_every_quantile_exact);
+    RUN_TEST(test_sampling_policy_scales_with_dwell_and_stays_bounded);
     return UNITY_END();
 }
