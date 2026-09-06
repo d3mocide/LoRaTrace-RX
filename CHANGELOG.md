@@ -9,6 +9,15 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-06
 
+- **W12 coverage campaign run.** 80 bench passes across four dwells: all
+  completed with home restore, observation-time stdev 0.0ms, sample count
+  invariant across repeats. Repeated passes are deterministic, so a coverage
+  threshold in accumulated time and one in valid passes are equivalent; the
+  flat 74ms per-pass overhead is what argues for a minimum dwell. Evidence in
+  `docs/hardware-results/2026-09-06-phase12-coverage-campaign.md`. Bench prep
+  also found the session row buffer had only 31 bytes of headroom on a
+  plausible long run — widened and guarded.
+
 - **W12 prep.** `LOG_GUIDE.md` gains its `focus.csv` section, unblocked by the
   operator control the card-view work shipped. UI frame cost (`ui_redraw_max_us`,
   `ui_redraw_mean_us`) joins `session.csv` — it was measured against Serial

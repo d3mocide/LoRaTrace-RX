@@ -613,10 +613,20 @@ runtime state.**
   full count-above-median ladder are still recorded, so a host with ground
   truth can conclude what the device may not.
 
-What remains for W12: the `sampled`/`repeated` coverage thresholds, which now
-carry no inference and are simply "how much looking happened"
-(`scripts/phase12_coverage_campaign.py` drives that campaign), plus Portland
-field validation and the WiFi-off/on resource matrix. `LOG_GUIDE.md` now
+**The coverage campaign ran the same day**
+([evidence](hardware-results/2026-09-06-phase12-coverage-campaign.md)): 80
+passes, 80 completed with home restore, zero timeouts. Repeated passes are
+*deterministic* — observation-time stdev 0.0 ms and sample count invariant
+across every repeat at every dwell — so a coverage threshold in accumulated
+time and one in valid passes are the same statement, and the choice between
+them is presentational. Per-pass overhead is a flat 74 ms, confirmed
+independently of the §6.3 fixture, which is what argues for a minimum *dwell*
+rather than only a minimum accumulated time: 10 s of observation costs 13.0 s
+of Watch at 250 ms passes against 10.4 s at 2000 ms.
+
+What remains for W12: selecting the `sampled`/`repeated` values (a
+presentational choice now, not a measurement), plus Portland field validation
+and the WiFi-off/on resource matrix. `LOG_GUIDE.md` now
 documents `focus.csv`, unblocked by the operator control the card-view work
 shipped.
 

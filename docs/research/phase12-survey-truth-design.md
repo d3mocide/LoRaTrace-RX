@@ -396,13 +396,31 @@ local spectrum identity or coverage of the city.
   activity indication that stays true under those conditions is a product
   decision now, not an open measurement. CAD or packet reception remains §3's
   alternative, neither favoured nor excluded by this evidence.
-- [ ] Coverage thresholds (`sampled`/`repeated`) remain unselected. They are
-  about pass counts and accumulated time across repeated requests, which no
-  single-pass measurement can supply. `scripts/phase12_coverage_campaign.py`
-  drives that campaign. **Their stakes dropped with the activity decision
-  below**: with no activity claim resting on them, `sampled`/`repeated` are
-  descriptive — how much looking happened — rather than the qualifier on an
-  inference.
+- [~] Coverage thresholds (`sampled`/`repeated`). **The measurement is
+  complete** ([evidence](../hardware-results/2026-09-06-phase12-coverage-campaign.md),
+  80 passes, `scripts/phase12_coverage_campaign.py`); the selection is not, and
+  it is now a much smaller decision than it was.
+
+  **Repeated passes are deterministic.** 80/80 completed with home restore,
+  observation-time stdev 0.0 ms, and sample count invariant across all 20
+  repeats at every dwell (14/26/51/101 at 250/500/1000/2000 ms, exactly
+  `focusSamplesForDwell()`). The campaign existed to find out whether a later
+  pass yields less than an early one — it does not, at all. **So a threshold in
+  accumulated observation time and a threshold in valid passes are the same
+  statement**, and the choice between them is presentational.
+
+  **Per-pass overhead is a flat 74 ms**, confirmed independently of the §6.3
+  fixture. Being fixed rather than proportional, it is what argues for a
+  *minimum dwell* rather than only a minimum accumulated time: 10 s of
+  observation costs 13.0 s of Watch at 250 ms passes against 10.4 s at 2000 ms,
+  and §6.4 already found a short pass cannot both catch a source and reject
+  ambient at any threshold. Short passes are worse on both axes simultaneously,
+  and repeating them fixes neither.
+
+  What remains is the selection itself, and its stakes dropped with the
+  activity decision below: with no activity claim resting on them,
+  `sampled`/`repeated` describe how much looking happened rather than
+  qualifying an inference.
 - [x] **Approve the maximum radio-away budget — refused, conditionally
   (2026-09-06). See "Decisions" below.** **The measurement is complete**
   ([evidence](../hardware-results/2026-09-04-phase12-focus-matrix.md)): at a

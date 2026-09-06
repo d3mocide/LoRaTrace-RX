@@ -48,6 +48,7 @@ Requires the bench image (BENCH=1); production rejects BENCH_FOCUS.
 """
 
 import argparse
+import pathlib
 import statistics
 import sys
 import time
@@ -147,19 +148,55 @@ def main():
                         help="passes per dwell (default 20)")
     parser.add_argument("--dwells", default="250,500,1000,2000",
                         help="comma-separated dwell values in ms")
+    parser.add_argument("--profile", default="MESHTASTIC",
+                        help="profile to resolve home from; the bench image pins home "
+                             "into the Meshtastic block only (empty to leave as-is)")
     parser.add_argument("--settle-s", type=float, default=1.0,
                         help="pause between passes, so Watch is genuinely restored between them")
     args = parser.parse_args()
 
     dwells = [int(d) for d in args.dwells.split(",") if d.strip()]
-    log = ResultWriter(args.log)
+    log_path = pathlib.Path(args.log)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     writer = ResultWriter(args.results) if args.results else None
-    card = Endpoint("cardputer", args.cardputer_port, CARD_MARKER, log)
+    # Endpoint takes a raw file handle, not a ResultWriter: it calls .flush()
+    # on every framed line. Same pattern as the other phase12 fixtures.
+    with log_path.open("a", encoding="utf-8") as log:
+        card = Endpoint("cardputer", args.cardputer_port, CARD_MARKER, log)
+        try:
+            return run_campaign(card, args, dwells, writer)
+        finally:
+            card.close()
+            if writer is not None:
+                writer.close()
 
-    try:
+
+def run_campaign(card, args, dwells, writer):
+        # A generous first handshake: the bench image can still be finishing
+        # boot when the port enumerates. BENCH is a HELLO field, not a STATUS
+        # one — checking the wrong frame silently reads as "not bench".
+        hello = parse_fields(require_ack(card, "HELLO", "-", timeout=45.0))
+        if hello.get("BENCH") != "1":
+            raise SystemExit("bench image required: production rejects BENCH_FOCUS "
+                             f"(HELLO said {hello})")
         status = card_status(card)
-        if status.get("BENCH") != "1":
-            raise SystemExit("bench image required: production rejects BENCH_FOCUS")
+        if status.get("SD") != "1":
+            raise SystemExit("SD not ready: focus.csv commit is this fixture's completion signal")
+
+        # Focus receives at the *home* bandwidth, so the resolved home channel
+        # is part of the measurement, not scenery. The bench image pins home
+        # into the build, but only for the Meshtastic block — a device left on
+        # MeshCore silently surveys at a different bandwidth (design entry
+        # §"bench home" note). Switch, and record what we actually ran at.
+        if args.profile:
+            require_ack(card, "PROFILE_SET", args.profile)
+            status = card_status(card)
+        home_khz = int(status.get("F", "0"))
+        print(f"bench image {hello.get('R', '?')}, profile {status.get('P', '?')}, "
+              f"home {home_khz / 1000.0:.3f} MHz")
+        if writer is not None:
+            writer.write({"event": "context", "hello": hello, "status": status,
+                          "bin": args.bin, "repeats": args.repeats, "dwells": dwells})
 
         summaries = []
         for dwell_ms in dwells:
@@ -205,11 +242,6 @@ def main():
         print("about what an operator should be told is 'covered' -- these")
         print("numbers are its input, not its answer (design entry §8 step 4).")
         return 0
-    finally:
-        card.close()
-        log.close()
-        if writer is not None:
-            writer.close()
 
 
 if __name__ == "__main__":
