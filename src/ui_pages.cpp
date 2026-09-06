@@ -1180,13 +1180,16 @@ void drawChannelBandMap(int16_t x, int16_t y, int16_t w, float tunedMhz) {
 void drawChannelPage() {
     const ChannelParams ch = radioActiveChannel();
 
-    constexpr int16_t PX = 2, PW = 236, PH = 43;
+    // A 26px band, not the shared 43 (2026-09-06). Nothing requires every card
+    // to spend the same height on its visual: this one is an axis with ticks on
+    // it, not a plot, and it was padding 15px of nothing to match its
+    // neighbours. The reclaimed space goes to the frequency hero below — the
+    // one number this card exists to state, and the last thing that should have
+    // been demoted into a 77px tile.
+    constexpr int16_t PX = 2, PW = 236, PH = 26;
     const int16_t py = HEADER_H + 2;
     uiTft->drawRect(PX, py, PW, PH, COL_DIM);
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->setCursor(PX + 4, py + 3);
-    uiTft->print("BAND");
+    drawChannelBandMap(PX + 4, py + 4, PW - 8, ch.freq_mhz);
 
     uint16_t peaks = 0;
     const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
@@ -1194,20 +1197,28 @@ void drawChannelPage() {
     for (uint16_t b = 0; b < bins; b++) {
         if (radioEnergyPeakBinSetAtLastComplete(b)) peaks++;
     }
+
+    // Hero row: the tuned frequency, with the sweep's peak count riding the
+    // same baseline rather than taking a header row inside the band.
+    uiTft->setTextSize(2);
+    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 31);
+    uiTft->print(ch.freq_mhz, 3);
+    uiTft->print(" MHz");
+
     char buf[20];
     snprintf(buf, sizeof(buf), "%u peak%s", (unsigned)peaks, peaks == 1 ? "" : "s");
+    uiTft->setTextSize(1);
     uiTft->setTextColor(peaks == 0 ? COL_DIM : COL_WARN, COL_BG);
-    uiTft->setCursor(PX + PW - 4 - (int16_t)strlen(buf) * 6, py + 3);
+    uiTft->setCursor(238 - (int16_t)strlen(buf) * 6, HEADER_H + 35);
     uiTft->print(buf);
 
-    drawChannelBandMap(PX + 4, py + 16, PW - 8, ch.freq_mhz);
-
-    const int16_t cy = py + PH + 4;
+    const int16_t cy = HEADER_H + 49;
     char value[14], sub[16];
 
-    snprintf(value, sizeof(value), "%.1f", (double)ch.freq_mhz);
-    snprintf(sub, sizeof(sub), "SF%u BW%.0f", (unsigned)ch.sf, (double)ch.bw_khz);
-    statCard(statCardX(0), cy, STAT_CARD_W, "TUNED", COL_GOOD, value, sub);
+    snprintf(value, sizeof(value), "SF%u", (unsigned)ch.sf);
+    snprintf(sub, sizeof(sub), "BW%.0f", (double)ch.bw_khz);
+    statCard(statCardX(0), cy, STAT_CARD_W, "MODE", COL_GOOD, value, sub);
 
     // Decoded packets are counted for the whole power-on, not per channel —
     // the radio keeps one counter and a profile switch does not reset it. The
@@ -1229,7 +1240,6 @@ void drawChannelPage() {
     snprintf(sub, sizeof(sub), "CR4/%u 0x%02X", (unsigned)ch.cr_denom, (unsigned)ch.sync_word);
     statCard(statCardX(2), cy, STAT_CARD_W, "AIRTIME", COL_DIM, value, sub);
 }
-
 
 // Satellites used, sampled every 2s into 30 buckets — a 60s window for 30
 // bytes of static RAM, the same shape and budget as Activity's packet ring.
@@ -1291,22 +1301,44 @@ void drawGpsPage() {
     uiTft->setCursor(PX + PW - 4 - (int16_t)strlen(verdict) * 6, py + 3);
     uiTft->print(verdict);
 
-    // Bars are coloured by what the fix was worth, not by height: red where it
-    // was lost outright, amber where it was thin enough to be unreliable.
+    // A step line, not bars (2026-09-06). Satellites-used is a *level* with a
+    // meaningful zero, and the story of this band is the dropout — a gap in a
+    // line reads as loss, where a short bar reads as a small value. It is also
+    // what keeps this card visually distinct from Activity's and System's
+    // bands, which sit at the same coordinates: the mark follows the data type
+    // rather than a house chart style.
     const int16_t bw = (PW - 8) / SAT_RING_LEN;
     const int16_t base = py + PH - 3;
-    constexpr uint8_t SAT_FULL = 12; // a comfortable 3D fix; above this the bar tops out
+    constexpr uint8_t SAT_FULL = 12; // a comfortable 3D fix; above this the line tops out
+    constexpr int16_t PLOT_H = PH - 16;
+    auto levelY = [&](uint8_t v) -> int16_t {
+        const uint8_t clamped = v > SAT_FULL ? SAT_FULL : v;
+        return (int16_t)(base - (PLOT_H * clamped / SAT_FULL));
+    };
+
+    int16_t prevY = 0;
+    bool prevPlotted = false;
     for (uint8_t i = 0; i < satRingCount; i++) {
         const uint8_t idx = (uint8_t)((satRingNext + SAT_RING_LEN - satRingCount + i) % SAT_RING_LEN);
         const uint8_t v = satRing[idx];
         const int16_t bx = PX + 4 + i * bw;
         if (v == 0) {
-            uiTft->fillRect(bx, base - 2, bw - 1, 2, COL_BAD);
+            // No fix: a solid floor segment, not an absent bar. Absence of ink
+            // would read as "no data yet" — this is data, and it says the run
+            // was unmappable for those two seconds.
+            uiTft->fillRect(bx, base - 1, bw, 2, COL_BAD);
+            prevPlotted = false;
             continue;
         }
-        int16_t h = (int16_t)((PH - 16) * (v > SAT_FULL ? SAT_FULL : v) / SAT_FULL);
-        if (h < 1) h = 1;
-        uiTft->fillRect(bx, base - h, bw - 1, h, v < 5 ? COL_WARN : COL_GOOD);
+        const int16_t y = levelY(v);
+        const uint16_t colour = v < 5 ? COL_WARN : COL_GOOD;
+        uiTft->drawFastHLine(bx, y, bw, colour);
+        if (prevPlotted && prevY != y) {
+            const int16_t top = prevY < y ? prevY : y;
+            uiTft->drawFastVLine(bx, top, (int16_t)(prevY > y ? prevY - y : y - prevY), colour);
+        }
+        prevY = y;
+        prevPlotted = true;
     }
 
     const int16_t cy = py + PH + 4;
@@ -1407,8 +1439,20 @@ void drawSystemPage() {
     uiTft->drawRect(PX, py, PW, PH, COL_DIM);
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
+    // A two-trace legend rather than one title: the band carries both
+    // constrained resources, and each keeps its own colour so neither is read
+    // off the other's scale. Their numbers live on the cards below — this is a
+    // pair of sparklines sharing a time axis, not a dual-axis chart, and it
+    // deliberately prints no y values it would have to pick an axis for.
     uiTft->setCursor(PX + 4, py + 3);
-    uiTft->print("HEAP  30min");
+    uiTft->setTextColor(COL_GOOD, COL_BG);
+    uiTft->print("HEAP");
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->print(" / ");
+    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->print("BATT");
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->print("  30min");
 
     // Verdict from the window's own endpoints. Below two samples there is no
     // trend to report, and saying "FLAT" then would be an unearned claim.
@@ -1437,9 +1481,35 @@ void drawSystemPage() {
     const uint8_t span = (uint8_t)(hi > lo ? hi - lo : 1);
     const int16_t bw = (PW - 8) / SYS_RING_LEN;
     const int16_t base = py + PH - 3;
+    constexpr int16_t PLOT_H = PH - 16;
+
+    // Heap as a filled area, not bars (2026-09-06): free heap is a slowly
+    // varying level where only the slope carries information, and bars break
+    // that slope into 30 separate readings the eye has to reassemble. The fill
+    // is dim with a bright top edge — RGB565 has no alpha, so an "area" is a
+    // solid body plus a drawn edge.
     for (uint8_t i = 0; i < sysRingCount; i++) {
-        int16_t h = (int16_t)((PH - 16) * (sysRingAt(heapRing, i) - lo) / span) + 2;
-        uiTft->fillRect(PX + 4 + i * bw, base - h, bw - 1, h, COL_GOOD);
+        const int16_t h = (int16_t)(PLOT_H * (sysRingAt(heapRing, i) - lo) / span) + 2;
+        const int16_t bx = PX + 4 + i * bw;
+        uiTft->fillRect(bx, base - h, bw, h, COL_DIM);
+        uiTft->drawFastHLine(bx, base - h, bw, COL_GOOD);
+    }
+
+    // Battery over the top as a line only. White because the palette's other
+    // colours are semantic (good/warn/bad) and a second trace must not imply a
+    // severity it is not reporting; the BATTERY card below carries the state.
+    int16_t prevY = 0;
+    bool prevPlotted = false;
+    for (uint8_t i = 0; i < sysRingCount; i++) {
+        const int16_t y = (int16_t)(base - (PLOT_H * sysRingAt(battRing, i) / 100));
+        const int16_t bx = PX + 4 + i * bw;
+        uiTft->drawFastHLine(bx, y, bw, COL_FG);
+        if (prevPlotted && prevY != y) {
+            const int16_t top = prevY < y ? prevY : y;
+            uiTft->drawFastVLine(bx, top, (int16_t)(prevY > y ? prevY - y : y - prevY), COL_FG);
+        }
+        prevY = y;
+        prevPlotted = true;
     }
 
     const int16_t cy = py + PH + 4;

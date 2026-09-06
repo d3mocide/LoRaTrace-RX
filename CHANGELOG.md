@@ -9,6 +9,16 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-06
 
+- **Differentiated the five cards' bands.** Three of five were drawing the
+  same mark — 30 green bars at 7px pitch in an identical 236x43 box — so
+  Activity, GPS and System were near-indistinguishable at a glance. The mark
+  now follows the data type: Activity keeps bars (bursty counts), GPS becomes a
+  step line with a solid red floor at fix loss (a level with a meaningful
+  zero), System becomes a filled area with battery as a second white trace
+  (slowly-varying levels where only slope matters). Channel's band drops to
+  26px — it is an axis, not a plot — and the reclaimed space restores the
+  frequency hero, the one number that card exists to state.
+
 - **Channel, GPS and System rebuilt** in the band-plus-three-cards language
   (options A/B/B from `docs/research/2026-09-06-og-card-redesigns.html`).
   Channel gets a full-band map marking decoded frequencies and Sweep peaks
