@@ -42,10 +42,10 @@ extern bool keyboardReady;
 // drawPage()/drawFooterStatus() can read the current page.
 extern UiPage page;
 // 1-based position/total for drawFooterStatus()'s "N/M" — the operator-
-// facing main carousel (Radio/Channel/GPS/System), not raw UiPage ordinals;
-// position is 0 while on a Tools/Analyze sub-page (menu-reached, no
-// carousel slot). See mainCarouselPosition()'s own comment (ui_task.cpp)
-// for why that distinction matters.
+// facing main carousel (Radio/Activity/Channel/GPS/System), not raw UiPage
+// ordinals. See mainCarouselPosition()'s own comment (ui_task.cpp) for why
+// that distinction matters, and why it still returns 0 for a non-card page
+// that can no longer occur.
 uint8_t mainCarouselPosition();
 uint8_t mainCarouselCount();
 
@@ -132,9 +132,8 @@ void showFocusResults();                // ui_task.cpp — closes menu onto the 
 // Card views (2026-09-05, ui_task.cpp's CARD_VIEWS): every main-carousel card
 // renders one of an ordered list of pages, cycled with up/down while
 // left/right still moves the carousel. activeView() is the page actually being
-// drawn — the card's own on view 0, one of the Tools/Analyze pages otherwise,
-// and the page itself when that page was opened directly from the menu.
-// Generalizes the three hardcoded views Activity shipped earlier the same day.
+// drawn — the card's own on view 0, one of the pages that card owns
+// otherwise. Generalizes the three hardcoded views Activity shipped first.
 UiPage activeView();                    // ui_task.cpp
 // Position/total for drawFooterStatus()'s view dots. Count is 0 on a
 // menu-opened island page, which has no card to belong to and so draws none.
@@ -143,12 +142,3 @@ uint8_t activeViewCount();              // ui_task.cpp
 
 bool captureInspectIsOpen();            // ui_task.cpp
 uint8_t captureInspectIndex();          // ui_task.cpp
-// Field Analyzer (Phase 10) — same "closes any open menu onto a specific
-// page" shape as the three above, fired by the Analyze menu group's own
-// rows (ANALYZE_GROUP_ITEMS, ui_task.cpp) via fireMenuAction()
-// (ui_actions.cpp).
-void showMeterPage();
-void showWaterfallPage();
-void showScopePage();
-void showCapturesPage();
-void showNodesPage();

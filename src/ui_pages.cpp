@@ -181,14 +181,12 @@ uint16_t heapStatusColour() {
 // Tools/Analyze moved into the menu, and not updated when Activity rejoined
 // the carousel. It was read back as fact during V2 planning and used to
 // contradict a correct UI proposal, so check MAIN_PAGES rather than this
-// sentence. mainCarouselPosition()
-// returns 0 while on one of their sub-pages (Probe/Sweep/Cell, Meter/
-// Waterfall/Scope/Captures/Nodes), reached only through the menu now and
-// with no carousel position of their own, so the "N/M" text is omitted
-// entirely rather than showing a stale or misleading number. An earlier
-// revision used raw UiPage ordinals for a six-stop carousel and showed
-// e.g. Analyze as "8/14" — technically not wrong, but confusing enough
-// that an operator asked "where are the other 6 cards" (2026-09-04).
+// sentence. Probe/Sweep/Cell and Meter/Waterfall/Scope/Captures/Nodes are
+// views of those five cards (CARD_VIEWS), not stops of their own, and the
+// dots below count them. An earlier revision used raw UiPage ordinals for a
+// six-stop carousel and showed e.g. Analyze as "8/14" — technically not
+// wrong, but confusing enough that an operator asked "where are the other 6
+// cards" (2026-09-04).
 void drawFooterStatus() {
     if (menu.isOpen()) return;
     const int16_t y = uiTft->height() - 10;
@@ -1233,114 +1231,14 @@ void drawMenuRow(int16_t y, const char *rowLabel, const char *value, bool select
 // What an ACTION row's value column shows. Generic over every list in the
 // menu (Profile's choices, System's toggles, Display's Idle-dim cycle) —
 // MenuState/MenuItem are data-driven (ui_menu.h), so this stays one switch
-// on MenuAction rather than one function per list. `buf` backs the four
-// OPEN_* cases below that need to format a live number rather than return a
-// fixed string literal — safe as a single shared static buffer because
-// each call's result is fully consumed (printed by drawMenuRow(), from
-// drawMenuList()'s single-threaded per-row loop) before the next call runs.
+// on MenuAction rather than one function per list.
+//
+// The per-tool live-status cases this used to carry went with the Tools and
+// Analyze groups (2026-09-06): every one of those tools now reports its own
+// state on the card view that owns it, which has a whole panel to do it in
+// rather than a value column.
 const char *menuEntryValue(MenuAction action) {
-    static char buf[16];
     switch (action) {
-        // Tools' own three rows (operator report, 2026-09-05: restoring the
-        // live per-tool status these rows showed as their own carousel hub
-        // page, lost when that page was folded into a plain menu GROUP).
-        // Same state vocabulary and RESULT_HOLD_MS dim-IDLE reversion
-        // drawProbePage()/drawSweepPage()/drawCellPage() themselves use, so
-        // this row never advertises a result the real page has already
-        // reverted past.
-        case MenuAction::OPEN_PROBE: {
-            const DiscoverySweepState s = radioDiscoverySweepState();
-            const bool holdExpired = s != DiscoverySweepState::RUNNING && probeTerminalShownAt != 0 &&
-                                     millis() - probeTerminalShownAt >= RESULT_HOLD_MS;
-            if (s == DiscoverySweepState::RUNNING) return "SCANNING";
-            if (holdExpired || s == DiscoverySweepState::IDLE) return "IDLE";
-            if (s == DiscoverySweepState::COMPLETE) return "COMPLETE";
-            if (s == DiscoverySweepState::CANCELLED) return "CANCELLED";
-            return "FAILED";
-        }
-        case MenuAction::OPEN_SWEEP: {
-            const EnergySweepState s = radioEnergySweepState();
-            const bool holdExpired = s != EnergySweepState::RUNNING && sweepTerminalShownAt != 0 &&
-                                     millis() - sweepTerminalShownAt >= RESULT_HOLD_MS;
-            if (radioEnergySweepRepeatIsActive()) return "REPEAT";
-            if (s == EnergySweepState::RUNNING) return "SCANNING";
-            if (holdExpired || s == EnergySweepState::IDLE) return "IDLE";
-            if (s == EnergySweepState::COMPLETE) return "COMPLETE";
-            if (s == EnergySweepState::CANCELLED) return "CANCELLED";
-            return "FAILED";
-        }
-        case MenuAction::OPEN_CELL: {
-            const CellSweepState s = radioCellSweepState();
-            const bool holdExpired = s != CellSweepState::RUNNING && cellTerminalShownAt != 0 &&
-                                     millis() - cellTerminalShownAt >= RESULT_HOLD_MS;
-            if (radioCellSweepRepeatIsActive()) return "REPEAT";
-            if (s == CellSweepState::RUNNING) return "SCANNING";
-            if (holdExpired || s == CellSweepState::IDLE) return "IDLE";
-            if (s == CellSweepState::COMPLETE) return "COMPLETE";
-            if (s == CellSweepState::CANCELLED) return "CANCELLED";
-            return "FAILED";
-        }
-        case MenuAction::OPEN_FOCUS: {
-            // Same shape as the three rows above. Focus has no repeat mode and
-            // no result-hold revert: its terminal state is the last thing that
-            // actually happened and stays true until the next request, so
-            // unlike Probe/Sweep/Cell there is nothing perishable to expire.
-            switch (radioFocusSurveyState()) {
-                case FocusRuntimeState::SURVEYING: return "SURVEYING";
-                case FocusRuntimeState::RESTORING: return "RESTORING";
-                case FocusRuntimeState::COMPLETE: return "COMPLETE";
-                case FocusRuntimeState::CANCELLED: return "CANCELLED";
-                case FocusRuntimeState::TIMEOUT: return "TIMEOUT";
-                case FocusRuntimeState::FAILED: return "FAILED";
-                default: return "IDLE";
-            }
-        }
-        // Analyze's own five rows, same restoration reasoning as Tools'
-        // three above — identical value logic to the deleted
-        // drawAnalyzePage(), just returning through `buf` instead of a
-        // page-local array.
-        case MenuAction::OPEN_METER: {
-            CaptureHistory captures;
-            CaptureSummary latest;
-            if (analyzerCaptureHistorySnapshot(captures, pdMS_TO_TICKS(20)) &&
-                captureHistoryEntryAt(captures, 0, latest)) {
-                snprintf(buf, sizeof(buf), "%ddBm", (int)latest.rssi_dbm);
-                return buf;
-            }
-            return "--";
-        }
-        case MenuAction::OPEN_WATERFALL: {
-            const uint8_t rows = analyzerWaterfallRowCount(pdMS_TO_TICKS(20));
-            if (rows == 0) return "--";
-            snprintf(buf, sizeof(buf), "%u rows", (unsigned)rows);
-            return buf;
-        }
-        case MenuAction::OPEN_SCOPE: {
-            if (radioScopeAcquireIsActive()) return "CAPTURING";
-            const bool holdExpired = scopeTerminalShownAt != 0 &&
-                                     millis() - scopeTerminalShownAt >= RESULT_HOLD_MS;
-            ScopeTrace trace;
-            if (!holdExpired && radioScopeTraceSnapshot(trace, 0) && trace.count > 0) return "CAPTURED";
-            return "IDLE";
-        }
-        case MenuAction::OPEN_CAPTURES: {
-            CaptureHistory captures;
-            const bool have = analyzerCaptureHistorySnapshot(captures, pdMS_TO_TICKS(20));
-            snprintf(buf, sizeof(buf), "%u/%u", (unsigned)(have ? captures.count : 0),
-                     (unsigned)CAPTURE_HISTORY_MAX_ENTRIES);
-            return buf;
-        }
-        case MenuAction::OPEN_NODES: {
-            NodeRoster roster;
-            uint8_t liveNodes = 0;
-            if (analyzerNodeRosterSnapshot(roster, pdMS_TO_TICKS(20))) {
-                for (uint8_t i = 0; i < NODE_ROSTER_MAX_ENTRIES; i++) {
-                    if (roster.entries[i].node_id != NODE_ROSTER_EMPTY_ID) liveNodes++;
-                }
-            }
-            snprintf(buf, sizeof(buf), "%u/%u", (unsigned)liveNodes, (unsigned)NODE_ROSTER_MAX_ENTRIES);
-            return buf;
-        }
         case MenuAction::SELECT_MESHTASTIC:
             return radioActiveProfile() == MissionProfile::MESHTASTIC ? "ACTIVE" : "";
         case MenuAction::SELECT_MESHCORE:
@@ -1873,7 +1771,7 @@ void drawWaterfallPage() {
     // page whether it's actively being fed right now — same "measure
     // without extracting energy.csv first" reasoning Serial Control's own
     // STATUS fields already follow elsewhere in this project. Enter
-    // toggles it; see WATERFALL_SWEEP_REPEAT_TOGGLE. Size 1, not size 2
+    // R toggles it (cardRepeatAction()). Size 1, not size 2
     // like the hit counter — a secondary status badge, not a second
     // headline competing for the same weight.
     const bool repeating = radioEnergySweepRepeatIsActive();

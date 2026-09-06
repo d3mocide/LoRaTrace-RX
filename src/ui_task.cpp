@@ -141,7 +141,7 @@ constexpr MenuItem DIAGNOSTICS_GROUP_ITEMS[] = {
 // CONNECTIVITY/DIAGNOSTICS_GROUP_ITEMS' own comment for the footer-
 // collision math that headroom was set against). Named "Tuning", not
 // "Sweep" (operator request, same day, after using it live) — the group
-// sits right next to Tools > Sweep, the actual radio action, and reusing
+// sits alongside Sweep itself, the actual radio action, and reusing
 // that name for a settings container read as two different things sharing
 // one word. Same "category, not feature name" naming Display/
 // Connectivity/Diagnostics already use. Margin is a SLIDER row, same shape
@@ -184,39 +184,26 @@ static_assert(SYSTEM_GROUP_ITEMS[2].itemCount == menuItemCount(DISPLAY_GROUP_ITE
               "System > Display itemCount does not match DISPLAY_GROUP_ITEMS");
 static_assert(SYSTEM_GROUP_ITEMS[3].itemCount == menuItemCount(TUNING_GROUP_ITEMS),
               "System > Tuning itemCount does not match TUNING_GROUP_ITEMS");
-// Tools and Analyze moved from main-carousel hub pages into real menu
-// GROUPs (operator report, 2026-09-05: two separate navigation systems on
-// screen — a home carousel with card-like hubs, and a BACK-triggered menu
-// with a different root — read as "am I in the menu or not". See
-// CHANGELOG.md for the full reasoning; this reverses the 2026-09-04 removal
-// noted immediately below only for Tools/Analyze, not Probe/Sweep/Cell,
-// whose "no duplicate entry point" convention is unchanged — those three
-// still have no *root* row, only these two group rows one level up. Trace
-// moved into Tools as its first child row (no longer its own root row) —
-// it has no global hotkey of its own the way P/S/C do, so it gains nothing
-// from staying at the root that a one-level-deeper menu row doesn't already
-// give it.
-constexpr MenuItem ANALYZE_GROUP_ITEMS[] = {
-    {"Meter", ItemKind::ACTION, MenuAction::OPEN_METER, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Waterfall", ItemKind::ACTION, MenuAction::OPEN_WATERFALL, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Scope", ItemKind::ACTION, MenuAction::OPEN_SCOPE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Captures", ItemKind::ACTION, MenuAction::OPEN_CAPTURES, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Nodes", ItemKind::ACTION, MenuAction::OPEN_NODES, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-};
-constexpr MenuItem TOOLS_GROUP_ITEMS[] = {
-    {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Probe", ItemKind::ACTION, MenuAction::OPEN_PROBE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Sweep", ItemKind::ACTION, MenuAction::OPEN_SWEEP, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Cell", ItemKind::ACTION, MenuAction::OPEN_CELL, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"Focus", ItemKind::ACTION, MenuAction::OPEN_FOCUS, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-};
+// Tools and Analyze are gone (2026-09-06). Both were pure navigation: every
+// row opened a page that is now a view of the card that owns it (CARD_VIEWS
+// below), reachable with up/down from the carousel, so the rows were a second
+// road to a place you were already standing next to. That redundancy is the
+// same "two separate navigation systems on screen" complaint that moved them
+// out of hub pages and into the menu the day before — card views answered it
+// properly, and the menu no longer has to.
+//
+// What is left is what a menu is actually for: things that change runtime
+// behavior and have no card of their own. Trace returns to a root row, which
+// is where it lived until Tools briefly adopted it — it is a Watch pause, not
+// a page, and Enter on Radio is a binding, not a label. Keeping the named row
+// is what CLAUDE.md's "new operator-facing behavior gets an on-device menu
+// toggle" rule is asking for.
 constexpr MenuItem ROOT_ITEMS[] = {
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 3},
-    {"Analyze", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, ANALYZE_GROUP_ITEMS, 5},
-    {"Tools", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, TOOLS_GROUP_ITEMS, 5},
+    {"Trace", ItemKind::ACTION, MenuAction::TRACE_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 4},
 };
-constexpr uint8_t ROOT_COUNT = 4;
+constexpr uint8_t ROOT_COUNT = 3;
 // ROOT_ITEMS' own GROUP rows need the same guard as SYSTEM_GROUP_ITEMS'
 // above — and more so: the v0.8.9 bug those cite was *here*, on the row
 // pointing at SYSTEM_GROUP_ITEMS, not inside it. Asserting only the
@@ -224,11 +211,7 @@ constexpr uint8_t ROOT_COUNT = 4;
 // ROOT_COUNT is hand-written for the same reason and drifts the same way.
 static_assert(ROOT_ITEMS[0].itemCount == menuItemCount(PROFILE_GROUP_ITEMS),
               "root > Profile itemCount does not match PROFILE_GROUP_ITEMS");
-static_assert(ROOT_ITEMS[1].itemCount == menuItemCount(ANALYZE_GROUP_ITEMS),
-              "root > Analyze itemCount does not match ANALYZE_GROUP_ITEMS");
-static_assert(ROOT_ITEMS[2].itemCount == menuItemCount(TOOLS_GROUP_ITEMS),
-              "root > Tools itemCount does not match TOOLS_GROUP_ITEMS");
-static_assert(ROOT_ITEMS[3].itemCount == menuItemCount(SYSTEM_GROUP_ITEMS),
+static_assert(ROOT_ITEMS[2].itemCount == menuItemCount(SYSTEM_GROUP_ITEMS),
               "root > System itemCount does not match SYSTEM_GROUP_ITEMS");
 static_assert(ROOT_COUNT == menuItemCount(ROOT_ITEMS),
               "ROOT_COUNT does not match ROOT_ITEMS");
@@ -319,11 +302,10 @@ void maybeStartScopeAcquire() {
 
 // The operator-facing main carousel, explicit rather than an enum-value
 // range (originally so a hub page could be added without renumbering
-// anything). Tools/Analyze are not carousel stops of their own (2026-09-05 —
-// they moved into the menu tree, see ROOT_ITEMS' own comment); PROBE/SWEEP/
-// CELL/METER..NODES are real UiPage values, reached either from their menu
-// row — which still opens them standalone — or as a view of the card that
-// owns them (CARD_VIEWS below), never through prev/next paging.
+// anything). PROBE/SWEEP/CELL/METER..NODES are real UiPage values but not
+// carousel stops: each is a view of the one card that owns it (CARD_VIEWS
+// below), reached with up/down, never through prev/next paging and — since
+// 2026-09-06 — no longer through a menu row either.
 constexpr UiPage MAIN_PAGES[] = {
     UiPage::RADIO, UiPage::ACTIVITY, UiPage::CHANNEL, UiPage::GPS, UiPage::SYSTEM,
 };
@@ -344,9 +326,8 @@ constexpr uint8_t MAIN_PAGE_COUNT = (uint8_t)(sizeof(MAIN_PAGES) / sizeof(MAIN_P
 //
 // The view tokens are UiPage values, not a parallel enum, so each view reuses
 // the existing draw function and header name verbatim and the former
-// Tools/Analyze island pages keep working unchanged — the menu still opens
-// them directly (unchanged this pass), they are simply also reachable as a
-// card view now.
+// pages that used to stand alone under the Tools/Analyze menu groups keep
+// working unchanged; only how you get to them did.
 constexpr UiPage RADIO_VIEWS[] = {UiPage::RADIO, UiPage::METER, UiPage::SCOPE};
 constexpr UiPage ACTIVITY_VIEWS[] = {UiPage::ACTIVITY, UiPage::SWEEP, UiPage::WATERFALL,
                                      UiPage::FOCUS};
@@ -400,16 +381,6 @@ uint8_t captureInspectIdx = 0;
 void closeCaptureInspect() { captureInspectOpen = false; }
 
 
-
-bool isAnalyzeSubPage(UiPage p) {
-    return p == UiPage::METER || p == UiPage::WATERFALL || p == UiPage::SCOPE ||
-           p == UiPage::CAPTURES || p == UiPage::NODES;
-}
-
-bool isToolsSubPage(UiPage p) {
-    return p == UiPage::PROBE || p == UiPage::SWEEP || p == UiPage::CELL ||
-           p == UiPage::FOCUS;
-}
 
 uint8_t mainPageIndex(UiPage p) {
     for (uint8_t i = 0; i < MAIN_PAGE_COUNT; i++) {
@@ -519,61 +490,6 @@ MenuAction cardRepeatAction(UiPage view) {
         case UiPage::CELL: return MenuAction::CELL_REPEAT_TOGGLE;
         default: return MenuAction::NONE;
     }
-}
-
-// UP/DOWN while on one of Analyze's/Tools' own pages cycles the other pages
-// in that same group (menu order — see ANALYZE_GROUP_ITEMS/TOOLS_GROUP_ITEMS
-// above), unchanged by the 2026-09-05 hub removal; only how you arrive here
-// (a menu row now, not a hub SELECT) and how you leave (BACK/PREV/NEXT
-// reopen the menu, see the isAnalyzeSubPage()/isToolsSubPage() key-handling
-// branches below) changed.
-constexpr UiPage ANALYZE_PAGES[] = {
-    UiPage::METER, UiPage::WATERFALL, UiPage::SCOPE, UiPage::CAPTURES, UiPage::NODES,
-};
-constexpr uint8_t ANALYZE_PAGE_COUNT = (uint8_t)(sizeof(ANALYZE_PAGES) / sizeof(ANALYZE_PAGES[0]));
-constexpr UiPage TOOLS_PAGES[] = {
-    UiPage::PROBE, UiPage::SWEEP, UiPage::CELL, UiPage::FOCUS,
-};
-constexpr uint8_t TOOLS_PAGE_COUNT = (uint8_t)(sizeof(TOOLS_PAGES) / sizeof(TOOLS_PAGES[0]));
-
-void nextAnalyzeSubPage() {
-    uint8_t idx = 0;
-    for (uint8_t i = 0; i < ANALYZE_PAGE_COUNT; i++) {
-        if (ANALYZE_PAGES[i] == page) { idx = i; break; }
-    }
-    page = ANALYZE_PAGES[(idx + 1) % ANALYZE_PAGE_COUNT];
-    lastPageChange = millis();
-    maybeStartScopeAcquire();
-}
-
-void prevAnalyzeSubPage() {
-    uint8_t idx = 0;
-    for (uint8_t i = 0; i < ANALYZE_PAGE_COUNT; i++) {
-        if (ANALYZE_PAGES[i] == page) { idx = i; break; }
-    }
-    page = ANALYZE_PAGES[(idx + ANALYZE_PAGE_COUNT - 1) % ANALYZE_PAGE_COUNT];
-    lastPageChange = millis();
-    maybeStartScopeAcquire();
-}
-
-void nextToolsSubPage() {
-    uint8_t idx = 0;
-    for (uint8_t i = 0; i < TOOLS_PAGE_COUNT; i++) {
-        if (TOOLS_PAGES[i] == page) { idx = i; break; }
-    }
-    page = TOOLS_PAGES[(idx + 1) % TOOLS_PAGE_COUNT];
-    lastPageChange = millis();
-    maybeStartScopeAcquire();
-}
-
-void prevToolsSubPage() {
-    uint8_t idx = 0;
-    for (uint8_t i = 0; i < TOOLS_PAGE_COUNT; i++) {
-        if (TOOLS_PAGES[i] == page) { idx = i; break; }
-    }
-    page = TOOLS_PAGES[(idx + TOOLS_PAGE_COUNT - 1) % TOOLS_PAGE_COUNT];
-    lastPageChange = millis();
-    maybeStartScopeAcquire();
 }
 
 // Drains the TCA8418 event FIFO and returns the most recently recognized
@@ -797,8 +713,8 @@ void uiTask(void *) {
             // MenuState's (ui_menu.h stays free of any UiPage dependency).
             // JUMP_1..5 are hoisted ahead of the page-mode branches below —
             // a direct jump to a named page works identically regardless of
-            // whether the operator is currently viewing a Tools/Analyze
-            // sub-page or an ordinary carousel page. Five now (2026-09-05,
+            // which card view is currently showing — a digit always means
+            // the card, never its view. Five now (2026-09-05,
             // ACTIVITY joined at slot 2), JUMP_6 unmapped — MAIN_PAGES
             // above is the actual source of truth for what "the main
             // carousel" means; this switch just names each slot.
@@ -818,11 +734,10 @@ void uiTask(void *) {
                 jumpToPage(UiPage::SYSTEM);
                 redraw = true;
             } else if (activeView() == UiPage::CAPTURES && captureInspectOpen) {
-                // Hoisted above every page/card branch below (2026-09-05): the
-                // modal owns the keys wherever it is open — on the island
-                // Captures page or on Channel's Captures view — so UP/DOWN
-                // browse the ring rather than changing sub-page or card view,
-                // and BACK closes the modal rather than leaving to the menu.
+                // Hoisted above the card branch below: the modal owns the keys
+                // while it is open, so UP/DOWN browse the ring rather than
+                // changing card view, and BACK closes the modal rather than
+                // opening the menu.
                 CaptureHistory history;
                 const uint8_t count = analyzerCaptureHistorySnapshot(history, pdMS_TO_TICKS(20))
                                           ? history.count : 0;
@@ -836,90 +751,10 @@ void uiTask(void *) {
                     if (captureInspectIdx > 0) captureInspectIdx--;
                     redraw = true;
                 }
-            } else if (isToolsSubPage(page)) {
-                // Reached only via Menu > Tools > Probe/Sweep/Cell now
-                // (2026-09-05) — no more hub page to fall back to. SELECT/
-                // REPEAT here are the same PROBE_TOGGLE/SWEEP_TOGGLE/
-                // CELL_TOGGLE/*_REPEAT_TOGGLE dispatch these three have
-                // always fired on this page; P/S/C remain global hotkeys
-                // regardless — handled earlier in this function, before
-                // carousel dispatch even begins. PREV/NEXT (left/right)
-                // alias UP/DOWN here (operator request, 2026-09-05: "helps
-                // these tool carousels work like the main carousel") —
-                // cycle the other two Tools pages (nextToolsSubPage()/
-                // prevToolsSubPage()), never trapped; the same alias
-                // direction the plain-carousel branch below already uses
-                // (UP aliases PREV there). BACK is the sole "leave to the
-                // menu" key now, since there's no carousel slot to page to.
-                if (action == KeyAction::UP || action == KeyAction::PREV) {
-                    prevToolsSubPage();
-                    redraw = true;
-                } else if (action == KeyAction::DOWN || action == KeyAction::NEXT) {
-                    nextToolsSubPage();
-                    redraw = true;
-                } else if (action == KeyAction::BACK) {
-                    menu.open();
-                    redraw = true;
-                } else if (action == KeyAction::SELECT && page == UiPage::PROBE) {
-                    fireMenuAction(MenuAction::PROBE_TOGGLE);
-                    redraw = true;
-                } else if (action == KeyAction::SELECT && page == UiPage::SWEEP) {
-                    fireMenuAction(MenuAction::SWEEP_TOGGLE);
-                    redraw = true;
-                } else if (action == KeyAction::SELECT && page == UiPage::CELL) {
-                    fireMenuAction(MenuAction::CELL_TOGGLE);
-                    redraw = true;
-                } else if (action == KeyAction::SELECT && page == UiPage::FOCUS) {
-                    fireMenuAction(MenuAction::FOCUS_TOGGLE);
-                    redraw = true;
-                } else if (action == KeyAction::REPEAT && page == UiPage::SWEEP) {
-                    // See the original (pre-gating) comment on this dispatch
-                    // for the full Ctrl+S/KEY_RAW_R_PRESS history — unchanged
-                    // by the move, just relocated.
-                    fireMenuAction(MenuAction::SWEEP_REPEAT_TOGGLE);
-                    redraw = true;
-                } else if (action == KeyAction::REPEAT && page == UiPage::CELL) {
-                    fireMenuAction(MenuAction::CELL_REPEAT_TOGGLE);
-                    redraw = true;
-                }
-            } else if (isAnalyzeSubPage(page)) {
-                // Reached only via Menu > Analyze > Meter/Waterfall/Scope/
-                // Captures/Nodes now (2026-09-05) — exact structural twin of
-                // the Tools sub-page branch above; see its comment for the
-                // PREV/NEXT-aliases-UP/DOWN, BACK-leaves-to-menu reasoning.
-                if (action == KeyAction::UP || action == KeyAction::PREV) {
-                    prevAnalyzeSubPage();
-                    redraw = true;
-                } else if (action == KeyAction::DOWN || action == KeyAction::NEXT) {
-                    nextAnalyzeSubPage();
-                    redraw = true;
-                } else if (action == KeyAction::BACK) {
-                    menu.open();
-                    redraw = true;
-                } else if (action == KeyAction::SELECT && page == UiPage::CAPTURES) {
-                    captureInspectIdx = 0;   // newest first
-                    captureInspectOpen = true;
-                    redraw = true;
-                } else if (action == KeyAction::SELECT && page == UiPage::SCOPE) {
-                    // Same dual re-trigger/cancel shape as before — arriving
-                    // here already started a first capture on its own
-                    // (maybeStartScopeAcquire()); this is for every capture
-                    // after that.
-                    fireMenuAction(MenuAction::SCOPE_TOGGLE);
-                    redraw = true;
-                } else if (action == KeyAction::SELECT && page == UiPage::WATERFALL) {
-                    // Operator request, 2026-09-04: Waterfall is Sweep's own
-                    // history view, so starting/stopping repeat Sweep straight
-                    // from here — without a detour through Tools > Sweep —
-                    // saves a real trip. See ui_menu.h's own comment on this
-                    // action for why it isn't just SWEEP_REPEAT_TOGGLE reused.
-                    fireMenuAction(MenuAction::WATERFALL_SWEEP_REPEAT_TOGGLE);
-                    redraw = true;
-                }
             } else {
                 // A main-carousel card. Left/right always moves the carousel;
                 // up/down cycles this card's own views (stepCardView()), the
-                // same way it cycles sub-pages inside a Tools/Analyze group.
+                // same way the carousel cycles the cards themselves.
                 //
                 // The exception is a card with a single view (System): there
                 // is nothing to cycle, so up/down keeps aliasing prev/next
@@ -945,8 +780,8 @@ void uiTask(void *) {
                     menu.open();
                     redraw = true;
                 } else if (action == KeyAction::SELECT && view == UiPage::CAPTURES) {
-                    // Same modal entry the island Captures page has; the list
-                    // itself has no cursor because up/down is spoken for.
+                    // The list itself has no cursor — up/down is spoken for by
+                    // the card's views — so the modal is the browser.
                     captureInspectIdx = 0; // newest first
                     captureInspectOpen = true;
                     redraw = true;
@@ -986,22 +821,6 @@ void uiTask(void *) {
                                                                       : action;
             const MenuAction fired = menu.handle(menuAction);
             if (fired != MenuAction::NONE) fireMenuAction(fired);
-            // BACK that closes the menu entirely (root depth -> 0) returns
-            // to the main carousel rather than leaving `page` on a stale
-            // Tools/Analyze sub-page left over from before the menu was
-            // opened from there (operator report, 2026-09-05: closing all
-            // the way out after browsing System, say, re-showed whichever
-            // Probe/Sweep/Cell/Meter/... page had been open beforehand
-            // instead of the main carousel) — `page` isn't menu state, so
-            // MenuState closing has no way to know it needs to change.
-            // Only a BACK that just closed the menu triggers this:
-            // selecting a Tools/Analyze row (SELECT, via fireMenuAction()
-            // above) also closes the menu, but deliberately onto that exact
-            // page, and must not be overridden.
-            if (action == KeyAction::BACK && !menu.isOpen() &&
-                (isToolsSubPage(page) || isAnalyzeSubPage(page))) {
-                jumpToPage(UiPage::RADIO);
-            }
             if (leavingSliderKind == MenuAction::SWEEP_MARGIN_UP) {
                 SweepMarginSettings settings;
                 settings.margin_dbm_x10 = radioEnergySweepMarginDbmX10();
@@ -1053,15 +872,17 @@ void uiTask(void *) {
 
 } // namespace
 
-// 1-based position of whichever main-carousel stop `page` currently is, or
-// 0 if `page` isn't one at all (a Tools/Analyze sub-page — reached only
-// through the menu since 2026-09-05, with no carousel position of its own)
-// — drawFooterStatus() (ui_pages.cpp) omits its "N/M" text on that 0,
-// rather than showing a stale or misleading position. Deliberately not raw
-// UiPage ordinals/UiPage::COUNT: those would count every sub-page as if it
-// were its own top-level stop, showing e.g. "8/14" for a page prev/next/
-// digit keys can't actually reach (operator report, 2026-09-04: "users
-// will think they are missing cards").
+// 1-based position of whichever main-carousel stop `page` currently is.
+// Deliberately not raw UiPage ordinals/UiPage::COUNT: those would count
+// every card view as if it were its own top-level stop, showing e.g. "8/14"
+// for something prev/next/digit keys can't reach (operator report,
+// 2026-09-04: "users will think they are missing cards").
+//
+// The 0 return is now unreachable — `page` is always a card since the
+// Tools/Analyze menu rows stopped opening pages standalone (2026-09-06) —
+// but both it and drawFooterStatus()'s guard on it stay: it costs one
+// compare, and it is the difference between a wrong "1/5" and no position
+// at all if a future page ever sits outside the carousel again.
 uint8_t mainCarouselPosition() {
     for (uint8_t i = 0; i < MAIN_PAGE_COUNT; i++) {
         if (MAIN_PAGES[i] == page) return (uint8_t)(i + 1);
@@ -1073,10 +894,9 @@ uint8_t mainCarouselCount() {
     return MAIN_PAGE_COUNT;
 }
 
-// The page a card is currently rendering: its own on view 0, one of the
-// former Tools/Analyze island pages otherwise. On an island page — reached
-// straight from the menu, which still opens them directly — there is no card
-// to resolve against, so the page is its own view.
+// The page a card is currently rendering: the card's own on view 0, one of
+// the pages it owns (CARD_VIEWS) otherwise. The non-card fallback is the
+// same unreachable-but-kept case as mainCarouselPosition()'s 0 above.
 UiPage activeView() {
     if (!isMainPage(page)) return page;
     const uint8_t card = mainPageIndex(page);
@@ -1087,25 +907,28 @@ uint8_t activeViewIndex() { return isMainPage(page) ? cardViewIdx[mainPageIndex(
 
 uint8_t activeViewCount() { return isMainPage(page) ? CARD_VIEWS[mainPageIndex(page)].count : 0; }
 
-// Where a bounded action's "show me the result" lands. Navigating to the
-// island page is right from the menu, and right from a card that has no view
-// of its own for this action (firing S from Radio should show you the sweep
-// you just started). It is wrong from a card that can already display it:
-// jumping away would strand up/down on the island page's own sub-page
-// cycling, which is exactly the complaint that produced Activity's
-// ACTIVITY_SWEEP_TOGGLE — generalized here so every card gets it, and no
-// action needs a second, card-specific MenuAction to stay put.
+// Where a bounded action's "show me the result" lands. Every result page is
+// some card's view now (CARD_VIEWS), so this navigates to the card that owns
+// it and selects that view — firing S from Radio lands on Activity's Sweep
+// view, P from GPS on Channel's Probe view. Nothing reaches a page that has
+// no carousel position any more, which is what let the Tools/Analyze menu
+// groups and their island-page navigation go (2026-09-06).
 //
-// The view itself is deliberately left alone rather than switched to the one
-// that shows the action: on Activity the dashboard *is* the view built to
-// watch a sweep run, and yanking off it on Enter would undo the reason it
-// exists. The footer's view dots advertise that the detail view is one key
-// away.
+// Staying put when the current card already carries the view is the one
+// exception, and the important one: on Activity the dashboard *is* the view
+// built to watch a sweep run, so starting one must not yank off it. That is
+// what Activity's own ACTIVITY_SWEEP_TOGGLE used to buy for one page.
 void showResultsPage(UiPage p) {
-    const bool fromMenu = menu.isOpen();
     menu.close();
-    if (!fromMenu && cardViewSlot(page, p) >= 0) return;
-    jumpToPage(p);
+    if (cardViewSlot(page, p) >= 0) return;
+    for (uint8_t i = 0; i < MAIN_PAGE_COUNT; i++) {
+        const int8_t slot = cardViewSlot(MAIN_PAGES[i], p);
+        if (slot < 0) continue;
+        cardViewIdx[i] = (uint8_t)slot;
+        jumpToPage(MAIN_PAGES[i]);
+        return;
+    }
+    jumpToPage(p); // no card claims it — can't happen while CARD_VIEWS is total
 }
 
 void showProbeResults() { showResultsPage(UiPage::PROBE); }
@@ -1118,21 +941,6 @@ bool captureInspectIsOpen() { return captureInspectOpen; }
 uint8_t captureInspectIndex() { return captureInspectIdx; }
 
 void showFocusResults() { showResultsPage(UiPage::FOCUS); }
-
-// Field Analyzer (Phase 10) — same showResultsPage() shape as the four
-// above. jumpToPage() is what triggers a first Scope capture
-// (maybeStartScopeAcquire()), so showScopePage() needs no copy of that
-// logic; nor does stepCardView() onto Radio's own Scope view, which calls
-// it directly for the same reason.
-void showMeterPage() { showResultsPage(UiPage::METER); }
-
-void showWaterfallPage() { showResultsPage(UiPage::WATERFALL); }
-
-void showScopePage() { showResultsPage(UiPage::SCOPE); }
-
-void showCapturesPage() { showResultsPage(UiPage::CAPTURES); }
-
-void showNodesPage() { showResultsPage(UiPage::NODES); }
 
 // menu's constructor needs ROOT_ITEMS/ROOT_COUNT, fine to reference here
 // even though this definition needs external linkage (ui_pages.cpp/

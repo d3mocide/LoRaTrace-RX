@@ -25,21 +25,20 @@
 // throughout, now three levels instead of two:
 //   - **Carousel** (default): ','/';'/'.'/'/' cycle the read-only status
 //     pages below; digits '1'-'5' jump straight to one of them; the
-//     backtick/ESC key opens the menu at its root; Enter toggles Trace on
-//     RADIO and starts/cancels Probe on PROBE (no-op on other cards), while
-//     P starts/cancels Probe from any UI state.
+//     backtick/ESC key opens the menu at its root; up/down cycle the card's
+//     own views and Enter runs the bounded action that refreshes whichever
+//     view is showing (ui_task.cpp's cardSelectAction()), while P/S/C/R
+//     start/cancel their actions from any UI state.
 //   - **Menu root**: the same move keys move a highlighted root row; Enter
-//     opens a GROUP row's sub-list — Profile, Analyze, Tools, System are
-//     all groups now (Tools/Analyze joined 2026-09-05, folding in what used
-//     to be their own carousel hub pages; Trace moved into Tools as a
-//     child row — see ROOT_ITEMS in ui_task.cpp and docs/BRAND.md's
-//     Interface Naming section); the backtick/ESC key closes the menu back
-//     to the carousel. Digit keys are ignored here, same as Phase 5.
+//     opens a GROUP row's sub-list or fires an ACTION row — Profile, Trace,
+//     System (see ROOT_ITEMS in ui_task.cpp and docs/BRAND.md's Interface
+//     Naming section); the backtick/ESC key closes the menu back to the
+//     carousel. Digit keys are ignored here, same as Phase 5.
 //   - **Menu group** (inside a GROUP row): the same move keys move a
 //     highlighted item within the group; Enter fires it (a direct profile
-//     switch to Meshtastic/MeshCore, the WiFi/Debug toggles, or navigates
-//     onto a real page for Tools/Analyze's own rows); the backtick/ESC key
-//     returns to the menu root, not all the way to the carousel.
+//     switch to Meshtastic/MeshCore, the WiFi/Debug toggles); the
+//     backtick/ESC key returns to the menu root, not all the way to the
+//     carousel.
 // A toast overlay (ui_task.cpp's showToast()) confirms whatever action just
 // fired, independent of which page/menu level is on screen afterward.
 // Deliberately not a general keymap or text-entry UI — see keyboard.h for
@@ -79,11 +78,11 @@
 // Radio, Sweep/Waterfall/Focus under Activity, Captures/Nodes/Probe under
 // Channel, Cell under GPS. UP/DOWN cycle a card's views, PREV/NEXT still
 // move the carousel, and Enter runs the bounded action that refreshes
-// whichever view is showing (cardSelectAction()). The Tools/Analyze menu
-// GROUPs still open these pages standalone, unchanged — on one of those,
-// UP/DOWN cycle the rest of the group (nextToolsSubPage()/
-// nextAnalyzeSubPage()) and BACK reopens the menu, since a page reached
-// that way has no carousel position to return to.
+// whichever view is showing (cardSelectAction()). A card view is the only
+// way to reach any of them: the Tools and Analyze menu GROUPs that used to
+// open them standalone are gone (2026-09-06), because a card view already
+// went to the same place and having both on screen was the "two separate
+// navigation systems" problem in a third costume.
 //
 // ACTIVITY (added 2026-09-05, main carousel slot 2, operator request) was
 // the first card to carry views, hardcoded to three; CARD_VIEWS generalized

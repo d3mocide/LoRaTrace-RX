@@ -209,21 +209,6 @@ void fireMenuAction(MenuAction action) {
             }
             break;
         }
-        case MenuAction::WATERFALL_SWEEP_REPEAT_TOGGLE: {
-            // Same radioRequestEnergySweepRepeat() call as SWEEP_REPEAT_TOGGLE
-            // above, deliberately without its showSweepResults() — see
-            // ui_menu.h's own comment on this action for why staying on
-            // Waterfall, not jumping to the Sweep card, is the whole point.
-            const bool stopping = radioEnergySweepRepeatIsActive();
-            if (!stopping && !loggerSdReady()) {
-                showToast("Sweep: SD REQUIRED");
-            } else if (radioRequestEnergySweepRepeat()) {
-                showToast(stopping ? "Sweep: REPEAT OFF" : "Sweep: REPEAT ON");
-            } else {
-                showToast("Sweep: UNAVAILABLE");
-            }
-            break;
-        }
         case MenuAction::CELL_TOGGLE: {
             // Same non-blocking radio-task-owned shape as Probe/Sweep above,
             // including the dedicated results card (Phase 11, 2026-09-01).
@@ -316,35 +301,8 @@ void fireMenuAction(MenuAction action) {
             writeDisplaySettingsToSD(settings);
             break;
         }
-        case MenuAction::OPEN_PROBE:
-            showProbeResults();
-            break;
-        case MenuAction::OPEN_SWEEP:
-            showSweepResults();
-            break;
-        case MenuAction::OPEN_CELL:
-            showCellResults();
-            break;
-        case MenuAction::OPEN_FOCUS:
-            showFocusResults();
-            break;
         case MenuAction::FOCUS_TOGGLE:
             toggleFocusSurvey();
-            break;
-        case MenuAction::OPEN_METER:
-            showMeterPage();
-            break;
-        case MenuAction::OPEN_WATERFALL:
-            showWaterfallPage();
-            break;
-        case MenuAction::OPEN_SCOPE:
-            showScopePage();
-            break;
-        case MenuAction::OPEN_CAPTURES:
-            showCapturesPage();
-            break;
-        case MenuAction::OPEN_NODES:
-            showNodesPage();
             break;
         case MenuAction::SCOPE_TOGGLE: {
             // Same non-blocking radio-task-owned shape as Probe/Sweep/Cell

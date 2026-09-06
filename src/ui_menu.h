@@ -102,55 +102,13 @@ enum class MenuAction : uint8_t {
     // above. Region is currently Sweep-only; Cell/channel_plans.h
     // regionalization are separate follow-ups (docs/ROADMAP.md).
     REGION_CYCLE,
-    // Field Analyzer (Phase 10, docs/research/LoRaTrace-Phases-7-10-
-    // Design.md §8.5): fired by the Analyze menu group's own rows
-    // (ANALYZE_GROUP_ITEMS, ui_task.cpp), one per row — real UiPage
-    // entries, not menu-resident views, since a live-rendered page needs
-    // the full 240x135 panel and its own per-page key handling (Scope's
-    // Enter-to-acquire) the same way Probe/Sweep/Cell's own cards already
-    // do. Navigation-only, same reasoning as OPEN_PROBE/SWEEP/CELL below.
-    OPEN_METER,
-    OPEN_WATERFALL,
-    OPEN_SCOPE,
-    OPEN_CAPTURES,
-    OPEN_NODES,
-    // Fired by SELECT while already on the Scope card (ui_task.cpp),
-    // mirroring PROBE_TOGGLE/SWEEP_TOGGLE/CELL_TOGGLE's own dual start/
-    // cancel shape — distinct from OPEN_SCOPE above, which only navigates
-    // there (arriving on the page already starts a first capture on its
-    // own, per SCOPE_ACQUIRE's design). No menu row of its own, same "no
-    // duplicate entry point" convention as Probe/Sweep/Cell.
+    // Fired by Enter on Radio's Scope view (ui_task.cpp's cardSelectAction()),
+    // mirroring PROBE_TOGGLE/SWEEP_TOGGLE/CELL_TOGGLE's own dual start/cancel
+    // shape. Arriving on the view already starts a first capture on its own
+    // (maybeStartScopeAcquire(), per SCOPE_ACQUIRE's design); this is every
+    // capture after that. No menu row — like every other bounded action, its
+    // entry point is the card that shows its result.
     SCOPE_TOGGLE,
-    // Fired by SELECT while on the Waterfall card (operator request,
-    // 2026-09-04): Waterfall is Sweep's own history view, so starting/
-    // stopping repeat Sweep straight from here — without leaving to the
-    // Tools/Sweep card first — is the whole point. Same
-    // radioRequestEnergySweepRepeat() call as SWEEP_REPEAT_TOGGLE below,
-    // but deliberately its own action rather than reused directly: that
-    // one's handler also calls showSweepResults() to jump the operator
-    // onto the Sweep card, which is correct for its own (menu/global-R-key)
-    // context but wrong here — the operator pressed Enter on Waterfall
-    // specifically to keep watching it fill in, not to be navigated away.
-    WATERFALL_SWEEP_REPEAT_TOGGLE,
-    // Same shape as OPEN_METER etc. above, just for Probe/Sweep/Cell —
-    // fired by the Tools menu group's own rows (TOOLS_GROUP_ITEMS,
-    // ui_task.cpp). Deliberately navigation-only, not PROBE_TOGGLE/
-    // SWEEP_TOGGLE/CELL_TOGGLE: unlike Scope, none of these three auto-
-    // start on arrival (only Scope's SCOPE_ACQUIRE design does that), so
-    // opening one from the menu should land on an idle/last-result card
-    // exactly like using a JUMP_n or paging there directly would, not
-    // silently kick off a scan. Reuses showProbeResults()/
-    // showSweepResults()/showCellResults() (already exist — the P/S/C
-    // hotkeys already jump to these same three cards), not new functions.
-    OPEN_PROBE,
-    OPEN_SWEEP,
-    OPEN_CELL,
-    // Focus is a fourth radio-owned bounded action alongside Probe/Sweep/Cell
-    // (V2 Workstream 12). Same convention as those three: a Tools row that
-    // navigates to its page, and the page's own SELECT key starts or cancels
-    // it. No root row and no global hotkey -- it is operator-selected from a
-    // Sweep result rather than fired blind.
-    OPEN_FOCUS,
     // Starts a survey, or cancels the one running -- one key, same dual
     // start/stop shape as PROBE_TOGGLE/SWEEP_TOGGLE/CELL_TOGGLE.
     FOCUS_TOGGLE,

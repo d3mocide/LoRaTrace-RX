@@ -7,16 +7,27 @@ fresh from the documentation restructuring below and stays terse —
 one or two lines per entry, newest first. For the current state of the
 project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
-## 2026-09-05
+## 2026-09-06
 
-- **Card views.** Every main-carousel card now carries an ordered list of
-  pages cycled with up/down, generalizing the three Activity shipped
-  hardcoded: Meter/Scope under Radio, Sweep/Waterfall/Focus under Activity,
+- **Tools and Analyze menu groups removed.** Both were pure navigation to
+  pages that are now card views, so the rows were a second road to somewhere
+  you were already standing. Menu root is **Profile / Trace / System**; Trace
+  returns to a root row, where it lived before Tools adopted it. Bounded
+  actions now navigate to the card that owns their result (S from Radio lands
+  on Activity's Sweep view), so no page is reachable without a carousel
+  position — which retires the island sub-page navigation, the nine `OPEN_*`
+  actions, `WATERFALL_SWEEP_REPEAT_TOGGLE`, and `menuEntryValue()`'s per-tool
+  status cases.
+
+- **Card views.** Every main-carousel card carries an ordered list of pages
+  cycled with up/down, generalizing the three Activity shipped hardcoded:
+  Meter/Scope under Radio, Sweep/Waterfall/Focus under Activity,
   Captures/Nodes/Probe under Channel, Cell under GPS. Enter runs the bounded
-  action that refreshes whichever view is showing; footer dots make up/down
-  discoverable; each card remembers its last view. `showResultsPage()`
+  action that refreshes whichever view is showing; centred footer dots make
+  up/down discoverable; each card remembers its last view. `showResultsPage()`
   replaces per-card no-jump MenuActions (`ACTIVITY_SWEEP_TOGGLE` removed).
-  Menu unchanged — Tools/Analyze still open these pages standalone.
+
+## 2026-09-05
 
 - **v1.1.0-beta.** Focus becomes operator-reachable (Menu > Tools > Focus)
   with the plate, Activity dashboard and Captures inspector from
