@@ -503,14 +503,23 @@ void setup() {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) {
             Serial.println(F("Radio task listening on Core 1."));
-            // "` to open/close" — the ESC/backtick key, not literally the
-            // ASCII backtick as a menu action; matches the on-device menu's
-            // own footer hint (ui_task.cpp) after the 2026-08-24 rework that
-            // moved menu-open off Enter and onto this key.
-            Serial.println(F("On-device menu: ,/. to move, ` to open/close, Enter to act "
-                             "-- Trace, profile switch (Meshtastic/MeshCore, docs/DESIGN.md S5), "
-                             "WiFi, and verbose debug logging; P runs Probe anywhere. "
-                             "Enter toggles Trace on Radio or Probe on its card."));
+            // "`" is the ESC/backtick key, not the ASCII character as a menu
+            // action — matches the on-device menu's own footer hint
+            // (ui_pages.cpp) since the 2026-08-24 rework moved menu-open off
+            // Enter and onto this key.
+            //
+            // Prose duplicating the key tables, which is exactly how the
+            // on-screen hints went stale (this banner still described the
+            // pre-card-view UI a commit after it shipped). Kept short and
+            // structural for that reason: keyboard.h's decode table and
+            // ui_task.cpp's MAIN_PAGES/CARD_VIEWS/cardSelectAction() are the
+            // truth, and anything more detailed than this belongs there, not
+            // in a string. Empty views print their own generated hint
+            // (cardHintLine()).
+            Serial.println(F("Cards: , / move the carousel, ; . cycle a card's views, "
+                             "Enter runs that view's action, 1-5 jump to a card."));
+            Serial.println(F("Menu (` opens/closes): Profile, Trace, System."));
+            Serial.println(F("Anywhere: P Probe, S Sweep, C Cell, R repeat a sweep."));
             Serial.print(F("Free heap after task start: "));
             Serial.print(ESP.getFreeHeap());
             Serial.println(F(" bytes"));
