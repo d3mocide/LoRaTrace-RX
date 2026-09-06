@@ -9,6 +9,22 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-06
 
+- **`docs/UI-Design_Guide.html` brought up to the current UI.** Plates are now
+  ordered and numbered by owning card (Radio > Meter/Scope, Activity >
+  Sweep/Waterfall/Focus, Channel > Captures/Nodes/Probe, GPS > Cell) instead of
+  the removed Tools Hub / Analyze Suite grouping. Adds plate 05 (the card-view
+  navigation model) and plate 12 (Focus, previously undocumented); rebuilds the
+  Radio and Activity plates; corrects the menu tree, key matrix, `Watch away`
+  vocabulary and version strings. The live workbench JS was rewired to match:
+  `CARD_VIEWS`, view dots, two-axis navigation, `statCard`/`drawEmptyView`, and
+  a Focus renderer.
+
+- **Radio card rebuilt** in Activity's language: a pipeline band
+  (HEARD > QUEUED > LOGGED with per-handoff loss and reddening arrows) over
+  three `statCard()`s. New STATE card separates WATCH / STANDBY / AWAY, which
+  the old bare `STANDBY` word conflated. `statCard()` now clamps both value and
+  subtitle, fixing two live overflows on Activity.
+
 - **Empty and held states rebuilt for card views.** Key hints are generated
   from `cardSelectAction()`/`cardRepeatAction()` (`cardHintLine()`) instead of
   typed per page — Waterfall's said "Enter: start repeat Sweep" for two

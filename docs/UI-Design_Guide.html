@@ -486,6 +486,7 @@
   .good { color: var(--scr-good); }
   .warn { color: var(--scr-warn); }
   .bad { color: var(--scr-bad); }
+  .bad-txt { color: var(--red); font-weight: 600; }
 
   /* Coordinate breakdown table */
   .coord-table-wrap {
@@ -730,7 +731,7 @@
       <span class="dot">&#9679;</span>
       <span class="rail-title">LoRaTrace RX</span>
     </div>
-    <div class="rail-sub">UI DESIGN GUIDE · v1.0.7</div>
+    <div class="rail-sub">UI DESIGN GUIDE · v1.1.0-beta</div>
 
     <select class="rail-mobile-select" aria-label="Jump to Section" onchange="if(this.value){location.hash=this.value;}">
       <option value="">Jump to Plate / Spec...</option>
@@ -742,23 +743,28 @@
         <option value="#chrome">04 · Header & Battery</option>
       </optgroup>
       <optgroup label="Main Carousel (1/5 - 5/5)">
-        <option value="#plate-radio">05 · Radio (Slot 1)</option>
-        <option value="#plate-activity">06 · Activity (Slot 2)</option>
-        <option value="#plate-channel">07 · Channel (Slot 3)</option>
-        <option value="#plate-gps">08 · GPS (Slot 4)</option>
-        <option value="#plate-system">09 · System (Slot 5)</option>
+        <option value="#plate-radio">06 · Radio (Card 1)</option>
+        <option value="#plate-activity">09 · Activity (Card 2)</option>
+        <option value="#plate-channel">13 · Channel (Card 3)</option>
+        <option value="#plate-gps">17 · GPS (Card 4)</option>
+        <option value="#plate-system">19 · System (Card 5)</option>
       </optgroup>
-      <optgroup label="Tools Hub (Menu / Keys)">
-        <option value="#plate-probe">10 · Probe (CAD Scan)</option>
-        <option value="#plate-sweep">11 · Sweep (Spectrum)</option>
-        <option value="#plate-cell">12 · Cell (869-894MHz)</option>
+      <optgroup label="Radio views (up / down)">
+        <option value="#plate-meter">07 · Meter (Live RSSI)</option>
+        <option value="#plate-scope">08 · Scope (Time Domain)</option>
       </optgroup>
-      <optgroup label="Analyze Suite (Key 8)">
-        <option value="#plate-meter">13 · Meter (Live RSSI)</option>
-        <option value="#plate-waterfall">14 · Waterfall (Spectrogram)</option>
-        <option value="#plate-scope">15 · Scope (Time Domain)</option>
-        <option value="#plate-captures">16 · Captures Ring</option>
-        <option value="#plate-nodes">17 · Nodes Roster</option>
+      <optgroup label="Activity views (up / down)">
+        <option value="#plate-sweep">10 · Sweep (Spectrum)</option>
+        <option value="#plate-waterfall">11 · Waterfall (Spectrogram)</option>
+        <option value="#plate-focus">12 · Focus (One-Bin Dwell)</option>
+      </optgroup>
+      <optgroup label="Channel views (up / down)">
+        <option value="#plate-captures">14 · Captures Ring</option>
+        <option value="#plate-nodes">15 · Nodes Roster</option>
+        <option value="#plate-probe">16 · Probe (CAD Scan)</option>
+      </optgroup>
+      <optgroup label="GPS views (up / down)">
+        <option value="#plate-cell">18 · Cell (869-894MHz)</option>
       </optgroup>
       <optgroup label="Navigation & Overlays">
         <option value="#plate-menu">18 · Menu System & Sliders</option>
@@ -778,30 +784,38 @@
       <a href="#grid">03 · Typography & Grid</a>
       <a href="#chrome">04 · Header & Battery</a>
 
-      <div class="group-label">Main Carousel (1/5 - 5/5)</div>
-      <a href="#plate-radio">05 · Radio (Slot 1)</a>
-      <a href="#plate-activity">06 · Activity (Slot 2)</a>
-      <a href="#plate-channel">07 · Channel (Slot 3)</a>
-      <a href="#plate-gps">08 · GPS (Slot 4)</a>
-      <a href="#plate-system">09 · System (Slot 5)</a>
+      <div class="group-label">The Navigation Model</div>
+      <a href="#plate-cards">05 · Card Views (model)</a>
 
-      <div class="group-label">Tools Hub (Menu / Keys)</div>
-      <a href="#plate-probe">10 · Probe (CAD Scan)</a>
-      <a href="#plate-sweep">11 · Sweep (Spectrum)</a>
-      <a href="#plate-cell">12 · Cell (869-894MHz)</a>
+      <div class="group-label">Card 1 · Radio</div>
+      <a href="#plate-radio">06 · Radio — pipeline</a>
+      <a href="#plate-meter">07 · ↳ Meter</a>
+      <a href="#plate-scope">08 · ↳ Scope</a>
 
-      <div class="group-label">Analyze Suite (Key 8)</div>
-      <a href="#plate-meter">13 · Meter (Live RSSI)</a>
-      <a href="#plate-waterfall">14 · Waterfall (Spectrogram)</a>
-      <a href="#plate-scope">15 · Scope (Time Domain)</a>
-      <a href="#plate-captures">16 · Captures Ring</a>
-      <a href="#plate-nodes">17 · Nodes Roster</a>
+      <div class="group-label">Card 2 · Activity</div>
+      <a href="#plate-activity">09 · Activity — dashboard</a>
+      <a href="#plate-sweep">10 · ↳ Sweep</a>
+      <a href="#plate-waterfall">11 · ↳ Waterfall</a>
+      <a href="#plate-focus">12 · ↳ Focus</a>
 
-      <div class="group-label">Navigation & Overlays</div>
-      <a href="#plate-menu">18 · Menu System & Sliders</a>
-      <a href="#plate-toast">19 · Toast Alerts</a>
-      <a href="#plate-keys">20 · Hardware Key Matrix</a>
-      <a href="#roadmap">21 · Future UI Evolution</a>
+      <div class="group-label">Card 3 · Channel</div>
+      <a href="#plate-channel">13 · Channel — config</a>
+      <a href="#plate-captures">14 · ↳ Captures</a>
+      <a href="#plate-nodes">15 · ↳ Nodes</a>
+      <a href="#plate-probe">16 · ↳ Probe</a>
+
+      <div class="group-label">Card 4 · GPS</div>
+      <a href="#plate-gps">17 · GPS — fix</a>
+      <a href="#plate-cell">18 · ↳ Cell</a>
+
+      <div class="group-label">Card 5 · System</div>
+      <a href="#plate-system">19 · System — device</a>
+
+      <div class="group-label">Chrome & Input</div>
+      <a href="#plate-menu">20 · Menu System & Sliders</a>
+      <a href="#plate-toast">21 · Toast Alerts</a>
+      <a href="#plate-keys">22 · Hardware Key Matrix</a>
+      <a href="#roadmap">23 · Future UI Evolution</a>
       <a href="UI-Recommendations.html" style="color:var(--amber); font-weight:600;">★ V2 Proposals &amp; Labs →</a>
     </nav>
   </aside>
@@ -809,11 +823,11 @@
   <!-- ================= MAIN CONTENT ================= -->
   <main>
     <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px; border-bottom:1px solid var(--line); padding-bottom:14px;">
-      <span style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:6px; font-family:var(--font-mono); font-size:12px; border:1px solid var(--amber); background:var(--amber-wash); color:var(--amber); font-weight:600;">★ Baseline Spec (v1.0.7 Master Guide)</span>
+      <span style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:6px; font-family:var(--font-mono); font-size:12px; border:1px solid var(--amber); background:var(--amber-wash); color:var(--amber); font-weight:600;">★ Current Spec (v1.1.0-beta · card views)</span>
       <a href="UI-Recommendations.html" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:6px; font-family:var(--font-mono); font-size:12px; text-decoration:none; border:1px solid var(--line); background:var(--paper-raised); color:var(--ink-soft); transition:all 0.15s;">→ Proposed UI Improvements &amp; Labs (New)</a>
     </div>
 
-    <div class="eyebrow">Firmware v1.0.7 Baseline · ST7789V2 240×135</div>
+    <div class="eyebrow">Firmware v1.1.0-beta · ST7789V2 240×135</div>
     <h1 class="banner-title">Master UI Design Guide</h1>
     <p class="banner-desc">
       The authoritative design specification, screen layout inventory, and interactive simulation workbench for LoRaTrace RX. Unifies the visual reference plates and live canvas simulator into a single, hardware-accurate guide.
@@ -872,12 +886,12 @@
               <button id="btn-down">. ↓ Down</button>
               <button id="btn-back">` Back</button>
             </div>
-            <div class="ctrl-hint" id="nav-hint-text">Prev/Next cycle main carousel (1/5 to 5/5)</div>
+            <div class="ctrl-hint" id="nav-hint-text">, / move between cards &middot; ; . cycle the current card's views</div>
           </div>
 
           <!-- Carousel Direct Jump -->
           <div class="ctrl-group">
-            <h3>Main Carousel (5 Pages) <span>v1.0.7 Order</span></h3>
+            <h3>Main Carousel (5 Cards) <span>keys 1&ndash;5</span></h3>
             <div class="btn-row">
               <button id="jump-radio" class="active">1 · Radio</button>
               <button id="jump-activity">2 · Activity</button>
@@ -887,9 +901,9 @@
             </div>
           </div>
 
-          <!-- Tools Hub -->
+          <!-- Card views -->
           <div class="ctrl-group">
-            <h3>Tools Hub <span>Menu or P / S / C</span></h3>
+            <h3>Bounded actions <span>P / S / C anywhere</span></h3>
             <div class="btn-row">
               <button id="jump-probe">P · Probe</button>
               <button id="jump-sweep">S · Sweep</button>
@@ -897,15 +911,16 @@
             </div>
           </div>
 
-          <!-- Analyze Suite -->
+          <!-- Card views -->
           <div class="ctrl-group">
-            <h3>Analyze Suite <span>Menu or Key 8</span></h3>
+            <h3>Card views <span>reached with up / down</span></h3>
             <div class="btn-row">
               <button id="jump-meter">Meter</button>
               <button id="jump-waterfall">Waterfall</button>
               <button id="jump-scope">Scope</button>
               <button id="jump-captures">Captures</button>
               <button id="jump-nodes">Nodes</button>
+              <button id="jump-focus">Focus</button>
             </div>
           </div>
 
@@ -938,7 +953,8 @@
     </section>
 
     <!-- ================= 01 · DISPLAY & HARDWARE ================= -->
-    <section class="plate" id="arch">
+        <!-- ================= 01 · ARCHITECTURE ================= -->
+<section class="plate" id="arch">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
         <span class="plate-num">01 / ARCHITECTURE</span>
@@ -968,8 +984,8 @@
       </div>
     </section>
 
-    <!-- ================= 02 · RGB565 PALETTE ================= -->
-    <section class="plate" id="tokens">
+    <!-- ================= 02 · COLOR TOKENS ================= -->
+<section class="plate" id="tokens">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
         <span class="plate-num">02 / COLOR TOKENS</span>
@@ -1036,8 +1052,8 @@
       </div>
     </section>
 
-    <!-- ================= 03 · TYPOGRAPHY & GRID ================= -->
-    <section class="plate" id="grid">
+    <!-- ================= 03 · GEOMETRY ================= -->
+<section class="plate" id="grid">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
         <span class="plate-num">03 / GEOMETRY</span>
@@ -1063,8 +1079,8 @@
       </div>
     </section>
 
-    <!-- ================= 04 · HEADER & CHROME ================= -->
-    <section class="plate" id="chrome">
+    <!-- ================= 04 · CHROME ================= -->
+<section class="plate" id="chrome">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
         <span class="plate-num">04 / CHROME</span>
@@ -1108,70 +1124,27 @@
       </div>
     </section>
 
-    <!-- ================= 05 · RADIO (SLOT 1) ================= -->
-    <section class="plate" id="plate-radio">
+    <!-- ================= 05 · NAVIGATION MODEL ================= -->
+    <section class="plate" id="plate-cards">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">05 / MAIN CAROUSEL 1/5</span>
-        <h2 class="plate-title">Plate: RADIO (Primary Wardriving)</h2>
+        <span class="plate-num">05 / NAVIGATION MODEL</span>
+        <h2 class="plate-title">Card Views &mdash; the Two Axes</h2>
       </div>
       <p class="plate-note">
-        The default home screen. Shows real-time packet ingress, SD logging volume, queue drop count, and radio integrity stats. If watch is paused, <code>STANDBY</code> renders in bold yellow.
+        <strong>The structural change of 2026-09-05/06.</strong> There is exactly one navigation system.
+        The carousel has five cards; each card owns an ordered list of <em>views</em>. Left/right
+        (<code>,</code> <code>/</code>) moves between cards, up/down (<code>;</code> <code>.</code>)
+        cycles the current card's views, and <kbd>Enter</kbd> runs the bounded action that refreshes
+        whichever view is showing. A card owns a question; its views answer that question at different
+        resolutions.
       </p>
-
-      <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">RADIO</div>
-          <div class="t1 good" style="left:415px; top:4px;">84%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 fg" style="left:4px; top:39px;">rx 142</div>
-          <div class="t2 fg" style="left:4px; top:83px;">log 142</div>
-          <div class="t2 good" style="left:4px; top:127px;">drop 0</div>
-
-          <div class="t1 dim" style="left:374px; top:39px;">crc</div>
-          <div class="t1 fg" style="left:374px; top:59px;">0</div>
-
-          <div class="t1 dim" style="left:374px; top:87px;">miss</div>
-          <div class="t1 fg" style="left:374px; top:107px;">0</div>
-
-          <div class="t1 dim" style="left:374px; top:136px;">sd</div>
-          <div class="t1 fg" style="left:374px; top:156px;">ok</div>
-
-          <div class="t1 dim" style="left:374px; top:184px;">run</div>
-          <div class="t1 fg" style="left:374px; top:204px;">r12</div>
-
-          <div class="t1 dim" style="left:4px; top:233px;">flush 18  max 42ms</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-          <div class="t1 dim" style="right:4px; top:275px;">1/5</div>
-        </div>
-
-        <div class="coord-table-wrap">
-          <table class="coord-table">
-            <thead><tr><th>Metric</th><th>Coords</th><th>Size & Token</th><th>Behavior</th></tr></thead>
-            <tbody>
-              <tr><td>rx counter</td><td class="coord-xy">(2, 18)</td><td>Size 2 · COL_FG</td><td>Packets decoded from SX1262</td></tr>
-              <tr><td>log counter</td><td class="coord-xy">(2, 38)</td><td>Size 2 · COL_FG</td><td>Rows written to SD card</td></tr>
-              <tr><td>drop counter</td><td class="coord-xy">(2, 58)</td><td>Size 2 · GOOD / BAD</td><td>Green if 0, Red if &gt;0</td></tr>
-              <tr><td>STANDBY indicator</td><td class="coord-xy">(2, 78)</td><td>Size 2 · COL_WARN</td><td>Shows when radio is paused/active away</td></tr>
-              <tr><td>crc / miss / sd / run</td><td class="coord-xy">x=170 right col</td><td>Size 1 statBlocks</td><td>Radio CRC fails, SPI bus miss, run dir</td></tr>
-              <tr><td>flush / max ms</td><td class="coord-xy">(2, 106)</td><td>Size 1 · COL_DIM</td><td>SD batch write latency diagnostics</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= 06 · ACTIVITY (SLOT 2) ================= -->
-    <section class="plate" id="plate-activity">
-      <div class="fid-bl"></div><div class="fid-br"></div>
-      <div class="plate-head">
-        <span class="plate-num">06 / MAIN CAROUSEL 2/5</span>
-        <h2 class="plate-title">Plate: ACTIVITY (Background Action Mirror)</h2>
-      </div>
       <p class="plate-note">
-        Added in v1.0.7 (slot 2). A dedicated, read-only mirror of running bounded actions (Probe, Sweep, Cell, Scope). When idle, shows a compact summary of the last result for all four tools without redundant hero clutter.
+        Every page in plates 06&ndash;19 is one card view. None of them is a separate destination:
+        the <code>Tools</code> and <code>Analyze</code> menu groups that used to open them standalone
+        were <strong>removed</strong>, because a card view already went to the same place and having
+        both on screen was the "two separate navigation systems" complaint in a third costume.
+        Nothing is reachable without a carousel position.
       </p>
 
       <div class="plate-body">
@@ -1179,247 +1152,301 @@
           <div class="t1 fg" style="left:4px; top:4px;">ACTIVITY</div>
           <div class="t1 good" style="left:415px; top:4px;">84%</div>
           <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 fg" style="left:4px; top:40px;">Probe</div>
-          <div class="t2 dim" style="left:160px; top:40px;">1/8 hits</div>
-
-          <div class="t2 fg" style="left:4px; top:92px;">Sweep</div>
-          <div class="t2 dim" style="left:160px; top:92px;">3pk 915MHz</div>
-
-          <div class="t2 fg" style="left:4px; top:145px;">Cell</div>
-          <div class="t2 dim" style="left:160px; top:145px;">881MHz -84dB</div>
-
-          <div class="t2 fg" style="left:4px; top:198px;">Scope</div>
-          <div class="t2 dim" style="left:160px; top:198px;">-96dBm</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-          <div class="t1 dim" style="right:4px; top:275px;">2/5</div>
+          <div class="t1 dim" style="left:13px; top:66px;">up / down cycle this card's views</div>
+          <div class="t1 dim" style="left:13px; top:106px;">left / right move the carousel</div>
+          <div class="t1 warn" style="left:13px; top:145px;">Enter runs this view's action</div>
+          <div class="t1 dim" style="left:13px; top:198px;">&darr; the dots below count the views</div>
+          <div class="t1 dim" style="left:4px; top:275;">MeshCore</div>
+          <div class="t1 dim" style="right:4px; top:275;">2/5</div>
+          <div style="position:absolute; left:238px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
+          <div style="position:absolute; left:253px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div>
+          <div style="position:absolute; left:268px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
+          <div style="position:absolute; left:283px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
         </div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>State / Row</th><th>Coords (1×)</th><th>Font & Color</th><th>Description</th></tr></thead>
+            <thead><tr><th>Card</th><th>The question it owns</th><th>Views (up / down)</th><th>Enter</th></tr></thead>
             <tbody>
-              <tr><td>Active Mode (Hero)</td><td class="coord-xy">(2, 20)</td><td>Size 2 · COL_WARN</td><td>"PROBE", "SWEEP", "CELL", or "SCOPE"</td></tr>
-              <tr><td>Active Progress Bar</td><td class="coord-xy">(2, 66) 200×14</td><td>Rect fill · WARN</td><td>Candidate progress or frequency bar</td></tr>
-              <tr><td>Idle Row 1: Probe</td><td class="coord-xy">(0, 22)</td><td>Size 2 · FG/DIM</td><td>Shows "IDLE" or "N/M hits"</td></tr>
-              <tr><td>Idle Row 2: Sweep</td><td class="coord-xy">(0, 46)</td><td>Size 2 · FG/DIM</td><td>Shows "IDLE", "Npk FreqMHz", or "none found"</td></tr>
-              <tr><td>Idle Row 3: Cell</td><td class="coord-xy">(0, 70)</td><td>Size 2 · FG/DIM</td><td>Shows "IDLE", "FreqMHz dBm", or "none found"</td></tr>
-              <tr><td>Idle Row 4: Scope</td><td class="coord-xy">(0, 94)</td><td>Size 2 · FG/DIM</td><td>Shows "IDLE" or latest sampled "NdBm"</td></tr>
+              <tr><td><strong>1 &middot; Radio</strong></td><td>Is my receive chain working?</td><td>Pipeline &middot; Meter &middot; Scope</td><td>Watch pause/resume &middot; (Scope: capture)</td></tr>
+              <tr><td><strong>2 &middot; Activity</strong></td><td>What is out there right now?</td><td>Dashboard &middot; Sweep &middot; Waterfall &middot; Focus</td><td>Sweep &middot; <kbd>R</kbd> repeat &middot; (Focus: survey)</td></tr>
+              <tr><td><strong>3 &middot; Channel</strong></td><td>Am I on the right channel, and what did it yield?</td><td>Config &middot; Captures &middot; Nodes &middot; Probe</td><td>Probe &middot; (Captures: open inspector)</td></tr>
+              <tr><td><strong>4 &middot; GPS</strong></td><td>Where am I, and what kind of place is it?</td><td>Fix &middot; Cell</td><td>Cell scan &middot; <kbd>R</kbd> repeat</td></tr>
+              <tr><td><strong>5 &middot; System</strong></td><td>Will the device survive the drive?</td><td>Device (single view)</td><td>SD retry</td></tr>
+            </tbody>
+          </table>
+          <p class="plate-note" style="margin-top:14px;">
+            <strong>Single-view cards keep the old behavior.</strong> System has nothing to cycle, so
+            up/down there still aliases prev/next page rather than becoming two dead keys.
+          </p>
+          <p class="plate-note">
+            <strong>Footer view dots</strong> are drawn centred, not beside the <code>N/M</code>
+            carousel position: they are different axes, and sitting them together read as one cluster.
+            Drawn only where there is more than one view, so a lone dot never implies a hidden screen.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 06 · CARD 1 · RADIO ================= -->
+    <section class="plate" id="plate-radio">
+      <div class="fid-bl"></div><div class="fid-br"></div>
+      <div class="plate-head">
+        <span class="plate-num">06 / CARD 1 · RADIO</span>
+        <h2 class="plate-title">Plate: RADIO (Receive Chain)</h2>
+      </div>
+      <p class="plate-note">
+        Card 1, view 1 of 3 (Meter and Scope are views 2 and 3). Rebuilt 2026-09-06: the receive chain
+        is a <strong>pipeline with a named loss at each handoff</strong> &mdash; air &rarr; demod
+        (<code>crc</code>) &rarr; queue (<code>drop</code>) &rarr; SD (<code>drop</code>) &mdash; not
+        seven independent counters. The previous layout put them in two unrelated columns, where a bare
+        <code>drop 3</code> meant nothing without the <code>rx 1284</code> beside it. The arrows go
+        <span class="bad-txt">red</span> when the stage they feed lost something, so the failing handoff
+        is findable without reading a number. Structurally identical to ACTIVITY: a visual band across
+        the top, three <code>statCard()</code>s under it.
+      </p>
+
+      <div class="plate-body">
+        <div class="screen-box">
+          <div class="t1 fg" style="left:4px; top:4px;">RADIO</div>
+          <div class="t1 good" style="left:415px; top:4px;">84%</div>
+          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
+          <div style="position:absolute; left:4px; top:31px; width:519px; height:95px; border:1px solid var(--scr-dim);"></div>
+          <div class="t1 dim" style="left:13px; top:37px;">HEARD</div>
+          <div class="t2 fg" style="left:13px; top:62px;">1284</div>
+          <div class="t1 good" style="left:13px; top:103px;">crc 0</div>
+          <div class="t1 dim" style="left:185px; top:37px;">QUEUED</div>
+          <div class="t2 fg" style="left:185px; top:62px;">1284</div>
+          <div class="t1 good" style="left:185px; top:103px;">drop 0</div>
+          <div class="t1 dim" style="left:356px; top:37px;">LOGGED</div>
+          <div class="t2 fg" style="left:356px; top:62px;">1284</div>
+          <div class="t1 good" style="left:356px; top:103px;">drop 0</div>
+          <div class="t1 dim" style="left:163px; top:68px;">&gt;</div>
+          <div class="t1 dim" style="left:334px; top:68px;">&gt;</div>
+          <div style="position:absolute; left:4px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
+          <div class="t1 good" style="left:13px; top:143px;">STATE</div>
+          <div class="t2 good" style="left:13px; top:174px;">WATCH</div>
+          <div class="t1 dim" style="left:13px; top:231px;">MeshCore</div>
+          <div style="position:absolute; left:180px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
+          <div class="t1 good" style="left:189px; top:143px;">STORAGE</div>
+          <div class="t2 fg" style="left:189px; top:174px;">ok</div>
+          <div class="t1 dim" style="left:189px; top:231px;">run 12</div>
+          <div style="position:absolute; left:356px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
+          <div class="t1 dim" style="left:365px; top:143px;">BUS</div>
+          <div class="t2 fg" style="left:365px; top:174px;">42ms</div>
+          <div class="t1 dim" style="left:365px; top:231px;">0 bus miss</div>
+          <div class="t1 dim" style="left:4px; top:275;">MeshCore</div>
+          <div class="t1 dim" style="right:4px; top:275;">1/5</div>
+          <div style="position:absolute; left:245px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div>
+          <div style="position:absolute; left:260px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
+          <div style="position:absolute; left:275px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
+        </div>
+
+        <div class="coord-table-wrap">
+          <table class="coord-table">
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
+            <tbody>
+              <tr><td>Pipeline band</td><td class="coord-xy">(2, 14) 236&times;43</td><td>Rect &middot; COL_DIM</td><td>Same box geometry as Activity's sparkline</td></tr>
+              <tr><td>Stage name</td><td class="coord-xy">x=6/84/162, y=17</td><td>Size 1 &middot; DIM</td><td>HEARD flashes GOOD on a live detection (RX pulse)</td></tr>
+              <tr><td>Stage count</td><td class="coord-xy">y=28</td><td>Size 2 &middot; COL_FG</td><td>Switches to thousands ("123k") past 99,999 to clear the arrow</td></tr>
+              <tr><td>Stage loss</td><td class="coord-xy">y=47</td><td>Size 1 &middot; GOOD / BAD</td><td>Green at 0, red otherwise &mdash; 0 is the only good value</td></tr>
+              <tr><td>Flow arrows</td><td class="coord-xy">x=74/152, y=31</td><td>Size 1 &middot; DIM / BAD</td><td>Red when the stage they feed lost anything</td></tr>
+              <tr><td>STATE card</td><td class="coord-xy">(2, 61) 77&times;60</td><td>statCard &middot; GOOD / WARN</td><td>WATCH / STANDBY / AWAY; sub names the subject (profile, or the tool holding the radio)</td></tr>
+              <tr><td>STORAGE card</td><td class="coord-xy">(82, 61)</td><td>statCard &middot; GOOD / BAD</td><td>SD ok/DOWN, sub is the run directory index</td></tr>
+              <tr><td>BUS card</td><td class="coord-xy">(162, 61)</td><td>statCard &middot; DIM / BAD</td><td>Worst flush ms (docs/DESIGN.md &sect;8.2) + SPI bus misses</td></tr>
             </tbody>
           </table>
         </div>
       </div>
     </section>
 
-    <!-- ================= 07 · CHANNEL (SLOT 3) ================= -->
-    <section class="plate" id="plate-channel">
+    <!-- ================= 07 · RADIO · VIEW 2 ================= -->
+<section class="plate" id="plate-meter">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">07 / MAIN CAROUSEL 3/5</span>
-        <h2 class="plate-title">Plate: CHANNEL (RF Parameters)</h2>
+        <span class="plate-num">07 / RADIO · VIEW 2</span>
+        <h2 class="plate-title">Plate: METER (Real-Time Signal Level)</h2>
       </div>
       <p class="plate-note">
-        Confirms actual hardware tuning: frequency, Spreading Factor (SF), Bandwidth (BW), Coding Rate (CR), and LoRa Sync Word. The frequency bar shows exact position within the tuned 868–923MHz front-end.
+        Dedicated signal strength meter. Features an honest filled bar gauge (-120 to 0 dBm), signal SNR readout (watch-sourced), and live channel modulation parameters (SF/BW/CR) on the right.
       </p>
 
       <div class="plate-body">
         <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">CHANNEL</div>
-          <div class="t1 good" style="left:415px; top:4px;">83%</div>
+          <div class="t1 fg" style="left:4px; top:4px;">METER</div>
+          <div class="t1 good" style="left:415px; top:4px;">82%</div>
           <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
 
-          <div class="t2 fg" style="left:4px; top:39px;">906.875 MHz</div>
-          <div class="t2 fg" style="left:4px; top:96px;">SF11 BW250.0</div>
+          <div class="t2 fg" style="left:4px; top:44px;">-72 dBm</div>
+          <div class="t1 dim" style="left:4px; top:92px;">watch @ 906.875MHz</div>
+          <div class="t1 dim" style="left:4px; top:119px;">SNR: +8.5dB</div>
+          <div class="t1 fg" style="left:4px; top:145px;">2s ago</div>
 
-          <div style="position:absolute; left:4px; top:162px; width:237px; height:2px; background:var(--scr-dim);"></div>
-          <div style="position:absolute; left:125px; top:156px; width:7px; height:15px; background:var(--scr-good);"></div>
-          <div class="t1 dim" style="left:4px; top:175px;">868</div>
-          <div class="t1 dim" style="left:205px; top:175px;">923</div>
+          <div class="t1 dim" style="right:12px; top:92px; text-align:right;">SF11</div>
+          <div class="t1 dim" style="right:12px; top:119px; text-align:right;">250.0kHz</div>
+          <div class="t1 dim" style="right:12px; top:145px; text-align:right;">CR4/5</div>
 
-          <div class="t1 dim" style="left:4px; top:233px;">CR4/5  sync 0x2B</div>
-
-          <div class="t1 dim" style="left:374px; top:39px;">mode</div>
-          <div class="t1 fg" style="left:374px; top:59px;">Watch</div>
-          <div class="t1 dim" style="left:374px; top:101px;">airtime</div>
-          <div class="t1 fg" style="left:374px; top:121px;">~420ms</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-          <div class="t1 dim" style="right:4px; top:275px;">3/5</div>
-        </div>
-
-        <div class="coord-table-wrap">
-          <table class="coord-table">
-            <thead><tr><th>Field</th><th>Coords</th><th>Font</th><th>Remarks</th></tr></thead>
-            <tbody>
-              <tr><td>Frequency</td><td class="coord-xy">(2, 18)</td><td>Size 2 · COL_FG</td><td>Tuned center frequency in MHz</td></tr>
-              <tr><td>Modulation</td><td class="coord-xy">(2, 44)</td><td>Size 2 · COL_FG</td><td>SF (7-12) and BW (kHz)</td></tr>
-              <tr><td>Frequency Bar</td><td class="coord-xy">(2, 74) w=108</td><td>Track + Marker</td><td>Marker is COL_GOOD, bounds 868..923MHz</td></tr>
-              <tr><td>Coding & Sync</td><td class="coord-xy">(2, 106)</td><td>Size 1 · COL_DIM</td><td>Coding rate (e.g. CR4/5) and hex sync word</td></tr>
-              <tr><td>Mode & Airtime</td><td class="coord-xy">x=170 right col</td><td>Size 1 statBlocks</td><td>Radio task mode ("Watch") and packet ToA</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= 08 · GPS (SLOT 4) ================= -->
-    <section class="plate" id="plate-gps">
-      <div class="fid-bl"></div><div class="fid-br"></div>
-      <div class="plate-head">
-        <span class="plate-num">08 / MAIN CAROUSEL 4/5</span>
-        <h2 class="plate-title">Plate: GPS (Fix & Constellation)</h2>
-      </div>
-      <p class="plate-note">
-        Real-time GPS telemetry parsed from NMEA sentences. Renders 3D/2D fix status, 5-decimal coordinates, altitude, satellites used/in-view, and talker constellation signal strength bars.
-      </p>
-
-      <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">GPS</div>
-          <div class="t1 good" style="left:415px; top:4px;">83%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 good" style="left:4px; top:39px;">3D FIX</div>
-          <div class="t2 fg" style="left:4px; top:88px;">37.77490</div>
-          <div class="t2 fg" style="left:4px; top:132px;">-122.41940</div>
-
-          <div class="t1 dim" style="left:4px; top:184px;">2026-09-04 23:14:02Z</div>
-
-          <div class="t1 dim" style="left:374px; top:39px;">sats</div>
-          <div class="t1 fg" style="left:374px; top:59px;">11</div>
-          <div class="t1 dim" style="left:374px; top:87px;">qual</div>
-          <div class="t1 fg" style="left:374px; top:107px;">1</div>
-
-          <div style="position:absolute; left:374px; top:150px; display:flex; gap:9px;">
-            <div><div style="width:26px; height:30px; background:var(--scr-good); margin-bottom:4px;"></div><div class="t1 dim" style="font-size:11px;">GP</div></div>
-            <div><div style="width:26px; height:20px; background:var(--scr-good); margin-bottom:4px; margin-top:10px;"></div><div class="t1 dim" style="font-size:11px;">GL</div></div>
-            <div><div style="width:26px; height:12px; background:var(--scr-good); margin-bottom:4px; margin-top:18px;"></div><div class="t1 dim" style="font-size:11px;">GA</div></div>
+          <div style="position:absolute; left:4px; top:185px; width:510px; height:26px; border:1.5px solid var(--scr-dim);">
+            <div style="position:absolute; left:2px; top:2px; width:204px; height:18px; background:var(--scr-fg);"></div>
           </div>
+          <div class="t1 dim" style="left:4px; top:220px;">-120</div>
+          <div class="t1 dim" style="right:14px; top:220px;">0</div>
 
           <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-          <div class="t1 dim" style="right:4px; top:275px;">4/5</div>
         </div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Element</th><th>Coords</th><th>Color Token</th><th>Behavior</th></tr></thead>
+            <thead><tr><th>Element</th><th>Coords (1×)</th><th>Token</th><th>Design Rationale</th></tr></thead>
             <tbody>
-              <tr><td>Fix Type</td><td class="coord-xy">(2, 18)</td><td>GOOD / WARN / BAD</td><td>"3D FIX" (Green), "NO FIX" (Yellow/Red)</td></tr>
-              <tr><td>Coordinates</td><td class="coord-xy">(2, 40), (2, 60)</td><td>Size 2 · COL_FG</td><td>Latitude & Longitude formatted to 5 decimals</td></tr>
-              <tr><td>Timestamp</td><td class="coord-xy">(2, 84)</td><td>Size 1 · COL_DIM</td><td>UTC ISO timestamp from GPS NMEA sentence</td></tr>
-              <tr><td>Sats & Qual</td><td class="coord-xy">x=170 right col</td><td>Size 1 statBlocks</td><td>Satellites used in solution and fix quality</td></tr>
-              <tr><td>Talker Bars</td><td class="coord-xy">(170, 70) 4 bars</td><td>Rects · COL_GOOD</td><td>GP (GPS), GL (GLONASS), GA (Galileo), BD (BeiDou)</td></tr>
+              <tr><td>Signal dBm</td><td class="coord-xy">(2, 20)</td><td>Size 2 · COL_FG</td><td>Peak or packet RSSI in dBm</td></tr>
+              <tr><td>SNR Readout</td><td class="coord-xy">(2, 54)</td><td>Size 1 · COL_DIM</td><td>Decoded packet Signal-to-Noise Ratio (dB)</td></tr>
+              <tr><td>Elapsed Age</td><td class="coord-xy">(2, 66)</td><td>FG / WARN</td><td>"live - Watch away" (Warn) or "Ns ago"</td></tr>
+              <tr><td>Channel Params</td><td class="coord-xy">x=230 right-aligned</td><td>Size 1 · COL_DIM</td><td>SF, Bandwidth kHz, and Coding Rate denominator</td></tr>
+              <tr><td>Bar Gauge</td><td class="coord-xy">(2, 84) 232×12</td><td>Border Dim, Fill FG</td><td>-120 to 0 dBm (widened from -30 to avoid clipping)</td></tr>
             </tbody>
           </table>
         </div>
       </div>
     </section>
 
-    <!-- ================= 09 · SYSTEM (SLOT 5) ================= -->
-    <section class="plate" id="plate-system">
+    <!-- ================= 08 · RADIO · VIEW 3 ================= -->
+<section class="plate" id="plate-scope">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">09 / MAIN CAROUSEL 5/5</span>
-        <h2 class="plate-title">Plate: SYSTEM (Heap & Diagnostics)</h2>
+        <span class="plate-num">08 / RADIO · VIEW 3</span>
+        <h2 class="plate-title">Plate: SCOPE (Time-Domain RSSI Trace)</h2>
       </div>
       <p class="plate-note">
-        Critical system telemetry: device uptime, free internal heap (against the 512KB SRAM budget), minimum recorded free heap, battery voltage, SPI bus contention counter, WiFi AP clients, and firmware version.
+        Fixed-frequency RF power oscilloscope. Samples raw RSSI at up to 50Hz (20ms intervals) into a 240-sample trace buffer. Visualizes packet preamble energy envelopes.
       </p>
 
       <div class="plate-body">
         <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">SYSTEM</div>
-          <div class="t1 good" style="left:415px; top:4px;">83%</div>
+          <div class="t1 fg" style="left:4px; top:4px;">SCOPE</div>
+          <div class="t1 good" style="left:415px; top:4px;">82%</div>
           <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
 
-          <div class="t2 fg" style="left:4px; top:39px;">48 min</div>
-          <div class="t2 good" style="left:4px; top:88px;">312k heap</div>
+          <div class="t2 good" style="left:4px; top:40px;">CAPTURED</div>
+          <div class="t1 fg" style="left:4px; top:79px;">906.875MHz  20ms/sample</div>
 
-          <div style="position:absolute; left:4px; top:132px; width:237px; height:18px; border:1px solid var(--scr-good);">
-            <div style="position:absolute; left:2px; top:2px; width:92px; height:12px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:4px; top:132px; width:510px; height:110px; border:1px solid var(--scr-dim); position:relative;">
+            <svg width="510" height="110" style="position:absolute; left:0; top:0;">
+              <polyline points="0,95 80,94 120,95 160,30 200,28 240,32 280,30 320,92 510,95" fill="none" stroke="#00ff00" stroke-width="2" />
+            </svg>
           </div>
-
-          <div class="t1 dim" style="left:299px; top:39px;">min heap</div>
-          <div class="t1 fg" style="left:299px; top:59px;">298k</div>
-
-          <div class="t1 dim" style="left:451px; top:39px;">batt</div>
-          <div class="t1 fg" style="left:451px; top:59px;">3.98V</div>
-
-          <div class="t1 dim" style="left:299px; top:105px;">bus</div>
-          <div class="t1 fg" style="left:299px; top:125px;">0</div>
-
-          <div class="t1 dim" style="left:451px; top:105px;">wifi</div>
-          <div class="t1 dim" style="left:451px; top:125px;">OFF</div>
-
-          <div class="t1 dim" style="left:4px; top:171px;">keys tca8418  health 96</div>
-          <div class="t1 dim" style="left:4px; top:198px;">v1.0.7 (prod-release)</div>
+          <div class="t1 dim" style="left:4px; top:114px;">-30</div>
+          <div class="t1 dim" style="left:4px; top:245px;">-120</div>
 
           <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-          <div class="t1 dim" style="right:4px; top:275px;">5/5</div>
         </div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Metric</th><th>Coords</th><th>Token</th><th>Rules</th></tr></thead>
+            <thead><tr><th>Field</th><th>Coords</th><th>Token</th><th>Rules</th></tr></thead>
             <tbody>
-              <tr><td>Uptime</td><td class="coord-xy">(2, 18)</td><td>Size 2 · COL_FG</td><td>Elapsed minutes since power on</td></tr>
-              <tr><td>Free Heap</td><td class="coord-xy">(2, 40)</td><td>GOOD / WARN / BAD</td><td>3-tier: Green &lt;80%, Yellow 80-90%, Red &gt;90%</td></tr>
-              <tr><td>Heap Fill Bar</td><td class="coord-xy">(2, 60) 108×8</td><td>Rect · Match Heap</td><td>Fills proportionally to SRAM consumed (512KB base)</td></tr>
-              <tr><td>Min Heap / Batt</td><td class="coord-xy">x=136 / x=205</td><td>Size 1 statBlocks</td><td>Lowest watermark and raw battery voltage</td></tr>
-              <tr><td>Bus / WiFi</td><td class="coord-xy">x=136 / x=205</td><td>Size 1 statBlocks</td><td>SPI bus contention and WiFi AP status</td></tr>
-              <tr><td>Key / Log / Version</td><td class="coord-xy">(2, 78), (2, 90)</td><td>Size 1 · COL_DIM</td><td>TCA8418 driver check, session log rows, build tag</td></tr>
+              <tr><td>Headline Word</td><td class="coord-xy">(2, 18)</td><td>GOOD / WARN / DIM</td><td>"CAPTURING", "CAPTURED", or dim "IDLE"</td></tr>
+              <tr><td>Trace Metadata</td><td class="coord-xy">(2, 36)</td><td>Size 1 · COL_FG</td><td>Tuned frequency and sample interval</td></tr>
+              <tr><td>Trace Plot Area</td><td class="coord-xy">(2, 60) 232×50</td><td>COL_GOOD line</td><td>240 samples scaled between -120 and -30 dBm</td></tr>
+              <tr><td>Hold Reversion</td><td class="coord-xy">RESULT_HOLD_MS</td><td>Timer</td><td>Reverts from CAPTURED to IDLE after 8 seconds</td></tr>
             </tbody>
           </table>
         </div>
       </div>
     </section>
 
-    <!-- ================= 10 · PROBE (CAD SCAN) ================= -->
-    <section class="plate" id="plate-probe">
+    <!-- ================= 09 · CARD 2 · ACTIVITY ================= -->
+    <section class="plate" id="plate-activity">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">10 / TOOLS HUB</span>
-        <h2 class="plate-title">Plate: PROBE (Discovery CAD Sweep)</h2>
+        <span class="plate-num">09 / CARD 2 · ACTIVITY</span>
+        <h2 class="plate-title">Plate: ACTIVITY (RF Environment)</h2>
       </div>
       <p class="plate-note">
-        Executes fast Preamble Channel Activity Detection (CAD) across source-backed profile tuples. Scans without decoding full packets, providing rapid presence detection while keeping radio away-time bounded.
+        Card 2, view 1 of 4 (Sweep, Waterfall and Focus are views 2&ndash;4). The card that established
+        the pattern the rest now follow: a visual band across the top, three <code>statCard()</code>s
+        under it. Its band is a <strong>time series</strong> because its question is "what is out there
+        right now"; Radio's is a flow because its question is about integrity. The 30-bucket packets/sec
+        ring costs 30 bytes of static RAM and is sampled here, not in <code>radio_task</code> &mdash;
+        the radio already counts packets, this only differences that count once a second.
       </p>
 
       <div class="plate-body">
         <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">PROBE</div>
-          <div class="t1 good" style="left:415px; top:4px;">83%</div>
+          <div class="t1 fg" style="left:4px; top:4px;">ACTIVITY</div>
+          <div class="t1 good" style="left:415px; top:4px;">84%</div>
           <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 good" style="left:4px; top:44px;">COMPLETE</div>
-          <div class="t1 fg" style="left:4px; top:95px;">candidates 8/8  away 124ms</div>
-
-          <div class="t1 fg" style="left:4px; top:136px;">US LongFast, EU Narrow</div>
-          <div class="t1 dim" style="left:4px; top:211px;">hits 2  free 6  timeout 0  err 0</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
+          <div style="position:absolute; left:4px; top:31px; width:519px; height:95px; border:1px solid var(--scr-dim);"></div>
+          <div style="position:absolute; left:9px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:24px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:40px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:55px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:70px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:86px; top:65px; width:13px; height:52px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:101px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:117px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:132px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:147px; top:51px; width:13px; height:66px; background:var(--scr-warn);"></div>
+          <div style="position:absolute; left:163px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:178px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:194px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:209px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:224px; top:65px; width:13px; height:52px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:240px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:255px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:271px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:286px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:301px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:317px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:332px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:348px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:363px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:378px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:394px; top:65px; width:13px; height:52px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:409px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:425px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:440px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:455px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:4px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
+          <div class="t1 warn" style="left:13px; top:143px;">SWEEP PK</div>
+          <div class="t2 fg" style="left:13px; top:174px;">906.9</div>
+          <div class="t1 dim" style="left:13px; top:231px;">-71 dBm</div>
+          <div style="position:absolute; left:180px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
+          <div class="t1 good" style="left:189px; top:143px;">LAST PKT</div>
+          <div class="t2 fg" style="left:189px; top:174px;">-84</div>
+          <div class="t1 dim" style="left:189px; top:231px;">+8.5dB SNR</div>
+          <div style="position:absolute; left:356px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
+          <div class="t1 dim" style="left:365px; top:143px;">AWAY T</div>
+          <div class="t2 fg" style="left:365px; top:174px;">4.2s</div>
+          <div class="t1 dim" style="left:365px; top:231px;">last: sweep</div>
+          <div class="t1 dim" style="left:4px; top:275;">MeshCore</div>
+          <div class="t1 dim" style="right:4px; top:275;">2/5</div>
+          <div style="position:absolute; left:238px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div>
+          <div style="position:absolute; left:253px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
+          <div style="position:absolute; left:268px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
+          <div style="position:absolute; left:283px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
         </div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Field</th><th>Coords</th><th>Token</th><th>Notes</th></tr></thead>
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
             <tbody>
-              <tr><td>Headline Status</td><td class="coord-xy">(2, 20)</td><td>Size 2 · Status</td><td>"SCANNING" (Warn), "COMPLETE" (Good), "IDLE" (Dim)</td></tr>
-              <tr><td>Candidate Progress</td><td class="coord-xy">(2, 43)</td><td>Size 1 · COL_FG</td><td>Current/Total candidate count + away-time ms</td></tr>
-              <tr><td>Hit Labels</td><td class="coord-xy">(2, 62)</td><td>Size 1 · COL_FG</td><td>Human-readable names of profiles detected</td></tr>
-              <tr><td>CAD Stats</td><td class="coord-xy">(2, 96)</td><td>Size 1 · DIM / BAD</td><td>Hits, free channels, timeouts, and hardware errors</td></tr>
+              <tr><td>Sparkline band</td><td class="coord-xy">(2, 14) 236&times;43</td><td>Rect &middot; COL_DIM</td><td>Packets/sec, 30&times;1s buckets, oldest left</td></tr>
+              <tr><td>Sparkline bars</td><td class="coord-xy">7px pitch</td><td>Fill &middot; GOOD / WARN</td><td>Busiest bucket drawn WARN so a burst is findable without a Y axis</td></tr>
+              <tr><td>SWEEP PK card</td><td class="coord-xy">(2, 61) 77&times;60</td><td>statCard &middot; WARN</td><td>Strongest peak of the last Sweep &mdash; also the frequency Focus would survey</td></tr>
+              <tr><td>LAST PKT card</td><td class="coord-xy">(82, 61)</td><td>statCard &middot; GOOD</td><td>RSSI + SNR of the newest decode. Real values, which is why this replaced a proposed "CAD HIT" card &mdash; CAD yields no SNR</td></tr>
+              <tr><td>AWAY T card</td><td class="coord-xy">(162, 61)</td><td>statCard &middot; DIM</td><td>Longest radio-away time and which tool spent it. No budget line: &sect;6.3 left that an operator decision</td></tr>
             </tbody>
           </table>
         </div>
       </div>
     </section>
 
-    <!-- ================= 11 · SWEEP (SPECTRUM) ================= -->
-    <section class="plate" id="plate-sweep">
+    <!-- ================= 10 · ACTIVITY · VIEW 2 ================= -->
+<section class="plate" id="plate-sweep">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">11 / TOOLS HUB</span>
+        <span class="plate-num">10 / ACTIVITY · VIEW 2</span>
         <h2 class="plate-title">Plate: SWEEP (RF Energy & Pass-B)</h2>
       </div>
       <p class="plate-note">
@@ -1469,11 +1496,355 @@
       </div>
     </section>
 
-    <!-- ================= 12 · CELL (869-894MHz) ================= -->
-    <section class="plate" id="plate-cell">
+    <!-- ================= 11 · ACTIVITY · VIEW 3 ================= -->
+<section class="plate" id="plate-waterfall">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">12 / TOOLS HUB (PHASE 11)</span>
+        <span class="plate-num">11 / ACTIVITY · VIEW 3</span>
+        <h2 class="plate-title">Plate: WATERFALL (Historical Spectrogram)</h2>
+      </div>
+      <p class="plate-note">
+        Stores up to 24 rows of historical frequency bin sweeps. Features a labeled MHz frequency axis along the bottom border, top-row SCANNING badge, and Enter-to-repeat sweep control.
+      </p>
+
+      <div class="plate-body">
+        <div class="screen-box">
+          <div class="t1 fg" style="left:4px; top:4px;">WATERFALL</div>
+          <div class="t1 good" style="left:415px; top:4px;">82%</div>
+          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
+
+          <div class="t2 warn" style="left:4px; top:40px;">12 HITS</div>
+          <div class="t1 warn" style="right:14px; top:40px;">SCANNING</div>
+          <div class="t1 dim" style="left:4px; top:79px;">24 rows, newest first  85 bins</div>
+
+          <div style="position:absolute; left:4px; top:101px; width:510px; height:132px; border:1px solid var(--scr-dim); background:#000;">
+            <div style="position:absolute; left:140px; top:10px; width:6px; height:8px; background:var(--scr-warn);"></div>
+            <div style="position:absolute; left:290px; top:10px; width:6px; height:8px; background:var(--scr-warn);"></div>
+            <div style="position:absolute; left:142px; top:22px; width:6px; height:8px; background:var(--scr-warn);"></div>
+            <div style="position:absolute; left:290px; top:22px; width:6px; height:8px; background:var(--scr-warn);"></div>
+            <div style="position:absolute; left:140px; top:34px; width:6px; height:8px; background:var(--scr-warn);"></div>
+            <div style="position:absolute; left:420px; top:58px; width:6px; height:8px; background:var(--scr-dim);"></div>
+          </div>
+
+          <div class="t1 dim" style="left:4px; top:240px;">902.0</div>
+          <div class="t1 dim" style="left:240px; top:240px;">912.5</div>
+          <div class="t1 dim" style="right:14px; top:240px;">923.0</div>
+
+          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
+        </div>
+
+        <div class="coord-table-wrap">
+          <table class="coord-table">
+            <thead><tr><th>Component</th><th>Geometry</th><th>Color</th><th>Details</th></tr></thead>
+            <tbody>
+              <tr><td>Hit Summary</td><td class="coord-xy">(2, 18)</td><td>Size 2 · WARN / DIM</td><td>Total hits across buffer or "QUIET"</td></tr>
+              <tr><td>Scanning Badge</td><td class="coord-xy">x=234 right-aligned</td><td>Size 1 · COL_WARN</td><td>Renders when repeat Sweep is running</td></tr>
+              <tr><td>Spectrogram Plot</td><td class="coord-xy">(2, 46) 232×60</td><td>Box Border Dim</td><td>Up to 24 rows @ 4px height; hits in COL_WARN</td></tr>
+              <tr><td>Frequency Axis</td><td class="coord-xy">y=106 (border)</td><td>Ticks + Labels</td><td>902.0, 912.5, 923.0 MHz (plus 20/40/60/80% ticks)</td></tr>
+              <tr><td>Enter Key Action</td><td class="coord-xy">Interactive</td><td>Toggle Repeat</td><td>Starts/stops repeat Sweep without leaving page</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 12 · ACTIVITY · VIEW 4 ================= -->
+    <section class="plate" id="plate-focus">
+      <div class="fid-bl"></div><div class="fid-br"></div>
+      <div class="plate-head">
+        <span class="plate-num">12 / ACTIVITY · VIEW 4</span>
+        <h2 class="plate-title">Plate: FOCUS (One-Bin Dwell Survey)</h2>
+      </div>
+      <p class="plate-note">
+        Workstream 12, and the plate this guide was missing entirely. Focus is Sweep's zoom: a long
+        bounded dwell on <em>one</em> frequency bin, selected from the last completed Sweep's first peak
+        (falling back to the bin containing the home channel). That is why it lives on Activity &mdash;
+        the target it surveys is the same peak the dashboard's <code>SWEEP PK</code> card is showing,
+        one press away. Sampling follows a measured 20ms spacing policy, not a fixed sample count
+        (<code>focus_plan.h</code>).
+      </p>
+
+      <div class="plate-body">
+        <div class="screen-box">
+          <div class="t1 fg" style="left:4px; top:4px;">FOCUS</div>
+          <div class="t1 good" style="left:415px; top:4px;">84%</div>
+          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
+          <div class="t2 fg" style="left:4px; top:35px;">906.875 MHz</div>
+          <div class="t1 warn" style="left:304px; top:40px;">BIN 42</div>
+          <div class="t1 good" style="right:4px; top:40px;">COMPLETE</div>
+          <div style="position:absolute; left:4px; top:88px; width:519px; height:18px; border:1px solid var(--scr-dim);"></div>
+          <div style="position:absolute; left:7px; top:90px; width:515px; height:13px; background:var(--scr-good);"></div>
+          <div class="t1 dim" style="left:4px; top:112px;">DWELL 2.0s / 2.0s</div>
+          <div class="t1 dim" style="right:4px; top:112px;">101 SAMPLES</div>
+          <div style="position:absolute; left:4px; top:156px; width:519px; height:44px; border:1px solid var(--scr-dim);"></div>
+          <div class="t1 good" style="left:144px; top:141px;">P50</div>
+          <div class="t1 warn" style="left:267px; top:141px;">P90</div>
+          <div class="t1 fg" style="left:349px; top:141px;">PK</div>
+          <div style="position:absolute; left:154px; top:156px; width:2px; height:44px; background:var(--scr-good);"></div>
+          <div style="position:absolute; left:277px; top:156px; width:2px; height:44px; background:var(--scr-warn);"></div>
+          <div style="position:absolute; left:355px; top:156px; width:2px; height:44px; background:var(--scr-fg);"></div>
+          <div class="t1 dim" style="left:9px; top:209px;">-120</div>
+          <div class="t1 dim" style="left:242px; top:209px;">-80</div>
+          <div class="t1 dim" style="left:484px; top:209px;">-40</div>
+          <div class="t1 good" style="left:4px; top:235px;">P50 -97</div>
+          <div class="t1 warn" style="left:189px; top:235px;">P90 -78</div>
+          <div class="t1 fg" style="left:361px; top:235px;">PK -66</div>
+          <div class="t1 dim" style="left:4px; top:275;">MeshCore</div>
+          <div class="t1 dim" style="right:4px; top:275;">2/5</div>
+          <div style="position:absolute; left:238px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
+          <div style="position:absolute; left:253px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
+          <div style="position:absolute; left:268px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
+          <div style="position:absolute; left:283px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div>
+        </div>
+
+        <div class="coord-table-wrap">
+          <table class="coord-table">
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
+            <tbody>
+              <tr><td>Target frequency</td><td class="coord-xy">(2, 16)</td><td>Size 2 &middot; COL_FG</td><td>The surveyed bin's centre frequency</td></tr>
+              <tr><td>Bin index</td><td class="coord-xy">(138, 18)</td><td>Size 1 &middot; WARN</td><td>"BIN n", not "[CH n]" &mdash; it is a Sweep bin, and dropping brackets keeps a 3-digit bin clear of the status</td></tr>
+              <tr><td>Status</td><td class="coord-xy">right-aligned, y=18</td><td>Size 1 &middot; GOOD / WARN / BAD</td><td>SURVEYING, RESTORING, COMPLETE, CANCELLED, TIMEOUT, FAILED &mdash; or <span class="bad-txt">NO HOME</span>, which takes the slot outright</td></tr>
+              <tr><td>Dwell bar</td><td class="coord-xy">(2, 40) 236&times;8</td><td>Rect + fill &middot; GOOD</td><td>observation_ms against requested_dwell_ms</td></tr>
+              <tr><td>Dwell / samples</td><td class="coord-xy">y=51</td><td>Size 1 &middot; DIM</td><td>Samples derive from dwell at 20ms spacing, never a fixed count</td></tr>
+              <tr><td>Bracket gauge</td><td class="coord-xy">(2, 71) 236&times;20</td><td>Rect &middot; DIM</td><td>Sits 5px below the guide's original +54: marker labels draw above the box and would overprint the DWELL row</td></tr>
+              <tr><td>P50 / P90 / PK markers</td><td class="coord-xy">inside gauge</td><td>GOOD / WARN / FG</td><td>Blank rather than fabricated when the histogram cannot give an exact quantile</td></tr>
+              <tr><td>Axis + stats</td><td class="coord-xy">y=95 / y=107</td><td>Size 1</td><td>-120 / -80 / -40 dBm scale</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 13 · CARD 3 · CHANNEL ================= -->
+<section class="plate" id="plate-channel">
+      <div class="fid-bl"></div><div class="fid-br"></div>
+      <div class="plate-head">
+        <span class="plate-num">13 / CARD 3 · CHANNEL</span>
+        <h2 class="plate-title">Plate: CHANNEL (RF Parameters)</h2>
+      </div>
+      <p class="plate-note">
+        Confirms actual hardware tuning: frequency, Spreading Factor (SF), Bandwidth (BW), Coding Rate (CR), and LoRa Sync Word. The frequency bar shows exact position within the tuned 868–923MHz front-end.
+      </p>
+
+      <div class="plate-body">
+        <div class="screen-box">
+          <div class="t1 fg" style="left:4px; top:4px;">CHANNEL</div>
+          <div class="t1 good" style="left:415px; top:4px;">83%</div>
+          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
+
+          <div class="t2 fg" style="left:4px; top:39px;">906.875 MHz</div>
+          <div class="t2 fg" style="left:4px; top:96px;">SF11 BW250.0</div>
+
+          <div style="position:absolute; left:4px; top:162px; width:237px; height:2px; background:var(--scr-dim);"></div>
+          <div style="position:absolute; left:125px; top:156px; width:7px; height:15px; background:var(--scr-good);"></div>
+          <div class="t1 dim" style="left:4px; top:175px;">868</div>
+          <div class="t1 dim" style="left:205px; top:175px;">923</div>
+
+          <div class="t1 dim" style="left:4px; top:233px;">CR4/5  sync 0x2B</div>
+
+          <div class="t1 dim" style="left:374px; top:39px;">mode</div>
+          <div class="t1 fg" style="left:374px; top:59px;">Watch</div>
+          <div class="t1 dim" style="left:374px; top:101px;">airtime</div>
+          <div class="t1 fg" style="left:374px; top:121px;">~420ms</div>
+
+          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
+          <div class="t1 dim" style="right:4px; top:275px;">3/5</div>
+        </div>
+
+        <div class="coord-table-wrap">
+          <table class="coord-table">
+            <thead><tr><th>Field</th><th>Coords</th><th>Font</th><th>Remarks</th></tr></thead>
+            <tbody>
+              <tr><td>Frequency</td><td class="coord-xy">(2, 18)</td><td>Size 2 · COL_FG</td><td>Tuned center frequency in MHz</td></tr>
+              <tr><td>Modulation</td><td class="coord-xy">(2, 44)</td><td>Size 2 · COL_FG</td><td>SF (7-12) and BW (kHz)</td></tr>
+              <tr><td>Frequency Bar</td><td class="coord-xy">(2, 74) w=108</td><td>Track + Marker</td><td>Marker is COL_GOOD, bounds 868..923MHz</td></tr>
+              <tr><td>Coding & Sync</td><td class="coord-xy">(2, 106)</td><td>Size 1 · COL_DIM</td><td>Coding rate (e.g. CR4/5) and hex sync word</td></tr>
+              <tr><td>Mode & Airtime</td><td class="coord-xy">x=170 right col</td><td>Size 1 statBlocks</td><td>Radio task mode ("Watch") and packet ToA</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 14 · CHANNEL · VIEW 2 ================= -->
+<section class="plate" id="plate-captures">
+      <div class="fid-bl"></div><div class="fid-br"></div>
+      <div class="plate-head">
+        <span class="plate-num">14 / CHANNEL · VIEW 2</span>
+        <h2 class="plate-title">Plate: CAPTURES (Packet Ring Buffer)</h2>
+      </div>
+      <p class="plate-note">
+        Maintains an in-memory circular ring buffer of the 8 most recent decoded LoRa packet headers. Flags off-grid channels and displays node hex addresses, RSSI, and elapsed age.
+      </p>
+
+      <div class="plate-body">
+        <div class="screen-box">
+          <div class="t1 fg" style="left:4px; top:4px;">CAPTURES</div>
+          <div class="t1 good" style="left:415px; top:4px;">82%</div>
+          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
+
+          <div class="t1 fg" style="left:4px; top:36px;">meshtastic !a4b892f0 906.9MHz -68dBm 2s</div>
+          <div class="t1 warn" style="left:4px; top:65px;">meshtastic !38c11e04 910.5MHz -94dBm 14s</div>
+          <div class="t1 fg" style="left:4px; top:94px;">meshcore 906.9MHz -82dBm 28s</div>
+          <div class="t1 fg" style="left:4px; top:123px;">meshtastic !f102bb88 906.9MHz -75dBm 42s</div>
+          <div class="t1 fg" style="left:4px; top:152px;">meshtastic !12aa045e 906.9MHz -89dBm 65s</div>
+          <div class="t1 fg" style="left:4px; top:181px;">meshtastic !88319eac 906.9MHz -102dBm 120s</div>
+
+          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
+        </div>
+
+        <div class="coord-table-wrap">
+          <table class="coord-table">
+            <thead><tr><th>Property</th><th>Value</th><th>Format</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td>Max Entries</td><td>8 packets</td><td>Circular FIFO</td><td>Oldest packets drop off automatically</td></tr>
+              <tr><td>Row Height</td><td>13px pitch</td><td>Size 1 font</td><td>Fits up to 8 rows comfortably in content zone</td></tr>
+              <tr><td>Color Coding</td><td>FG / WARN</td><td>Text Token</td><td>Yellow if packet frequency was off-grid; white if standard</td></tr>
+              <tr><td>Line Format</td><td>String</td><td>Template</td><td><code>{profile} [!nodeId] {freq}MHz {rssi}dBm {age}s</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 15 · CHANNEL · VIEW 3 ================= -->
+<section class="plate" id="plate-nodes">
+      <div class="fid-bl"></div><div class="fid-br"></div>
+      <div class="plate-head">
+        <span class="plate-num">15 / CHANNEL · VIEW 3</span>
+        <h2 class="plate-title">Plate: NODES (Observed Node Roster)</h2>
+      </div>
+      <p class="plate-note">
+        Deduplicated roster of up to 24 observed nodes sorted by recency. Tracks transmission count per node, last seen RSSI, and elapsed seconds.
+      </p>
+
+      <div class="plate-body">
+        <div class="screen-box">
+          <div class="t1 fg" style="left:4px; top:4px;">NODES</div>
+          <div class="t1 good" style="left:415px; top:4px;">82%</div>
+          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
+
+          <div class="t1 fg" style="left:4px; top:36px;">meshtastic !a4b892f0 x14 -68dBm 2s</div>
+          <div class="t1 fg" style="left:4px; top:65px;">meshtastic !38c11e04 x3 -94dBm 14s</div>
+          <div class="t1 fg" style="left:4px; top:94px;">meshtastic !f102bb88 x8 -75dBm 42s</div>
+          <div class="t1 fg" style="left:4px; top:123px;">meshtastic !12aa045e x1 -89dBm 65s</div>
+          <div class="t1 fg" style="left:4px; top:152px;">meshtastic !88319eac x5 -102dBm 120s</div>
+
+          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
+        </div>
+
+        <div class="coord-table-wrap">
+          <table class="coord-table">
+            <thead><tr><th>Attribute</th><th>Specification</th><th>Details</th></tr></thead>
+            <tbody>
+              <tr><td>Max Nodes</td><td>24 nodes</td><td>Static array in <code>node_roster.h</code></td></tr>
+              <tr><td>Sorting</td><td>Recency (ageS asc)</td><td>Most recently heard nodes stay pinned to the top</td></tr>
+              <tr><td>Hit Multiplier</td><td>xN count</td><td>Tracks packet density emitted by that node</td></tr>
+              <tr><td>Node Address</td><td>!xxxxxxxx</td><td>8-character hex address formatted with bang prefix</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 16 · CHANNEL · VIEW 4 ================= -->
+<section class="plate" id="plate-probe">
+      <div class="fid-bl"></div><div class="fid-br"></div>
+      <div class="plate-head">
+        <span class="plate-num">16 / CHANNEL · VIEW 4</span>
+        <h2 class="plate-title">Plate: PROBE (Discovery CAD Sweep)</h2>
+      </div>
+      <p class="plate-note">
+        Executes fast Preamble Channel Activity Detection (CAD) across source-backed profile tuples. Scans without decoding full packets, providing rapid presence detection while keeping radio away-time bounded.
+      </p>
+
+      <div class="plate-body">
+        <div class="screen-box">
+          <div class="t1 fg" style="left:4px; top:4px;">PROBE</div>
+          <div class="t1 good" style="left:415px; top:4px;">83%</div>
+          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
+
+          <div class="t2 good" style="left:4px; top:44px;">COMPLETE</div>
+          <div class="t1 fg" style="left:4px; top:95px;">candidates 8/8  away 124ms</div>
+
+          <div class="t1 fg" style="left:4px; top:136px;">US LongFast, EU Narrow</div>
+          <div class="t1 dim" style="left:4px; top:211px;">hits 2  free 6  timeout 0  err 0</div>
+
+          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
+        </div>
+
+        <div class="coord-table-wrap">
+          <table class="coord-table">
+            <thead><tr><th>Field</th><th>Coords</th><th>Token</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td>Headline Status</td><td class="coord-xy">(2, 20)</td><td>Size 2 · Status</td><td>"SCANNING" (Warn), "COMPLETE" (Good), "IDLE" (Dim)</td></tr>
+              <tr><td>Candidate Progress</td><td class="coord-xy">(2, 43)</td><td>Size 1 · COL_FG</td><td>Current/Total candidate count + away-time ms</td></tr>
+              <tr><td>Hit Labels</td><td class="coord-xy">(2, 62)</td><td>Size 1 · COL_FG</td><td>Human-readable names of profiles detected</td></tr>
+              <tr><td>CAD Stats</td><td class="coord-xy">(2, 96)</td><td>Size 1 · DIM / BAD</td><td>Hits, free channels, timeouts, and hardware errors</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 17 · CARD 4 · GPS ================= -->
+<section class="plate" id="plate-gps">
+      <div class="fid-bl"></div><div class="fid-br"></div>
+      <div class="plate-head">
+        <span class="plate-num">17 / CARD 4 · GPS</span>
+        <h2 class="plate-title">Plate: GPS (Fix & Constellation)</h2>
+      </div>
+      <p class="plate-note">
+        Real-time GPS telemetry parsed from NMEA sentences. Renders 3D/2D fix status, 5-decimal coordinates, altitude, satellites used/in-view, and talker constellation signal strength bars.
+      </p>
+
+      <div class="plate-body">
+        <div class="screen-box">
+          <div class="t1 fg" style="left:4px; top:4px;">GPS</div>
+          <div class="t1 good" style="left:415px; top:4px;">83%</div>
+          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
+
+          <div class="t2 good" style="left:4px; top:39px;">3D FIX</div>
+          <div class="t2 fg" style="left:4px; top:88px;">37.77490</div>
+          <div class="t2 fg" style="left:4px; top:132px;">-122.41940</div>
+
+          <div class="t1 dim" style="left:4px; top:184px;">2026-09-04 23:14:02Z</div>
+
+          <div class="t1 dim" style="left:374px; top:39px;">sats</div>
+          <div class="t1 fg" style="left:374px; top:59px;">11</div>
+          <div class="t1 dim" style="left:374px; top:87px;">qual</div>
+          <div class="t1 fg" style="left:374px; top:107px;">1</div>
+
+          <div style="position:absolute; left:374px; top:150px; display:flex; gap:9px;">
+            <div><div style="width:26px; height:30px; background:var(--scr-good); margin-bottom:4px;"></div><div class="t1 dim" style="font-size:11px;">GP</div></div>
+            <div><div style="width:26px; height:20px; background:var(--scr-good); margin-bottom:4px; margin-top:10px;"></div><div class="t1 dim" style="font-size:11px;">GL</div></div>
+            <div><div style="width:26px; height:12px; background:var(--scr-good); margin-bottom:4px; margin-top:18px;"></div><div class="t1 dim" style="font-size:11px;">GA</div></div>
+          </div>
+
+          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
+          <div class="t1 dim" style="right:4px; top:275px;">4/5</div>
+        </div>
+
+        <div class="coord-table-wrap">
+          <table class="coord-table">
+            <thead><tr><th>Element</th><th>Coords</th><th>Color Token</th><th>Behavior</th></tr></thead>
+            <tbody>
+              <tr><td>Fix Type</td><td class="coord-xy">(2, 18)</td><td>GOOD / WARN / BAD</td><td>"3D FIX" (Green), "NO FIX" (Yellow/Red)</td></tr>
+              <tr><td>Coordinates</td><td class="coord-xy">(2, 40), (2, 60)</td><td>Size 2 · COL_FG</td><td>Latitude & Longitude formatted to 5 decimals</td></tr>
+              <tr><td>Timestamp</td><td class="coord-xy">(2, 84)</td><td>Size 1 · COL_DIM</td><td>UTC ISO timestamp from GPS NMEA sentence</td></tr>
+              <tr><td>Sats & Qual</td><td class="coord-xy">x=170 right col</td><td>Size 1 statBlocks</td><td>Satellites used in solution and fix quality</td></tr>
+              <tr><td>Talker Bars</td><td class="coord-xy">(170, 70) 4 bars</td><td>Rects · COL_GOOD</td><td>GP (GPS), GL (GLONASS), GA (Galileo), BD (BeiDou)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 18 · GPS · VIEW 2 ================= -->
+<section class="plate" id="plate-cell">
+      <div class="fid-bl"></div><div class="fid-br"></div>
+      <div class="plate-head">
+        <span class="plate-num">18 / GPS · VIEW 2</span>
         <h2 class="plate-title">Plate: CELL (Cellular Band Energy)</h2>
       </div>
       <p class="plate-note">
@@ -1524,243 +1895,84 @@
       </div>
     </section>
 
-    <!-- ================= 13 · METER (LIVE RSSI) ================= -->
-    <section class="plate" id="plate-meter">
+    <!-- ================= 19 · CARD 5 · SYSTEM ================= -->
+<section class="plate" id="plate-system">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">13 / ANALYZE SUITE</span>
-        <h2 class="plate-title">Plate: METER (Real-Time Signal Level)</h2>
+        <span class="plate-num">19 / CARD 5 · SYSTEM</span>
+        <h2 class="plate-title">Plate: SYSTEM (Heap & Diagnostics)</h2>
       </div>
       <p class="plate-note">
-        Dedicated signal strength meter. Features an honest filled bar gauge (-120 to 0 dBm), signal SNR readout (watch-sourced), and live channel modulation parameters (SF/BW/CR) on the right.
+        Critical system telemetry: device uptime, free internal heap (against the 512KB SRAM budget), minimum recorded free heap, battery voltage, SPI bus contention counter, WiFi AP clients, and firmware version.
       </p>
 
       <div class="plate-body">
         <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">METER</div>
-          <div class="t1 good" style="left:415px; top:4px;">82%</div>
+          <div class="t1 fg" style="left:4px; top:4px;">SYSTEM</div>
+          <div class="t1 good" style="left:415px; top:4px;">83%</div>
           <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
 
-          <div class="t2 fg" style="left:4px; top:44px;">-72 dBm</div>
-          <div class="t1 dim" style="left:4px; top:92px;">watch @ 906.875MHz</div>
-          <div class="t1 dim" style="left:4px; top:119px;">SNR: +8.5dB</div>
-          <div class="t1 fg" style="left:4px; top:145px;">2s ago</div>
+          <div class="t2 fg" style="left:4px; top:39px;">48 min</div>
+          <div class="t2 good" style="left:4px; top:88px;">312k heap</div>
 
-          <div class="t1 dim" style="right:12px; top:92px; text-align:right;">SF11</div>
-          <div class="t1 dim" style="right:12px; top:119px; text-align:right;">250.0kHz</div>
-          <div class="t1 dim" style="right:12px; top:145px; text-align:right;">CR4/5</div>
-
-          <div style="position:absolute; left:4px; top:185px; width:510px; height:26px; border:1.5px solid var(--scr-dim);">
-            <div style="position:absolute; left:2px; top:2px; width:204px; height:18px; background:var(--scr-fg);"></div>
-          </div>
-          <div class="t1 dim" style="left:4px; top:220px;">-120</div>
-          <div class="t1 dim" style="right:14px; top:220px;">0</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-        </div>
-
-        <div class="coord-table-wrap">
-          <table class="coord-table">
-            <thead><tr><th>Element</th><th>Coords (1×)</th><th>Token</th><th>Design Rationale</th></tr></thead>
-            <tbody>
-              <tr><td>Signal dBm</td><td class="coord-xy">(2, 20)</td><td>Size 2 · COL_FG</td><td>Peak or packet RSSI in dBm</td></tr>
-              <tr><td>SNR Readout</td><td class="coord-xy">(2, 54)</td><td>Size 1 · COL_DIM</td><td>Decoded packet Signal-to-Noise Ratio (dB)</td></tr>
-              <tr><td>Elapsed Age</td><td class="coord-xy">(2, 66)</td><td>FG / WARN</td><td>"live - watch paused" (Warn) or "Ns ago"</td></tr>
-              <tr><td>Channel Params</td><td class="coord-xy">x=230 right-aligned</td><td>Size 1 · COL_DIM</td><td>SF, Bandwidth kHz, and Coding Rate denominator</td></tr>
-              <tr><td>Bar Gauge</td><td class="coord-xy">(2, 84) 232×12</td><td>Border Dim, Fill FG</td><td>-120 to 0 dBm (widened from -30 to avoid clipping)</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= 14 · WATERFALL (SPECTROGRAM) ================= -->
-    <section class="plate" id="plate-waterfall">
-      <div class="fid-bl"></div><div class="fid-br"></div>
-      <div class="plate-head">
-        <span class="plate-num">14 / ANALYZE SUITE</span>
-        <h2 class="plate-title">Plate: WATERFALL (Historical Spectrogram)</h2>
-      </div>
-      <p class="plate-note">
-        Stores up to 24 rows of historical frequency bin sweeps. Features a labeled MHz frequency axis along the bottom border, top-row SCANNING badge, and Enter-to-repeat sweep control.
-      </p>
-
-      <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">WATERFALL</div>
-          <div class="t1 good" style="left:415px; top:4px;">82%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 warn" style="left:4px; top:40px;">12 HITS</div>
-          <div class="t1 warn" style="right:14px; top:40px;">SCANNING</div>
-          <div class="t1 dim" style="left:4px; top:79px;">24 rows, newest first  85 bins</div>
-
-          <div style="position:absolute; left:4px; top:101px; width:510px; height:132px; border:1px solid var(--scr-dim); background:#000;">
-            <div style="position:absolute; left:140px; top:10px; width:6px; height:8px; background:var(--scr-warn);"></div>
-            <div style="position:absolute; left:290px; top:10px; width:6px; height:8px; background:var(--scr-warn);"></div>
-            <div style="position:absolute; left:142px; top:22px; width:6px; height:8px; background:var(--scr-warn);"></div>
-            <div style="position:absolute; left:290px; top:22px; width:6px; height:8px; background:var(--scr-warn);"></div>
-            <div style="position:absolute; left:140px; top:34px; width:6px; height:8px; background:var(--scr-warn);"></div>
-            <div style="position:absolute; left:420px; top:58px; width:6px; height:8px; background:var(--scr-dim);"></div>
+          <div style="position:absolute; left:4px; top:132px; width:237px; height:18px; border:1px solid var(--scr-good);">
+            <div style="position:absolute; left:2px; top:2px; width:92px; height:12px; background:var(--scr-good);"></div>
           </div>
 
-          <div class="t1 dim" style="left:4px; top:240px;">902.0</div>
-          <div class="t1 dim" style="left:240px; top:240px;">912.5</div>
-          <div class="t1 dim" style="right:14px; top:240px;">923.0</div>
+          <div class="t1 dim" style="left:299px; top:39px;">min heap</div>
+          <div class="t1 fg" style="left:299px; top:59px;">298k</div>
+
+          <div class="t1 dim" style="left:451px; top:39px;">batt</div>
+          <div class="t1 fg" style="left:451px; top:59px;">3.98V</div>
+
+          <div class="t1 dim" style="left:299px; top:105px;">bus</div>
+          <div class="t1 fg" style="left:299px; top:125px;">0</div>
+
+          <div class="t1 dim" style="left:451px; top:105px;">wifi</div>
+          <div class="t1 dim" style="left:451px; top:125px;">OFF</div>
+
+          <div class="t1 dim" style="left:4px; top:171px;">keys tca8418  health 96</div>
+          <div class="t1 dim" style="left:4px; top:198px;">v1.1.0-beta (dev)</div>
 
           <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
+          <div class="t1 dim" style="right:4px; top:275px;">5/5</div>
         </div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Component</th><th>Geometry</th><th>Color</th><th>Details</th></tr></thead>
+            <thead><tr><th>Metric</th><th>Coords</th><th>Token</th><th>Rules</th></tr></thead>
             <tbody>
-              <tr><td>Hit Summary</td><td class="coord-xy">(2, 18)</td><td>Size 2 · WARN / DIM</td><td>Total hits across buffer or "QUIET"</td></tr>
-              <tr><td>Scanning Badge</td><td class="coord-xy">x=234 right-aligned</td><td>Size 1 · COL_WARN</td><td>Renders when repeat Sweep is running</td></tr>
-              <tr><td>Spectrogram Plot</td><td class="coord-xy">(2, 46) 232×60</td><td>Box Border Dim</td><td>Up to 24 rows @ 4px height; hits in COL_WARN</td></tr>
-              <tr><td>Frequency Axis</td><td class="coord-xy">y=106 (border)</td><td>Ticks + Labels</td><td>902.0, 912.5, 923.0 MHz (plus 20/40/60/80% ticks)</td></tr>
-              <tr><td>Enter Key Action</td><td class="coord-xy">Interactive</td><td>Toggle Repeat</td><td>Starts/stops repeat Sweep without leaving page</td></tr>
+              <tr><td>Uptime</td><td class="coord-xy">(2, 18)</td><td>Size 2 · COL_FG</td><td>Elapsed minutes since power on</td></tr>
+              <tr><td>Free Heap</td><td class="coord-xy">(2, 40)</td><td>GOOD / WARN / BAD</td><td>3-tier: Green &lt;80%, Yellow 80-90%, Red &gt;90%</td></tr>
+              <tr><td>Heap Fill Bar</td><td class="coord-xy">(2, 60) 108×8</td><td>Rect · Match Heap</td><td>Fills proportionally to SRAM consumed (512KB base)</td></tr>
+              <tr><td>Min Heap / Batt</td><td class="coord-xy">x=136 / x=205</td><td>Size 1 statBlocks</td><td>Lowest watermark and raw battery voltage</td></tr>
+              <tr><td>Bus / WiFi</td><td class="coord-xy">x=136 / x=205</td><td>Size 1 statBlocks</td><td>SPI bus contention and WiFi AP status</td></tr>
+              <tr><td>Key / Log / Version</td><td class="coord-xy">(2, 78), (2, 90)</td><td>Size 1 · COL_DIM</td><td>TCA8418 driver check, session log rows, build tag</td></tr>
             </tbody>
           </table>
         </div>
       </div>
     </section>
 
-    <!-- ================= 15 · SCOPE (TIME DOMAIN) ================= -->
-    <section class="plate" id="plate-scope">
+    <!-- ================= 20 · NAVIGATION ================= -->
+<section class="plate" id="plate-menu">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">15 / ANALYZE SUITE</span>
-        <h2 class="plate-title">Plate: SCOPE (Time-Domain RSSI Trace)</h2>
-      </div>
-      <p class="plate-note">
-        Fixed-frequency RF power oscilloscope. Samples raw RSSI at up to 50Hz (20ms intervals) into a 240-sample trace buffer. Visualizes packet preamble energy envelopes.
-      </p>
-
-      <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">SCOPE</div>
-          <div class="t1 good" style="left:415px; top:4px;">82%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 good" style="left:4px; top:40px;">CAPTURED</div>
-          <div class="t1 fg" style="left:4px; top:79px;">906.875MHz  20ms/sample</div>
-
-          <div style="position:absolute; left:4px; top:132px; width:510px; height:110px; border:1px solid var(--scr-dim); position:relative;">
-            <svg width="510" height="110" style="position:absolute; left:0; top:0;">
-              <polyline points="0,95 80,94 120,95 160,30 200,28 240,32 280,30 320,92 510,95" fill="none" stroke="#00ff00" stroke-width="2" />
-            </svg>
-          </div>
-          <div class="t1 dim" style="left:4px; top:114px;">-30</div>
-          <div class="t1 dim" style="left:4px; top:245px;">-120</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-        </div>
-
-        <div class="coord-table-wrap">
-          <table class="coord-table">
-            <thead><tr><th>Field</th><th>Coords</th><th>Token</th><th>Rules</th></tr></thead>
-            <tbody>
-              <tr><td>Headline Word</td><td class="coord-xy">(2, 18)</td><td>GOOD / WARN / DIM</td><td>"CAPTURING", "CAPTURED", or dim "IDLE"</td></tr>
-              <tr><td>Trace Metadata</td><td class="coord-xy">(2, 36)</td><td>Size 1 · COL_FG</td><td>Tuned frequency and sample interval</td></tr>
-              <tr><td>Trace Plot Area</td><td class="coord-xy">(2, 60) 232×50</td><td>COL_GOOD line</td><td>240 samples scaled between -120 and -30 dBm</td></tr>
-              <tr><td>Hold Reversion</td><td class="coord-xy">RESULT_HOLD_MS</td><td>Timer</td><td>Reverts from CAPTURED to IDLE after 8 seconds</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= 16 · CAPTURES RING ================= -->
-    <section class="plate" id="plate-captures">
-      <div class="fid-bl"></div><div class="fid-br"></div>
-      <div class="plate-head">
-        <span class="plate-num">16 / ANALYZE SUITE</span>
-        <h2 class="plate-title">Plate: CAPTURES (Packet Ring Buffer)</h2>
-      </div>
-      <p class="plate-note">
-        Maintains an in-memory circular ring buffer of the 8 most recent decoded LoRa packet headers. Flags off-grid channels and displays node hex addresses, RSSI, and elapsed age.
-      </p>
-
-      <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">CAPTURES</div>
-          <div class="t1 good" style="left:415px; top:4px;">82%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t1 fg" style="left:4px; top:36px;">meshtastic !a4b892f0 906.9MHz -68dBm 2s</div>
-          <div class="t1 warn" style="left:4px; top:65px;">meshtastic !38c11e04 910.5MHz -94dBm 14s</div>
-          <div class="t1 fg" style="left:4px; top:94px;">meshcore 906.9MHz -82dBm 28s</div>
-          <div class="t1 fg" style="left:4px; top:123px;">meshtastic !f102bb88 906.9MHz -75dBm 42s</div>
-          <div class="t1 fg" style="left:4px; top:152px;">meshtastic !12aa045e 906.9MHz -89dBm 65s</div>
-          <div class="t1 fg" style="left:4px; top:181px;">meshtastic !88319eac 906.9MHz -102dBm 120s</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-        </div>
-
-        <div class="coord-table-wrap">
-          <table class="coord-table">
-            <thead><tr><th>Property</th><th>Value</th><th>Format</th><th>Description</th></tr></thead>
-            <tbody>
-              <tr><td>Max Entries</td><td>8 packets</td><td>Circular FIFO</td><td>Oldest packets drop off automatically</td></tr>
-              <tr><td>Row Height</td><td>13px pitch</td><td>Size 1 font</td><td>Fits up to 8 rows comfortably in content zone</td></tr>
-              <tr><td>Color Coding</td><td>FG / WARN</td><td>Text Token</td><td>Yellow if packet frequency was off-grid; white if standard</td></tr>
-              <tr><td>Line Format</td><td>String</td><td>Template</td><td><code>{profile} [!nodeId] {freq}MHz {rssi}dBm {age}s</code></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= 17 · NODES ROSTER ================= -->
-    <section class="plate" id="plate-nodes">
-      <div class="fid-bl"></div><div class="fid-br"></div>
-      <div class="plate-head">
-        <span class="plate-num">17 / ANALYZE SUITE</span>
-        <h2 class="plate-title">Plate: NODES (Observed Node Roster)</h2>
-      </div>
-      <p class="plate-note">
-        Deduplicated roster of up to 24 observed nodes sorted by recency. Tracks transmission count per node, last seen RSSI, and elapsed seconds.
-      </p>
-
-      <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">NODES</div>
-          <div class="t1 good" style="left:415px; top:4px;">82%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t1 fg" style="left:4px; top:36px;">meshtastic !a4b892f0 x14 -68dBm 2s</div>
-          <div class="t1 fg" style="left:4px; top:65px;">meshtastic !38c11e04 x3 -94dBm 14s</div>
-          <div class="t1 fg" style="left:4px; top:94px;">meshtastic !f102bb88 x8 -75dBm 42s</div>
-          <div class="t1 fg" style="left:4px; top:123px;">meshtastic !12aa045e x1 -89dBm 65s</div>
-          <div class="t1 fg" style="left:4px; top:152px;">meshtastic !88319eac x5 -102dBm 120s</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-        </div>
-
-        <div class="coord-table-wrap">
-          <table class="coord-table">
-            <thead><tr><th>Attribute</th><th>Specification</th><th>Details</th></tr></thead>
-            <tbody>
-              <tr><td>Max Nodes</td><td>24 nodes</td><td>Static array in <code>node_roster.h</code></td></tr>
-              <tr><td>Sorting</td><td>Recency (ageS asc)</td><td>Most recently heard nodes stay pinned to the top</td></tr>
-              <tr><td>Hit Multiplier</td><td>xN count</td><td>Tracks packet density emitted by that node</td></tr>
-              <tr><td>Node Address</td><td>!xxxxxxxx</td><td>8-character hex address formatted with bang prefix</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= 18 · MENU SYSTEM & SLIDERS ================= -->
-    <section class="plate" id="plate-menu">
-      <div class="fid-bl"></div><div class="fid-br"></div>
-      <div class="plate-head">
-        <span class="plate-num">18 / NAVIGATION</span>
+        <span class="plate-num">20 / NAVIGATION</span>
         <h2 class="plate-title">Plate: Menu Hierarchy & Sliders</h2>
       </div>
       <p class="plate-note">
-        Grouped hierarchical menu with inverted color selection bars (24px row pitch) and live interactive slider widgets (e.g. ST7789V2 LEDC backlight brightness).
+        Grouped hierarchical menu with inverted color selection bars (24px row pitch) and live
+        interactive slider widgets (e.g. ST7789V2 LEDC backlight brightness).
+      </p>
+      <p class="plate-note">
+        <strong>Reduced to three root rows on 2026-09-06.</strong> <code>Tools</code> and
+        <code>Analyze</code> were removed: every row in them opened a page that is now a view of the
+        card that owns it, so they were a second road to somewhere you were already standing beside.
+        What remains is what a menu is actually for &mdash; things that change runtime behavior and
+        have no card of their own. <code>Trace</code> returns to a root row, where it lived before
+        Tools briefly adopted it: it is a Watch pause, not a page, and Enter-on-Radio is a binding,
+        not a label.
       </p>
 
       <div class="plate-body">
@@ -1770,7 +1982,7 @@
           <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
 
           <div style="position:absolute; left:0; top:36px; width:100%; height:44px; padding:0 9px; display:flex; align-items:center;">
-            <span class="t2 fg" style="position:static;">Tools &gt;</span>
+            <span class="t2 fg" style="position:static;">Profile &gt;</span>
           </div>
 
           <div style="position:absolute; left:0; top:88px; width:100%; height:44px; background:#fff; padding:0 9px; display:flex; align-items:center;">
@@ -1786,19 +1998,25 @@
         <div class="coord-table-wrap">
           <div class="menu-tree">
             <ul>
-              <li><span class="m-grp">Tools &gt;</span> (Probe, Sweep, Cell, Trace)</li>
-              <li><span class="m-grp">Analyze &gt;</span> (Meter, Waterfall, Scope, Captures, Nodes)</li>
-              <li><span class="m-grp">Profile &gt;</span> (Meshtastic, MeshCore, Reticulum, General)</li>
+              <li><span class="m-grp">Profile &gt;</span> (Meshtastic, MeshCore, Reticulum)</li>
+              <li><span class="m-act">Trace (ACTIVE / STANDBY)</span></li>
               <li><span class="m-grp">System &gt;</span>
                 <ul>
+                  <li><span class="m-grp">Connectivity &gt;</span> (WiFi AP, Serial Control)</li>
+                  <li><span class="m-grp">Diagnostics &gt;</span> (Debug, Identity capture, SD retry)</li>
                   <li><span class="m-grp">Display &gt;</span>
                     <ul>
                       <li><span class="m-sld">Brightness (Slider 10-100%)</span></li>
-                      <li><span class="m-act">Dim Timeout (Off, 30s, 60s, 300s)</span></li>
+                      <li><span class="m-act">Dim Timeout (Off, 30s, 60s, 2min, 5min)</span></li>
                     </ul>
                   </li>
-                  <li><span class="m-act">WiFi AP Toggle</span></li>
-                  <li><span class="m-act">Reboot</span></li>
+                  <li><span class="m-grp">Tuning &gt;</span>
+                    <ul>
+                      <li><span class="m-sld">Sweep Margin (Slider, dBm above noise floor)</span></li>
+                      <li><span class="m-act">Region (US / Global)</span></li>
+                      <li><span class="m-act">Capture Window (Off, 1s, 2s, 4s)</span></li>
+                    </ul>
+                  </li>
                 </ul>
               </li>
             </ul>
@@ -1807,11 +2025,11 @@
       </div>
     </section>
 
-    <!-- ================= 19 · TOAST ALERTS ================= -->
-    <section class="plate" id="plate-toast">
+    <!-- ================= 21 · OVERLAYS ================= -->
+<section class="plate" id="plate-toast">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">19 / OVERLAYS</span>
+        <span class="plate-num">21 / OVERLAYS</span>
         <h2 class="plate-title">Plate: Toast Notifications</h2>
       </div>
       <p class="plate-note">
@@ -1845,40 +2063,43 @@
       </div>
     </section>
 
-    <!-- ================= 20 · HARDWARE KEY MATRIX ================= -->
-    <section class="plate" id="plate-keys">
+    <!-- ================= 22 · INPUT ERGONOMICS ================= -->
+<section class="plate" id="plate-keys">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">20 / INPUT ERGONOMICS</span>
+        <span class="plate-num">22 / INPUT ERGONOMICS</span>
         <h2 class="plate-title">Cardputer TCA8418 Key Matrix</h2>
       </div>
       <p class="plate-note">
-        Driven via TCA8418 I2C keyboard scanner. Four primary navigation keys form an inverted-T cluster, supplemented by Enter, Back, and direct single-key shortcuts.
+        Driven via TCA8418 I2C keyboard scanner. Four primary navigation keys form an inverted-T
+        cluster, supplemented by Enter, Back, and direct single-key shortcuts. The two axes are the
+        whole model: <strong>, and / move between cards; ; and . move within one</strong>.
       </p>
 
       <table class="coord-table" style="font-size:13px;">
         <thead>
-          <tr><th>Physical Key</th><th>Matrix Code</th><th>Primary Context Action</th><th>Tool / Analyzer Subpage Action</th></tr>
+          <tr><th>Physical Key</th><th>Matrix Code</th><th>On a card</th><th>In the menu</th></tr>
         </thead>
         <tbody>
-          <tr><td><kbd>,</kbd> (Comma)</td><td>KEY_PREV</td><td>Previous Carousel Page</td><td>Exit to Menu</td></tr>
-          <tr><td><kbd>/</kbd> (Slash)</td><td>KEY_NEXT</td><td>Next Carousel Page</td><td>Exit to Menu</td></tr>
-          <tr><td><kbd>;</kbd> (Semicolon)</td><td>KEY_UP</td><td>Menu Cursor Up / Slider Increase</td><td>Cycle Previous Subpage</td></tr>
-          <tr><td><kbd>.</kbd> (Period)</td><td>KEY_DOWN</td><td>Menu Cursor Down / Slider Decrease</td><td>Cycle Next Subpage</td></tr>
-          <tr><td><kbd>Enter</kbd></td><td>KEY_SELECT</td><td>Enter Submenu / Execute Action</td><td>Trigger Scan / Repeat Toggle</td></tr>
-          <tr><td><kbd>`</kbd> (Grave)</td><td>KEY_BACK</td><td>Exit Submenu to Parent</td><td>Exit to Menu / Radio</td></tr>
-          <tr><td><kbd>1</kbd> .. <kbd>5</kbd></td><td>HOTKEY</td><td>Direct Jump to Carousel Pages 1-5</td><td>Jump directly to Carousel Page</td></tr>
-          <tr><td><kbd>P</kbd>, <kbd>S</kbd>, <kbd>C</kbd></td><td>HOTKEY</td><td>Direct Jump to Probe, Sweep, Cell</td><td>Restart Tool Run</td></tr>
-          <tr><td><kbd>8</kbd></td><td>HOTKEY</td><td>Direct Jump to Analyze Suite</td><td>Cycle Analyze Tools</td></tr>
+          <tr><td><kbd>,</kbd> (Comma)</td><td>KEY_PREV</td><td>Previous card</td><td>Cursor up / slider decrease</td></tr>
+          <tr><td><kbd>/</kbd> (Slash)</td><td>KEY_NEXT</td><td>Next card</td><td>Cursor down / slider increase</td></tr>
+          <tr><td><kbd>;</kbd> (Semicolon)</td><td>KEY_UP</td><td>Previous view of this card &mdash; aliases <em>previous card</em> on a single-view card (System)</td><td>Cursor up</td></tr>
+          <tr><td><kbd>.</kbd> (Period)</td><td>KEY_DOWN</td><td>Next view of this card &mdash; aliases <em>next card</em> on a single-view card</td><td>Cursor down</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>KEY_SELECT</td><td>Runs this view's action (<code>cardSelectAction()</code>) &mdash; or opens the Captures inspector</td><td>Enter a GROUP / fire an ACTION</td></tr>
+          <tr><td><kbd>`</kbd> (Grave)</td><td>KEY_BACK</td><td>Open the menu</td><td>Up one level, or close</td></tr>
+          <tr><td><kbd>R</kbd></td><td>KEY_REPEAT</td><td>Repeat mode for this view's action (<code>cardRepeatAction()</code>) &mdash; Sweep and Cell only</td><td>&mdash;</td></tr>
+          <tr><td><kbd>1</kbd> .. <kbd>5</kbd></td><td>HOTKEY</td><td>Jump to card 1&ndash;5. A digit always means the card, never its view</td><td>Ignored</td></tr>
+          <tr><td><kbd>P</kbd>, <kbd>S</kbd>, <kbd>C</kbd></td><td>HOTKEY</td><td>Start/cancel Probe, Sweep, Cell from any state. Navigates to the card that owns the result, or stays put if the current card already shows it</td><td>Same &mdash; global</td></tr>
+          <tr><td><kbd>6</kbd> .. <kbd>9</kbd>, <kbd>0</kbd></td><td>&mdash;</td><td colspan="2">Unmapped. <code>7</code>/<code>8</code> were removed in 2026-09-04 rather than left pointing at nothing &mdash; <code>keyboard.h</code> promises "known key does its one thing", or ignored, with no silent third option.</td></tr>
         </tbody>
       </table>
     </section>
 
-    <!-- ================= 21 · ROADMAP & EVOLUTION ================= -->
-    <section class="plate" id="roadmap">
+    <!-- ================= 23 · V2 ROADMAP ================= -->
+<section class="plate" id="roadmap">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">21 / V2 ROADMAP</span>
+        <span class="plate-num">23 / V2 ROADMAP</span>
         <h2 class="plate-title">Future UI Evolution & Proposals</h2>
       </div>
       <p class="plate-note">
@@ -1915,7 +2136,7 @@
     </section>
 
     <footer class="guide-footer">
-      LoRaTrace RX Firmware UI Design Guide · Master Specification v1.0.7 · Maintained in <code>docs/UI-Design_Guide.html</code>
+      LoRaTrace RX Firmware UI Design Guide · Master Specification v1.1.0-beta · Maintained in <code>docs/UI-Design_Guide.html</code>
     </footer>
   </main>
 </div>
@@ -1939,10 +2160,29 @@
     bad: '#ff0000'
   };
 
-  // v1.0.7 Real Carousel Order
+  // Real carousel order (ui_task.cpp's MAIN_PAGES)
   var MAIN_PAGES = ['RADIO', 'ACTIVITY', 'CHANNEL', 'GPS', 'SYSTEM'];
-  var TOOLS_PAGES = ['PROBE', 'SWEEP', 'CELL'];
-  var ANALYZE_PAGES = ['METER', 'WATERFALL', 'SCOPE', 'CAPTURES', 'NODES'];
+  // Mirrors ui_task.cpp's CARD_VIEWS: each card owns an ordered view list, and
+  // view 0 is always the card's own page.
+  var CARD_VIEWS = {
+    RADIO:    ['RADIO', 'METER', 'SCOPE'],
+    ACTIVITY: ['ACTIVITY', 'SWEEP', 'WATERFALL', 'FOCUS'],
+    CHANNEL:  ['CHANNEL', 'CAPTURES', 'NODES', 'PROBE'],
+    GPS:      ['GPS', 'CELL'],
+    SYSTEM:   ['SYSTEM']
+  };
+  // Which card is showing, and which of its views. state.page stays the
+  // resolved view so every existing drawer keeps working unchanged.
+  var cardOf = {};
+  Object.keys(CARD_VIEWS).forEach(function (c) {
+    CARD_VIEWS[c].forEach(function (v) { cardOf[v] = c; });
+  });
+  var viewIdx = { RADIO: 0, ACTIVITY: 0, CHANNEL: 0, GPS: 0, SYSTEM: 0 };
+  function currentCard() { return cardOf[state.page] || 'RADIO'; }
+  function setCardView(card, i) {
+    viewIdx[card] = (i + CARD_VIEWS[card].length) % CARD_VIEWS[card].length;
+    state.page = CARD_VIEWS[card][viewIdx[card]];
+  }
 
   var PAGE_NAMES = {
     RADIO: 'RADIO',
@@ -1957,6 +2197,7 @@
     WATERFALL: 'WATERFALL',
     SCOPE: 'SCOPE',
     CAPTURES: 'CAPTURES',
+    FOCUS: 'FOCUS',
     NODES: 'NODES',
     MENU: 'MENU',
     SLIDER: 'MENU > Brightness'
@@ -1979,6 +2220,8 @@
     sweep: { bins: 85, total: 85, peaks: 4, bestMhz: 915.0, bestDbm: -88, repeating: false, lap: 14, status: 'complete' },
     cell: { bins: 101, total: 101, bestMhz: 881.5, bestDbm: -76, status: 'complete' },
     meter: { dbm: -72, snr: 8.5, freq: 906.875, ageS: 2, sf: 11, bw: 250.0, cr: 5 },
+    focus: { have: true, freq: 906.875, bin: 42, status: 'COMPLETE', dwellMs: 2000,
+             observedMs: 2000, samples: 101, p50: '-97', p90: '-78', peak: '-66' },
     waterfallRows: [],
     scope: { samples: [], running: false },
     captures: [
@@ -2047,11 +2290,17 @@
 
   function hline(x, y, w, color) { rect(x, y, w, 1 / SCALE, color); }
 
-  function circle(cx, cy, rad, color) {
+  function circle(cx, cy, rad, color, hollow) {
     ctx.beginPath();
-    ctx.fillStyle = color;
     ctx.arc(R(cx), R(cy), R(rad), 0, Math.PI * 2);
-    ctx.fill();
+    if (hollow) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1, R(1));
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
   }
 
   function text(x, y, str, opts) {
@@ -2109,9 +2358,20 @@
     // Footer Status
     if (!state.menuOpen && state.page !== 'MENU' && state.page !== 'SLIDER') {
       text(2, FOOTER_Y, 'Meshtastic', { color: COL.dim });
-      var idx = MAIN_PAGES.indexOf(state.page);
+      var card = currentCard();
+      var idx = MAIN_PAGES.indexOf(card);
       if (idx >= 0) {
         text(PANEL_W - 2, FOOTER_Y, (idx + 1) + '/5', { color: COL.dim, align: 'right' });
+      }
+      // View dots, centred rather than beside the N/M: two different axes.
+      var views = CARD_VIEWS[card].length;
+      if (views > 1) {
+        var PITCH = 7;
+        var x0 = (PANEL_W / 2) - ((views - 1) * PITCH) / 2;
+        for (var d = 0; d < views; d++) {
+          circle(x0 + d * PITCH, FOOTER_Y + 3, 2,
+                 d === viewIdx[card] ? COL.fg : COL.dim, d !== viewIdx[card]);
+        }
       }
     }
   }
@@ -2125,72 +2385,110 @@
   }
 
   // PAGE DRAWERS
-  function drawRadio() {
-    text(2, HEADER_H + 6, 'rx ' + state.radio.rx, { size2: true });
-    text(2, HEADER_H + 26, 'log ' + state.radio.log, { size2: true });
-
-    // RX activity pulse bar under log
-    if (state.rxPulseActive) {
-      rect(2, HEADER_H + 23, 58, 2, COL.good);
-    }
-
-    text(2, HEADER_H + 46, 'drop ' + state.radio.drops, { size2: true, color: state.radio.drops === 0 ? COL.good : COL.bad });
-
-    if (state.activeAction !== 'NONE' || state.radio.paused) {
-      text(2, HEADER_H + 66, 'STANDBY', { size2: true, color: COL.warn });
-    }
-
-    statBlock(170, HEADER_H + 6, 'crc', String(state.radio.crc));
-    statBlock(170, HEADER_H + 28, 'miss', String(state.radio.miss));
-    statBlock(170, HEADER_H + 50, 'sd', state.radio.sd ? 'ok' : 'DOWN', state.radio.sd ? COL.fg : COL.bad);
-    statBlock(170, HEADER_H + 72, 'run', 'r' + state.radio.run);
-
-    text(2, HEADER_H + 94, 'flush 18  max 42ms', { color: COL.dim });
+  // Mirrors ui_pages.cpp's drawEmptyView(): one shape for every "nothing yet"
+  // view, replacing ten hand-rolled copies that had drifted in offset and
+  // wording. line1 is normally the generated key hint (cardHintLine()).
+  function drawEmptyView(headline, line1, line2) {
+    text(2, HEADER_H + 8, headline, { size2: true, color: COL.dim });
+    if (line1) text(2, HEADER_H + 34, line1, { color: COL.dim });
+    if (line2) text(2, HEADER_H + 46, line2, { color: COL.dim });
   }
 
+  // Shared card: title, size-2 value, size-1 sub. Mirrors ui_pages.cpp's
+  // statCard(), including its size-1 fallback for values wider than 5 chars.
+  var STAT_CARD_W = 77, STAT_CARD_H = 60;
+  function statCard(x, y, title, titleCol, value, sub, valueCol) {
+    strokeRect(x, y, STAT_CARD_W, STAT_CARD_H, COL.dim);
+    text(x + 4, y + 4, title, { color: titleCol });
+    var wide = String(value).length > 5;
+    text(x + 4, y + (wide ? 24 : 18), value, { size2: !wide, color: valueCol || COL.fg });
+    text(x + 4, y + 44, String(sub).slice(0, 11), { color: COL.dim });
+  }
+  function statCardX(n) { return 2 + n * (STAT_CARD_W + 3); }
+
+  function pipelineStage(x, y, name, reached, lossLabel, lost, flash) {
+    text(x, y, name, { color: flash ? COL.good : COL.dim });
+    text(x, y + 11, reached < 100000 ? String(reached) : Math.floor(reached / 1000) + 'k', { size2: true });
+    text(x, y + 30, lossLabel + ' ' + lost, { color: lost === 0 ? COL.good : COL.bad });
+  }
+
+  function drawRadio() {
+    var r = state.radio;
+    // Band 1: the receive chain as a pipeline with a named loss per handoff.
+    strokeRect(2, HEADER_H + 2, 236, 43, COL.dim);
+    pipelineStage(6, HEADER_H + 5, 'HEARD', r.rx, 'crc', r.crc, state.rxPulseActive);
+    pipelineStage(84, HEADER_H + 5, 'QUEUED', r.rx - r.drops, 'drop', r.drops, false);
+    pipelineStage(162, HEADER_H + 5, 'LOGGED', r.log, 'drop', 0, false);
+    text(74, HEADER_H + 19, '>', { color: r.drops === 0 ? COL.dim : COL.bad });
+    text(152, HEADER_H + 19, '>', { color: COL.dim });
+
+    // Band 2: three cards, Activity's own idiom.
+    var cy = HEADER_H + 49;
+    var stateVal, stateSub, stateCol;
+    if (state.activeAction !== 'NONE') {
+      stateVal = 'AWAY'; stateSub = state.activeAction.toLowerCase(); stateCol = COL.warn;
+    } else if (r.paused) {
+      stateVal = 'STANDBY'; stateSub = 'MeshCore'; stateCol = COL.warn;
+    } else {
+      stateVal = 'WATCH'; stateSub = 'MeshCore'; stateCol = COL.good;
+    }
+    statCard(statCardX(0), cy, 'STATE', stateCol, stateVal, stateSub, stateCol);
+    statCard(statCardX(1), cy, 'STORAGE', r.sd ? COL.good : COL.bad, r.sd ? 'ok' : 'DOWN',
+             'run ' + r.run, r.sd ? COL.fg : COL.bad);
+    statCard(statCardX(2), cy, 'BUS', r.miss === 0 ? COL.dim : COL.bad, '42ms', r.miss + ' bus miss');
+  }
+
+  // 30x1s packets/sec ring, same 30 bytes the firmware budgets.
+  var pktRing = [1, 2, 1, 3, 2, 4, 3, 1, 2, 5, 3, 2, 1, 3, 4, 2, 1, 2, 3, 1, 2, 1, 3, 2, 1, 4, 2, 1, 2, 1];
+
   function drawActivity() {
-    if (state.activeAction === 'PROBE') {
-      text(2, HEADER_H + 8, 'PROBE', { size2: true, color: COL.warn });
-      text(2, HEADER_H + 31, 'watch paused  ' + state.probe.done + '/' + state.probe.total + ' candidates');
-      strokeRect(2, HEADER_H + 54, 200, 14, COL.warn);
-      var fill = Math.round(198 * (state.probe.done / state.probe.total));
-      if (fill > 0) rect(3, HEADER_H + 55, fill, 12, COL.warn);
-      return;
-    }
-    if (state.activeAction === 'SWEEP') {
-      text(2, HEADER_H + 8, 'SWEEP', { size2: true, color: COL.warn });
-      text(2, HEADER_H + 31, 'watch paused  ' + state.sweep.bins + '/' + state.sweep.total);
-      var curFreq = 902.0 + (state.sweep.bins / 85) * (923.0 - 902.0);
-      drawFreqBar(2, HEADER_H + 62, 108, curFreq, 902.0, 923.0);
-      statBlock(170, HEADER_H + 6, 'peaks', String(state.sweep.peaks), COL.warn);
-      statBlock(170, HEADER_H + 34, 'best MHz', state.sweep.bestMhz.toFixed(1), COL.warn);
-      return;
-    }
-    if (state.activeAction === 'CELL') {
-      text(2, HEADER_H + 8, 'CELL', { size2: true, color: COL.warn });
-      text(2, HEADER_H + 31, 'watch paused  ' + state.cell.bins + '/' + state.cell.total);
-      var cFreq = 869.0 + (state.cell.bins / 101) * (894.0 - 869.0);
-      drawFreqBar(2, HEADER_H + 62, 108, cFreq, 869.0, 894.0);
-      statBlock(170, HEADER_H + 6, 'best MHz', state.cell.bestMhz.toFixed(1), COL.warn);
-      statBlock(170, HEADER_H + 34, 'rssi', state.cell.bestDbm + 'dB');
-      return;
-    }
-    if (state.activeAction === 'SCOPE') {
-      text(2, HEADER_H + 8, 'SCOPE', { size2: true, color: COL.warn });
-      text(2, HEADER_H + 24, '906.875MHz');
-      text(2, HEADER_H + 34, 'watch paused', { color: COL.warn });
-      return;
+    // Band 1: a time series, because Activity's question is "what is out
+    // there now" (Radio's band is a flow, because its question is integrity).
+    var PX = 2, PW = 236, PH = 43, py = HEADER_H + 2;
+    strokeRect(PX, py, PW, PH, COL.dim);
+    var peak = Math.max.apply(null, pktRing);
+    var bw = Math.floor((PW - 4) / pktRing.length);
+    for (var i = 0; i < pktRing.length; i++) {
+      var v = pktRing[i];
+      if (!v) continue;
+      var h = Math.round((PH - 4) * v / peak);
+      rect(PX + 2 + i * bw, py + PH - 2 - h, bw - 1, h, v === peak ? COL.warn : COL.good);
     }
 
-    // Idle State - 4 Rows
-    function row(y, label, val) {
-      text(4, y, label, { size2: true, bold: true });
-      text(100, y, val, { size2: true, color: COL.dim });
+    // Band 2: three cards.
+    var cy = py + PH + 4;
+    statCard(statCardX(0), cy, 'SWEEP PK', COL.warn, state.sweep.bestMhz.toFixed(1),
+             state.sweep.bestDbm + ' dBm');
+    statCard(statCardX(1), cy, 'LAST PKT', COL.good, String(state.meter.dbm),
+             (state.meter.snr > 0 ? '+' : '') + state.meter.snr.toFixed(1) + 'dB SNR');
+    var awayS = (state.sweep.awayMs || 4210) / 1000;
+    statCard(statCardX(2), cy, 'AWAY T', COL.dim, awayS.toFixed(1) + 's', 'last: sweep');
+  }
+
+  function drawFocus() {
+    var f = state.focus;
+    if (!f.have) {
+      drawEmptyView('NO SURVEY YET', 'Enter: survey',
+                    'target ' + state.sweep.bestMhz.toFixed(3) + ' MHz (Sweep peak)');
+      return;
     }
-    row(HEADER_H + 10, 'Probe', state.probe.hits + '/' + state.probe.total + ' hits');
-    row(HEADER_H + 34, 'Sweep', state.sweep.peaks + 'pk ' + state.sweep.bestMhz.toFixed(0) + 'MHz');
-    row(HEADER_H + 58, 'Cell', state.cell.bestMhz.toFixed(0) + 'MHz ' + state.cell.bestDbm + 'dB');
-    row(HEADER_H + 82, 'Scope', state.meter.dbm + 'dBm');
+    text(2, HEADER_H + 4, f.freq.toFixed(3) + ' MHz', { size2: true });
+    text(138, HEADER_H + 6, 'BIN ' + f.bin, { color: COL.warn });
+    text(238, HEADER_H + 6, f.status, { color: f.status === 'COMPLETE' ? COL.good : COL.warn, align: 'right' });
+
+    strokeRect(2, HEADER_H + 28, 236, 8, COL.dim);
+    var fill = Math.round(234 * Math.min(f.observedMs / f.dwellMs, 1));
+    if (fill > 0) rect(3, HEADER_H + 29, fill, 6, COL.good);
+    text(2, HEADER_H + 39, 'DWELL ' + (f.observedMs / 1000).toFixed(1) + 's / ' + (f.dwellMs / 1000).toFixed(1) + 's', { color: COL.dim });
+    text(238, HEADER_H + 39, f.samples + ' SAMPLES', { color: COL.dim, align: 'right' });
+
+    strokeRect(2, HEADER_H + 59, 236, 20, COL.dim);
+    text(4, HEADER_H + 83, '-120', { color: COL.dim });
+    text(110, HEADER_H + 83, '-80', { color: COL.dim });
+    text(220, HEADER_H + 83, '-40', { color: COL.dim });
+    text(2, HEADER_H + 95, 'P50 ' + f.p50, { color: COL.good });
+    text(86, HEADER_H + 95, 'P90 ' + f.p90, { color: COL.warn });
+    text(164, HEADER_H + 95, 'PK ' + f.peak, { color: COL.fg });
   }
 
   function drawChannel() {
@@ -2240,7 +2538,7 @@
     statBlock(205, HEADER_H + 36, 'wifi', state.system.wifi ? 'ON' : 'OFF', state.system.wifi ? COL.good : COL.dim);
 
     text(2, HEADER_H + 66, 'keys tca8418  health 96', { color: COL.dim });
-    text(2, HEADER_H + 78, 'v1.0.7 (prod-release)', { color: COL.dim });
+    text(2, HEADER_H + 78, 'v1.1.0-beta (dev)', { color: COL.dim });
   }
 
   function drawProbe() {
@@ -2251,7 +2549,7 @@
       color: isRunning ? COL.warn : (isDone ? COL.good : COL.dim)
     });
 
-    text(2, HEADER_H + 31, isRunning ? 'watch paused' : 'candidates ' + state.probe.done + '/' + state.probe.total + '  away ' + state.probe.awayMs + 'ms');
+    text(2, HEADER_H + 31, isRunning ? 'Watch away  ' : 'candidates ' + state.probe.done + '/' + state.probe.total + '  away ' + state.probe.awayMs + 'ms');
     text(2, HEADER_H + 56, 'US LongFast, EU Narrow');
     text(2, HEADER_H + 84, 'hits ' + state.probe.hits + '  free 6  timeout 0  err 0', { color: COL.dim });
   }
@@ -2394,12 +2692,18 @@
   }
 
   function drawMenu() {
-    var items = ['Tools >', 'Analyze >', 'Profile >', 'System >'];
+    // Three root rows since 2026-09-06: Tools and Analyze were pure navigation
+    // to pages that are now card views. Trace is an ACTION row, not a GROUP.
+    var items = ['Profile >', 'Trace', 'System >'];
+    var values = ['', state.radio.paused ? 'STANDBY' : 'ACTIVE', ''];
     for (var i = 0; i < items.length; i++) {
       var y = HEADER_H + 10 + i * 24;
       var sel = (i === state.menuIndex);
       rect(0, y - 3, PANEL_W, 20, sel ? COL.fg : COL.bg);
       text(4, y, items[i], { size2: true, bold: true, color: sel ? COL.bg : COL.fg });
+      if (values[i]) {
+        text(PANEL_W - 4, y + 4, values[i], { color: sel ? COL.bg : COL.dim, align: 'right' });
+      }
     }
   }
 
@@ -2433,6 +2737,7 @@
       case 'SCOPE': drawScope(); break;
       case 'CAPTURES': drawCaptures(); break;
       case 'NODES': drawNodes(); break;
+      case 'FOCUS': drawFocus(); break;
       case 'MENU': drawMenu(); break;
       case 'SLIDER': drawSlider(); break;
     }
@@ -2486,7 +2791,7 @@
         container.appendChild(mkSimBtn('+1 Packet Rx', injectPacket));
         container.appendChild(mkSimBtn(state.radio.paused ? 'Resume Watch' : 'Pause Watch (STANDBY)', toggleWatchStandby));
         container.appendChild(mkSimBtn('Toggle Drop/CRC Error', toggleDropError, false, true));
-        hintEl.textContent = 'Ingress stream emulates live SX1262 packet arrival, incrementing counters and pulsing the activity indicator.';
+        hintEl.textContent = 'Card 1. The receive chain as a pipeline: HEARD > QUEUED > LOGGED, each with its own loss. Arrows redden at the failing handoff. Up/down reach Meter and Scope.';
         break;
 
       case 'ACTIVITY':
@@ -2495,7 +2800,7 @@
         container.appendChild(mkSimBtn('▶ Live Cell Action', function() { toggleActivityLoop('CELL'); }, !!activeTimers.activeAction && state.activeAction === 'CELL'));
         container.appendChild(mkSimBtn('▶ Live Scope Action', function() { toggleActivityLoop('SCOPE'); }, !!activeTimers.activeAction && state.activeAction === 'SCOPE'));
         container.appendChild(mkSimBtn('Reset to Idle (4 Rows)', resetActivityToIdle));
-        hintEl.textContent = 'Slot 2 mirrors whichever bounded action owns the radio. Idle state displays the 4 tool summaries.';
+        hintEl.textContent = 'Card 2. Dashboard view: 30s packets/sec sparkline + SWEEP PK / LAST PKT / AWAY T cards. Up/down reach Sweep, Waterfall and Focus.';
         break;
 
       case 'PROBE':
@@ -2521,7 +2826,7 @@
         container.appendChild(mkSimBtn(state.sweep.repeating ? '⏹ Stop Repeat (Enter)' : '▶ Start Repeat Sweep (Enter)', toggleSweepRepeat, state.sweep.repeating));
         container.appendChild(mkSimBtn('+1 Spectrogram Row', addWaterfallRow));
         container.appendChild(mkSimBtn('Clear History', clearWaterfall));
-        hintEl.textContent = 'Displays 24 rows of historical frequency bin sweeps. Enter toggles repeat sweep without leaving the page.';
+        hintEl.textContent = 'Activity view 3. 24 rows of historical frequency bin sweeps. Enter is single-shot Sweep, R toggles repeat -- neither leaves the card.';
         break;
 
       case 'SCOPE':
@@ -2578,7 +2883,7 @@
         container.appendChild(mkSimBtn('Decrease Brightness (-10%)', function() { handleKey('DOWN'); }));
         container.appendChild(mkSimBtn('Trigger Good Toast', function() { showToast('Settings Saved', 'good'); }));
         container.appendChild(mkSimBtn('Trigger Error Toast', function() { showToast('SD Log Error: Busy', 'bad'); }));
-        hintEl.textContent = 'Hierarchical menu system and LEDC backlight brightness slider.';
+        hintEl.textContent = 'Menu root is Profile / Trace / System since Tools and Analyze were removed -- every row in them opened a page that is now a card view.';
         break;
     }
   }
@@ -2956,94 +3261,70 @@
   }
 
   // Navigation Logic
-  function nextPage() {
-    var idx = MAIN_PAGES.indexOf(state.page);
-    if (idx >= 0) {
-      state.page = MAIN_PAGES[(idx + 1) % MAIN_PAGES.length];
-    } else {
-      state.page = 'RADIO';
-    }
+  // Card stepping keeps each card's remembered view, same as cardViewIdx[].
+  function stepCard(delta) {
+    var idx = MAIN_PAGES.indexOf(currentCard());
+    var card = MAIN_PAGES[(idx + delta + MAIN_PAGES.length) % MAIN_PAGES.length];
+    setCardView(card, viewIdx[card]);
+    render();
+  }
+  function nextPage() { stepCard(1); }
+  function prevPage() { stepCard(-1); }
+
+  function stepView(delta) {
+    var card = currentCard();
+    // A single-view card (System) has nothing to cycle, so up/down keeps
+    // aliasing prev/next page rather than becoming two dead keys.
+    if (CARD_VIEWS[card].length < 2) { stepCard(delta); return; }
+    setCardView(card, viewIdx[card] + delta);
     render();
   }
 
-  function prevPage() {
-    var idx = MAIN_PAGES.indexOf(state.page);
-    if (idx >= 0) {
-      state.page = MAIN_PAGES[(idx + MAIN_PAGES.length - 1) % MAIN_PAGES.length];
-    } else {
-      state.page = 'RADIO';
-    }
-    render();
-  }
-
-  function nextSubPage(arr) {
-    var idx = arr.indexOf(state.page);
-    if (idx >= 0) {
-      state.page = arr[(idx + 1) % arr.length];
-    }
-    render();
-  }
-
-  function prevSubPage(arr) {
-    var idx = arr.indexOf(state.page);
-    if (idx >= 0) {
-      state.page = arr[(idx + arr.length - 1) % arr.length];
-    }
+  // Where a bounded action's result lands: the card that owns it, on that
+  // view — or stay put if the current card already carries it.
+  function showResult(page) {
+    var owner = cardOf[page];
+    if (!owner) return;
+    if (currentCard() === owner) { render(); return; }
+    setCardView(owner, CARD_VIEWS[owner].indexOf(page));
     render();
   }
 
   function handleKey(k) {
     if (k === 'PREV') {
-      if (ANALYZE_PAGES.indexOf(state.page) >= 0 || TOOLS_PAGES.indexOf(state.page) >= 0) {
-        state.page = 'RADIO';
-      } else {
-        prevPage();
-      }
+      if (state.page === 'MENU') { state.menuIndex = (state.menuIndex + 2) % 3; render(); }
+      else prevPage();
     } else if (k === 'NEXT') {
-      if (ANALYZE_PAGES.indexOf(state.page) >= 0 || TOOLS_PAGES.indexOf(state.page) >= 0) {
-        state.page = 'RADIO';
-      } else {
-        nextPage();
-      }
+      if (state.page === 'MENU') { state.menuIndex = (state.menuIndex + 1) % 3; render(); }
+      else nextPage();
     } else if (k === 'UP') {
-      if (state.page === 'MENU') {
-        state.menuIndex = (state.menuIndex + 3) % 4;
-      } else if (state.page === 'SLIDER') {
-        state.brightness = Math.min(100, state.brightness + 10);
-      } else if (ANALYZE_PAGES.indexOf(state.page) >= 0) {
-        prevSubPage(ANALYZE_PAGES);
-      } else if (TOOLS_PAGES.indexOf(state.page) >= 0) {
-        prevSubPage(TOOLS_PAGES);
-      }
-      render();
+      if (state.page === 'MENU') { state.menuIndex = (state.menuIndex + 2) % 3; render(); }
+      else if (state.page === 'SLIDER') { state.brightness = Math.min(100, state.brightness + 10); render(); }
+      else stepView(-1);
     } else if (k === 'DOWN') {
-      if (state.page === 'MENU') {
-        state.menuIndex = (state.menuIndex + 1) % 4;
-      } else if (state.page === 'SLIDER') {
-        state.brightness = Math.max(10, state.brightness - 10);
-      } else if (ANALYZE_PAGES.indexOf(state.page) >= 0) {
-        nextSubPage(ANALYZE_PAGES);
-      } else if (TOOLS_PAGES.indexOf(state.page) >= 0) {
-        nextSubPage(TOOLS_PAGES);
-      }
-      render();
+      if (state.page === 'MENU') { state.menuIndex = (state.menuIndex + 1) % 3; render(); }
+      else if (state.page === 'SLIDER') { state.brightness = Math.max(10, state.brightness - 10); render(); }
+      else stepView(1);
     } else if (k === 'SELECT') {
+      // Menu root is Profile / Trace / System; only System descends here.
       if (state.page === 'MENU') {
-        if (state.menuIndex === 0) state.page = 'PROBE';
-        else if (state.menuIndex === 1) state.page = 'METER';
-        else if (state.menuIndex === 3) state.page = 'SLIDER';
-      } else if (state.page === 'WATERFALL') {
-        toggleSweepRepeat();
+        if (state.menuIndex === 1) { state.radio.paused = !state.radio.paused; showToast(state.radio.paused ? 'Trace: STANDBY' : 'Trace: ACTIVE'); }
+        else if (state.menuIndex === 2) state.page = 'SLIDER';
+      } else if (state.page === 'WATERFALL' || state.page === 'SWEEP' || state.page === 'ACTIVITY') {
+        runSweepAnimation();  // Enter is single-shot; R (REPEAT) toggles repeat
       } else if (state.page === 'SCOPE') {
         triggerSingleScope();
+      } else if (state.page === 'RADIO' || state.page === 'METER') {
+        state.radio.paused = !state.radio.paused;
       }
+      render();
+    } else if (k === 'REPEAT') {
+      if (state.page === 'WATERFALL' || state.page === 'SWEEP' || state.page === 'ACTIVITY') toggleSweepRepeat();
       render();
     } else if (k === 'BACK') {
       if (state.page === 'SLIDER') state.page = 'MENU';
-      else if (state.page === 'MENU') state.page = 'RADIO';
-      else if (ANALYZE_PAGES.indexOf(state.page) >= 0 || TOOLS_PAGES.indexOf(state.page) >= 0) {
-        state.page = 'RADIO';
-      }
+      else if (state.page === 'MENU') state.page = CARD_VIEWS[currentCard()][viewIdx[currentCard()]];
+      else state.page = 'MENU';
       render();
     }
   }
@@ -3066,15 +3347,15 @@
     else if (e.key === '.') handleKey('DOWN');
     else if (e.key === 'Enter') handleKey('SELECT');
     else if (e.key === '`') handleKey('BACK');
-    else if (e.key === '1') { state.page = 'RADIO'; render(); }
-    else if (e.key === '2') { state.page = 'ACTIVITY'; render(); }
-    else if (e.key === '3') { state.page = 'CHANNEL'; render(); }
-    else if (e.key === '4') { state.page = 'GPS'; render(); }
-    else if (e.key === '5') { state.page = 'SYSTEM'; render(); }
-    else if (e.key === 'p' || e.key === 'P') { state.page = 'PROBE'; render(); }
-    else if (e.key === 's' || e.key === 'S') { state.page = 'SWEEP'; render(); }
-    else if (e.key === 'c' || e.key === 'C') { state.page = 'CELL'; render(); }
-    else if (e.key === '8') { state.page = 'METER'; render(); }
+    else if (e.key === 'r' || e.key === 'R') handleKey('REPEAT');
+    else if (e.key === '1') setCardView('RADIO', viewIdx.RADIO), render();
+    else if (e.key === '2') setCardView('ACTIVITY', viewIdx.ACTIVITY), render();
+    else if (e.key === '3') setCardView('CHANNEL', viewIdx.CHANNEL), render();
+    else if (e.key === '4') setCardView('GPS', viewIdx.GPS), render();
+    else if (e.key === '5') setCardView('SYSTEM', viewIdx.SYSTEM), render();
+    else if (e.key === 'p' || e.key === 'P') showResult('PROBE');
+    else if (e.key === 's' || e.key === 'S') showResult('SWEEP');
+    else if (e.key === 'c' || e.key === 'C') showResult('CELL');
   });
 
   // Attach button click events
@@ -3086,19 +3367,20 @@
   document.getElementById('btn-back').onclick = function() { handleKey('BACK'); };
 
   // Jump buttons
-  document.getElementById('jump-radio').onclick = function() { state.page = 'RADIO'; render(); };
-  document.getElementById('jump-activity').onclick = function() { state.page = 'ACTIVITY'; render(); };
-  document.getElementById('jump-channel').onclick = function() { state.page = 'CHANNEL'; render(); };
-  document.getElementById('jump-gps').onclick = function() { state.page = 'GPS'; render(); };
-  document.getElementById('jump-system').onclick = function() { state.page = 'SYSTEM'; render(); };
-  document.getElementById('jump-probe').onclick = function() { state.page = 'PROBE'; render(); };
-  document.getElementById('jump-sweep').onclick = function() { state.page = 'SWEEP'; render(); };
-  document.getElementById('jump-cell').onclick = function() { state.page = 'CELL'; render(); };
-  document.getElementById('jump-meter').onclick = function() { state.page = 'METER'; render(); };
-  document.getElementById('jump-waterfall').onclick = function() { state.page = 'WATERFALL'; render(); };
-  document.getElementById('jump-scope').onclick = function() { state.page = 'SCOPE'; render(); };
-  document.getElementById('jump-captures').onclick = function() { state.page = 'CAPTURES'; render(); };
-  document.getElementById('jump-nodes').onclick = function() { state.page = 'NODES'; render(); };
+  document.getElementById('jump-radio').onclick = function() { setCardView('RADIO', viewIdx.RADIO); render(); };
+  document.getElementById('jump-activity').onclick = function() { setCardView('ACTIVITY', viewIdx.ACTIVITY); render(); };
+  document.getElementById('jump-channel').onclick = function() { setCardView('CHANNEL', viewIdx.CHANNEL); render(); };
+  document.getElementById('jump-gps').onclick = function() { setCardView('GPS', viewIdx.GPS); render(); };
+  document.getElementById('jump-system').onclick = function() { setCardView('SYSTEM', viewIdx.SYSTEM); render(); };
+  document.getElementById('jump-probe').onclick = function() { showResult('PROBE'); };
+  document.getElementById('jump-sweep').onclick = function() { showResult('SWEEP'); };
+  document.getElementById('jump-cell').onclick = function() { showResult('CELL'); };
+  document.getElementById('jump-meter').onclick = function() { showResult('METER'); };
+  document.getElementById('jump-waterfall').onclick = function() { showResult('WATERFALL'); };
+  document.getElementById('jump-scope').onclick = function() { showResult('SCOPE'); };
+  document.getElementById('jump-captures').onclick = function() { showResult('CAPTURES'); };
+  document.getElementById('jump-nodes').onclick = function() { showResult('NODES'); };
+  document.getElementById('jump-focus').onclick = function() { showResult('FOCUS'); };
   document.getElementById('jump-menu').onclick = function() { state.page = 'MENU'; render(); };
   document.getElementById('jump-slider').onclick = function() { state.page = 'SLIDER'; render(); };
 
