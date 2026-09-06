@@ -139,6 +139,11 @@ UiPage activeView();                    // ui_task.cpp
 // menu-opened island page, which has no card to belong to and so draws none.
 uint8_t activeViewIndex();              // ui_task.cpp
 uint8_t activeViewCount();              // ui_task.cpp
+// The key hint an empty view shows ("Enter/S: sweep   R: repeat"), built from
+// the same cardSelectAction()/cardRepeatAction() tables the key handler
+// dispatches on so it cannot drift from the real bindings. nullptr where
+// neither key would fill the view — those views explain what does instead.
+const char *cardHintLine(UiPage view); // ui_task.cpp
 
 bool captureInspectIsOpen();            // ui_task.cpp
 uint8_t captureInspectIndex();          // ui_task.cpp

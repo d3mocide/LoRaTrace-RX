@@ -231,6 +231,56 @@ void drawFooterStatus() {
     }
 }
 
+// Every "nothing to show yet" view, one shape: a dim size-2 headline, then up
+// to two size-1 lines. Replaces ten hand-rolled copies that had drifted apart
+// in offsets, colour and wording — two of them ("NO SWEEP YET" / "NO SWEEPS
+// YET") on adjacent views of the same card, which is what made the
+// duplication visible.
+//
+// `line1` is normally cardHintLine(view): the key that fills this view.
+// Downstream views — Waterfall, Captures, Nodes, Meter — pass a plain
+// explanation instead, because no key of theirs produces their data; saying
+// what they are waiting on is more use than repeating the instruction from
+// the view one press above.
+void drawEmptyView(const char *headline, const char *line1, const char *line2 = nullptr) {
+    uiTft->setTextSize(2);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 8);
+    uiTft->print(headline);
+    uiTft->setTextSize(1);
+    if (line1 != nullptr) {
+        uiTft->setCursor(2, HEADER_H + 34);
+        uiTft->print(line1);
+    }
+    if (line2 != nullptr) {
+        uiTft->setCursor(2, HEADER_H + 46);
+        uiTft->print(line2);
+    }
+}
+
+// How long ago a bounded action last reached a terminal state, for the detail
+// line under a held result. Replaces the four independent "revert the headline
+// to a dim IDLE after RESULT_HOLD_MS" branches Probe/Sweep/Cell/Scope each
+// carried: IDLE described the *radio* while the view below it was still
+// showing a real result, so Activity's dashboard could show a sweep peak while
+// Activity's own Sweep view claimed IDLE — two views of one card disagreeing
+// about whether anything had happened. Radio's card owns radio state (its
+// STANDBY word); a tool view owes the operator the age of its data instead.
+// Empty string before anything has completed this power-on.
+const char *resultAge(uint32_t shownAt) {
+    static char buf[12];
+    if (shownAt == 0) return "";
+    const uint32_t sec = (millis() - shownAt) / 1000;
+    if (sec < 60) {
+        snprintf(buf, sizeof(buf), "%lus ago", (unsigned long)sec);
+    } else if (sec < 3600) {
+        snprintf(buf, sizeof(buf), "%lum ago", (unsigned long)(sec / 60));
+    } else {
+        snprintf(buf, sizeof(buf), "%luh ago", (unsigned long)(sec / 3600));
+    }
+    return buf;
+}
+
 // "Label above value" block for the secondary/context column every page
 // carries alongside its primary left-column numbers, so each page doesn't
 // invent its own right-column formatting.
@@ -323,48 +373,41 @@ void drawProbePage() {
     const uint16_t timeouts = radioDiscoveryCadTimeoutCount();
     const uint16_t errors = radioDiscoveryErrorCount();
 
-    uiTft->setTextSize(2);
-    uiTft->setCursor(2, HEADER_H + 8);
     if (state == DiscoverySweepState::IDLE) {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("NO PROBE YET");
-        uiTft->setTextSize(1);
-        uiTft->setCursor(2, HEADER_H + 34);
-        uiTft->print("P / Enter to run Probe");
+        drawEmptyView("NO PROBE YET", cardHintLine(UiPage::PROBE));
         return;
     }
 
     const bool running = state == DiscoverySweepState::RUNNING;
-    // After RESULT_HOLD_MS, revert the headline word to a dim IDLE so the
-    // operator gets a clear "ready to run again" cue instead of a stale
-    // COMPLETE sitting on screen indefinitely — everything below this
-    // still reflects the real last result; only the headline changes.
+    // Past RESULT_HOLD_MS the headline keeps its real terminal word and only
+    // goes dim; the age of that result lands on the detail line below
+    // (resultAge()). It used to be replaced by "IDLE" — see resultAge()'s own
+    // comment for why a tool view reporting radio idleness was the wrong
+    // thing to say.
     const bool holdExpired = !running && probeTerminalShownAt != 0 &&
                              millis() - probeTerminalShownAt >= RESULT_HOLD_MS;
-    if (holdExpired) {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("IDLE");
+    uiTft->setTextSize(2);
+    uiTft->setCursor(2, HEADER_H + 8);
+    const uint16_t colour = holdExpired ? COL_DIM
+                            : state == DiscoverySweepState::FAILED
+                                ? COL_BAD
+                                : (running || state == DiscoverySweepState::CANCELLED ? COL_WARN : COL_GOOD);
+    uiTft->setTextColor(colour, COL_BG);
+    if (running) {
+        uiTft->print("SCANNING");
+    } else if (state == DiscoverySweepState::COMPLETE) {
+        uiTft->print("COMPLETE");
+    } else if (state == DiscoverySweepState::CANCELLED) {
+        uiTft->print("CANCELLED");
     } else {
-        const uint16_t colour = state == DiscoverySweepState::FAILED
-                                    ? COL_BAD
-                                    : (running || state == DiscoverySweepState::CANCELLED ? COL_WARN : COL_GOOD);
-        uiTft->setTextColor(colour, COL_BG);
-        if (running) {
-            uiTft->print("SCANNING");
-        } else if (state == DiscoverySweepState::COMPLETE) {
-            uiTft->print("COMPLETE");
-        } else if (state == DiscoverySweepState::CANCELLED) {
-            uiTft->print("CANCELLED");
-        } else {
-            uiTft->print("FAILED");
-        }
+        uiTft->print("FAILED");
     }
 
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_FG, COL_BG);
     uiTft->setCursor(2, HEADER_H + 31);
     if (running) {
-        uiTft->print("watch paused  ");
+        uiTft->print("Watch away  ");
         uiTft->print(done);
         uiTft->print('/');
         uiTft->print(total);
@@ -376,7 +419,9 @@ void drawProbePage() {
     uiTft->print(total);
     uiTft->print("  away ");
     uiTft->print(radioDiscoveryLastAwayMs());
-    uiTft->print("ms");
+    uiTft->print("ms  ");
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->print(resultAge(probeTerminalShownAt));
 
     // Plain-English headline instead of raw "cad hit"/"free" jargon — the
     // actual answer to "did I find anything", not internal counters.
@@ -561,17 +606,13 @@ void drawSweepPage() {
     const bool repeating = radioEnergySweepRepeatIsActive();
     const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
 
-    uiTft->setTextSize(2);
-    uiTft->setCursor(2, HEADER_H + 8);
     if (state == EnergySweepState::IDLE) {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("NO SWEEP YET");
-        uiTft->setTextSize(1);
-        uiTft->setCursor(2, HEADER_H + 34);
-        uiTft->print("S: sweep   R: repeat");
+        drawEmptyView("NO SWEEP YET", cardHintLine(UiPage::SWEEP));
         return;
     }
 
+    uiTft->setTextSize(2);
+    uiTft->setCursor(2, HEADER_H + 8);
     const bool running = state == EnergySweepState::RUNNING;
     // Same IDLE-after-hold reversion as drawProbePage() — the headline
     // word is the only thing that changes; bin/peak data below still
@@ -585,11 +626,9 @@ void drawSweepPage() {
     if (repeating) {
         uiTft->setTextColor(COL_WARN, COL_BG);
         uiTft->print("REPEATING");
-    } else if (holdExpired) {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("IDLE");
     } else {
-        const uint16_t colour = state == EnergySweepState::FAILED
+        const uint16_t colour = holdExpired ? COL_DIM
+                                : state == EnergySweepState::FAILED
                                     ? COL_BAD
                                     : (running || state == EnergySweepState::CANCELLED ? COL_WARN : COL_GOOD);
         uiTft->setTextColor(colour, COL_BG);
@@ -608,7 +647,7 @@ void drawSweepPage() {
     uiTft->setTextColor(COL_FG, COL_BG);
     uiTft->setCursor(2, HEADER_H + 31);
     if (running) {
-        uiTft->print("watch paused  ");
+        uiTft->print("Watch away  ");
     } else {
         uiTft->print("bins ");
     }
@@ -618,16 +657,14 @@ void drawSweepPage() {
     if (!running) {
         uiTft->print("  away ");
         uiTft->print(radioEnergyLastAwayMs());
-        uiTft->print("ms");
+        uiTft->print("ms  ");
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print(resultAge(sweepTerminalShownAt));
     }
 
     drawFreqBar(2, HEADER_H + 62, 108, energyBinFrequencyMhz(bin, band, ENERGY_SWEEP_DEFAULT_STEP),
                band.lo_mhz, band.hi_mhz);
     drawSweepOccupancy(2, HEADER_H + 62, 108, total);
-
-    uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 96);
-    uiTft->print("listening to the noise");
 
     char value[10];
     snprintf(value, sizeof(value), "%u", (unsigned)peaks);
@@ -671,10 +708,12 @@ void drawSweepPage() {
 // drawFreqBar() is called with Cell's own band bounds, not the default
 // 868-923MHz, so the marker resolves position within the actual band being
 // swept instead of a barely-visible sliver of the full front end. The
-// disclaimer line stays on screen deliberately, same reasoning as Sweep's
-// own "listening to the noise" line: docs/DESIGN.md §5a's central rule is
-// that a cell-band RSSI reading is never presented as anything more than
-// presence/strength — no cell ID, no decode, no tower location.
+// disclaimer line stays on screen deliberately: docs/DESIGN.md §5a's central
+// rule is that a cell-band RSSI reading is never presented as anything more
+// than presence/strength — no cell ID, no decode, no tower location. (Sweep
+// carried a matching "listening to the noise" line until 2026-09-06; that one
+// was flavour, not a truthfulness claim, and went when the empty-state pass
+// wanted the row. This one stays.)
 // FCC A/B block markers under the Cell frequency bar (drawFreqBar()
 // above, called with Cell's own 869-894MHz band) — same thin-tick idiom
 // as drawSweepOccupancy()'s peak marks, positionally aligned so a reader
@@ -755,18 +794,11 @@ void drawFocusPage() {
                          state == FocusRuntimeState::RESTORING;
 
     if (state == FocusRuntimeState::IDLE && !haveResult) {
-        uiTft->setTextSize(2);
-        uiTft->setCursor(2, HEADER_H + 8);
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("NO SURVEY YET");
-        uiTft->setTextSize(1);
-        uiTft->setCursor(2, HEADER_H + 34);
-        uiTft->print("Enter: survey a bin");
-        // Name the frequency Enter would actually survey rather than only the
-        // rule that picks it (ui_actions.cpp's selectFocusRequest()): after a
-        // sweep this is the same peak Activity's own SWEEP PK card is showing,
-        // which is what makes the sweep-then-focus loop legible instead of
-        // something the operator has to take on trust.
+        // Naming the frequency Enter would actually survey, rather than only
+        // the rule that picks it (ui_actions.cpp's selectFocusRequest()): after
+        // a sweep this is the same peak Activity's own SWEEP PK card is
+        // showing, which is what makes the sweep-then-focus loop legible
+        // instead of something the operator has to take on trust.
         const EnergyStrongestPeak peak = radioEnergyStrongestPeak();
         char target[40];
         if (peak.valid) {
@@ -775,8 +807,7 @@ void drawFocusPage() {
             snprintf(target, sizeof(target), "target %.3f MHz (home, no sweep)",
                      (double)radioActiveChannel().freq_mhz);
         }
-        uiTft->setCursor(2, HEADER_H + 46);
-        uiTft->print(target);
+        drawEmptyView("NO SURVEY YET", cardHintLine(UiPage::FOCUS), target);
         return;
     }
 
@@ -882,33 +913,26 @@ void drawCellPage() {
     const uint16_t total = radioCellBinCount();
     const bool repeating = radioCellSweepRepeatIsActive();
 
-    uiTft->setTextSize(2);
-    uiTft->setCursor(2, HEADER_H + 8);
     if (state == CellSweepState::IDLE) {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("NO SCAN YET");
-        uiTft->setTextSize(1);
-        uiTft->setCursor(2, HEADER_H + 34);
-        uiTft->print("C: scan   R: repeat");
+        drawEmptyView("NO SCAN YET", cardHintLine(UiPage::CELL));
         return;
     }
 
+    uiTft->setTextSize(2);
+    uiTft->setCursor(2, HEADER_H + 8);
     const bool running = state == CellSweepState::RUNNING;
-    // Same IDLE-after-hold reversion as drawProbePage()/drawSweepPage() —
-    // only the headline word changes; bin/signal data below still reflects
-    // the real last result. Repeat mode takes priority over that, same
-    // reasoning as drawSweepPage()'s own repeating check: back-to-back laps
-    // would otherwise flicker SCANNING/COMPLETE every single one.
+    // Same dim-the-headline-and-age-it treatment as drawProbePage()/
+    // drawSweepPage(). Repeat mode takes priority, same reasoning as
+    // drawSweepPage()'s own repeating check: back-to-back laps would
+    // otherwise flicker SCANNING/COMPLETE every single one.
     const bool holdExpired = !repeating && !running && cellTerminalShownAt != 0 &&
                              millis() - cellTerminalShownAt >= RESULT_HOLD_MS;
     if (repeating) {
         uiTft->setTextColor(COL_WARN, COL_BG);
         uiTft->print("REPEATING");
-    } else if (holdExpired) {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("IDLE");
     } else {
-        const uint16_t colour = state == CellSweepState::FAILED
+        const uint16_t colour = holdExpired ? COL_DIM
+                                : state == CellSweepState::FAILED
                                     ? COL_BAD
                                     : (running || state == CellSweepState::CANCELLED ? COL_WARN : COL_GOOD);
         uiTft->setTextColor(colour, COL_BG);
@@ -927,7 +951,7 @@ void drawCellPage() {
     uiTft->setTextColor(COL_FG, COL_BG);
     uiTft->setCursor(2, HEADER_H + 31);
     if (running) {
-        uiTft->print("watch paused  ");
+        uiTft->print("Watch away  ");
     } else {
         uiTft->print("bins ");
     }
@@ -937,7 +961,9 @@ void drawCellPage() {
     if (!running) {
         uiTft->print("  away ");
         uiTft->print(radioCellLastAwayMs());
-        uiTft->print("ms");
+        uiTft->print("ms  ");
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print(resultAge(cellTerminalShownAt));
     }
 
     drawFreqBar(2, HEADER_H + 62, 108, cellBinFrequencyMhz(bin), CELL_SWEEP_BAND_LO_MHZ,
@@ -1594,7 +1620,7 @@ void drawMeterPage() {
         uiTft->setCursor(2, HEADER_H + 54);
         if (radioScopeAcquireIsActive()) {
             uiTft->setTextColor(COL_WARN, COL_BG);
-            uiTft->print("live - watch paused");
+            uiTft->print("live - Watch away");
         } else {
             char ageBuf[24];
             snprintf(ageBuf, sizeof(ageBuf), "%lus ago", (unsigned long)((millis() - trace.start_millis) / 1000));
@@ -1659,8 +1685,7 @@ void drawMeterPage() {
         constexpr float DISPLAY_LO = -120.0f, DISPLAY_HI = 0.0f;
         drawMeterBar(2, HEADER_H + 72, 232, 12, latestCapture.rssi_dbm, DISPLAY_LO, DISPLAY_HI);
     } else {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("NO MEASUREMENT");
+        drawEmptyView("NO MEASUREMENT", "fills while Watch runs");
     }
 }
 
@@ -1717,13 +1742,13 @@ void drawWaterfallPage() {
     // sized set of locals.
     const uint8_t rowCount = analyzerWaterfallRowCount(pdMS_TO_TICKS(50));
     if (rowCount == 0) {
-        uiTft->setTextSize(2);
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 8);
-        uiTft->print("NO SWEEPS YET");
-        uiTft->setTextSize(1);
-        uiTft->setCursor(2, HEADER_H + 34);
-        uiTft->print("Enter: start repeat Sweep");
+        // "NO HISTORY", not a second "NO SWEEPS YET": the Sweep view one press
+        // up already says that and already carries the key hint. This view is
+        // downstream of it, so it says what it is waiting on instead of
+        // repeating the instruction. Its old hint ("Enter: start repeat
+        // Sweep") is also what proved hand-typed hints drift — Enter became
+        // single-shot and R became repeat, and the string did not follow.
+        drawEmptyView("NO HISTORY", "fills as sweeps complete");
         return;
     }
 
@@ -1873,25 +1898,20 @@ void drawScopePage() {
     const bool holdExpired = !running && scopeTerminalShownAt != 0 &&
                              millis() - scopeTerminalShownAt >= RESULT_HOLD_MS;
 
-    uiTft->setTextSize(2);
-    uiTft->setCursor(2, HEADER_H + 6);
     if (!have || trace.count == 0) {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("NO SCOPE YET");
-        uiTft->setTextSize(1);
-        uiTft->setCursor(2, HEADER_H + 30);
-        uiTft->print(running ? "watch paused" : "Enter to capture");
+        drawEmptyView("NO SCOPE YET", running ? "Watch away" : cardHintLine(UiPage::SCOPE));
         return;
     }
 
+    uiTft->setTextSize(2);
+    uiTft->setCursor(2, HEADER_H + 6);
     if (running) {
         uiTft->setTextColor(COL_WARN, COL_BG);
         uiTft->print("CAPTURING");
-    } else if (holdExpired) {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("IDLE");
     } else {
-        uiTft->setTextColor(COL_GOOD, COL_BG);
+        // Dim rather than replaced by "IDLE" past the hold, same as Probe/
+        // Sweep/Cell — the trace below is real and the age says how real.
+        uiTft->setTextColor(holdExpired ? COL_DIM : COL_GOOD, COL_BG);
         uiTft->print("CAPTURED");
     }
 
@@ -1902,10 +1922,13 @@ void drawScopePage() {
     snprintf(freqBuf, sizeof(freqBuf), "%.3fMHz  %ums/sample", (double)trace.tuned_freq_mhz,
              (unsigned)trace.sample_interval_ms);
     uiTft->print(freqBuf);
+    uiTft->setCursor(2, HEADER_H + 34);
     if (running) {
         uiTft->setTextColor(COL_WARN, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 34);
-        uiTft->print("watch paused");
+        uiTft->print("Watch away");
+    } else {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->print(resultAge(scopeTerminalShownAt));
     }
 
     constexpr int16_t PLOT_X = 2, PLOT_Y = HEADER_H + 48, PLOT_W = 232, PLOT_H = 50;
@@ -2053,10 +2076,7 @@ void drawCapturesPage() {
     CaptureHistory history;
     const bool have = analyzerCaptureHistorySnapshot(history, pdMS_TO_TICKS(50));
     if (!have || history.count == 0) {
-        uiTft->setTextSize(2);
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 8);
-        uiTft->print("NO CAPTURES YET");
+        drawEmptyView("NO CAPTURES YET", "fills while Watch runs");
         return;
     }
 
@@ -2094,10 +2114,7 @@ void drawCapturesPage() {
 void drawNodesPage() {
     NodeRoster roster;
     if (!analyzerNodeRosterSnapshot(roster, pdMS_TO_TICKS(50))) {
-        uiTft->setTextSize(2);
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 8);
-        uiTft->print("NO NODES YET");
+        drawEmptyView("NO NODES YET", "fills while Watch runs");
         return;
     }
 
@@ -2107,10 +2124,7 @@ void drawNodesPage() {
         if (roster.entries[i].node_id != NODE_ROSTER_EMPTY_ID) order[liveCount++] = i;
     }
     if (liveCount == 0) {
-        uiTft->setTextSize(2);
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 8);
-        uiTft->print("NO NODES YET");
+        drawEmptyView("NO NODES YET", "fills while Watch runs");
         return;
     }
     // Selection sort, newest-seen first — at most 24 entries, cheap enough

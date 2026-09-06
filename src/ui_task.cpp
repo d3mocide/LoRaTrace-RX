@@ -492,6 +492,38 @@ MenuAction cardRepeatAction(UiPage view) {
     }
 }
 
+// The verb an empty view names when telling the operator which key fills it,
+// and the global hotkey that fires the same action from anywhere. Both are
+// lookups on MenuAction rather than strings typed into each page, because
+// that is exactly how the old per-page hints went stale: "Enter: start repeat
+// Sweep" survived on the Waterfall page across the split that made Enter
+// single-shot and R repeat. A hint built from the same tables the key handler
+// dispatches on cannot drift from what the key actually does.
+const char *cardActionVerb(MenuAction action) {
+    switch (action) {
+        case MenuAction::SWEEP_TOGGLE: return "sweep";
+        case MenuAction::SWEEP_REPEAT_TOGGLE: return "repeat";
+        case MenuAction::PROBE_TOGGLE: return "probe";
+        case MenuAction::CELL_TOGGLE: return "scan";
+        case MenuAction::CELL_REPEAT_TOGGLE: return "repeat";
+        case MenuAction::FOCUS_TOGGLE: return "survey";
+        case MenuAction::SCOPE_TOGGLE: return "capture";
+        // TRACE_TOGGLE and SD_RETRY are deliberately absent: neither produces
+        // the data a view is missing, so neither belongs in an empty state's
+        // hint. Those views explain what fills them instead (ui_pages.cpp).
+        default: return nullptr;
+    }
+}
+
+char cardActionGlobalKey(MenuAction action) {
+    switch (action) {
+        case MenuAction::PROBE_TOGGLE: return 'P';
+        case MenuAction::SWEEP_TOGGLE: return 'S';
+        case MenuAction::CELL_TOGGLE: return 'C';
+        default: return '\0';
+    }
+}
+
 // Drains the TCA8418 event FIFO and returns the most recently recognized
 // KeyAction this poll (keyboard.h), or NONE. Several actions queued between
 // polls collapse to the last one — acceptable at a 30ms poll interval for
@@ -904,6 +936,31 @@ UiPage activeView() {
 }
 
 uint8_t activeViewIndex() { return isMainPage(page) ? cardViewIdx[mainPageIndex(page)] : 0; }
+
+// "Enter/S: sweep   R: repeat" for a view, or nullptr where neither key does
+// anything that would fill it. Generated, never typed — see cardActionVerb().
+const char *cardHintLine(UiPage view) {
+    static char buf[40];
+    const MenuAction sel = cardSelectAction(view);
+    const MenuAction rep = cardRepeatAction(view);
+    const char *selVerb = cardActionVerb(sel);
+    const char *repVerb = cardActionVerb(rep);
+    if (selVerb == nullptr && repVerb == nullptr) return nullptr;
+
+    int n = 0;
+    if (selVerb != nullptr) {
+        const char key = cardActionGlobalKey(sel);
+        if (key != '\0') {
+            n = snprintf(buf, sizeof(buf), "Enter/%c: %s", key, selVerb);
+        } else {
+            n = snprintf(buf, sizeof(buf), "Enter: %s", selVerb);
+        }
+    }
+    if (repVerb != nullptr && n >= 0 && (size_t)n < sizeof(buf)) {
+        snprintf(buf + n, sizeof(buf) - (size_t)n, "%sR: %s", n > 0 ? "   " : "", repVerb);
+    }
+    return buf;
+}
 
 uint8_t activeViewCount() { return isMainPage(page) ? CARD_VIEWS[mainPageIndex(page)].count : 0; }
 

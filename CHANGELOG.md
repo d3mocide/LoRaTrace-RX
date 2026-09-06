@@ -9,6 +9,17 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-06
 
+- **Empty and held states rebuilt for card views.** Key hints are generated
+  from `cardSelectAction()`/`cardRepeatAction()` (`cardHintLine()`) instead of
+  typed per page — Waterfall's said "Enter: start repeat Sweep" for two
+  commits after Enter became single-shot. Ten hand-rolled empty states become
+  one `drawEmptyView()`; downstream views (Waterfall, Captures, Nodes, Meter)
+  now say what fills them rather than repeating the view above them, and
+  Waterfall's "NO SWEEPS YET" becomes "NO HISTORY". The four post-hold `IDLE`
+  headlines become the real terminal word dimmed plus `resultAge()`, so a card
+  no longer disagrees with itself about whether a sweep happened. One
+  vocabulary for the radio being away: `Watch away`, per docs/BRAND.md.
+
 - **Tools and Analyze menu groups removed.** Both were pure navigation to
   pages that are now card views, so the rows were a second road to somewhere
   you were already standing. Menu root is **Profile / Trace / System**; Trace
