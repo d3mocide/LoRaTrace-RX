@@ -800,9 +800,9 @@
 
       <div class="group-label">Card 3 · Channel</div>
       <a href="#plate-channel">13 · Channel — config</a>
-      <a href="#plate-captures">14 · ↳ Captures</a>
-      <a href="#plate-nodes">15 · ↳ Nodes</a>
-      <a href="#plate-probe">16 · ↳ Probe</a>
+      <a href="#plate-probe">14 · ↳ Probe</a>
+      <a href="#plate-captures">15 · ↳ Captures</a>
+      <a href="#plate-nodes">16 · ↳ Nodes</a>
 
       <div class="group-label">Card 4 · GPS</div>
       <a href="#plate-gps">17 · GPS — fix</a>
@@ -1089,6 +1089,21 @@
       <p class="plate-note">
         Drawn on every page by <code>drawHeader()</code> and <code>drawBattery()</code>. The 25-character breadcrumb limit guarantees that deep menu paths never collide with the status dots cluster.
       </p>
+      <p class="plate-note">
+        <strong>Status dots (2026-09-06).</strong> Four now, shifted left to x=148 so the fourth fits
+        clear of <code>drawBattery()</code>, which clears from x=184: <strong>WiFi AP</strong>, GPS fix,
+        heap health, RX activity. WiFi moved here from System's bottom line &mdash; a binary state
+        belongs in the cluster that already exists for exactly that, and the client count moves to the
+        web UI and the toggle toast, which a dot cannot carry and does not need to. The menu breadcrumb
+        cap dropped 25 &rarr; 23 characters to clear it.
+      </p>
+      <p class="plate-note">
+        <strong>The plot well.</strong> Cards whose band is a plot draw left and right rails and a
+        floor, with the header's own hairline as the top edge &mdash; a full box put a second horizontal
+        line 2px below one already there. The rails meet it at x=0 and x=239, so the band reads as a
+        compartment carved out below the header. The floor doubles as the plot baseline. Radio's grid
+        and Channel's axis use it too; only Channel shortens it, to 28px, because an axis is not a plot.
+      </p>
 
       <div class="plate-body">
         <div class="screen-box" style="height:120px;">
@@ -1192,164 +1207,60 @@
     <section class="plate" id="plate-radio">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">06 / CARD 1 · RADIO</span>
+        <span class="plate-num">06 / CARD 1 &middot; RADIO</span>
         <h2 class="plate-title">Plate: RADIO (Receive Chain)</h2>
       </div>
-      <p class="plate-note">
-        Card 1, view 1 of 3 (Meter and Scope are views 2 and 3). Rebuilt 2026-09-06: the receive chain
-        is a <strong>pipeline with a named loss at each handoff</strong> &mdash; air &rarr; demod
-        (<code>crc</code>) &rarr; queue (<code>drop</code>) &rarr; SD (<code>drop</code>) &mdash; not
-        seven independent counters. The previous layout put them in two unrelated columns, where a bare
-        <code>drop 3</code> meant nothing without the <code>rx 1284</code> beside it. The arrows go
-        <span class="bad-txt">red</span> when the stage they feed lost something, so the failing handoff
-        is findable without reading a number. Structurally identical to ACTIVITY: a visual band across
-        the top, three <code>statCard()</code>s under it.
-      </p>
+      <p class="plate-note">Card 1, view 1 of 3 (Meter and Scope are 2 and 3). Six facts in a 2&times;3 grid inside a plot well, no boxes of their own: row 1 is what the radio did, row 2 what the pipeline did with it, so the chain reads in order without arrows drawn between stages.</p><p class="plate-note">It arrived as three composite stages joined by arrows, which carried causality but cost every stage its own box &mdash; six cell borders plus three card borders is nine rectangles on one screen, and the chrome became the figure while the numbers became the ground. Counts are neutral; a loss figure carries colour, <span style="color:var(--sage)">green at zero</span> and <span class="bad-txt">red otherwise</span>, because 0 is the only good value.</p>
 
       <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">RADIO</div>
-          <div class="t1 good" style="left:415px; top:4px;">84%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-          <div style="position:absolute; left:4px; top:31px; width:519px; height:95px; border:1px solid var(--scr-dim);"></div>
-          <div class="t1 dim" style="left:13px; top:37px;">HEARD</div>
-          <div class="t2 fg" style="left:13px; top:62px;">1284</div>
-          <div class="t1 good" style="left:13px; top:103px;">crc 0</div>
-          <div class="t1 dim" style="left:185px; top:37px;">QUEUED</div>
-          <div class="t2 fg" style="left:185px; top:62px;">1284</div>
-          <div class="t1 good" style="left:185px; top:103px;">drop 0</div>
-          <div class="t1 dim" style="left:356px; top:37px;">LOGGED</div>
-          <div class="t2 fg" style="left:356px; top:62px;">1284</div>
-          <div class="t1 good" style="left:356px; top:103px;">drop 0</div>
-          <div class="t1 dim" style="left:163px; top:68px;">&gt;</div>
-          <div class="t1 dim" style="left:334px; top:68px;">&gt;</div>
-          <div style="position:absolute; left:4px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
-          <div class="t1 good" style="left:13px; top:143px;">STATE</div>
-          <div class="t2 good" style="left:13px; top:174px;">WATCH</div>
-          <div class="t1 dim" style="left:13px; top:231px;">MeshCore</div>
-          <div style="position:absolute; left:180px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
-          <div class="t1 good" style="left:189px; top:143px;">STORAGE</div>
-          <div class="t2 fg" style="left:189px; top:174px;">ok</div>
-          <div class="t1 dim" style="left:189px; top:231px;">run 12</div>
-          <div style="position:absolute; left:356px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
-          <div class="t1 dim" style="left:365px; top:143px;">BUS</div>
-          <div class="t2 fg" style="left:365px; top:174px;">42ms</div>
-          <div class="t1 dim" style="left:365px; top:231px;">0 bus miss</div>
-          <div class="t1 dim" style="left:4px; top:275;">MeshCore</div>
-          <div class="t1 dim" style="right:4px; top:275;">1/5</div>
-          <div style="position:absolute; left:245px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div>
-          <div style="position:absolute; left:260px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
-          <div style="position:absolute; left:275px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
-        </div>
+        <div class="screen-scroll"><div class="screen"><div class="t1 fg" style="left:4px; top:4px;">RADIO</div><div class="t1 good" style="left:473px; top:4px;">84%</div><div style="position:absolute; left:0px; top:26px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:322px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:341px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:361px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-dim);"></div><div class="t1 dim" style="left:4px; top:275px;">MeshCore</div><div class="t1 dim" style="left:497px; top:275px;">1/5</div><div style="position:absolute; left:245px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div><div style="position:absolute; left:260px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:275px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:0px; top:26px; width:1px; height:99px; background:var(--scr-dim);"></div><div style="position:absolute; left:527px; top:26px; width:1px; height:99px; background:var(--scr-dim);"></div><div style="position:absolute; left:0px; top:125px; width:528px; height:1px; background:var(--scr-dim);"></div><div class="t1 dim" style="left:9px; top:35px;">RX</div><div class="t1 fg" style="left:9px; top:55px;">1284</div><div class="t1 dim" style="left:187px; top:35px;">CRC</div><div class="t1 good" style="left:187px; top:55px;">0</div><div class="t1 dim" style="left:365px; top:35px;">MISS</div><div class="t1 good" style="left:365px; top:55px;">0</div><div class="t1 dim" style="left:9px; top:84px;">QUEUE</div><div class="t1 good" style="left:9px; top:103px;">0</div><div class="t1 dim" style="left:187px; top:84px;">LOG</div><div class="t1 fg" style="left:187px; top:103px;">1284</div><div class="t1 dim" style="left:365px; top:84px;">DROP</div><div class="t1 good" style="left:365px; top:103px;">0</div><div style="position:absolute; left:0px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 good" style="left:9px; top:143px;">STATE</div><div class="t2 good" style="left:9px; top:174px;">WATCH</div><div class="t1 dim" style="left:9px; top:231px;">MeshCore</div><div style="position:absolute; left:178px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 good" style="left:187px; top:143px;">STORAGE</div><div class="t2 fg" style="left:187px; top:174px;">ok</div><div class="t1 dim" style="left:187px; top:231px;">run 12</div><div style="position:absolute; left:356px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 dim" style="left:365px; top:143px;">BUS</div><div class="t2 fg" style="left:365px; top:174px;">42ms</div><div class="t1 dim" style="left:365px; top:231px;">bus 0</div></div></div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
             <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
-            <tbody>
-              <tr><td>Pipeline band</td><td class="coord-xy">(2, 14) 236&times;43</td><td>Rect &middot; COL_DIM</td><td>Same box geometry as Activity's sparkline</td></tr>
-              <tr><td>Stage name</td><td class="coord-xy">x=6/84/162, y=17</td><td>Size 1 &middot; DIM</td><td>HEARD flashes GOOD on a live detection (RX pulse)</td></tr>
-              <tr><td>Stage count</td><td class="coord-xy">y=28</td><td>Size 2 &middot; COL_FG</td><td>Switches to thousands ("123k") past 99,999 to clear the arrow</td></tr>
-              <tr><td>Stage loss</td><td class="coord-xy">y=47</td><td>Size 1 &middot; GOOD / BAD</td><td>Green at 0, red otherwise &mdash; 0 is the only good value</td></tr>
-              <tr><td>Flow arrows</td><td class="coord-xy">x=74/152, y=31</td><td>Size 1 &middot; DIM / BAD</td><td>Red when the stage they feed lost anything</td></tr>
-              <tr><td>STATE card</td><td class="coord-xy">(2, 61) 77&times;60</td><td>statCard &middot; GOOD / WARN</td><td>WATCH / STANDBY / AWAY; sub names the subject (profile, or the tool holding the radio)</td></tr>
-              <tr><td>STORAGE card</td><td class="coord-xy">(82, 61)</td><td>statCard &middot; GOOD / BAD</td><td>SD ok/DOWN, sub is the run directory index</td></tr>
-              <tr><td>BUS card</td><td class="coord-xy">(162, 61)</td><td>statCard &middot; DIM / BAD</td><td>Worst flush ms (docs/DESIGN.md &sect;8.2) + SPI bus misses</td></tr>
-            </tbody>
+            <tbody><tr><td>Grid cell label</td><td class="coord-xy">x = 0 / 81 / 162</td><td>Size 1 &middot; DIM</td><td>RX flashes GOOD on a live detection (the RX pulse)</td></tr><tr><td>Grid cell value</td><td class="coord-xy">label +9px</td><td>Size 1 &middot; FG or GOOD/BAD</td><td>Switches to thousands ("123k") past 99,999</td></tr><tr><td>Row 1</td><td class="coord-xy">y = 16</td><td>&mdash;</td><td>RX, CRC, MISS &mdash; the radio layer</td></tr><tr><td>Row 2</td><td class="coord-xy">y = 38</td><td>&mdash;</td><td>QUEUE, LOG, DROP &mdash; the storage pipeline</td></tr><tr><td>STATE card</td><td class="coord-xy">(0, 61) 78&times;60</td><td>statCard &middot; GOOD / WARN</td><td>WATCH / STANDBY / AWAY; sub names the subject &mdash; profile, or the tool holding the radio</td></tr><tr><td>STORAGE card</td><td class="coord-xy">(81, 61)</td><td>statCard &middot; GOOD / BAD</td><td>SD ok/DOWN, sub is the run directory index</td></tr><tr><td>BUS card</td><td class="coord-xy">(162, 61)</td><td>statCard &middot; DIM</td><td>Worst flush hold (docs/DESIGN.md &sect;8.2) + SPI contention count</td></tr></tbody>
           </table>
         </div>
       </div>
     </section>
 
     <!-- ================= 07 · RADIO · VIEW 2 ================= -->
-<section class="plate" id="plate-meter">
+    <section class="plate" id="plate-meter">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">07 / RADIO · VIEW 2</span>
-        <h2 class="plate-title">Plate: METER (Real-Time Signal Level)</h2>
+        <span class="plate-num">07 / RADIO &middot; VIEW 2</span>
+        <h2 class="plate-title">Plate: METER (Live Signal Level)</h2>
       </div>
-      <p class="plate-note">
-        Dedicated signal strength meter. Features an honest filled bar gauge (-120 to 0 dBm), signal SNR readout (watch-sourced), and live channel modulation parameters (SF/BW/CR) on the right.
-      </p>
+      <p class="plate-note">Radio view 2. Not a bounded action, so it takes the carousel cards' shape &mdash; gauge in a well, three cards &mdash; rather than the result skeleton Probe/Sweep/Cell/Focus share.</p><p class="plate-note">Its two sources (a live Scope sample, or the newest decoded packet) used to duplicate the entire layout between them; they now differ only in their cards, which is the only thing that actually differs. Scope reports <strong>no SNR</strong>: it samples raw RSSI at one frequency without demodulating anything, so it genuinely has none &mdash; an honest omission, the same rule as Waterfall's "no fabricated vertical texture".</p><p class="plate-note">The gauge runs &minus;120..0 dBm, not Scope's &minus;120..&minus;30: real readings from a close repeater hit &minus;16dBm and clipped flat against the old ceiling.</p>
 
       <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">METER</div>
-          <div class="t1 good" style="left:415px; top:4px;">82%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 fg" style="left:4px; top:44px;">-72 dBm</div>
-          <div class="t1 dim" style="left:4px; top:92px;">watch @ 906.875MHz</div>
-          <div class="t1 dim" style="left:4px; top:119px;">SNR: +8.5dB</div>
-          <div class="t1 fg" style="left:4px; top:145px;">2s ago</div>
-
-          <div class="t1 dim" style="right:12px; top:92px; text-align:right;">SF11</div>
-          <div class="t1 dim" style="right:12px; top:119px; text-align:right;">250.0kHz</div>
-          <div class="t1 dim" style="right:12px; top:145px; text-align:right;">CR4/5</div>
-
-          <div style="position:absolute; left:4px; top:185px; width:510px; height:26px; border:1.5px solid var(--scr-dim);">
-            <div style="position:absolute; left:2px; top:2px; width:204px; height:18px; background:var(--scr-fg);"></div>
-          </div>
-          <div class="t1 dim" style="left:4px; top:220px;">-120</div>
-          <div class="t1 dim" style="right:14px; top:220px;">0</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-        </div>
+        <div class="screen-scroll"><div class="screen"><div class="t1 fg" style="left:4px; top:4px;">METER</div><div class="t1 good" style="left:473px; top:4px;">84%</div><div style="position:absolute; left:0px; top:26px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:322px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:341px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:361px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-dim);"></div><div class="t1 dim" style="left:4px; top:275px;">MeshCore</div><div class="t1 dim" style="left:497px; top:275px;">1/5</div><div style="position:absolute; left:245px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:260px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div><div style="position:absolute; left:275px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:0px; top:26px; width:1px; height:99px; background:var(--scr-dim);"></div><div style="position:absolute; left:527px; top:26px; width:1px; height:99px; background:var(--scr-dim);"></div><div style="position:absolute; left:0px; top:125px; width:528px; height:1px; background:var(--scr-dim);"></div><div class="t2 fg" style="left:9px; top:35px;">-84 dBm</div><div class="t1 dim" style="right:13px; top:44px;">906.875 MHz</div><div style="position:absolute; left:9px; top:79px; width:510px; height:26px; border:1px solid var(--scr-dim);"></div><div style="position:absolute; left:11px; top:81px; width:154px; height:22px; background:var(--scr-fg);"></div><div style="position:absolute; left:0px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 good" style="left:9px; top:143px;">SOURCE</div><div class="t2 good" style="left:9px; top:174px;">WATCH</div><div class="t1 dim" style="left:9px; top:231px;">2s ago</div><div style="position:absolute; left:178px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 good" style="left:187px; top:143px;">SNR</div><div class="t2 good" style="left:187px; top:174px;">+8.5</div><div class="t1 dim" style="left:187px; top:231px;">dB</div><div style="position:absolute; left:356px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 dim" style="left:365px; top:143px;">PARAMS</div><div class="t2 fg" style="left:365px; top:174px;">SF11</div><div class="t1 dim" style="left:365px; top:231px;">BW250 CR4/5</div></div></div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Element</th><th>Coords (1×)</th><th>Token</th><th>Design Rationale</th></tr></thead>
-            <tbody>
-              <tr><td>Signal dBm</td><td class="coord-xy">(2, 20)</td><td>Size 2 · COL_FG</td><td>Peak or packet RSSI in dBm</td></tr>
-              <tr><td>SNR Readout</td><td class="coord-xy">(2, 54)</td><td>Size 1 · COL_DIM</td><td>Decoded packet Signal-to-Noise Ratio (dB)</td></tr>
-              <tr><td>Elapsed Age</td><td class="coord-xy">(2, 66)</td><td>FG / WARN</td><td>"live - Watch away" (Warn) or "Ns ago"</td></tr>
-              <tr><td>Channel Params</td><td class="coord-xy">x=230 right-aligned</td><td>Size 1 · COL_DIM</td><td>SF, Bandwidth kHz, and Coding Rate denominator</td></tr>
-              <tr><td>Bar Gauge</td><td class="coord-xy">(2, 84) 232×12</td><td>Border Dim, Fill FG</td><td>-120 to 0 dBm (widened from -30 to avoid clipping)</td></tr>
-            </tbody>
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
+            <tbody><tr><td>Level hero</td><td class="coord-xy">(4, 16)</td><td>Size 2 &middot; FG</td><td>Current RSSI from whichever source won</td></tr><tr><td>Frequency</td><td class="coord-xy">right, y = 20</td><td>Size 1 &middot; DIM</td><td>Tuned frequency of that reading</td></tr><tr><td>Gauge</td><td class="coord-xy">(4, 36) 232&times;12</td><td>drawMeterBar &middot; FG</td><td>&minus;120..0 dBm, widened so a close repeater cannot clip</td></tr><tr><td>SOURCE card</td><td class="coord-xy">(0, 61)</td><td>statCard &middot; GOOD / WARN</td><td>WATCH or SCOPE, with age &mdash; or "Watch away" while a capture runs</td></tr><tr><td>SNR card</td><td class="coord-xy">(81, 61)</td><td>statCard</td><td>Real SNR on a decode; "--" and "no decode" on a Scope sample</td></tr><tr><td>PARAMS / RATE card</td><td class="coord-xy">(162, 61)</td><td>statCard &middot; DIM</td><td>SF/BW/CR of the decoded packet, or the Scope sample interval</td></tr></tbody>
           </table>
         </div>
       </div>
     </section>
 
     <!-- ================= 08 · RADIO · VIEW 3 ================= -->
-<section class="plate" id="plate-scope">
+    <section class="plate" id="plate-scope">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">08 / RADIO · VIEW 3</span>
-        <h2 class="plate-title">Plate: SCOPE (Time-Domain RSSI Trace)</h2>
+        <span class="plate-num">08 / RADIO &middot; VIEW 3</span>
+        <h2 class="plate-title">Plate: SCOPE (Time-Domain RSSI)</h2>
       </div>
-      <p class="plate-note">
-        Fixed-frequency RF power oscilloscope. Samples raw RSSI at up to 50Hz (20ms intervals) into a 240-sample trace buffer. Visualizes packet preamble energy envelopes.
-      </p>
+      <p class="plate-note">Radio view 3, and the one page whose mere arrival requests a radio action &mdash; entering it starts a bounded SCOPE_ACQUIRE, gated on the keyboard being present so a headless unit's auto-advance carousel never pauses Watch on its own.</p><p class="plate-note">Leads with the frequency rather than the state word (2026-09-06): what a trace is <em>of</em> is the durable fact, where CAPTURING/CAPTURED is momentary. The result age takes the top right &mdash; once a trace is on screen "CAPTURED" is self-evident and its age is not; while running that slot carries the live state instead, which is the one time it is news.</p><p class="plate-note">Never a spectrum and never a decode: this is raw RSSI at one tuned frequency, sampled on a fixed interval. The display range is fixed at &minus;120..&minus;30 so two captures' trace heights stay comparable, which is a different job from Meter's "show the real range without clipping" and is why the two do not share constants.</p>
 
       <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">SCOPE</div>
-          <div class="t1 good" style="left:415px; top:4px;">82%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 good" style="left:4px; top:40px;">CAPTURED</div>
-          <div class="t1 fg" style="left:4px; top:79px;">906.875MHz  20ms/sample</div>
-
-          <div style="position:absolute; left:4px; top:132px; width:510px; height:110px; border:1px solid var(--scr-dim); position:relative;">
-            <svg width="510" height="110" style="position:absolute; left:0; top:0;">
-              <polyline points="0,95 80,94 120,95 160,30 200,28 240,32 280,30 320,92 510,95" fill="none" stroke="#00ff00" stroke-width="2" />
-            </svg>
-          </div>
-          <div class="t1 dim" style="left:4px; top:114px;">-30</div>
-          <div class="t1 dim" style="left:4px; top:245px;">-120</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-        </div>
+        <div class="screen-scroll"><div class="screen"><div class="t1 fg" style="left:4px; top:4px;">SCOPE</div><div class="t1 good" style="left:473px; top:4px;">84%</div><div style="position:absolute; left:0px; top:26px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:322px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:341px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:361px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-dim);"></div><div class="t1 dim" style="left:4px; top:275px;">MeshCore</div><div class="t1 dim" style="left:497px; top:275px;">1/5</div><div style="position:absolute; left:245px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:260px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:275px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div><div class="t2 fg" style="left:4px; top:35px;">906.875 MHz</div><div class="t1 dim" style="right:4px; top:40px;">12s ago</div><div class="t1 dim" style="left:4px; top:53px;">240 samples  20ms each</div><div style="position:absolute; left:4px; top:106px; width:510px; height:110px; border:1px solid var(--scr-dim);"></div><div style="position:absolute; left:9px; top:184px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:34px; top:183px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:59px; top:185px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:85px; top:184px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:110px; top:182px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:135px; top:155px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:161px; top:141px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:186px; top:135px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:211px; top:138px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:237px; top:147px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:262px; top:164px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:287px; top:180px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:312px; top:184px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:338px; top:183px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:363px; top:185px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:388px; top:184px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:414px; top:183px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:439px; top:184px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:464px; top:185px; width:4px; height:7px; background:var(--scr-good);"></div><div style="position:absolute; left:490px; top:183px; width:4px; height:7px; background:var(--scr-good);"></div><div class="t1 dim" style="left:9px; top:222px;">-120</div><div class="t1 dim" style="left:462px; top:222px;">-30</div></div></div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Field</th><th>Coords</th><th>Token</th><th>Rules</th></tr></thead>
-            <tbody>
-              <tr><td>Headline Word</td><td class="coord-xy">(2, 18)</td><td>GOOD / WARN / DIM</td><td>"CAPTURING", "CAPTURED", or dim "IDLE"</td></tr>
-              <tr><td>Trace Metadata</td><td class="coord-xy">(2, 36)</td><td>Size 1 · COL_FG</td><td>Tuned frequency and sample interval</td></tr>
-              <tr><td>Trace Plot Area</td><td class="coord-xy">(2, 60) 232×50</td><td>COL_GOOD line</td><td>240 samples scaled between -120 and -30 dBm</td></tr>
-              <tr><td>Hold Reversion</td><td class="coord-xy">RESULT_HOLD_MS</td><td>Timer</td><td>Reverts from CAPTURED to IDLE after 8 seconds</td></tr>
-            </tbody>
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
+            <tbody><tr><td>Frequency hero</td><td class="coord-xy">(2, 16)</td><td>Size 2 &middot; FG</td><td>The frequency this trace was taken at</td></tr><tr><td>Age / state</td><td class="coord-xy">right, y = 18</td><td>Size 1 &middot; GOOD / WARN / DIM</td><td>Result age, or CAPTURING in WARN while a capture runs</td></tr><tr><td>Detail row</td><td class="coord-xy">(2, 24)</td><td>Size 1 &middot; DIM</td><td>Sample count and interval; "Watch away" while running</td></tr><tr><td>Trace plot</td><td class="coord-xy">(2, 48) 232&times;50</td><td>Marks &middot; GOOD</td><td>Fixed &minus;120..&minus;30 dBm so captures stay comparable</td></tr><tr><td>Scale labels</td><td class="coord-xy">y = 101</td><td>Size 1 &middot; DIM</td><td>No fabricated interpolation between samples</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1359,138 +1270,39 @@
     <section class="plate" id="plate-activity">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">09 / CARD 2 · ACTIVITY</span>
+        <span class="plate-num">09 / CARD 2 &middot; ACTIVITY</span>
         <h2 class="plate-title">Plate: ACTIVITY (RF Environment)</h2>
       </div>
-      <p class="plate-note">
-        Card 2, view 1 of 4 (Sweep, Waterfall and Focus are views 2&ndash;4). The card that established
-        the pattern the rest now follow: a visual band across the top, three <code>statCard()</code>s
-        under it. Its band is a <strong>time series</strong> because its question is "what is out there
-        right now"; Radio's is a flow because its question is about integrity. The 30-bucket packets/sec
-        ring costs 30 bytes of static RAM and is sampled here, not in <code>radio_task</code> &mdash;
-        the radio already counts packets, this only differences that count once a second.
-      </p>
+      <p class="plate-note">Card 2, view 1 of 4 (Sweep, Waterfall and Focus are 2&ndash;4). The card that established the pattern the rest follow: a visual band across the top, three <code>statCard()</code>s under it.</p><p class="plate-note">Its band is a <strong>time series</strong> because its question is "what is out there right now"; Radio's is a grid because its question is integrity, and System's is a pair of lanes because its question is a trend. The mark follows the data type &mdash; packets/sec is a bursty count where each bucket is independent, which is what bars are for. 30 buckets, 30 bytes.</p>
 
       <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">ACTIVITY</div>
-          <div class="t1 good" style="left:415px; top:4px;">84%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-          <div style="position:absolute; left:4px; top:31px; width:519px; height:95px; border:1px solid var(--scr-dim);"></div>
-          <div style="position:absolute; left:9px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:24px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:40px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:55px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:70px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:86px; top:65px; width:13px; height:52px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:101px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:117px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:132px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:147px; top:51px; width:13px; height:66px; background:var(--scr-warn);"></div>
-          <div style="position:absolute; left:163px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:178px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:194px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:209px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:224px; top:65px; width:13px; height:52px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:240px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:255px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:271px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:286px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:301px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:317px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:332px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:348px; top:78px; width:13px; height:39px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:363px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:378px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:394px; top:65px; width:13px; height:52px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:409px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:425px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:440px; top:91px; width:13px; height:26px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:455px; top:104px; width:13px; height:13px; background:var(--scr-good);"></div>
-          <div style="position:absolute; left:4px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
-          <div class="t1 warn" style="left:13px; top:143px;">SWEEP PK</div>
-          <div class="t2 fg" style="left:13px; top:174px;">906.9</div>
-          <div class="t1 dim" style="left:13px; top:231px;">-71 dBm</div>
-          <div style="position:absolute; left:180px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
-          <div class="t1 good" style="left:189px; top:143px;">LAST PKT</div>
-          <div class="t2 fg" style="left:189px; top:174px;">-84</div>
-          <div class="t1 dim" style="left:189px; top:231px;">+8.5dB SNR</div>
-          <div style="position:absolute; left:356px; top:134px; width:169px; height:132px; border:1px solid var(--scr-dim);"></div>
-          <div class="t1 dim" style="left:365px; top:143px;">AWAY T</div>
-          <div class="t2 fg" style="left:365px; top:174px;">4.2s</div>
-          <div class="t1 dim" style="left:365px; top:231px;">last: sweep</div>
-          <div class="t1 dim" style="left:4px; top:275;">MeshCore</div>
-          <div class="t1 dim" style="right:4px; top:275;">2/5</div>
-          <div style="position:absolute; left:238px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div>
-          <div style="position:absolute; left:253px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
-          <div style="position:absolute; left:268px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
-          <div style="position:absolute; left:283px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div>
-        </div>
+        <div class="screen-scroll"><div class="screen"><div class="t1 fg" style="left:4px; top:4px;">ACTIVITY</div><div class="t1 good" style="left:473px; top:4px;">84%</div><div style="position:absolute; left:0px; top:26px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:322px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:341px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:361px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-dim);"></div><div class="t1 dim" style="left:4px; top:275px;">MeshCore</div><div class="t1 dim" style="left:497px; top:275px;">2/5</div><div style="position:absolute; left:237px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div><div style="position:absolute; left:252px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:268px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:283px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:0px; top:26px; width:1px; height:99px; background:var(--scr-dim);"></div><div style="position:absolute; left:527px; top:26px; width:1px; height:99px; background:var(--scr-dim);"></div><div style="position:absolute; left:0px; top:125px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:9px; top:106px; width:15px; height:17px; background:var(--scr-good);"></div><div style="position:absolute; left:26px; top:89px; width:15px; height:34px; background:var(--scr-good);"></div><div style="position:absolute; left:43px; top:106px; width:15px; height:17px; background:var(--scr-good);"></div><div style="position:absolute; left:60px; top:72px; width:15px; height:51px; background:var(--scr-good);"></div><div style="position:absolute; left:77px; top:89px; width:15px; height:34px; background:var(--scr-good);"></div><div style="position:absolute; left:94px; top:55px; width:15px; height:69px; background:var(--scr-good);"></div><div style="position:absolute; left:110px; top:72px; width:15px; height:51px; background:var(--scr-good);"></div><div style="position:absolute; left:127px; top:106px; width:15px; height:17px; background:var(--scr-good);"></div><div style="position:absolute; left:144px; top:89px; width:15px; height:34px; background:var(--scr-good);"></div><div style="position:absolute; left:161px; top:37px; width:15px; height:86px; background:var(--scr-warn);"></div><div style="position:absolute; left:178px; top:72px; width:15px; height:51px; background:var(--scr-good);"></div><div style="position:absolute; left:195px; top:89px; width:15px; height:34px; background:var(--scr-good);"></div><div style="position:absolute; left:212px; top:106px; width:15px; height:17px; background:var(--scr-good);"></div><div style="position:absolute; left:229px; top:72px; width:15px; height:51px; background:var(--scr-good);"></div><div style="position:absolute; left:246px; top:55px; width:15px; height:69px; background:var(--scr-good);"></div><div style="position:absolute; left:263px; top:89px; width:15px; height:34px; background:var(--scr-good);"></div><div style="position:absolute; left:280px; top:106px; width:15px; height:17px; background:var(--scr-good);"></div><div style="position:absolute; left:297px; top:89px; width:15px; height:34px; background:var(--scr-good);"></div><div style="position:absolute; left:314px; top:72px; width:15px; height:51px; background:var(--scr-good);"></div><div style="position:absolute; left:331px; top:106px; width:15px; height:17px; background:var(--scr-good);"></div><div style="position:absolute; left:348px; top:89px; width:15px; height:34px; background:var(--scr-good);"></div><div style="position:absolute; left:365px; top:106px; width:15px; height:17px; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:72px; width:15px; height:51px; background:var(--scr-good);"></div><div style="position:absolute; left:398px; top:89px; width:15px; height:34px; background:var(--scr-good);"></div><div style="position:absolute; left:415px; top:106px; width:15px; height:17px; background:var(--scr-good);"></div><div style="position:absolute; left:432px; top:55px; width:15px; height:69px; background:var(--scr-good);"></div><div style="position:absolute; left:449px; top:89px; width:15px; height:34px; background:var(--scr-good);"></div><div style="position:absolute; left:466px; top:106px; width:15px; height:17px; background:var(--scr-good);"></div><div style="position:absolute; left:483px; top:89px; width:15px; height:34px; background:var(--scr-good);"></div><div style="position:absolute; left:500px; top:106px; width:15px; height:17px; background:var(--scr-good);"></div><div style="position:absolute; left:0px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 warn" style="left:9px; top:143px;">SWEEP PK</div><div class="t2 fg" style="left:9px; top:174px;">906.9</div><div class="t1 dim" style="left:9px; top:231px;">-71 dBm</div><div style="position:absolute; left:178px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 good" style="left:187px; top:143px;">LAST PKT</div><div class="t2 fg" style="left:187px; top:174px;">-84</div><div class="t1 dim" style="left:187px; top:231px;">+8.5dB SNR</div><div style="position:absolute; left:356px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 dim" style="left:365px; top:143px;">AWAY T</div><div class="t2 fg" style="left:365px; top:174px;">4.2s</div><div class="t1 dim" style="left:365px; top:231px;">last: sweep</div></div></div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
             <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
-            <tbody>
-              <tr><td>Sparkline band</td><td class="coord-xy">(2, 14) 236&times;43</td><td>Rect &middot; COL_DIM</td><td>Packets/sec, 30&times;1s buckets, oldest left</td></tr>
-              <tr><td>Sparkline bars</td><td class="coord-xy">7px pitch</td><td>Fill &middot; GOOD / WARN</td><td>Busiest bucket drawn WARN so a burst is findable without a Y axis</td></tr>
-              <tr><td>SWEEP PK card</td><td class="coord-xy">(2, 61) 77&times;60</td><td>statCard &middot; WARN</td><td>Strongest peak of the last Sweep &mdash; also the frequency Focus would survey</td></tr>
-              <tr><td>LAST PKT card</td><td class="coord-xy">(82, 61)</td><td>statCard &middot; GOOD</td><td>RSSI + SNR of the newest decode. Real values, which is why this replaced a proposed "CAD HIT" card &mdash; CAD yields no SNR</td></tr>
-              <tr><td>AWAY T card</td><td class="coord-xy">(162, 61)</td><td>statCard &middot; DIM</td><td>Longest radio-away time and which tool spent it. No budget line: &sect;6.3 left that an operator decision</td></tr>
-            </tbody>
+            <tbody><tr><td>Plot well</td><td class="coord-xy">y = 12&ndash;57, full bleed</td><td>Rails + floor &middot; DIM</td><td>Header hairline is the top edge; the floor is the plot baseline</td></tr><tr><td>Sparkline</td><td class="coord-xy">7px pitch, 30 buckets</td><td>Bars &middot; GOOD / WARN</td><td>Busiest bucket in WARN so a burst is findable without a Y axis</td></tr><tr><td>SWEEP PK card</td><td class="coord-xy">(0, 61)</td><td>statCard &middot; WARN</td><td>Strongest peak of the last Sweep &mdash; also the frequency Focus would survey</td></tr><tr><td>LAST PKT card</td><td class="coord-xy">(81, 61)</td><td>statCard &middot; GOOD</td><td>RSSI + SNR of the newest decode. Real values, which is why this replaced a proposed CAD card &mdash; CAD yields no SNR</td></tr><tr><td>AWAY T card</td><td class="coord-xy">(162, 61)</td><td>statCard &middot; DIM</td><td>Longest radio-away time and which tool spent it</td></tr></tbody>
           </table>
         </div>
       </div>
     </section>
 
     <!-- ================= 10 · ACTIVITY · VIEW 2 ================= -->
-<section class="plate" id="plate-sweep">
+    <section class="plate" id="plate-sweep">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">10 / ACTIVITY · VIEW 2</span>
-        <h2 class="plate-title">Plate: SWEEP (RF Energy & Pass-B)</h2>
+        <span class="plate-num">10 / ACTIVITY &middot; VIEW 2</span>
+        <h2 class="plate-title">Plate: SWEEP (Band Energy)</h2>
       </div>
-      <p class="plate-note">
-        Two-pass wideband energy acquisition. Pass-A takes RSSI samples across 85 frequency bins (902–923MHz in US). Bins exceeding threshold trigger Pass-B selective CAD. Supports ambient background repeat mode.
-      </p>
+      <p class="plate-note">On the shared bounded-action skeleton lifted out of Focus (2026-09-06): hero + right-aligned status, progress bar, detail labels, content block, three summary values. Probe, Sweep, Cell and Focus all report the same shape of thing and had each invented their own arrangement of it.</p><p class="plate-note">The substantive change is what it leads with. Sweep used to headline the state word and bury the finding; a run's answer is not how far along it got. The peak frequency is the hero, and SCANNING / COMPLETE moves right as a status. While running the hero tracks the bin being measured; once finished it becomes the strongest peak.</p>
 
       <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">SWEEP</div>
-          <div class="t1 good" style="left:415px; top:4px;">83%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 warn" style="left:4px; top:44px;">REPEATING</div>
-          <div class="t1 fg" style="left:4px; top:95px;">bins 85/85  away 340ms</div>
-
-          <div style="position:absolute; left:4px; top:162px; width:237px; height:2px; background:var(--scr-dim);"></div>
-          <div style="position:absolute; left:140px; top:156px; width:7px; height:15px; background:var(--scr-good);"></div>
-          <div class="t1 dim" style="left:4px; top:175px;">902</div>
-          <div class="t1 dim" style="left:205px; top:175px;">923</div>
-
-          <div class="t1 dim" style="left:4px; top:238px;">listening to the noise</div>
-
-          <div class="t1 dim" style="left:374px; top:39px;">peaks</div>
-          <div class="t1 warn" style="left:374px; top:59px;">4</div>
-          <div class="t1 dim" style="left:374px; top:101px;">best MHz</div>
-          <div class="t1 warn" style="left:374px; top:121px;">915.0</div>
-          <div class="t1 dim" style="left:374px; top:162px;">rssi</div>
-          <div class="t1 fg" style="left:374px; top:182px;">-88dB</div>
-          <div class="t1 dim" style="left:374px; top:224px;">lap</div>
-          <div class="t1 warn" style="left:374px; top:244px;">14</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-        </div>
+        <div class="screen-scroll"><div class="screen"><div class="t1 fg" style="left:4px; top:4px;">SWEEP</div><div class="t1 good" style="left:473px; top:4px;">84%</div><div style="position:absolute; left:0px; top:26px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:322px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:341px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:361px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-dim);"></div><div class="t1 dim" style="left:4px; top:275px;">MeshCore</div><div class="t1 dim" style="left:497px; top:275px;">2/5</div><div style="position:absolute; left:237px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:252px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div><div style="position:absolute; left:268px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:283px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div class="t2 fg" style="left:4px; top:35px;">906.875 MHz</div><div class="t1 warn" style="left:304px; top:40px;">BIN 42</div><div class="t1 good" style="right:4px; top:40px;">COMPLETE</div><div style="position:absolute; left:4px; top:88px; width:519px; height:18px; border:1px solid var(--scr-dim);"></div><div style="position:absolute; left:7px; top:90px; width:515px; height:13px; background:var(--scr-good);"></div><div class="t1 dim" style="left:4px; top:112px;">BINS 85 / 85</div><div class="t1 dim" style="right:4px; top:112px;">4210ms  2m ago</div><div style="position:absolute; left:4px; top:156px; width:519px; height:44px; border:1px solid var(--scr-dim);"></div><div style="position:absolute; left:80px; top:163px; width:2px; height:31px; background:var(--scr-warn);"></div><div style="position:absolute; left:167px; top:163px; width:2px; height:31px; background:var(--scr-warn);"></div><div style="position:absolute; left:325px; top:163px; width:2px; height:31px; background:var(--scr-warn);"></div><div style="position:absolute; left:407px; top:163px; width:2px; height:31px; background:var(--scr-warn);"></div><div class="t1 dim" style="left:9px; top:209px;">902</div><div class="t1 dim" style="left:497px; top:209px;">923</div><div class="t1 warn" style="left:4px; top:235px;">PEAKS 4</div><div class="t1 fg" style="left:189px; top:235px;">PK -71</div><div class="t1 dim" style="left:361px; top:235px;">MGN 35dB</div></div></div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Element</th><th>Coords</th><th>Token</th><th>Notes</th></tr></thead>
-            <tbody>
-              <tr><td>Headline</td><td class="coord-xy">(2, 20)</td><td>Size 2 · Status</td><td>"SCANNING", "REPEATING", "COMPLETE", "IDLE"</td></tr>
-              <tr><td>Bin Progress</td><td class="coord-xy">(2, 43)</td><td>Size 1 · COL_FG</td><td>Bins swept and radio away-time</td></tr>
-              <tr><td>Frequency Bar</td><td class="coord-xy">(2, 74) w=108</td><td>Track + Marker</td><td>Marker shows tuned bin position across 902..923MHz</td></tr>
-              <tr><td>Peaks & Best MHz</td><td class="coord-xy">x=170 right col</td><td>Size 1 statBlocks</td><td>Count of energy peaks and strongest frequency</td></tr>
-              <tr><td>Lap Counter</td><td class="coord-xy">(170, 102)</td><td>Size 1 · COL_WARN</td><td>Shows total repeat cycles completed</td></tr>
-            </tbody>
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
+            <tbody><tr><td>Hero</td><td class="coord-xy">(2, 16)</td><td>Size 2 &middot; FG</td><td>Bin under test while running; strongest peak once complete</td></tr><tr><td>Status</td><td class="coord-xy">right, y = 18</td><td>Size 1 &middot; GOOD / WARN / BAD / DIM</td><td>REPEATING outranks the terminal word &mdash; back-to-back laps would otherwise flicker SCANNING/COMPLETE every lap</td></tr><tr><td>Progress bar</td><td class="coord-xy">(2, 40) 236&times;8</td><td>Rect + fill</td><td>Bins measured against bin count</td></tr><tr><td>Detail labels</td><td class="coord-xy">y = 51</td><td>Size 1 &middot; DIM</td><td>Left: progress. Right: away time + result age, or "Watch away" while running</td></tr><tr><td>Occupancy block</td><td class="coord-xy">(2, 71) 236&times;20</td><td>Ticks &middot; WARN</td><td>Every peak bin the last completed sweep marked, positioned across the region band</td></tr><tr><td>Summary row</td><td class="coord-xy">y = 107</td><td>Size 1</td><td>PEAKS &middot; strongest dBm &middot; margin, lap count in repeat, or error code on failure</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1616,51 +1428,41 @@
     </section>
 
     <!-- ================= 13 · CARD 3 · CHANNEL ================= -->
-<section class="plate" id="plate-channel">
+    <section class="plate" id="plate-channel">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">13 / CARD 3 · CHANNEL</span>
-        <h2 class="plate-title">Plate: CHANNEL (RF Parameters)</h2>
+        <span class="plate-num">13 / CARD 3 &middot; CHANNEL</span>
+        <h2 class="plate-title">Plate: CHANNEL (Tuning &amp; Yield)</h2>
       </div>
-      <p class="plate-note">
-        Confirms actual hardware tuning: frequency, Spreading Factor (SF), Bandwidth (BW), Coding Rate (CR), and LoRa Sync Word. The frequency bar shows exact position within the tuned 868–923MHz front-end.
-      </p>
+      <p class="plate-note">Card 3, view 1 of 4 (Probe, Captures and Nodes are 2&ndash;4). A 28px well rather than the shared 45: this band is an axis with ticks, not a plot, and the reclaimed height goes to the frequency hero &mdash; the one number this card exists to state.</p><p class="plate-note">The well floor doubles as the frequency axis, so the ticks rise from it and the map draws no track of its own. <span style="color:var(--sage)">Green</span> marks frequencies that actually decoded a packet, <span style="color:var(--amber)">amber</span> peaks the last Sweep found; a capture draws over a peak on a shared bin, because a decode is stronger evidence than energy. The card is titled DECODED, not YIELD: the radio keeps one counter for the whole power-on and a profile switch does not reset it, so "yield" would claim an attribution the number cannot support.</p>
 
       <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">CHANNEL</div>
-          <div class="t1 good" style="left:415px; top:4px;">83%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 fg" style="left:4px; top:39px;">906.875 MHz</div>
-          <div class="t2 fg" style="left:4px; top:96px;">SF11 BW250.0</div>
-
-          <div style="position:absolute; left:4px; top:162px; width:237px; height:2px; background:var(--scr-dim);"></div>
-          <div style="position:absolute; left:125px; top:156px; width:7px; height:15px; background:var(--scr-good);"></div>
-          <div class="t1 dim" style="left:4px; top:175px;">868</div>
-          <div class="t1 dim" style="left:205px; top:175px;">923</div>
-
-          <div class="t1 dim" style="left:4px; top:233px;">CR4/5  sync 0x2B</div>
-
-          <div class="t1 dim" style="left:374px; top:39px;">mode</div>
-          <div class="t1 fg" style="left:374px; top:59px;">Watch</div>
-          <div class="t1 dim" style="left:374px; top:101px;">airtime</div>
-          <div class="t1 fg" style="left:374px; top:121px;">~420ms</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-          <div class="t1 dim" style="right:4px; top:275px;">3/5</div>
-        </div>
+        <div class="screen-scroll"><div class="screen"><div class="t1 fg" style="left:4px; top:4px;">CHANNEL</div><div class="t1 good" style="left:473px; top:4px;">84%</div><div style="position:absolute; left:0px; top:26px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:322px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:341px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:361px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-dim);"></div><div class="t1 dim" style="left:4px; top:275px;">MeshCore</div><div class="t1 dim" style="left:497px; top:275px;">3/5</div><div style="position:absolute; left:237px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div><div style="position:absolute; left:252px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:268px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:283px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:0px; top:26px; width:1px; height:35px; background:var(--scr-dim);"></div><div style="position:absolute; left:527px; top:26px; width:1px; height:35px; background:var(--scr-dim);"></div><div style="position:absolute; left:0px; top:62px; width:528px; height:1px; background:var(--scr-dim);"></div><div class="t1 dim" style="left:9px; top:33px;">868</div><div class="t1 dim" style="left:246px; top:33px;">898</div><div class="t1 dim" style="left:482px; top:33px;">928</div><div style="position:absolute; left:111px; top:40px; width:2px; height:22px; background:var(--scr-warn);"></div><div style="position:absolute; left:179px; top:40px; width:2px; height:22px; background:var(--scr-warn);"></div><div style="position:absolute; left:331px; top:40px; width:2px; height:22px; background:var(--scr-warn);"></div><div style="position:absolute; left:409px; top:40px; width:2px; height:22px; background:var(--scr-warn);"></div><div style="position:absolute; left:328px; top:40px; width:2px; height:22px; background:var(--scr-good);"></div><div style="position:absolute; left:330px; top:40px; width:2px; height:22px; background:var(--scr-good);"></div><div style="position:absolute; left:332px; top:40px; width:2px; height:22px; background:var(--scr-good);"></div><div style="position:absolute; left:327px; top:26px; width:7px; height:35px; background:var(--scr-fg);"></div><div class="t2 fg" style="left:4px; top:68px;">906.875 MHz</div><div class="t1 warn" style="right:31px; top:77px;">4 peaks</div><div style="position:absolute; left:0px; top:108px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 good" style="left:9px; top:117px;">MODE</div><div class="t2 fg" style="left:9px; top:147px;">SF11</div><div class="t1 dim" style="left:9px; top:205px;">BW250</div><div style="position:absolute; left:178px; top:108px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 good" style="left:187px; top:117px;">DECODED</div><div class="t2 fg" style="left:187px; top:147px;">1284</div><div class="t1 dim" style="left:187px; top:205px;">14 nodes</div><div style="position:absolute; left:356px; top:108px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 dim" style="left:365px; top:117px;">AIRTIME</div><div class="t2 fg" style="left:365px; top:147px;">420ms</div><div class="t1 dim" style="left:365px; top:205px;">CR4/5 0x2B</div></div></div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Field</th><th>Coords</th><th>Font</th><th>Remarks</th></tr></thead>
-            <tbody>
-              <tr><td>Frequency</td><td class="coord-xy">(2, 18)</td><td>Size 2 · COL_FG</td><td>Tuned center frequency in MHz</td></tr>
-              <tr><td>Modulation</td><td class="coord-xy">(2, 44)</td><td>Size 2 · COL_FG</td><td>SF (7-12) and BW (kHz)</td></tr>
-              <tr><td>Frequency Bar</td><td class="coord-xy">(2, 74) w=108</td><td>Track + Marker</td><td>Marker is COL_GOOD, bounds 868..923MHz</td></tr>
-              <tr><td>Coding & Sync</td><td class="coord-xy">(2, 106)</td><td>Size 1 · COL_DIM</td><td>Coding rate (e.g. CR4/5) and hex sync word</td></tr>
-              <tr><td>Mode & Airtime</td><td class="coord-xy">x=170 right col</td><td>Size 1 statBlocks</td><td>Radio task mode ("Watch") and packet ToA</td></tr>
-            </tbody>
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
+            <tbody><tr><td>Well floor / axis</td><td class="coord-xy">y = 28, full width</td><td>HLine &middot; DIM</td><td>Doubles as the frequency axis the ticks rise from</td></tr><tr><td>Capture ticks</td><td class="coord-xy">868&ndash;928MHz scale</td><td>10px &middot; GOOD</td><td>One per entry in the capture ring</td></tr><tr><td>Sweep peak ticks</td><td class="coord-xy">same scale</td><td>10px &middot; WARN</td><td>Peak bins from the last completed sweep</td></tr><tr><td>Tuned marker</td><td class="coord-xy">scaled position</td><td>3&times;16px &middot; FG</td><td>Taller and wider than data ticks &mdash; "you are here"</td></tr><tr><td>Frequency hero</td><td class="coord-xy">(2, 31)</td><td>Size 2 &middot; COL_FG</td><td>The tuned centre frequency to 3dp</td></tr><tr><td>Peak count</td><td class="coord-xy">right, y = 35</td><td>Size 1 &middot; WARN / DIM</td><td>Peaks in the last completed sweep</td></tr><tr><td>Cards</td><td class="coord-xy">y = 49</td><td>statCard &times;3</td><td>MODE (SF/BW) &middot; DECODED (packets/nodes) &middot; AIRTIME (+CR, sync)</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="plate" id="plate-probe">
+      <div class="fid-bl"></div><div class="fid-br"></div>
+      <div class="plate-head">
+        <span class="plate-num">14 / CHANNEL &middot; VIEW 2</span>
+        <h2 class="plate-title">Plate: PROBE (Candidate CAD Scan)</h2>
+      </div>
+      <p class="plate-note">Promoted to Channel's view 2, directly after the card (2026-09-06): Probe answers "should I be on a different channel", which is the card's own question, where Captures and Nodes report what the current one yielded.</p><p class="plate-note">The most overdue of the four rebuilds. It was a headline word over a stack of text lines with the answer &mdash; which candidate tuples actually heard something &mdash; last on the page. The hit count is now the hero, and the named candidates take the content block. Mask bit i is <code>plan.candidates[i]</code>, the raw loop index into the candidate table, not the skip-adjusted done/total shown on the progress row.</p>
+
+      <div class="plate-body">
+        <div class="screen-scroll"><div class="screen"><div class="t1 fg" style="left:4px; top:4px;">PROBE</div><div class="t1 good" style="left:473px; top:4px;">84%</div><div style="position:absolute; left:0px; top:26px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:322px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:341px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:361px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-dim);"></div><div class="t1 dim" style="left:4px; top:275px;">MeshCore</div><div class="t1 dim" style="left:497px; top:275px;">3/5</div><div style="position:absolute; left:237px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:252px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div><div style="position:absolute; left:268px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:283px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div class="t2 fg" style="left:4px; top:35px;">2 / 8</div><div class="t1 warn" style="left:304px; top:40px;">ACTIVE</div><div class="t1 good" style="right:4px; top:40px;">COMPLETE</div><div style="position:absolute; left:4px; top:88px; width:519px; height:18px; border:1px solid var(--scr-dim);"></div><div style="position:absolute; left:7px; top:90px; width:515px; height:13px; background:var(--scr-good);"></div><div class="t1 dim" style="left:4px; top:112px;">TARGETS 8 / 8</div><div class="t1 dim" style="right:4px; top:112px;">1240ms  40s ago</div><div style="position:absolute; left:4px; top:156px; width:519px; height:70px; border:1px solid var(--scr-dim);"></div><div class="t1 warn" style="left:13px; top:165px;">US LongFast</div><div class="t1 warn" style="left:13px; top:185px;">EU Narrow</div><div class="t1 warn" style="left:4px; top:235px;">HIT 2</div><div class="t1 dim" style="left:189px; top:235px;">FREE 6</div><div class="t1 dim" style="left:361px; top:235px;">T/O 0</div></div></div>
+
+        <div class="coord-table-wrap">
+          <table class="coord-table">
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
+            <tbody><tr><td>Hero</td><td class="coord-xy">(2, 16)</td><td>Size 2 &middot; FG</td><td>Candidates that detected energy, over the total tried</td></tr><tr><td>Status</td><td class="coord-xy">right, y = 18</td><td>Size 1</td><td>SCANNING / COMPLETE / CANCELLED / FAILED, dimming past the result hold</td></tr><tr><td>Progress bar</td><td class="coord-xy">(2, 40)</td><td>Rect + fill</td><td>Candidates tested against candidate count</td></tr><tr><td>Candidate block</td><td class="coord-xy">(2, 71) 236&times;32</td><td>Size 1 &middot; WARN</td><td>Up to three named hits (uiDiscoveryCandidateLabel); "no candidate heard energy" when none</td></tr><tr><td>Summary row</td><td class="coord-xy">y = 107</td><td>Size 1</td><td>HIT &middot; FREE &middot; timeouts, or error count in BAD when non-zero</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1670,7 +1472,7 @@
 <section class="plate" id="plate-captures">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">14 / CHANNEL · VIEW 2</span>
+        <span class="plate-num">15 / CHANNEL &middot; VIEW 3</span>
         <h2 class="plate-title">Plate: CAPTURES (Packet Ring Buffer)</h2>
       </div>
       <p class="plate-note">
@@ -1711,7 +1513,7 @@
 <section class="plate" id="plate-nodes">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">15 / CHANNEL · VIEW 3</span>
+        <span class="plate-num">16 / CHANNEL &middot; VIEW 4</span>
         <h2 class="plate-title">Plate: NODES (Observed Node Roster)</h2>
       </div>
       <p class="plate-note">
@@ -1748,207 +1550,66 @@
     </section>
 
     <!-- ================= 16 · CHANNEL · VIEW 4 ================= -->
-<section class="plate" id="plate-probe">
-      <div class="fid-bl"></div><div class="fid-br"></div>
-      <div class="plate-head">
-        <span class="plate-num">16 / CHANNEL · VIEW 4</span>
-        <h2 class="plate-title">Plate: PROBE (Discovery CAD Sweep)</h2>
-      </div>
-      <p class="plate-note">
-        Executes fast Preamble Channel Activity Detection (CAD) across source-backed profile tuples. Scans without decoding full packets, providing rapid presence detection while keeping radio away-time bounded.
-      </p>
 
-      <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">PROBE</div>
-          <div class="t1 good" style="left:415px; top:4px;">83%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 good" style="left:4px; top:44px;">COMPLETE</div>
-          <div class="t1 fg" style="left:4px; top:95px;">candidates 8/8  away 124ms</div>
-
-          <div class="t1 fg" style="left:4px; top:136px;">US LongFast, EU Narrow</div>
-          <div class="t1 dim" style="left:4px; top:211px;">hits 2  free 6  timeout 0  err 0</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-        </div>
-
-        <div class="coord-table-wrap">
-          <table class="coord-table">
-            <thead><tr><th>Field</th><th>Coords</th><th>Token</th><th>Notes</th></tr></thead>
-            <tbody>
-              <tr><td>Headline Status</td><td class="coord-xy">(2, 20)</td><td>Size 2 · Status</td><td>"SCANNING" (Warn), "COMPLETE" (Good), "IDLE" (Dim)</td></tr>
-              <tr><td>Candidate Progress</td><td class="coord-xy">(2, 43)</td><td>Size 1 · COL_FG</td><td>Current/Total candidate count + away-time ms</td></tr>
-              <tr><td>Hit Labels</td><td class="coord-xy">(2, 62)</td><td>Size 1 · COL_FG</td><td>Human-readable names of profiles detected</td></tr>
-              <tr><td>CAD Stats</td><td class="coord-xy">(2, 96)</td><td>Size 1 · DIM / BAD</td><td>Hits, free channels, timeouts, and hardware errors</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
 
     <!-- ================= 17 · CARD 4 · GPS ================= -->
-<section class="plate" id="plate-gps">
+    <section class="plate" id="plate-gps">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">17 / CARD 4 · GPS</span>
-        <h2 class="plate-title">Plate: GPS (Fix & Constellation)</h2>
+        <span class="plate-num">17 / CARD 4 &middot; GPS</span>
+        <h2 class="plate-title">Plate: GPS (Fix Stability &amp; Tagging)</h2>
       </div>
-      <p class="plate-note">
-        Real-time GPS telemetry parsed from NMEA sentences. Renders 3D/2D fix status, 5-decimal coordinates, altitude, satellites used/in-view, and talker constellation signal strength bars.
-      </p>
+      <p class="plate-note">Card 4, view 1 of 2 (Cell is view 2). The wardriving question is not "do I have a fix" but "are my detections getting positions" &mdash; a detection logged without one is a wasted data point, and nothing on the device said so before.</p><p class="plate-note">A 60-second trace of satellites used, 30 buckets at 2s, 30 bytes of static RAM. Bars are coloured by what the fix was worth rather than by height: <span class="bad-txt">red floor</span> where it was lost outright, <span style="color:var(--amber)">amber</span> where it was too thin to trust. The floor is drawn rather than left blank because absence of ink would read as "no data yet" &mdash; this <em>is</em> data, and it says those seconds were unmappable.</p>
 
       <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">GPS</div>
-          <div class="t1 good" style="left:415px; top:4px;">83%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 good" style="left:4px; top:39px;">3D FIX</div>
-          <div class="t2 fg" style="left:4px; top:88px;">37.77490</div>
-          <div class="t2 fg" style="left:4px; top:132px;">-122.41940</div>
-
-          <div class="t1 dim" style="left:4px; top:184px;">2026-09-04 23:14:02Z</div>
-
-          <div class="t1 dim" style="left:374px; top:39px;">sats</div>
-          <div class="t1 fg" style="left:374px; top:59px;">11</div>
-          <div class="t1 dim" style="left:374px; top:87px;">qual</div>
-          <div class="t1 fg" style="left:374px; top:107px;">1</div>
-
-          <div style="position:absolute; left:374px; top:150px; display:flex; gap:9px;">
-            <div><div style="width:26px; height:30px; background:var(--scr-good); margin-bottom:4px;"></div><div class="t1 dim" style="font-size:11px;">GP</div></div>
-            <div><div style="width:26px; height:20px; background:var(--scr-good); margin-bottom:4px; margin-top:10px;"></div><div class="t1 dim" style="font-size:11px;">GL</div></div>
-            <div><div style="width:26px; height:12px; background:var(--scr-good); margin-bottom:4px; margin-top:18px;"></div><div class="t1 dim" style="font-size:11px;">GA</div></div>
-          </div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-          <div class="t1 dim" style="right:4px; top:275px;">4/5</div>
-        </div>
+        <div class="screen-scroll"><div class="screen"><div class="t1 fg" style="left:4px; top:4px;">GPS</div><div class="t1 good" style="left:473px; top:4px;">84%</div><div style="position:absolute; left:0px; top:26px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:322px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:341px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:361px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-dim);"></div><div class="t1 dim" style="left:4px; top:275px;">MeshCore</div><div class="t1 dim" style="left:497px; top:275px;">4/5</div><div style="position:absolute; left:252px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div><div style="position:absolute; left:268px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:0px; top:26px; width:1px; height:99px; background:var(--scr-dim);"></div><div style="position:absolute; left:527px; top:26px; width:1px; height:99px; background:var(--scr-dim);"></div><div style="position:absolute; left:0px; top:125px; width:528px; height:1px; background:var(--scr-dim);"></div><div class="t1 dim" style="left:13px; top:37px;">SATS USED  60s</div><div class="t1 warn" style="right:31px; top:37px;">HUNTING</div><div style="position:absolute; left:13px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:30px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:47px; top:68px; width:15px; height:55px; background:var(--scr-good);"></div><div style="position:absolute; left:63px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:80px; top:57px; width:15px; height:66px; background:var(--scr-good);"></div><div style="position:absolute; left:97px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:114px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:130px; top:68px; width:15px; height:55px; background:var(--scr-good);"></div><div style="position:absolute; left:147px; top:90px; width:15px; height:33px; background:var(--scr-good);"></div><div style="position:absolute; left:164px; top:121px; width:15px; height:4px; background:var(--scr-bad);"></div><div style="position:absolute; left:180px; top:121px; width:15px; height:4px; background:var(--scr-bad);"></div><div style="position:absolute; left:197px; top:101px; width:15px; height:22px; background:var(--scr-warn);"></div><div style="position:absolute; left:214px; top:74px; width:15px; height:50px; background:var(--scr-good);"></div><div style="position:absolute; left:231px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:247px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:264px; top:57px; width:15px; height:66px; background:var(--scr-good);"></div><div style="position:absolute; left:281px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:297px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:314px; top:68px; width:15px; height:55px; background:var(--scr-good);"></div><div style="position:absolute; left:331px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:348px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:364px; top:57px; width:15px; height:66px; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:398px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:414px; top:68px; width:15px; height:55px; background:var(--scr-good);"></div><div style="position:absolute; left:431px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:448px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:465px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:481px; top:57px; width:15px; height:66px; background:var(--scr-good);"></div><div style="position:absolute; left:498px; top:63px; width:15px; height:61px; background:var(--scr-good);"></div><div style="position:absolute; left:0px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 good" style="left:9px; top:143px;">FIX</div><div class="t2 good" style="left:9px; top:174px;">3D</div><div class="t1 dim" style="left:9px; top:231px;">11 of 14</div><div style="position:absolute; left:178px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 warn" style="left:187px; top:143px;">TAGGED</div><div class="t2 fg" style="left:187px; top:174px;">1272</div><div class="t1 dim" style="left:187px; top:231px;">12 untagged</div><div style="position:absolute; left:356px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 dim" style="left:365px; top:143px;">UTC</div><div class="t2 fg" style="left:365px; top:174px;">14:52</div><div class="t1 dim" style="left:365px; top:231px;">2 drop 18s</div></div></div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Element</th><th>Coords</th><th>Color Token</th><th>Behavior</th></tr></thead>
-            <tbody>
-              <tr><td>Fix Type</td><td class="coord-xy">(2, 18)</td><td>GOOD / WARN / BAD</td><td>"3D FIX" (Green), "NO FIX" (Yellow/Red)</td></tr>
-              <tr><td>Coordinates</td><td class="coord-xy">(2, 40), (2, 60)</td><td>Size 2 · COL_FG</td><td>Latitude & Longitude formatted to 5 decimals</td></tr>
-              <tr><td>Timestamp</td><td class="coord-xy">(2, 84)</td><td>Size 1 · COL_DIM</td><td>UTC ISO timestamp from GPS NMEA sentence</td></tr>
-              <tr><td>Sats & Qual</td><td class="coord-xy">x=170 right col</td><td>Size 1 statBlocks</td><td>Satellites used in solution and fix quality</td></tr>
-              <tr><td>Talker Bars</td><td class="coord-xy">(170, 70) 4 bars</td><td>Rects · COL_GOOD</td><td>GP (GPS), GL (GLONASS), GA (Galileo), BD (BeiDou)</td></tr>
-            </tbody>
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
+            <tbody><tr><td>Sats trace</td><td class="coord-xy">y = 27&ndash;56, 7px pitch</td><td>Bars &middot; GOOD / WARN / BAD</td><td>Starts 2px under the label row and runs to the well floor</td></tr><tr><td>Dropout floor</td><td class="coord-xy">base, 2px</td><td>Fill &middot; BAD</td><td>Drawn, not omitted &mdash; loss is data</td></tr><tr><td>Verdict</td><td class="coord-xy">right, y = 17</td><td>Size 1 &middot; GOOD / WARN</td><td>STABLE, or HUNTING when the window contains a dropout</td></tr><tr><td>FIX card</td><td class="coord-xy">(0, 61)</td><td>statCard &middot; GOOD / WARN / BAD</td><td>3D / 2D / NONE; before a fix the sub shows sats in view, which says whether the antenna sees sky at all</td></tr><tr><td>TAGGED card</td><td class="coord-xy">(81, 61)</td><td>statCard &middot; GOOD / WARN</td><td>Detections carrying a real position, stated against detections seen rather than rows written, so an SD outage cannot read as lost positions</td></tr><tr><td>UTC card</td><td class="coord-xy">(162, 61)</td><td>statCard &middot; DIM</td><td>Clock + fix quality; shows dropout count and age when the window has one</td></tr></tbody>
           </table>
         </div>
       </div>
     </section>
 
     <!-- ================= 18 · GPS · VIEW 2 ================= -->
-<section class="plate" id="plate-cell">
+    <section class="plate" id="plate-cell">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">18 / GPS · VIEW 2</span>
-        <h2 class="plate-title">Plate: CELL (Cellular Band Energy)</h2>
+        <span class="plate-num">18 / GPS &middot; VIEW 2</span>
+        <h2 class="plate-title">Plate: CELL (869&ndash;894MHz Downlink)</h2>
       </div>
-      <p class="plate-note">
-        Phase 11 cellular uplink band scanner (869–894MHz, 101 bins). Displays FCC Block A/B partitions (47 CFR § 22.905). Strictly measures RF presence without decoding or tower tracking.
-      </p>
+      <p class="plate-note">GPS view 2. Cell reads as location context rather than a third band sweep &mdash; cell-band occupancy says what kind of place you are in, which is the question GPS's card owns.</p><p class="plate-note">Same bounded-action skeleton as Probe and Sweep, since it is the same kind of run. The strongest carrier is the hero; it was previously a right-column stat block two rows below the state word that had the headline. The summary row carries a permanent honesty line, not a one-time disclaimer: <code>docs/DESIGN.md</code> &sect;5a's rule is that a cell-band RSSI reading is never presented as more than presence and strength &mdash; no cell ID, no decode, no tower location.</p>
 
       <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">CELL</div>
-          <div class="t1 good" style="left:415px; top:4px;">83%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 good" style="left:4px; top:44px;">COMPLETE</div>
-          <div class="t1 fg" style="left:4px; top:95px;">bins 101/101</div>
-
-          <div style="position:absolute; left:4px; top:162px; width:237px; height:2px; background:var(--scr-dim);"></div>
-          <div style="position:absolute; left:80px; top:156px; width:7px; height:15px; background:var(--scr-good);"></div>
-          <div class="t1 dim" style="left:4px; top:175px;">869</div>
-          <div class="t1 dim" style="left:205px; top:175px;">894</div>
-
-          <div style="position:absolute; left:4px; top:202px; display:flex; width:237px;">
-            <div style="flex:1; height:4px; background:var(--scr-dim);"></div>
-            <div style="flex:1; height:4px; background:var(--scr-fg);"></div>
-            <div style="flex:1; height:4px; background:var(--scr-dim);"></div>
-          </div>
-          <div class="t1 dim" style="left:4px; top:211px;">A</div>
-          <div class="t1 fg" style="left:90px; top:211px;">B</div>
-
-          <div class="t1 dim" style="left:374px; top:39px;">best MHz</div>
-          <div class="t1 warn" style="left:374px; top:59px;">881.5</div>
-          <div class="t1 dim" style="left:374px; top:101px;">rssi</div>
-          <div class="t1 fg" style="left:374px; top:121px;">-76dB</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-        </div>
+        <div class="screen-scroll"><div class="screen"><div class="t1 fg" style="left:4px; top:4px;">CELL</div><div class="t1 good" style="left:473px; top:4px;">84%</div><div style="position:absolute; left:0px; top:26px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:322px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:341px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:361px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-dim);"></div><div class="t1 dim" style="left:4px; top:275px;">MeshCore</div><div class="t1 dim" style="left:497px; top:275px;">4/5</div><div style="position:absolute; left:252px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:transparent;"></div><div style="position:absolute; left:268px; top:278px; width:9px; height:9px; border-radius:50%; border:1px solid var(--scr-dim); background:var(--scr-fg);"></div><div class="t2 fg" style="left:4px; top:35px;">881.5 MHz</div><div class="t1 warn" style="left:304px; top:40px;">BIN 101</div><div class="t1 good" style="right:4px; top:40px;">COMPLETE</div><div style="position:absolute; left:4px; top:88px; width:519px; height:18px; border:1px solid var(--scr-dim);"></div><div style="position:absolute; left:7px; top:90px; width:515px; height:13px; background:var(--scr-good);"></div><div class="t1 dim" style="left:4px; top:112px;">BINS 101 / 101</div><div class="t1 dim" style="right:4px; top:112px;">3180ms  1m ago</div><div style="position:absolute; left:4px; top:156px; width:519px; height:44px; border:1px solid var(--scr-dim);"></div><div style="position:absolute; left:9px; top:167px; width:251px; height:13px; background:var(--scr-dim);"></div><div style="position:absolute; left:268px; top:167px; width:251px; height:13px; background:var(--scr-dim);"></div><div class="t1 dim" style="left:9px; top:209px;">869</div><div class="t1 dim" style="left:471px; top:209px;">894</div><div class="t1 warn" style="left:4px; top:235px;">PK -76</div><div class="t1 dim" style="left:189px; top:235px;">RSSI only</div><div class="t1 dim" style="left:361px; top:235px;">no decode</div></div></div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Widget</th><th>Coords</th><th>Token</th><th>Rules</th></tr></thead>
-            <tbody>
-              <tr><td>Frequency Bounds</td><td class="coord-xy">(2, 74) w=108</td><td>869..894MHz</td><td>Scoped tightly to cellular allocation</td></tr>
-              <tr><td>FCC Blocks</td><td class="coord-xy">(2, 92)</td><td>DIM / FG</td><td>Block A (Dim) and Block B (White); letter labels</td></tr>
-              <tr><td>Strongest Signal</td><td class="coord-xy">x=170 right col</td><td>Size 1 statBlocks</td><td>Strongest detected frequency and peak dBm</td></tr>
-              <tr><td>Disclaimer</td><td class="coord-xy">(2, 108)</td><td>Size 1 · COL_DIM</td><td>"presence only — no cell ID / decode"</td></tr>
-            </tbody>
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
+            <tbody><tr><td>Hero</td><td class="coord-xy">(2, 16)</td><td>Size 2 &middot; FG</td><td>Bin under test while running; strongest carrier once complete</td></tr><tr><td>Progress bar</td><td class="coord-xy">(2, 40)</td><td>Rect + fill</td><td>101 bins across 869&ndash;894MHz (cell_plan.h)</td></tr><tr><td>Block markers</td><td class="coord-xy">(2, 71) 236&times;20</td><td>Bars &middot; DIM</td><td>FCC A/B block partition, greyscale only &mdash; no carrier is named</td></tr><tr><td>Summary row</td><td class="coord-xy">y = 107</td><td>Size 1</td><td>Peak dBm, then the standing "RSSI only / no decode" statement</td></tr></tbody>
           </table>
         </div>
       </div>
     </section>
 
     <!-- ================= 19 · CARD 5 · SYSTEM ================= -->
-<section class="plate" id="plate-system">
+    <section class="plate" id="plate-system">
       <div class="fid-bl"></div><div class="fid-br"></div>
       <div class="plate-head">
-        <span class="plate-num">19 / CARD 5 · SYSTEM</span>
-        <h2 class="plate-title">Plate: SYSTEM (Heap & Diagnostics)</h2>
+        <span class="plate-num">19 / CARD 5 &middot; SYSTEM</span>
+        <h2 class="plate-title">Plate: SYSTEM (Endurance)</h2>
       </div>
-      <p class="plate-note">
-        Critical system telemetry: device uptime, free internal heap (against the 512KB SRAM budget), minimum recorded free heap, battery voltage, SPI bus contention counter, WiFi AP clients, and firmware version.
-      </p>
+      <p class="plate-note">Card 5, the one single-view card. "Will the device survive the drive" is a question about a <em>trend</em>, and every value here used to be an instant &mdash; a slow leak and a healthy idle looked identical until one of them wasn't.</p><p class="plate-note">Heap and battery get a lane each rather than being overlaid: they share nothing but a time axis, so one plot meant a line wandering across an area at an unrelated scale. Both lanes auto-scale with a <strong>minimum span</strong>, which is the other half of it &mdash; pure min/max scaling amplifies a 2KB wobble to full height, so a perfectly flat heap looked alarming. With a floor on the span, flat reads flat.</p><p class="plate-note">The BATTERY subtitle is a <strong>measured</strong> discharge rate over a stated window, not a projected runtime. <code>docs/research/V2_DESIGN.md</code> &sect;3 forbids presenting derived confidence as measurement, and "~4h left" is a projection dressed as a reading.</p>
 
       <div class="plate-body">
-        <div class="screen-box">
-          <div class="t1 fg" style="left:4px; top:4px;">SYSTEM</div>
-          <div class="t1 good" style="left:415px; top:4px;">83%</div>
-          <div style="position:absolute; left:0; top:26px; width:100%; height:1px; background:var(--scr-dim); opacity:0.5;"></div>
-
-          <div class="t2 fg" style="left:4px; top:39px;">48 min</div>
-          <div class="t2 good" style="left:4px; top:88px;">312k heap</div>
-
-          <div style="position:absolute; left:4px; top:132px; width:237px; height:18px; border:1px solid var(--scr-good);">
-            <div style="position:absolute; left:2px; top:2px; width:92px; height:12px; background:var(--scr-good);"></div>
-          </div>
-
-          <div class="t1 dim" style="left:299px; top:39px;">min heap</div>
-          <div class="t1 fg" style="left:299px; top:59px;">298k</div>
-
-          <div class="t1 dim" style="left:451px; top:39px;">batt</div>
-          <div class="t1 fg" style="left:451px; top:59px;">3.98V</div>
-
-          <div class="t1 dim" style="left:299px; top:105px;">bus</div>
-          <div class="t1 fg" style="left:299px; top:125px;">0</div>
-
-          <div class="t1 dim" style="left:451px; top:105px;">wifi</div>
-          <div class="t1 dim" style="left:451px; top:125px;">OFF</div>
-
-          <div class="t1 dim" style="left:4px; top:171px;">keys tca8418  health 96</div>
-          <div class="t1 dim" style="left:4px; top:198px;">v1.1.0-beta (dev)</div>
-
-          <div class="t1 dim" style="left:4px; top:275px;">Meshtastic</div>
-          <div class="t1 dim" style="right:4px; top:275px;">5/5</div>
-        </div>
+        <div class="screen-scroll"><div class="screen"><div class="t1 fg" style="left:4px; top:4px;">SYSTEM</div><div class="t1 dim" style="left:110px; top:4px;">1.1.0-beta</div><div class="t1 good" style="left:473px; top:4px;">84%</div><div style="position:absolute; left:0px; top:26px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:322px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:341px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:361px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:9px; width:9px; height:9px; border-radius:50%; background:var(--scr-dim);"></div><div class="t1 dim" style="left:4px; top:275px;">MeshCore</div><div class="t1 dim" style="left:497px; top:275px;">5/5</div><div style="position:absolute; left:0px; top:26px; width:1px; height:99px; background:var(--scr-dim);"></div><div style="position:absolute; left:527px; top:26px; width:1px; height:99px; background:var(--scr-dim);"></div><div style="position:absolute; left:0px; top:125px; width:528px; height:1px; background:var(--scr-dim);"></div><div style="position:absolute; left:13px; top:49px; width:15px; height:23px; background:var(--scr-good);"></div><div style="position:absolute; left:30px; top:49px; width:15px; height:23px; background:var(--scr-good);"></div><div style="position:absolute; left:47px; top:54px; width:15px; height:19px; background:var(--scr-good);"></div><div style="position:absolute; left:63px; top:49px; width:15px; height:23px; background:var(--scr-good);"></div><div style="position:absolute; left:80px; top:54px; width:15px; height:19px; background:var(--scr-good);"></div><div style="position:absolute; left:97px; top:54px; width:15px; height:19px; background:var(--scr-good);"></div><div style="position:absolute; left:114px; top:49px; width:15px; height:23px; background:var(--scr-good);"></div><div style="position:absolute; left:130px; top:54px; width:15px; height:19px; background:var(--scr-good);"></div><div style="position:absolute; left:147px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:164px; top:54px; width:15px; height:19px; background:var(--scr-good);"></div><div style="position:absolute; left:180px; top:54px; width:15px; height:19px; background:var(--scr-good);"></div><div style="position:absolute; left:197px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:214px; top:54px; width:15px; height:19px; background:var(--scr-good);"></div><div style="position:absolute; left:231px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:247px; top:54px; width:15px; height:19px; background:var(--scr-good);"></div><div style="position:absolute; left:264px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:281px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:297px; top:54px; width:15px; height:19px; background:var(--scr-good);"></div><div style="position:absolute; left:314px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:331px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:348px; top:63px; width:15px; height:9px; background:var(--scr-good);"></div><div style="position:absolute; left:364px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:381px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:398px; top:63px; width:15px; height:9px; background:var(--scr-good);"></div><div style="position:absolute; left:414px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:431px; top:63px; width:15px; height:9px; background:var(--scr-good);"></div><div style="position:absolute; left:448px; top:63px; width:15px; height:9px; background:var(--scr-good);"></div><div style="position:absolute; left:465px; top:59px; width:15px; height:14px; background:var(--scr-good);"></div><div style="position:absolute; left:481px; top:63px; width:15px; height:9px; background:var(--scr-good);"></div><div style="position:absolute; left:498px; top:63px; width:15px; height:9px; background:var(--scr-good);"></div><div class="t1 dim" style="left:13px; top:33px;">HEAP</div><div class="t1 good" style="right:31px; top:33px;">312k FLAT</div><div style="position:absolute; left:13px; top:84px; width:15px; height:37px; background:var(--scr-dim);"></div><div style="position:absolute; left:30px; top:84px; width:15px; height:37px; background:var(--scr-dim);"></div><div style="position:absolute; left:47px; top:84px; width:15px; height:37px; background:var(--scr-dim);"></div><div style="position:absolute; left:63px; top:90px; width:15px; height:31px; background:var(--scr-dim);"></div><div style="position:absolute; left:80px; top:90px; width:15px; height:31px; background:var(--scr-dim);"></div><div style="position:absolute; left:97px; top:90px; width:15px; height:31px; background:var(--scr-dim);"></div><div style="position:absolute; left:114px; top:90px; width:15px; height:31px; background:var(--scr-dim);"></div><div style="position:absolute; left:130px; top:96px; width:15px; height:25px; background:var(--scr-dim);"></div><div style="position:absolute; left:147px; top:96px; width:15px; height:25px; background:var(--scr-dim);"></div><div style="position:absolute; left:164px; top:96px; width:15px; height:25px; background:var(--scr-dim);"></div><div style="position:absolute; left:180px; top:96px; width:15px; height:25px; background:var(--scr-dim);"></div><div style="position:absolute; left:197px; top:96px; width:15px; height:25px; background:var(--scr-dim);"></div><div style="position:absolute; left:214px; top:102px; width:15px; height:19px; background:var(--scr-dim);"></div><div style="position:absolute; left:231px; top:102px; width:15px; height:19px; background:var(--scr-dim);"></div><div style="position:absolute; left:247px; top:102px; width:15px; height:19px; background:var(--scr-dim);"></div><div style="position:absolute; left:264px; top:102px; width:15px; height:19px; background:var(--scr-dim);"></div><div style="position:absolute; left:281px; top:102px; width:15px; height:19px; background:var(--scr-dim);"></div><div style="position:absolute; left:297px; top:109px; width:15px; height:12px; background:var(--scr-dim);"></div><div style="position:absolute; left:314px; top:109px; width:15px; height:12px; background:var(--scr-dim);"></div><div style="position:absolute; left:331px; top:109px; width:15px; height:12px; background:var(--scr-dim);"></div><div style="position:absolute; left:348px; top:109px; width:15px; height:12px; background:var(--scr-dim);"></div><div style="position:absolute; left:364px; top:109px; width:15px; height:12px; background:var(--scr-dim);"></div><div style="position:absolute; left:381px; top:115px; width:15px; height:6px; background:var(--scr-dim);"></div><div style="position:absolute; left:398px; top:115px; width:15px; height:6px; background:var(--scr-dim);"></div><div style="position:absolute; left:414px; top:115px; width:15px; height:6px; background:var(--scr-dim);"></div><div style="position:absolute; left:431px; top:115px; width:15px; height:6px; background:var(--scr-dim);"></div><div style="position:absolute; left:448px; top:115px; width:15px; height:6px; background:var(--scr-dim);"></div><div style="position:absolute; left:465px; top:121px; width:15px; height:2px; background:var(--scr-dim);"></div><div style="position:absolute; left:481px; top:121px; width:15px; height:2px; background:var(--scr-dim);"></div><div style="position:absolute; left:498px; top:121px; width:15px; height:2px; background:var(--scr-dim);"></div><div class="t1 dim" style="left:13px; top:81px;">BATT</div><div class="t1 fg" style="right:31px; top:81px;">84%</div><div style="position:absolute; left:0px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 good" style="left:9px; top:143px;">BATTERY</div><div class="t2 fg" style="left:9px; top:174px;">84%</div><div class="t1 dim" style="left:9px; top:231px;">-4%/h 29m</div><div style="position:absolute; left:178px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 good" style="left:187px; top:143px;">HEAP</div><div class="t2 good" style="left:187px; top:174px;">312k</div><div class="t1 dim" style="left:187px; top:231px;">min 298k</div><div style="position:absolute; left:356px; top:134px; width:172px; height:132px; border:1px solid var(--scr-dim);"></div><div class="t1 dim" style="left:365px; top:143px;">UPTIME</div><div class="t2 fg" style="left:365px; top:174px;">48m</div><div class="t1 dim" style="left:365px; top:231px;">health 96</div></div></div>
 
         <div class="coord-table-wrap">
           <table class="coord-table">
-            <thead><tr><th>Metric</th><th>Coords</th><th>Token</th><th>Rules</th></tr></thead>
-            <tbody>
-              <tr><td>Uptime</td><td class="coord-xy">(2, 18)</td><td>Size 2 · COL_FG</td><td>Elapsed minutes since power on</td></tr>
-              <tr><td>Free Heap</td><td class="coord-xy">(2, 40)</td><td>GOOD / WARN / BAD</td><td>3-tier: Green &lt;80%, Yellow 80-90%, Red &gt;90%</td></tr>
-              <tr><td>Heap Fill Bar</td><td class="coord-xy">(2, 60) 108×8</td><td>Rect · Match Heap</td><td>Fills proportionally to SRAM consumed (512KB base)</td></tr>
-              <tr><td>Min Heap / Batt</td><td class="coord-xy">x=136 / x=205</td><td>Size 1 statBlocks</td><td>Lowest watermark and raw battery voltage</td></tr>
-              <tr><td>Bus / WiFi</td><td class="coord-xy">x=136 / x=205</td><td>Size 1 statBlocks</td><td>SPI bus contention and WiFi AP status</td></tr>
-              <tr><td>Key / Log / Version</td><td class="coord-xy">(2, 78), (2, 90)</td><td>Size 1 · COL_DIM</td><td>TCA8418 driver check, session log rows, build tag</td></tr>
-            </tbody>
+            <thead><tr><th>Element</th><th>Coords</th><th>Size &amp; Token</th><th>Behavior</th></tr></thead>
+            <tbody><tr><td>Heap lane</td><td class="coord-xy">y = 15, h = 19</td><td>Bars &middot; GOOD</td><td>30 samples at 60s = a 30-minute window</td></tr><tr><td>Battery lane</td><td class="coord-xy">y = 37, h = 19</td><td>Bars &middot; DIM</td><td>Same window, its own baseline and scale</td></tr><tr><td>Lane readouts</td><td class="coord-xy">right of each lane</td><td>Size 1, opaque bg</td><td>Punch through the plot, so no lane reserves empty space</td></tr><tr><td>Verdict</td><td class="coord-xy">heap readout</td><td>GOOD / WARN / BAD</td><td>FLAT / DRIFT / FALLING from the window endpoints; "--" below 2 samples, and NO KEYS outright if the keyboard failed</td></tr><tr><td>BATTERY card</td><td class="coord-xy">(0, 61)</td><td>statCard</td><td>Percent + measured %/h over the stated span</td></tr><tr><td>HEAP card</td><td class="coord-xy">(81, 61)</td><td>statCard</td><td>Free + minimum free since boot</td></tr><tr><td>UPTIME card</td><td class="coord-xy">(162, 61)</td><td>statCard &middot; DIM</td><td>Minutes up + session.csv health rows written</td></tr><tr><td>Firmware version</td><td class="coord-xy">header, after page name</td><td>Size 1 &middot; DIM</td><td>Only on this card &mdash; the header is where identity lives, and this is the only card with room</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -2167,7 +1828,7 @@
   var CARD_VIEWS = {
     RADIO:    ['RADIO', 'METER', 'SCOPE'],
     ACTIVITY: ['ACTIVITY', 'SWEEP', 'WATERFALL', 'FOCUS'],
-    CHANNEL:  ['CHANNEL', 'CAPTURES', 'NODES', 'PROBE'],
+    CHANNEL:  ['CHANNEL', 'PROBE', 'CAPTURES', 'NODES'],
     GPS:      ['GPS', 'CELL'],
     SYSTEM:   ['SYSTEM']
   };
@@ -2289,6 +1950,7 @@
   }
 
   function hline(x, y, w, color) { rect(x, y, w, 1 / SCALE, color); }
+  function vline(x, y, h, color) { rect(x, y, 1 / SCALE, h, color); }
 
   function circle(cx, cy, rad, color, hollow) {
     ctx.beginPath();
@@ -2337,9 +1999,18 @@
   }
 
   // Draw Header Chrome
+  // Rails and a floor, with the header hairline as the top edge.
+  function drawPlotWell(top, floorY) {
+    vline(0, top, floorY - top, COL.dim);
+    vline(PANEL_W - 1, top, floorY - top, COL.dim);
+    hline(0, floorY, PANEL_W, COL.dim);
+  }
+
   function drawChrome() {
     rect(0, 0, PANEL_W, HEADER_H, COL.bg);
     text(2, 2, PAGE_NAMES[state.page] || state.page, { color: COL.fg });
+    // System names its build in the header; it is the only card with room.
+    if (state.page === 'SYSTEM') text(52, 2, '1.1.0-beta', { color: COL.dim });
 
     // Battery
     var bx = PANEL_W - 26, by = 2;
@@ -2349,9 +2020,10 @@
     rect(bx + 1, by + 1, 14, 7, COL.good);
 
     // Status dots: SD, GPS, WiFi
+    circle(148, 6, 2, state.system.wifi ? COL.good : COL.dim);
     circle(157, 6, 2, state.radio.sd ? COL.good : COL.bad);
     circle(166, 6, 2, state.gps.fix ? COL.good : COL.warn);
-    circle(175, 6, 2, state.system.wifi ? COL.good : COL.dim);
+    circle(175, 6, 2, state.rxPulseActive ? COL.good : COL.dim);
 
     hline(0, HEADER_H, PANEL_W, COL.dim);
 
@@ -2396,7 +2068,7 @@
 
   // Shared card: title, size-2 value, size-1 sub. Mirrors ui_pages.cpp's
   // statCard(), including its size-1 fallback for values wider than 5 chars.
-  var STAT_CARD_W = 77, STAT_CARD_H = 60;
+  var STAT_CARD_W = 78, STAT_CARD_H = 60;
   function statCard(x, y, title, titleCol, value, sub, valueCol) {
     strokeRect(x, y, STAT_CARD_W, STAT_CARD_H, COL.dim);
     text(x + 4, y + 4, title, { color: titleCol });
@@ -2404,65 +2076,60 @@
     text(x + 4, y + (wide ? 24 : 18), value, { size2: !wide, color: valueCol || COL.fg });
     text(x + 4, y + 44, String(sub).slice(0, 11), { color: COL.dim });
   }
-  function statCardX(n) { return 2 + n * (STAT_CARD_W + 3); }
+  function statCardX(n) { return n * (STAT_CARD_W + 3); }
 
-  function pipelineStage(x, y, name, reached, lossLabel, lost, flash) {
-    text(x, y, name, { color: flash ? COL.good : COL.dim });
-    text(x, y + 11, reached < 100000 ? String(reached) : Math.floor(reached / 1000) + 'k', { size2: true });
-    text(x, y + 30, lossLabel + ' ' + lost, { color: lost === 0 ? COL.good : COL.bad });
+  // A label and its count, no box: six cell borders plus three card borders is
+  // nine rectangles on one screen, and the chrome becomes the figure.
+  function radioCell(x, y, label, v, isLoss, flash) {
+    text(x + 4, y, label, { color: flash ? COL.good : COL.dim });
+    text(x + 4, y + 9, v < 100000 ? String(v) : Math.floor(v / 1000) + 'k',
+         { color: isLoss ? (v === 0 ? COL.good : COL.bad) : COL.fg });
   }
 
   function drawRadio() {
     var r = state.radio;
-    // Band 1: the receive chain as a pipeline with a named loss per handoff.
-    strokeRect(2, HEADER_H + 2, 236, 43, COL.dim);
-    pipelineStage(6, HEADER_H + 5, 'HEARD', r.rx, 'crc', r.crc, state.rxPulseActive);
-    pipelineStage(84, HEADER_H + 5, 'QUEUED', r.rx - r.drops, 'drop', r.drops, false);
-    pipelineStage(162, HEADER_H + 5, 'LOGGED', r.log, 'drop', 0, false);
-    text(74, HEADER_H + 19, '>', { color: r.drops === 0 ? COL.dim : COL.bad });
-    text(152, HEADER_H + 19, '>', { color: COL.dim });
+    drawPlotWell(HEADER_H, HEADER_H + 45);
+    // Row 1 is what the radio did, row 2 what the pipeline did with it, so the
+    // chain reads in order without arrows drawn between stages.
+    radioCell(statCardX(0), HEADER_H + 4, 'RX', r.rx, false, state.rxPulseActive);
+    radioCell(statCardX(1), HEADER_H + 4, 'CRC', r.crc, true, false);
+    radioCell(statCardX(2), HEADER_H + 4, 'MISS', r.miss, true, false);
+    radioCell(statCardX(0), HEADER_H + 26, 'QUEUE', r.drops, true, false);
+    radioCell(statCardX(1), HEADER_H + 26, 'LOG', r.log, false, false);
+    radioCell(statCardX(2), HEADER_H + 26, 'DROP', 0, true, false);
 
-    // Band 2: three cards, Activity's own idiom.
     var cy = HEADER_H + 49;
-    var stateVal, stateSub, stateCol;
+    var sv, ss, sc;
     if (state.activeAction !== 'NONE') {
-      stateVal = 'AWAY'; stateSub = state.activeAction.toLowerCase(); stateCol = COL.warn;
+      sv = 'AWAY'; ss = state.activeAction.toLowerCase(); sc = COL.warn;
     } else if (r.paused) {
-      stateVal = 'STANDBY'; stateSub = 'MeshCore'; stateCol = COL.warn;
+      sv = 'STANDBY'; ss = 'MeshCore'; sc = COL.warn;
     } else {
-      stateVal = 'WATCH'; stateSub = 'MeshCore'; stateCol = COL.good;
+      sv = 'WATCH'; ss = 'MeshCore'; sc = COL.good;
     }
-    statCard(statCardX(0), cy, 'STATE', stateCol, stateVal, stateSub, stateCol);
+    statCard(statCardX(0), cy, 'STATE', sc, sv, ss, sc);
     statCard(statCardX(1), cy, 'STORAGE', r.sd ? COL.good : COL.bad, r.sd ? 'ok' : 'DOWN',
              'run ' + r.run, r.sd ? COL.fg : COL.bad);
-    statCard(statCardX(2), cy, 'BUS', r.miss === 0 ? COL.dim : COL.bad, '42ms', r.miss + ' bus miss');
+    statCard(statCardX(2), cy, 'BUS', COL.dim, '42ms', 'bus ' + r.miss);
   }
 
-  // 30x1s packets/sec ring, same 30 bytes the firmware budgets.
-  var pktRing = [1, 2, 1, 3, 2, 4, 3, 1, 2, 5, 3, 2, 1, 3, 4, 2, 1, 2, 3, 1, 2, 1, 3, 2, 1, 4, 2, 1, 2, 1];
-
   function drawActivity() {
-    // Band 1: a time series, because Activity's question is "what is out
-    // there now" (Radio's band is a flow, because its question is integrity).
     var PX = 2, PW = 236, PH = 43, py = HEADER_H + 2;
-    strokeRect(PX, py, PW, PH, COL.dim);
+    drawPlotWell(HEADER_H, py + PH);
     var peak = Math.max.apply(null, pktRing);
     var bw = Math.floor((PW - 4) / pktRing.length);
     for (var i = 0; i < pktRing.length; i++) {
       var v = pktRing[i];
       if (!v) continue;
       var h = Math.round((PH - 4) * v / peak);
-      rect(PX + 2 + i * bw, py + PH - 2 - h, bw - 1, h, v === peak ? COL.warn : COL.good);
+      rect(PX + 2 + i * bw, py + PH - h, bw - 1, h, v === peak ? COL.warn : COL.good);
     }
-
-    // Band 2: three cards.
     var cy = py + PH + 4;
     statCard(statCardX(0), cy, 'SWEEP PK', COL.warn, state.sweep.bestMhz.toFixed(1),
              state.sweep.bestDbm + ' dBm');
     statCard(statCardX(1), cy, 'LAST PKT', COL.good, String(state.meter.dbm),
              (state.meter.snr > 0 ? '+' : '') + state.meter.snr.toFixed(1) + 'dB SNR');
-    var awayS = (state.sweep.awayMs || 4210) / 1000;
-    statCard(statCardX(2), cy, 'AWAY T', COL.dim, awayS.toFixed(1) + 's', 'last: sweep');
+    statCard(statCardX(2), cy, 'AWAY T', COL.dim, '4.2s', 'last: sweep');
   }
 
   function drawFocus() {
@@ -2492,126 +2159,170 @@
   }
 
   function drawChannel() {
-    text(2, HEADER_H + 6, '906.875 MHz', { size2: true });
-    text(2, HEADER_H + 32, 'SF11 BW250.0', { size2: true });
-    drawFreqBar(2, HEADER_H + 62, 108, 906.875, 868.0, 923.0);
-    text(2, HEADER_H + 94, 'CR4/5  sync 0x2B', { color: COL.dim });
+    var FLOOR = HEADER_H + 28;
+    drawPlotWell(HEADER_H, FLOOR);
+    text(4, HEADER_H + 3, '868', { color: COL.dim });
+    text(112, HEADER_H + 3, '898', { color: COL.dim });
+    text(219, HEADER_H + 3, '928', { color: COL.dim });
+    function tick(mhz, color, tall) {
+      var f = Math.max(0, Math.min(1, (mhz - 868) / 60));
+      var x = 6 + Math.round(227 * f);
+      if (tall) rect(x - 1, FLOOR - 16, 3, 16, color);
+      else vline(x, FLOOR - 10, 10, color);
+    }
+    [903.2, 908.5, 914.9, 918.6].forEach(function (m) { tick(m, COL.warn, false); });
+    [906.9, 906.9, 910.5].forEach(function (m) { tick(m, COL.good, false); });
+    tick(state.meter.freq, COL.fg, true);
 
-    statBlock(170, HEADER_H + 6, 'mode', 'Watch');
-    statBlock(170, HEADER_H + 34, 'airtime', '~420ms');
+    text(2, HEADER_H + 31, state.meter.freq.toFixed(3) + ' MHz', { size2: true });
+    text(238, HEADER_H + 35, '4 peaks', { color: COL.warn, align: 'right' });
+
+    var cy = HEADER_H + 49;
+    statCard(statCardX(0), cy, 'MODE', COL.good, 'SF' + state.meter.sf, 'BW' + state.meter.bw.toFixed(0));
+    statCard(statCardX(1), cy, 'DECODED', COL.good, String(state.radio.rx), '14 nodes');
+    statCard(statCardX(2), cy, 'AIRTIME', COL.dim, '420ms', 'CR4/' + state.meter.cr + ' 0x2B');
   }
 
   function drawGps() {
-    if (state.gps.fix) {
-      text(2, HEADER_H + 6, state.gps.type, { size2: true, color: COL.good });
-      text(2, HEADER_H + 28, state.gps.lat.toFixed(5), { size2: true });
-      text(2, HEADER_H + 48, state.gps.lon.toFixed(5), { size2: true });
-      text(2, HEADER_H + 72, '2026-09-04 23:14:02Z', { color: COL.dim });
-      statBlock(170, HEADER_H + 6, 'sats', String(state.gps.sats));
-      statBlock(170, HEADER_H + 28, 'qual', String(state.gps.qual));
-
-      // Constellation bars
-      var bx = 170, by = HEADER_H + 58;
-      rect(bx, by + 4, 8, 10, COL.good); text(bx, by + 16, 'GP', { color: COL.dim });
-      rect(bx + 12, by + 6, 8, 8, COL.good); text(bx + 12, by + 16, 'GL', { color: COL.dim });
-      rect(bx + 24, by + 10, 8, 4, COL.good); text(bx + 24, by + 16, 'GA', { color: COL.dim });
-    } else {
-      text(2, HEADER_H + 6, 'NO FIX', { size2: true, color: COL.bad });
-      text(2, HEADER_H + 30, 'view 0', { size2: true });
-      text(2, HEADER_H + 52, 'no sky - go outside', { color: COL.dim });
+    var PX = 2, PW = 236, PH = 43, py = HEADER_H + 2;
+    drawPlotWell(HEADER_H, py + PH);
+    text(6, py + 3, 'SATS USED  60s', { color: COL.dim });
+    var sats = [11,11,10,11,12,11,11,10,6,0,0,4,9,11,11,12,11,11,10,11,11,12,11,11,10,11,11,11,12,11];
+    var drop = sats.indexOf(0) >= 0;
+    text(238, py + 3, drop ? 'HUNTING' : 'STABLE', { color: drop ? COL.warn : COL.good, align: 'right' });
+    var bw = Math.floor((PW - 8) / sats.length), base = py + PH - 1, top = py + 13;
+    for (var i = 0; i < sats.length; i++) {
+      var v = sats[i], bx = PX + 4 + i * bw;
+      if (v === 0) { rect(bx, base - 1, bw - 1, 2, COL.bad); continue; }
+      var h = Math.max(1, Math.round((base - top) * Math.min(v, 12) / 12));
+      rect(bx, base - h + 1, bw - 1, h, v < 5 ? COL.warn : COL.good);
     }
+    var cy = py + PH + 4;
+    statCard(statCardX(0), cy, 'FIX', COL.good, state.gps.fix ? '3D' : 'NONE',
+             state.gps.sats + ' of 14', COL.good);
+    statCard(statCardX(1), cy, 'TAGGED', COL.warn, String(state.radio.log - 12), '12 untagged');
+    statCard(statCardX(2), cy, 'UTC', COL.dim, '14:52', '2 drop 18s');
   }
 
   function drawSystem() {
-    text(2, HEADER_H + 6, state.system.mins + ' min', { size2: true });
-    var heapCol = state.system.heapK < 100 ? COL.bad : (state.system.heapK < 150 ? COL.warn : COL.good);
-    text(2, HEADER_H + 28, state.system.heapK + 'k heap', { size2: true, color: heapCol });
-    
-    // Heap bar
-    strokeRect(2, HEADER_H + 48, 108, 8, heapCol);
-    var used = (512 - state.system.heapK) / 512;
-    rect(3, HEADER_H + 49, Math.round(106 * used), 6, heapCol);
+    var PX = 2, PW = 236, PH = 43, py = HEADER_H + 2;
+    drawPlotWell(HEADER_H, py + PH);
+    var heap = [26,26,25,26,25,25,26,25,24,25,25,24,25,24,25,24,24,25,24,24,23,24,24,23,24,23,23,24,23,23];
+    var batt = [20,20,20,19,19,19,19,18,18,18,18,18,17,17,17,17,17,16,16,16,16,16,15,15,15,15,15,14,14,14];
+    // Two lanes, not two traces overlaid: they share nothing but a time axis.
+    // Each auto-scales with a MINIMUM span, so a flat series reads flat instead
+    // of having a 2KB wobble amplified to full height.
+    function lane(y, vals, minSpan, color, label, readout, readoutCol) {
+      var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+      var span = Math.max(hi - lo, minSpan);
+      lo -= Math.floor((span - (hi - lo)) / 2);
+      var bw = Math.floor((PW - 8) / vals.length), base = y + 18;
+      for (var i = 0; i < vals.length; i++) {
+        var h = Math.max(1, Math.round(17 * (vals[i] - lo) / span));
+        rect(PX + 4 + i * bw, base - h, bw - 1, h, color);
+      }
+      text(PX + 4, y, label, { color: COL.dim });
+      text(234, y, readout, { color: readoutCol, align: 'right' });
+    }
+    lane(HEADER_H + 3, heap, 8, COL.good, 'HEAP', state.system.heapK + 'k FLAT', COL.good);
+    lane(HEADER_H + 25, batt, 5, COL.dim, 'BATT', '84%', COL.fg);
 
-    statBlock(136, HEADER_H + 6, 'min heap', state.system.minHeapK + 'k');
-    statBlock(205, HEADER_H + 6, 'batt', (state.system.battMv / 1000).toFixed(2) + 'V');
-    statBlock(136, HEADER_H + 36, 'bus', String(state.system.bus));
-    statBlock(205, HEADER_H + 36, 'wifi', state.system.wifi ? 'ON' : 'OFF', state.system.wifi ? COL.good : COL.dim);
+    var cy = py + PH + 4;
+    statCard(statCardX(0), cy, 'BATTERY', COL.good, '84%', '-4%/h 29m');
+    statCard(statCardX(1), cy, 'HEAP', COL.good, state.system.heapK + 'k',
+             'min ' + state.system.minHeapK + 'k', COL.good);
+    statCard(statCardX(2), cy, 'UPTIME', COL.dim, state.system.mins + 'm', 'health 96');
+  }
 
-    text(2, HEADER_H + 66, 'keys tca8418  health 96', { color: COL.dim });
-    text(2, HEADER_H + 78, 'v1.1.0-beta (dev)', { color: COL.dim });
+  // Probe, Sweep, Cell and Focus all report the same shape of thing; Focus
+  // grew the best layout for it and the others were each carrying their own
+  // arrangement of the same parts.
+  function actionHero(hero, mid, midCol, status, statusCol) {
+    text(2, HEADER_H + 4, hero, { size2: true });
+    if (mid) text(138, HEADER_H + 6, mid, { color: midCol });
+    text(238, HEADER_H + 6, status, { color: statusCol, align: 'right' });
+  }
+  function actionBar(done, total, col) {
+    strokeRect(2, HEADER_H + 28, 236, 8, COL.dim);
+    var f = Math.round(234 * Math.min(done / (total || 1), 1));
+    if (f > 0) rect(3, HEADER_H + 29, f, 6, col);
+  }
+  function actionLabels(l, r) {
+    text(2, HEADER_H + 39, l, { color: COL.dim });
+    if (r) text(238, HEADER_H + 39, r, { color: COL.dim, align: 'right' });
+  }
+  function actionStats(a, ca, b, cb, c, cc) {
+    text(2, HEADER_H + 95, a, { color: ca });
+    text(86, HEADER_H + 95, b, { color: cb });
+    text(164, HEADER_H + 95, c, { color: cc });
   }
 
   function drawProbe() {
-    var isRunning = (state.probe.status === 'scanning');
-    var isDone = (state.probe.status === 'complete');
-    text(2, HEADER_H + 8, isRunning ? 'SCANNING' : (isDone ? 'COMPLETE' : 'IDLE'), {
-      size2: true,
-      color: isRunning ? COL.warn : (isDone ? COL.good : COL.dim)
-    });
-
-    text(2, HEADER_H + 31, isRunning ? 'Watch away  ' : 'candidates ' + state.probe.done + '/' + state.probe.total + '  away ' + state.probe.awayMs + 'ms');
-    text(2, HEADER_H + 56, 'US LongFast, EU Narrow');
-    text(2, HEADER_H + 84, 'hits ' + state.probe.hits + '  free 6  timeout 0  err 0', { color: COL.dim });
+    var p = state.probe, running = state.activeAction === 'PROBE';
+    actionHero(p.hits + ' / ' + p.total, 'ACTIVE', p.hits ? COL.warn : COL.dim,
+               running ? 'SCANNING' : 'COMPLETE', running ? COL.warn : COL.good);
+    actionBar(p.done, p.total, running ? COL.warn : COL.good);
+    actionLabels((running ? 'TESTING ' : 'TARGETS ') + p.done + ' / ' + p.total,
+                 running ? 'Watch away' : p.awayMs + 'ms  40s ago');
+    strokeRect(2, HEADER_H + 59, 236, 32, COL.dim);
+    if (p.hits > 0) {
+      text(6, HEADER_H + 63, 'US LongFast', { color: COL.warn });
+      text(6, HEADER_H + 72, 'EU Narrow', { color: COL.warn });
+    } else {
+      text(6, HEADER_H + 63, running ? 'listening...' : 'no candidate heard energy', { color: COL.dim });
+    }
+    actionStats('HIT ' + p.hits, p.hits ? COL.warn : COL.dim,
+                'FREE ' + (p.total - p.hits), COL.dim, 'T/O 0', COL.dim);
   }
 
   function drawSweep() {
-    var isRunning = (state.sweep.status === 'scanning');
-    var isDone = (state.sweep.status === 'complete');
-    var isRep = state.sweep.repeating;
-
-    text(2, HEADER_H + 8, isRep ? 'REPEATING' : (isRunning ? 'SCANNING' : (isDone ? 'COMPLETE' : 'IDLE')), {
-      size2: true,
-      color: isRep || isRunning ? COL.warn : (isDone ? COL.good : COL.dim)
+    var w = state.sweep, running = state.activeAction === 'SWEEP';
+    actionHero(w.bestMhz.toFixed(3) + ' MHz', 'BIN ' + w.bins, COL.warn,
+               w.repeating ? 'REPEATING' : (running ? 'SCANNING' : 'COMPLETE'),
+               w.repeating || running ? COL.warn : COL.good);
+    actionBar(w.bins, w.total, running ? COL.warn : COL.good);
+    actionLabels((running ? 'SCANNING ' : 'BINS ') + w.bins + ' / ' + w.total,
+                 running ? 'Watch away' : '4210ms  2m ago');
+    strokeRect(2, HEADER_H + 59, 236, 20, COL.dim);
+    [0.14, 0.31, 0.62, 0.78].forEach(function (f) {
+      vline(4 + Math.round(232 * f), HEADER_H + 62, 14, COL.warn);
     });
-
-    text(2, HEADER_H + 31, 'bins ' + state.sweep.bins + '/' + state.sweep.total + '  away 340ms');
-    var curFreq = 902.0 + (state.sweep.bins / 85) * (923.0 - 902.0);
-    drawFreqBar(2, HEADER_H + 62, 108, curFreq, 902.0, 923.0);
-    text(2, HEADER_H + 96, 'listening to the noise', { color: COL.dim });
-
-    statBlock(170, HEADER_H + 6, 'peaks', String(state.sweep.peaks), COL.warn);
-    statBlock(170, HEADER_H + 34, 'best MHz', state.sweep.bestMhz.toFixed(1), COL.warn);
-    statBlock(170, HEADER_H + 62, 'rssi', state.sweep.bestDbm + 'dB');
+    text(4, HEADER_H + 83, '902', { color: COL.dim });
+    text(236, HEADER_H + 83, '923', { color: COL.dim, align: 'right' });
+    actionStats('PEAKS ' + w.peaks, w.peaks ? COL.warn : COL.dim,
+                'PK ' + w.bestDbm, COL.fg,
+                w.repeating ? 'LAP ' + w.lap : 'MGN 35dB', COL.dim);
   }
 
   function drawCell() {
-    var isRunning = (state.cell.status === 'scanning');
-    text(2, HEADER_H + 8, isRunning ? 'SCANNING' : 'COMPLETE', {
-      size2: true,
-      color: isRunning ? COL.warn : COL.good
-    });
-
-    text(2, HEADER_H + 31, 'bins ' + state.cell.bins + '/' + state.cell.total);
-    var cFreq = 869.0 + (state.cell.bins / 101) * (894.0 - 869.0);
-    drawFreqBar(2, HEADER_H + 62, 108, cFreq, 869.0, 894.0);
-
-    // FCC blocks
-    rect(2, HEADER_H + 80, 50, 2, COL.dim);
-    rect(54, HEADER_H + 80, 54, 2, COL.fg);
-    text(2, HEADER_H + 84, 'A', { color: COL.dim });
-    text(54, HEADER_H + 84, 'B', { color: COL.fg });
-
-    statBlock(170, HEADER_H + 6, 'best MHz', state.cell.bestMhz.toFixed(1), COL.warn);
-    statBlock(170, HEADER_H + 34, 'rssi', state.cell.bestDbm + 'dB');
+    var c = state.cell, running = state.activeAction === 'CELL';
+    actionHero(c.bestMhz.toFixed(1) + ' MHz', 'BIN ' + c.bins, COL.warn,
+               running ? 'SCANNING' : 'COMPLETE', running ? COL.warn : COL.good);
+    actionBar(c.bins, c.total, running ? COL.warn : COL.good);
+    actionLabels((running ? 'SCANNING ' : 'BINS ') + c.bins + ' / ' + c.total,
+                 running ? 'Watch away' : '3180ms  1m ago');
+    strokeRect(2, HEADER_H + 59, 236, 20, COL.dim);
+    rect(4, HEADER_H + 64, 114, 6, COL.dim);
+    rect(122, HEADER_H + 64, 114, 6, COL.dim);
+    text(4, HEADER_H + 83, '869', { color: COL.dim });
+    text(214, HEADER_H + 83, '894', { color: COL.dim });
+    // Permanent honesty line, not a one-time disclaimer (docs/DESIGN.md S5a).
+    actionStats('PK ' + c.bestDbm, COL.warn, 'RSSI only', COL.dim, 'no decode', COL.dim);
   }
 
   function drawMeter() {
-    var m = state.meter;
-    text(2, HEADER_H + 8, m.dbm + ' dBm', { size2: true });
-    text(2, HEADER_H + 30, 'watch @ ' + m.freq.toFixed(3) + 'MHz', { color: COL.dim });
-    text(2, HEADER_H + 42, 'SNR: ' + (m.snr > 0 ? '+' : '') + m.snr.toFixed(1) + 'dB', { color: COL.dim });
-    text(2, HEADER_H + 54, m.ageS + 's ago', { color: COL.fg });
-
-    text(230, HEADER_H + 30, 'SF' + m.sf, { color: COL.dim, align: 'right' });
-    text(230, HEADER_H + 42, m.bw.toFixed(1) + 'kHz', { color: COL.dim, align: 'right' });
-    text(230, HEADER_H + 54, 'CR4/' + m.cr, { color: COL.dim, align: 'right' });
-
-    // Bar gauge (-120 to 0)
-    strokeRect(2, HEADER_H + 72, 232, 12, COL.dim);
-    var frac = Math.max(0, Math.min(1, (m.dbm - (-120)) / 120));
-    rect(3, HEADER_H + 73, Math.round(230 * frac), 10, COL.fg);
-    text(2, HEADER_H + 86, '-120', { color: COL.dim });
-    text(234, HEADER_H + 86, '0', { color: COL.dim, align: 'right' });
+    var py = HEADER_H + 2;
+    drawPlotWell(HEADER_H, py + 43);
+    text(4, py + 4, state.meter.dbm + ' dBm', { size2: true });
+    text(234, py + 8, state.meter.freq.toFixed(3) + ' MHz', { color: COL.dim, align: 'right' });
+    strokeRect(4, py + 24, 232, 12, COL.dim);
+    var f = Math.max(0, Math.min(1, (state.meter.dbm + 120) / 120));
+    rect(5, py + 25, Math.round(230 * f), 10, COL.fg);
+    var cy = py + 43 + 4;
+    statCard(statCardX(0), cy, 'SOURCE', COL.good, 'WATCH', state.meter.ageS + 's ago', COL.good);
+    statCard(statCardX(1), cy, 'SNR', COL.good, (state.meter.snr > 0 ? '+' : '') + state.meter.snr.toFixed(1), 'dB', COL.good);
+    statCard(statCardX(2), cy, 'PARAMS', COL.dim, 'SF' + state.meter.sf,
+             'BW' + state.meter.bw.toFixed(0) + ' CR4/' + state.meter.cr);
   }
 
   function drawWaterfall() {
@@ -2642,11 +2353,13 @@
   }
 
   function drawScope() {
-    text(2, HEADER_H + 6, state.scope.running ? 'CAPTURING' : 'CAPTURED', {
-      size2: true,
-      color: state.scope.running ? COL.warn : COL.good
-    });
-    text(2, HEADER_H + 24, '906.875MHz  20ms/sample');
+    var running = state.scope.running;
+    // What a trace is *of* is durable; CAPTURING/CAPTURED is momentary, and
+    // once a trace is on screen its age is the thing that is not self-evident.
+    actionHero(state.meter.freq.toFixed(3) + ' MHz', null, COL.dim,
+               running ? 'CAPTURING' : '12s ago', running ? COL.warn : COL.good);
+    text(2, HEADER_H + 24, running ? 'Watch away' : '240 samples  20ms each',
+         { color: running ? COL.warn : COL.dim });
 
     var sx = 2, sy = HEADER_H + 48, sw = 232, sh = 50;
     strokeRect(sx, sy, sw, sh, COL.dim);

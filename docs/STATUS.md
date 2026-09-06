@@ -180,8 +180,38 @@ headlines became the real terminal word dimmed plus a result age — `IDLE`
 described the radio while the view below it still showed a real result, so
 one card could disagree with itself about whether a sweep had happened.
 
-Still unverified for this change: no soak, and no measurement of whether the
-extra per-card draw paths affect redraw timing under a running sweep.
+**Every card rebuilt in that language (`691443c`, flashed and walked through
+2026-09-06).** Radio became a six-value grid (RX/CRC/MISS over QUEUE/LOG/DROP —
+the radio layer over the storage pipeline); Channel a band map whose ticks mark
+where packets actually decoded and where Sweep found peaks, under a restored
+frequency hero; GPS a 60s satellites-used trace with a TAGGED card; System two
+trend lanes for heap and battery. Probe, Sweep and Cell moved onto the layout
+Focus had grown, each now leading with its finding rather than a state word,
+and Probe was promoted to Channel's view 2. Meter took the card shape.
+
+The chrome converged along the way: a plot well (rails plus a floor, with the
+header hairline as its top edge and the floor as the plot baseline), cards
+widened to 78px from x=0 so they align with it, and WiFi moved to a fourth
+header status dot.
+
+Three design rules came out of it and are worth keeping:
+- **The mark follows the data type.** Counts get bars, levels get lines or
+  areas. Three of five bands had converged on the same 30 green bars and were
+  indistinguishable; separating them was a chart-choice fix, not decoration.
+- **Chrome follows what the band is.** A well around something already bounded
+  is doubling, which is why Radio's cells and Channel's axis lost their boxes.
+- **Trends auto-scale with a minimum span.** Pure min/max amplifies a 2KB heap
+  wobble to full height; with a floor on the span, flat reads flat.
+
+New state added: `loggerRowsUntagged()` (detection rows written without a fresh
+position — the wardriving quality number, counted at batch-accept and stated
+against detections seen), a 30-byte satellites ring and a 60-byte heap/battery
+ring. RAM 18.1%, flash 31.7%.
+
+Still unverified for all of the above: no soak, no measurement of whether the
+extra per-card draw paths affect redraw timing under a running sweep, and
+`loggerRowsUntagged()` has never been exercised against a real GPS dropout —
+which is exactly the case GPS's TAGGED card exists to report.
 
 Phases 0-9 are complete and hardware-verified: radio bring-up (Phase 1),
 the task/queue architecture + GPS + SD logging that makes up MVP-Beta
