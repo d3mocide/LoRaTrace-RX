@@ -164,6 +164,13 @@ struct FocusObservation {
     uint16_t requested_dwell_ms = 0;
     uint16_t requested_samples = 0;
     uint16_t sample_count = 0;
+    // Samples above this pass's own median by the qualifying margin. Recorded
+    // raw and deliberately unlabelled: a rule over this count was measured and
+    // works, but its accuracy depends on link quality the device cannot know
+    // and degrades where the band is busiest, so Focus reports coverage and
+    // never activity (2026-09-06 decision, docs/research/
+    // phase12-survey-truth-design.md §8). The number is here so a host with
+    // ground truth can conclude what the device may not.
     uint16_t qualifying_count = 0;
     int16_t rssi_median_dbm_x10 = FOCUS_RSSI_NO_SAMPLE_DBM_X10;
     int16_t rssi_p90_dbm_x10 = FOCUS_RSSI_NO_SAMPLE_DBM_X10;

@@ -591,6 +591,35 @@ isn't a fixed national fact — see `docs/DESIGN.md` §5a). Confirmed on real
 hardware (`b7c845a`): the tick row renders cleanly with no overlap against
 the lo/hi labels above or the disclaimer line below.
 
+## Workstream 12 (Focus Survey) — two gates closed as decisions
+
+**2026-09-06.** W12's remaining gates were measurement-complete but
+decision-open, and they are now settled rather than left reading as unfinished
+measurement. Both follow one principle: **Focus is a deliberate use, not a
+runtime state.**
+
+- **Radio-away budget: refused, conditionally.** The exchange rate is measured
+  and linear (predicted 0.459 against a measured 0.463), one Enter is one pass,
+  and Activity's AWAY T card already shows the cost — so an operator
+  self-governs against a number on screen. A cap would add a refusal path and a
+  menu control for a runaway that cannot presently happen. **The decision
+  expires if Focus ever gains automatic repeat**; that condition is recorded in
+  `focus_plan.h` beside the code that would implement it.
+- **Activity indication: refused. Focus reports coverage, never activity.** A
+  rule over the qualifying count works (`C6 >= 2`, 57/60, 95% CI
+  [0.863, 0.983]), but its accuracy depends on link quality the device cannot
+  know, and it measured *worse* where the band was busiest — failing toward
+  false confidence exactly where an operator most wants it. The count and the
+  full count-above-median ladder are still recorded, so a host with ground
+  truth can conclude what the device may not.
+
+What remains for W12: the `sampled`/`repeated` coverage thresholds, which now
+carry no inference and are simply "how much looking happened"
+(`scripts/phase12_coverage_campaign.py` drives that campaign), plus Portland
+field validation and the WiFi-off/on resource matrix. `LOG_GUIDE.md` now
+documents `focus.csv`, unblocked by the operator control the card-view work
+shipped.
+
 ## What's still open
 
 - ~~Bench SD card / boot-loop finding~~ — resolved 2026-09-03. The

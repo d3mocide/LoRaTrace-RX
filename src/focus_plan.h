@@ -9,6 +9,19 @@
 // Phase 12 starts with exactly one selected frequency. A wider request needs
 // a new static-RAM and radio-away budget; it must not quietly grow here.
 constexpr uint8_t FOCUS_SELECTED_BIN_COUNT = 1;
+
+// No maximum radio-away budget is enforced, and that is a decision rather than
+// an omission (2026-09-06, docs/research/phase12-survey-truth-design.md §8
+// "Decisions"). The cost is measured and linear in away time, Activity's
+// AWAY T card already shows it, and one Enter is one pass — so an operator
+// self-governs against a number on screen, and a cap would add a refusal path
+// and a menu control for a runaway that cannot presently happen.
+//
+// READ THIS BEFORE ADDING REPEAT. The decision is conditional: Focus is a
+// deliberate use, not a runtime state, and the self-governing argument rests
+// entirely on a human pressing the key each time. If Focus ever gains an
+// automatic repeat like Sweep's R binding, the away budget must be settled
+// before that ships.
 // The first bench prototype makes one measurement per request. The controlled
 // matrix supplies its 30 trials by issuing 30 independently logged requests,
 // not by monopolizing Watch for a hidden multi-pass loop.

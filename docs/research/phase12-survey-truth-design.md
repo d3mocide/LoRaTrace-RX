@@ -398,8 +398,13 @@ local spectrum identity or coverage of the city.
   alternative, neither favoured nor excluded by this evidence.
 - [ ] Coverage thresholds (`sampled`/`repeated`) remain unselected. They are
   about pass counts and accumulated time across repeated requests, which no
-  single-pass measurement can supply.
-- [~] Approve the maximum radio-away budget. **The measurement is complete**
+  single-pass measurement can supply. `scripts/phase12_coverage_campaign.py`
+  drives that campaign. **Their stakes dropped with the activity decision
+  below**: with no activity claim resting on them, `sampled`/`repeated` are
+  descriptive — how much looking happened — rather than the qualifier on an
+  inference.
+- [x] **Approve the maximum radio-away budget — refused, conditionally
+  (2026-09-06). See "Decisions" below.** **The measurement is complete**
   ([evidence](../hardware-results/2026-09-04-phase12-focus-matrix.md)): at a
   2,000 ms dwell and 48.1% away fraction, Watch reception fell from 0.883 to
   0.463 of a reference train, with non-overlapping 95% intervals. The loss is
@@ -466,6 +471,67 @@ local spectrum identity or coverage of the city.
   over-long frame is dropped silently rather than truncated—losing exactly the
   newest fields the fixtures read. The argument budget is now derived from the
   frame size, host-tested at saturation, and the frame limit raised to 384.
+
+### Decisions (2026-09-06)
+
+Two gates were measurement-complete but decision-open. Both are settled here,
+with reasoning, because a decision recorded only as a closed checkbox gets
+re-litigated the first time someone reads the evidence and reaches a different
+conclusion.
+
+The principle both follow, in the operator's own words: **Focus is a deliberate
+use, not a runtime state.** It is an act someone performs on purpose, with a
+question in mind, and it should be designed as one.
+
+#### 1. Radio-away budget — refused, with an expiry condition
+
+No maximum away budget is imposed. The exchange rate is measured and clean
+(loss proportional to away time and nothing else; predicted 0.459 against a
+measured 0.463), and §6.3 explicitly permits approving *or refusing*.
+
+Refusing is right for the shape Focus actually has:
+
+- **There is no runaway path.** One Enter is one pass. Sweep and Cell have
+  repeat modes; Focus does not, and its request contract is a single pass
+  (`FOCUS_BENCH_REQUESTED_PASSES`).
+- **The cost is already legible.** Activity's `AWAY T` card shows the longest
+  away time and which tool spent it, and the loss is linear in that number, so
+  an operator can self-govern against something already on screen.
+- **A cap would cost more than it buys.** It needs a refusal path, a UI state,
+  and — per CLAUDE.md's own rule that new runtime behavior gets an on-device
+  control — a menu toggle, all for a failure mode that cannot presently occur.
+
+**This decision expires the moment Focus gains automatic repetition.** If Focus
+ever grows an `R` binding like Sweep's, the self-governing argument evaporates
+and the budget must be settled before that ships. The condition is recorded in
+`focus_plan.h` next to the code that would implement it.
+
+#### 2. Activity indication — refused. Focus reports coverage, never activity
+
+Focus does not, and will not, tell an operator that something transmitted.
+
+The measurement supports a rule: `C6 >= 2` detected 57/60 source-on trials
+(95% CI [0.863, 0.983]) with a false rate whose 1.7% is an upper bound rather
+than a measurement against true silence. It is the condition attached to it
+that disqualifies it as a product claim:
+
+- Detection is a function of **link quality the device cannot know**, so the
+  device cannot bound its own error, which is exactly the situation §3 forbids
+  making a claim in.
+- It measured **worse where the band was busiest** — a −57 dBm event in a
+  control trial both produced false positives and suppressed counts by lifting
+  the median. An indicator that degrades precisely where it is most wanted
+  fails in the direction of false confidence, which is the worst direction
+  available.
+
+Nothing measured is lost. `qualifying_count` and the full count-above-median
+ladder are still recorded in `focus.csv` and over `BENCH_FOCUS_COUNTS`, so a
+host with context the device lacks — RTL-SDR ground truth, a known link — can
+evaluate any rule offline. **The device measures; the analyst concludes.**
+
+What this costs is the headline: Focus is "a longer look at one bin", not "is
+something there". That is what it is, and declining to overclaim is the
+project's stated differentiator, not a consolation.
 
 ### Device, claim, and release gates
 
