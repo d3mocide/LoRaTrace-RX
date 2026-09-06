@@ -281,6 +281,23 @@ const char *resultAge(uint32_t shownAt) {
     return buf;
 }
 
+// A plot well: left and right rails and a floor, with the header's own
+// hairline as the top edge (operator suggestion, 2026-09-06). Full-bleed on
+// purpose — the rails meet the header line at x=0 and x=239, so it reads as a
+// compartment carved out below the header rather than a second box floating
+// 2px under it, which is what the removed band borders were.
+//
+// The floor doubles as the plot's baseline: bars and traces sit directly on it
+// instead of floating above an implied zero. Only the three cards whose band is
+// a plot use it. Radio's six cells and Channel's axis track are already bounded
+// forms, and a well around a container is the doubling this replaced.
+void drawPlotWell(int16_t top, int16_t floorY) {
+    const int16_t w = uiTft->width();
+    uiTft->drawFastVLine(0, top, (int16_t)(floorY - top), COL_DIM);
+    uiTft->drawFastVLine(w - 1, top, (int16_t)(floorY - top), COL_DIM);
+    uiTft->drawFastHLine(0, floorY, w, COL_DIM);
+}
+
 // "Label above value" block for the secondary/context column every page
 // carries alongside its primary left-column numbers, so each page doesn't
 // invent its own right-column formatting.
@@ -1251,6 +1268,7 @@ void drawGpsPage() {
     uiTft->setTextColor(COL_DIM, COL_BG);
     uiTft->setCursor(PX + 4, py + 3);
     uiTft->print("SATS USED  60s");
+    drawPlotWell(HEADER_H, py + PH);
 
     // Dropouts within the window, and how long ago the most recent one was.
     uint8_t dropouts = 0;
@@ -1277,7 +1295,7 @@ void drawGpsPage() {
     // bands, which sit at the same coordinates: the mark follows the data type
     // rather than a house chart style.
     const int16_t bw = (PW - 8) / SAT_RING_LEN;
-    const int16_t base = py + PH - 3;
+    const int16_t base = py + PH - 1; // the well floor doubles as the baseline
     constexpr uint8_t SAT_FULL = 12; // a comfortable 3D fix; above this the line tops out
     constexpr int16_t PLOT_H = PH - 16;
     auto levelY = [&](uint8_t v) -> int16_t {
@@ -1421,6 +1439,7 @@ void drawSystemPage() {
     uiTft->print("BATT");
     uiTft->setTextColor(COL_DIM, COL_BG);
     uiTft->print("  30min");
+    drawPlotWell(HEADER_H, py + PH);
 
     // Verdict from the window's own endpoints. Below two samples there is no
     // trend to report, and saying "FLAT" then would be an unearned claim.
@@ -1455,7 +1474,7 @@ void drawSystemPage() {
     }
     const uint8_t span = (uint8_t)(hi > lo ? hi - lo : 1);
     const int16_t bw = (PW - 8) / SYS_RING_LEN;
-    const int16_t base = py + PH - 3;
+    const int16_t base = py + PH - 1; // the well floor doubles as the baseline
     constexpr int16_t PLOT_H = PH - 16;
 
     // Heap as a filled area, not bars (2026-09-06): free heap is a slowly
@@ -1466,8 +1485,8 @@ void drawSystemPage() {
     for (uint8_t i = 0; i < sysRingCount; i++) {
         const int16_t h = (int16_t)(PLOT_H * (sysRingAt(heapRing, i) - lo) / span) + 2;
         const int16_t bx = PX + 4 + i * bw;
-        uiTft->fillRect(bx, base - h, bw, h, COL_DIM);
-        uiTft->drawFastHLine(bx, base - h, bw, COL_GOOD);
+        uiTft->fillRect(bx, base - h + 1, bw, h, COL_DIM);
+        uiTft->drawFastHLine(bx, base - h + 1, bw, COL_GOOD);
     }
 
     // Battery over the top as a line only. White because the palette's other
@@ -1653,6 +1672,7 @@ void drawActivitySummary() {
     // at 240x135, where vertical space is the scarce axis.
     constexpr int16_t PX = 2, PW = 236, PH = 43;
     const int16_t py = HEADER_H + 2;
+    drawPlotWell(HEADER_H, py + PH);
     uint8_t peak = 1;
     for (uint8_t i = 0; i < pktRingCount; i++) {
         if (pktRing[i] > peak) peak = pktRing[i];
@@ -1665,7 +1685,7 @@ void drawActivitySummary() {
         if (v == 0) continue;
         const int16_t h = (int16_t)((PH - 4) * v / peak);
         const int16_t bx = PX + 2 + i * bw;
-        uiTft->fillRect(bx, py + PH - 2 - h, bw - 1, h, v == peak ? COL_WARN : COL_GOOD);
+        uiTft->fillRect(bx, py + PH - h, bw - 1, h, v == peak ? COL_WARN : COL_GOOD);
     }
 
     // Three triage cards.

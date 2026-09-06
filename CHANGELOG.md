@@ -9,6 +9,13 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-06
 
+- **Plot wells on Activity, GPS and System.** Left and right rails plus a
+  floor, with the header's own hairline as the top edge, so the band reads as a
+  compartment carved out below the header rather than a second box under it.
+  The floor doubles as the plot baseline — the traces had been floating since
+  the band borders came off. Radio (six bordered cells) and Channel (an axis
+  track) keep none: both are already bounded forms.
+
 - **Chrome and Radio grid pass.** Band container borders removed on all five
   cards — the header hairline already separates that region and a second border
   under it was clutter; cells and cards keep theirs. WiFi moves from System's
