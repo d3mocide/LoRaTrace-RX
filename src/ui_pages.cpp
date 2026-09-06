@@ -206,17 +206,22 @@ void drawFooterStatus() {
         uiTft->print(posBuf);
     }
 
-    // View dots, immediately left of the "N/M" carousel position: one per view
-    // this card carries, filled for the current one. Without them up/down is
-    // invisible — the card looks like a single screen until an operator
-    // happens to press a key that appears to do nothing on four of five cards.
-    // Drawn only where there is something to cycle (System has one view), so a
-    // lone dot never implies a hidden second screen.
+    // View dots: one per view this card carries, filled for the current one.
+    // Without them up/down is invisible — the card looks like a single screen
+    // until an operator happens to press a key that appears to do nothing on
+    // four of five cards. Drawn only where there is something to cycle (System
+    // has one view), so a lone dot never implies a hidden second screen.
+    //
+    // Centred on the footer rather than tucked beside the "N/M" carousel
+    // position (operator request): they are two different axes of navigation —
+    // up/down through a card's views, left/right across cards — and sitting
+    // them next to each other read as one cluster. The centre is empty on
+    // every page, comfortably clear of the profile label at x=2 and of "N/M"
+    // at the right edge even at four views (~21px wide).
     const uint8_t views = activeViewCount();
     if (views > 1) {
         constexpr int16_t PITCH = 7;
-        const int16_t dotsRight = uiTft->width() - 3 * 6 - 6; // clear of "N/M"
-        const int16_t x0 = dotsRight - (int16_t)(views - 1) * PITCH;
+        const int16_t x0 = (int16_t)(uiTft->width() / 2) - (int16_t)(views - 1) * PITCH / 2;
         for (uint8_t i = 0; i < views; i++) {
             const int16_t cx = x0 + (int16_t)i * PITCH;
             if (i == activeViewIndex()) {
