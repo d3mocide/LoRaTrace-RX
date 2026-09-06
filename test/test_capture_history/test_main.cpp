@@ -65,11 +65,35 @@ void test_ring_wraps_and_evicts_oldest() {
     TEST_ASSERT_EQUAL_UINT32(1000 + 3, oldest.rx_millis);
 }
 
+void test_raw_prefix_is_bounded_and_marks_truncation() {
+    Detection det{};
+    det.raw_len = 0;
+    uint8_t frame[64];
+    for (uint8_t i = 0; i < sizeof(frame); i++) frame[i] = (uint8_t)(i + 1);
+
+    // A frame longer than the prefix keeps its real length, so the inspector
+    // can say "first 32 of 64" rather than presenting a prefix as the packet.
+    TEST_ASSERT_TRUE(detectionSetRawPacket(det, frame, sizeof(frame)));
+    CaptureSummary big = captureSummaryFromDetection(det);
+    TEST_ASSERT_EQUAL_UINT8(CAPTURE_RAW_PREFIX_LEN, big.raw_prefix_len);
+    TEST_ASSERT_EQUAL_UINT16(64, big.raw_len);
+    TEST_ASSERT_EQUAL_UINT8(1, big.raw_prefix[0]);
+    TEST_ASSERT_EQUAL_UINT8(CAPTURE_RAW_PREFIX_LEN, big.raw_prefix[CAPTURE_RAW_PREFIX_LEN - 1]);
+
+    // A short frame is copied whole and is not padded up to the prefix length.
+    TEST_ASSERT_TRUE(detectionSetRawPacket(det, frame, 5));
+    CaptureSummary small = captureSummaryFromDetection(det);
+    TEST_ASSERT_EQUAL_UINT8(5, small.raw_prefix_len);
+    TEST_ASSERT_EQUAL_UINT16(5, small.raw_len);
+    TEST_ASSERT_EQUAL_UINT8(5, small.raw_prefix[4]);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_budget_ceiling_matches_design_doc);
     RUN_TEST(test_summary_from_detection_drops_raw_packet);
     RUN_TEST(test_push_and_recency_order);
     RUN_TEST(test_ring_wraps_and_evicts_oldest);
+    RUN_TEST(test_raw_prefix_is_bounded_and_marks_truncation);
     return UNITY_END();
 }

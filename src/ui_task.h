@@ -96,6 +96,7 @@ enum class UiPage : uint8_t {
     PROBE,
     SWEEP,
     CELL,
+    FOCUS,
     CHANNEL,
     GPS,
     SYSTEM,

@@ -28,6 +28,62 @@
 // calls Phase 3/4/5 already made, just no longer inlined into the menu's
 // key-handling switch (see uiTask() in ui_task.cpp, where MenuState.handle()'s
 // return value is routed here instead).
+// Focus surveys one selected bin (V2 Workstream 12). The design permits the
+// selection to come from a completed Sweep/Waterfall bin or a fixed preset and
+// nothing else -- no free-form frequency entry. This prefers the last
+// completed sweep's first peak, which is what an operator actually has in hand
+// after running Sweep, and falls back to the bin containing the resolved home
+// channel so the action is never dead.
+//
+// Dwell and sample count are not operator-selectable yet: samples follow the
+// measured 20ms spacing policy (focus_plan.h) and the dwell is the longest the
+// bounded request allows, which is what the field-level measurements used.
+bool selectFocusRequest(FocusRequest &request) {
+    request.region = radioEnergySweepRegion();
+    request.bin_step = ENERGY_SWEEP_DEFAULT_STEP;
+    request.requested_passes = FOCUS_BENCH_REQUESTED_PASSES;
+    request.requested_dwell_ms = FOCUS_BENCH_DWELL_MAX_MS;
+    request.requested_samples = focusSamplesForDwell(FOCUS_BENCH_DWELL_MAX_MS);
+
+    const EnergySweepBand band = energySweepBandForRegion(request.region);
+    const uint16_t bins = energyBinCount(band, request.bin_step);
+    for (uint16_t bin = 0; bin < bins; bin++) {
+        if (radioEnergyPeakBinSetAtLastComplete(bin)) {
+            request.selection_bin_index = bin;
+            request.selection_source = FocusSelectionSource::SWEEP_BIN;
+            return focusRequestIsValid(request);
+        }
+    }
+    const ChannelParams home = radioActiveChannel();
+    request.selection_bin_index =
+        energyBinIndexForFrequencyMhz(home.freq_mhz, band, request.bin_step);
+    request.selection_source = FocusSelectionSource::PRESET;
+    return focusRequestIsValid(request);
+}
+
+void toggleFocusSurvey() {
+    if (radioFocusSurveyIsActive()) {
+        radioCancelFocusSurvey();
+        showToast("Focus cancelled");
+        return;
+    }
+    FocusRequest request;
+    if (!selectFocusRequest(request)) {
+        showToast("Focus: no valid bin");
+        return;
+    }
+    if (!radioRequestFocusSurvey(request)) {
+        // Refused because another bounded action owns the radio. Showing the
+        // refusal is the point -- it must never queue silently behind one.
+        showToast("Radio busy");
+        return;
+    }
+    char msg[32];
+    snprintf(msg, sizeof(msg), "Focus %.3f MHz",
+             (double)focusRequestFrequencyMhz(request));
+    showToast(msg);
+}
+
 void fireMenuAction(MenuAction action) {
     char msg[48];
     switch (action) {
@@ -153,6 +209,21 @@ void fireMenuAction(MenuAction action) {
             }
             break;
         }
+        case MenuAction::ACTIVITY_SWEEP_TOGGLE: {
+            // SWEEP_TOGGLE's radio call without its showSweepResults(). Same
+            // reasoning as WATERFALL_SWEEP_REPEAT_TOGGLE below: Activity's
+            // whole point is watching a sweep run, so starting one must not
+            // navigate off the page and strand up/down on the Tools carousel.
+            const bool cancelling = radioEnergySweepIsActive();
+            if (!cancelling && !loggerSdReady()) {
+                showToast("Sweep: SD REQUIRED");
+            } else if (radioRequestEnergySweep()) {
+                showToast(cancelling ? "Sweep: CANCEL" : "Sweep: START");
+            } else {
+                showToast("Sweep: UNAVAILABLE");
+            }
+            break;
+        }
         case MenuAction::WATERFALL_SWEEP_REPEAT_TOGGLE: {
             // Same radioRequestEnergySweepRepeat() call as SWEEP_REPEAT_TOGGLE
             // above, deliberately without its showSweepResults() — see
@@ -268,6 +339,12 @@ void fireMenuAction(MenuAction action) {
             break;
         case MenuAction::OPEN_CELL:
             showCellResults();
+            break;
+        case MenuAction::OPEN_FOCUS:
+            showFocusResults();
+            break;
+        case MenuAction::FOCUS_TOGGLE:
+            toggleFocusSurvey();
             break;
         case MenuAction::OPEN_METER:
             showMeterPage();

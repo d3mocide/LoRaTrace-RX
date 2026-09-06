@@ -14,6 +14,9 @@
 
 // §8.3.
 constexpr uint8_t CAPTURE_HISTORY_MAX_ENTRIES = 8;
+// Bytes of each frame retained for the inspector. See CaptureSummary below for
+// why 32, and analyzer_budget.h for the ceiling it is spent against.
+constexpr uint8_t CAPTURE_RAW_PREFIX_LEN = 32;
 
 struct CaptureSummary {
     uint32_t rx_millis = 0;
@@ -27,6 +30,17 @@ struct CaptureSummary {
     uint8_t cr_denom = 0;
     uint8_t profile = 0; // MissionProfile
     bool off_grid = false;
+    // Prefix of the received frame, for the on-device inspector. Detection
+    // carries the whole frame but the ring cannot: 8 entries x 32 B costs
+    // 256 B of the analyzer's fixed 8,192 B static budget (analyzer_budget.h),
+    // where the full 255 B frame would cost 2 KB and not fit.
+    //
+    // 32 rather than 16 because 16 barely clears a LoRa header, so an operator
+    // would see framing and nothing distinguishing; 32 also renders as two
+    // clean 16-byte rows at 240x135. `raw_len` remains the *real* length, so a
+    // longer frame must be shown as truncated rather than as the whole packet.
+    uint8_t raw_prefix[CAPTURE_RAW_PREFIX_LEN] = {};
+    uint8_t raw_prefix_len = 0;
 };
 
 inline CaptureSummary captureSummaryFromDetection(const Detection &det) {
@@ -36,6 +50,10 @@ inline CaptureSummary captureSummaryFromDetection(const Detection &det) {
     summary.freq_mhz = det.freq_mhz;
     summary.rssi_dbm = det.rssi_dbm;
     summary.snr_db = det.snr_db;
+    const uint16_t copy = det.raw_len < CAPTURE_RAW_PREFIX_LEN ? det.raw_len
+                                                               : CAPTURE_RAW_PREFIX_LEN;
+    for (uint16_t i = 0; i < copy; i++) summary.raw_prefix[i] = det.raw_packet[i];
+    summary.raw_prefix_len = (uint8_t)copy;
     summary.raw_len = det.raw_len;
     summary.bw_khz_x10 = det.bw_khz_x10;
     summary.sf = det.sf;

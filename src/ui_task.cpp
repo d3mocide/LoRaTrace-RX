@@ -8,6 +8,7 @@
 // ui_task_shared.h for the contract between these three files.
 
 #include "ui_task.h"
+#include "analyzer_state.h"
 #include "ui_task_shared.h"
 
 #include <Adafruit_TCA8418.h>
@@ -207,11 +208,12 @@ constexpr MenuItem TOOLS_GROUP_ITEMS[] = {
     {"Probe", ItemKind::ACTION, MenuAction::OPEN_PROBE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Sweep", ItemKind::ACTION, MenuAction::OPEN_SWEEP, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Cell", ItemKind::ACTION, MenuAction::OPEN_CELL, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"Focus", ItemKind::ACTION, MenuAction::OPEN_FOCUS, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
 constexpr MenuItem ROOT_ITEMS[] = {
     {"Profile", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, PROFILE_GROUP_ITEMS, 3},
     {"Analyze", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, ANALYZE_GROUP_ITEMS, 5},
-    {"Tools", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, TOOLS_GROUP_ITEMS, 4},
+    {"Tools", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, TOOLS_GROUP_ITEMS, 5},
     {"System", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, SYSTEM_GROUP_ITEMS, 4},
 };
 constexpr uint8_t ROOT_COUNT = 4;
@@ -329,13 +331,25 @@ constexpr UiPage MAIN_PAGES[] = {
 };
 constexpr uint8_t MAIN_PAGE_COUNT = (uint8_t)(sizeof(MAIN_PAGES) / sizeof(MAIN_PAGES[0]));
 
+// Captures inspector modal state. Index is a recency index into the ring
+// (0 = newest), clamped on use rather than on set, because the ring can grow
+// underneath an open modal.
+uint8_t activityViewIdx = 0;
+constexpr uint8_t ACTIVITY_VIEW_COUNT = 3;
+
+bool captureInspectOpen = false;
+uint8_t captureInspectIdx = 0;
+
+
+
 bool isAnalyzeSubPage(UiPage p) {
     return p == UiPage::METER || p == UiPage::WATERFALL || p == UiPage::SCOPE ||
            p == UiPage::CAPTURES || p == UiPage::NODES;
 }
 
 bool isToolsSubPage(UiPage p) {
-    return p == UiPage::PROBE || p == UiPage::SWEEP || p == UiPage::CELL;
+    return p == UiPage::PROBE || p == UiPage::SWEEP || p == UiPage::CELL ||
+           p == UiPage::FOCUS;
 }
 
 uint8_t mainPageIndex(UiPage p) {
@@ -385,7 +399,7 @@ constexpr UiPage ANALYZE_PAGES[] = {
 };
 constexpr uint8_t ANALYZE_PAGE_COUNT = (uint8_t)(sizeof(ANALYZE_PAGES) / sizeof(ANALYZE_PAGES[0]));
 constexpr UiPage TOOLS_PAGES[] = {
-    UiPage::PROBE, UiPage::SWEEP, UiPage::CELL,
+    UiPage::PROBE, UiPage::SWEEP, UiPage::CELL, UiPage::FOCUS,
 };
 constexpr uint8_t TOOLS_PAGE_COUNT = (uint8_t)(sizeof(TOOLS_PAGES) / sizeof(TOOLS_PAGES[0]));
 
@@ -631,8 +645,15 @@ void uiTask(void *) {
             redraw = true;
         } else if (action == KeyAction::SWEEP) {
             // Same global-shortcut shape as P/Probe — works from any UI
-            // state.
-            fireMenuAction(MenuAction::SWEEP_TOGGLE);
+            // state. The one exception is Activity, which is a page built to
+            // watch a sweep run: jumping to the Sweep card from there would
+            // strand up/down on the Tools carousel, which is the whole reason
+            // ACTIVITY_SWEEP_TOGGLE and WATERFALL_SWEEP_REPEAT_TOGGLE exist.
+            // Everywhere else the jump is right -- firing S from Radio or GPS
+            // should show you what you just started.
+            const bool stayPut = !menu.isOpen() && page == UiPage::ACTIVITY;
+            fireMenuAction(stayPut ? MenuAction::ACTIVITY_SWEEP_TOGGLE
+                                   : MenuAction::SWEEP_TOGGLE);
             redraw = true;
         } else if (action == KeyAction::CELL) {
             // Same global-shortcut shape as P/Probe and S/Sweep above
@@ -697,6 +718,9 @@ void uiTask(void *) {
                 } else if (action == KeyAction::SELECT && page == UiPage::CELL) {
                     fireMenuAction(MenuAction::CELL_TOGGLE);
                     redraw = true;
+                } else if (action == KeyAction::SELECT && page == UiPage::FOCUS) {
+                    fireMenuAction(MenuAction::FOCUS_TOGGLE);
+                    redraw = true;
                 } else if (action == KeyAction::REPEAT && page == UiPage::SWEEP) {
                     // See the original (pre-gating) comment on this dispatch
                     // for the full Ctrl+S/KEY_RAW_R_PRESS history — unchanged
@@ -705,6 +729,23 @@ void uiTask(void *) {
                     redraw = true;
                 } else if (action == KeyAction::REPEAT && page == UiPage::CELL) {
                     fireMenuAction(MenuAction::CELL_REPEAT_TOGGLE);
+                    redraw = true;
+                }
+            } else if (page == UiPage::CAPTURES && captureInspectOpen) {
+                // The modal owns the keys while it is up: UP/DOWN browse the
+                // ring instead of changing sub-page, and BACK closes the modal
+                // rather than leaving to the menu.
+                CaptureHistory history;
+                const uint8_t count = analyzerCaptureHistorySnapshot(history, pdMS_TO_TICKS(20))
+                                          ? history.count : 0;
+                if (action == KeyAction::BACK || action == KeyAction::SELECT) {
+                    captureInspectOpen = false;
+                    redraw = true;
+                } else if (action == KeyAction::UP || action == KeyAction::PREV) {
+                    if (count > 0 && captureInspectIdx + 1 < count) captureInspectIdx++;
+                    redraw = true;
+                } else if (action == KeyAction::DOWN || action == KeyAction::NEXT) {
+                    if (captureInspectIdx > 0) captureInspectIdx--;
                     redraw = true;
                 }
             } else if (isAnalyzeSubPage(page)) {
@@ -720,6 +761,10 @@ void uiTask(void *) {
                     redraw = true;
                 } else if (action == KeyAction::BACK) {
                     menu.open();
+                    redraw = true;
+                } else if (action == KeyAction::SELECT && page == UiPage::CAPTURES) {
+                    captureInspectIdx = 0;   // newest first
+                    captureInspectOpen = true;
                     redraw = true;
                 } else if (action == KeyAction::SELECT && page == UiPage::SCOPE) {
                     // Same dual re-trigger/cancel shape as before — arriving
@@ -737,6 +782,31 @@ void uiTask(void *) {
                     fireMenuAction(MenuAction::WATERFALL_SWEEP_REPEAT_TOGGLE);
                     redraw = true;
                 }
+            } else if (page == UiPage::ACTIVITY &&
+                       (action == KeyAction::UP || action == KeyAction::DOWN ||
+                        action == KeyAction::SELECT || action == KeyAction::REPEAT)) {
+                // Activity keeps up/down for its own views, the same way a
+                // Tools/Analyze sub-page does. Left/right still moves the main
+                // carousel, so nothing is trapped here.
+                //
+                // Enter and R drive Sweep from this page, matching the Sweep
+                // page itself: the whole page is oriented around a sweep (the
+                // dashboard's own SWEEP PK card, and two of its three views),
+                // so leaving one running and watching it here should not need
+                // a trip back through Tools. S is already global and reaches
+                // Sweep from anywhere; R was page-scoped to Sweep/Cell and did
+                // not, and Enter did nothing here at all.
+                if (action == KeyAction::SELECT) {
+                    fireMenuAction(MenuAction::ACTIVITY_SWEEP_TOGGLE);
+                } else if (action == KeyAction::REPEAT) {
+                    fireMenuAction(MenuAction::WATERFALL_SWEEP_REPEAT_TOGGLE);
+                } else if (action == KeyAction::DOWN) {
+                    activityViewIdx = (uint8_t)((activityViewIdx + 1) % ACTIVITY_VIEW_COUNT);
+                } else {
+                    activityViewIdx = (uint8_t)((activityViewIdx + ACTIVITY_VIEW_COUNT - 1) %
+                                                 ACTIVITY_VIEW_COUNT);
+                }
+                redraw = true;
             } else if (action == KeyAction::PREV || action == KeyAction::UP) {
                 // UP aliases PREV on every ordinary page — preserves the
                 // printed Fn-arrow diamond's original "doubles as page nav"
@@ -884,6 +954,16 @@ void showSweepResults() {
 
 void showCellResults() {
     jumpToPage(UiPage::CELL);
+    menu.close();
+}
+
+uint8_t activityView() { return activityViewIdx; }
+
+bool captureInspectIsOpen() { return captureInspectOpen; }
+uint8_t captureInspectIndex() { return captureInspectIdx; }
+
+void showFocusResults() {
+    jumpToPage(UiPage::FOCUS);
     menu.close();
 }
 

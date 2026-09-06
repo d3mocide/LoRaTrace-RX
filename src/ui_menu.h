@@ -145,6 +145,20 @@ enum class MenuAction : uint8_t {
     OPEN_PROBE,
     OPEN_SWEEP,
     OPEN_CELL,
+    // Focus is a fourth radio-owned bounded action alongside Probe/Sweep/Cell
+    // (V2 Workstream 12). Same convention as those three: a Tools row that
+    // navigates to its page, and the page's own SELECT key starts or cancels
+    // it. No root row and no global hotkey -- it is operator-selected from a
+    // Sweep result rather than fired blind.
+    OPEN_FOCUS,
+    // Starts a survey, or cancels the one running -- one key, same dual
+    // start/stop shape as PROBE_TOGGLE/SWEEP_TOGGLE/CELL_TOGGLE.
+    FOCUS_TOGGLE,
+    // Sweep single-shot without SWEEP_TOGGLE's showSweepResults() jump, for
+    // pages that are already showing the sweep. Exact counterpart to
+    // WATERFALL_SWEEP_REPEAT_TOGGLE, which exists for the same reason: firing
+    // the tool should not navigate away from the page you fired it to watch.
+    ACTIVITY_SWEEP_TOGGLE,
 };
 
 enum class ItemKind : uint8_t { ACTION, GROUP, SLIDER };

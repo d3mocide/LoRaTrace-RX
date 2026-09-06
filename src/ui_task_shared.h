@@ -123,6 +123,18 @@ void fireMenuAction(MenuAction action); // ui_actions.cpp — called by ui_task.
 void showProbeResults();                // ui_task.cpp — closes menu onto the Probe page
 void showSweepResults();                // ui_task.cpp — closes menu onto the Sweep page
 void showCellResults();                 // ui_task.cpp — closes menu onto the Cell page
+void showFocusResults();                // ui_task.cpp — closes menu onto the Focus page
+
+// Captures inspector modal (V2 UI slice). The Captures list itself has no
+// cursor: UP/DOWN there already cycles the Analyze sub-pages, so the modal is
+// the browser -- SELECT opens it on the newest capture, UP/DOWN move through
+// the ring while it is open, and BACK closes it.
+// Activity's three views (0 dashboard, 1 Sweep, 2 Waterfall), cycled with
+// up/down while left/right still moves the main carousel.
+uint8_t activityView();                 // ui_task.cpp
+
+bool captureInspectIsOpen();            // ui_task.cpp
+uint8_t captureInspectIndex();          // ui_task.cpp
 // Field Analyzer (Phase 10) — same "closes any open menu onto a specific
 // page" shape as the three above, fired by the Analyze menu group's own
 // rows (ANALYZE_GROUP_ITEMS, ui_task.cpp) via fireMenuAction()
