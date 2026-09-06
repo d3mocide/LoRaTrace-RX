@@ -299,6 +299,36 @@ void test_header_column_count_matches_a_rendered_row() {
     TEST_ASSERT_EQUAL_size_t(headerCommas, rowCommas);
 }
 
+void test_plausible_long_run_row_fits_the_device_buffer() {
+    // The guard the 2026-09-06 measurement wanted: an 8-hour heavy run with
+    // WiFi on and a badly stalled frame, against the real device buffer. Not
+    // the arithmetic maximum — heap cannot be 4 billion and run is uint16 —
+    // but every field at a width a real drive can actually produce.
+    //
+    // A row that does not fit is DROPPED, not truncated, so the failure mode
+    // this catches is silent loss of the evidence session.csv exists to carry.
+    SessionStats s = healthySample();
+    s.uptime_s = 28800;
+    s.rx = 250000; s.crc_errors = 40000;
+    s.rows_written = 250000; s.flushes = 30000;
+    s.bus_contention = 900000; s.nmea_sentences = 900000;
+    s.heap_free = 312000; s.heap_min = 280000; s.heap_largest = 200000;
+    s.energy_observations = 90000; s.cell_observations = 90000;
+    s.identities_decoded = 9000; s.run = 9999;
+    s.ui_redraw_max_us = 250000; s.ui_redraw_mean_us = 9500;
+
+    char row[512]; // matches logger_task.cpp's own buffer
+    size_t n = sessionFormatCsv(s, row, sizeof(row), "2026-08-23T04:15:00Z");
+    TEST_ASSERT_TRUE(n > 0);
+    // n + 1: the writer appends a newline into the same buffer.
+    TEST_ASSERT_TRUE_MESSAGE(n + 1 <= sizeof(row),
+                             "plausible long-run row no longer fits the device buffer");
+    // Keep real margin, so this fails while there is still room to react
+    // rather than on the column that finally overflows.
+    TEST_ASSERT_TRUE_MESSAGE(n + 1 + 64 <= sizeof(row),
+                             "less than 64 bytes of session row headroom left");
+}
+
 void test_truncation_is_reported() {
     // Same contract as detectionFormatCsv: 0 means "don't write this line".
     // A half-row on the card would corrupt every subsequent parse of the
@@ -335,6 +365,7 @@ int main(int, char **) {
     RUN_TEST(test_cell_diagnostics_precede_analyzer_static_bytes);
     RUN_TEST(test_ui_redraw_cost_is_the_last_column);
     RUN_TEST(test_header_column_count_matches_a_rendered_row);
+    RUN_TEST(test_plausible_long_run_row_fits_the_device_buffer);
     RUN_TEST(test_truncation_is_reported);
     RUN_TEST(test_null_timestamp_is_tolerated);
     return UNITY_END();

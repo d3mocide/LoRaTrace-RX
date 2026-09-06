@@ -369,7 +369,15 @@ void writeSessionRow(const char *reason) {
     detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
                              fix.month, fix.day, fix.hour, fix.minute, fix.second);
 
-    char row[320];
+    // Static, not a stack local, and 512 rather than 320. Measured 2026-09-06
+    // during bench prep: a plausible 8-hour heavy run renders 288 bytes, so
+    // the old buffer had 31 bytes of headroom — about three more columns
+    // before health rows start being silently dropped, which is the failure
+    // this file exists to rule out. Static because both callers are this
+    // task's own loop (single-threaded), so it costs BSS instead of stack —
+    // and it takes 320 bytes off a stack that has overflowed for real before
+    // (docs/STATUS.md, Phase 9 soak).
+    static char row[512];
     size_t n = sessionFormatCsv(s, row, sizeof(row), timestamp);
     if (n == 0) return; // truncated — a malformed health row helps nobody
     row[n++] = '\n';   // snprintf guarantees n <= sizeof(row)-1, so this fits
