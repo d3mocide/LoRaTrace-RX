@@ -68,28 +68,28 @@
 // ui_task.cpp/keyboard.h instead.
 //
 // The *operator-facing* main carousel is five stops: Radio, Activity,
-// Channel, GPS, System (JUMP_1..5, JUMP_6 unmapped) — PROBE/SWEEP/CELL and
-// METER/WATERFALL/SCOPE/CAPTURES/NODES are real UiPage values (each still
-// needs its own draw function and footer identity) but are reached only
-// through the menu (Tools/Analyze GROUPs, ROOT_ITEMS' own comment in
-// ui_task.cpp, 2026-09-05) — they briefly had their own carousel hub pages
-// (Phase 10/2026-09-04, CHANGELOG.md), which is why they're still real
-// UiPage values instead of menu-resident rows: a live-rendered page needs
-// the full 240x135 panel and its own per-page key handling (Scope's
-// Enter-to-acquire), the same way Radio/Channel/GPS/System do. Once on
-// one, UP/DOWN cycle the other pages in the same group
-// (nextToolsSubPage()/nextAnalyzeSubPage() etc., ui_task.cpp) and
-// PREV/NEXT/BACK all reopen the menu at its root, since none of them has a
-// carousel position to return to.
+// Channel, GPS, System (JUMP_1..5, JUMP_6 unmapped). PROBE/SWEEP/CELL and
+// METER/WATERFALL/SCOPE/CAPTURES/NODES are real UiPage values because each
+// needs the full 240x135 panel, its own draw function and header identity,
+// and its own key handling (Scope's Enter-to-acquire) — the same way
+// Radio/Channel/GPS/System do — not because they are separate destinations.
 //
-// ACTIVITY (added 2026-09-05, main carousel slot 2, operator request) is a
-// read-only mirror of whichever bounded action is currently running
-// (Probe/Sweep/Cell/Scope) — an ordinary carousel page like Radio/Channel/
-// GPS/System, not a gated sub-page: it never starts or cancels anything
-// itself, just reports state, so it carries none of the "duplicate entry
-// point" risk Probe/Sweep/Cell's own dedicated cards would. Complements
-// Radio's own STANDBY/repeat banner (drawRadioPage()) with more room to
-// show it, rather than replacing that banner.
+// Each of them now belongs to exactly one carousel card as one of that
+// card's views (ui_task.cpp's CARD_VIEWS, 2026-09-05): Meter/Scope under
+// Radio, Sweep/Waterfall/Focus under Activity, Captures/Nodes/Probe under
+// Channel, Cell under GPS. UP/DOWN cycle a card's views, PREV/NEXT still
+// move the carousel, and Enter runs the bounded action that refreshes
+// whichever view is showing (cardSelectAction()). The Tools/Analyze menu
+// GROUPs still open these pages standalone, unchanged — on one of those,
+// UP/DOWN cycle the rest of the group (nextToolsSubPage()/
+// nextAnalyzeSubPage()) and BACK reopens the menu, since a page reached
+// that way has no carousel position to return to.
+//
+// ACTIVITY (added 2026-09-05, main carousel slot 2, operator request) was
+// the first card to carry views, hardcoded to three; CARD_VIEWS generalized
+// that the same day. Complements Radio's own STANDBY banner
+// (drawRadioPage()) with more room to show what is running, rather than
+// replacing that banner.
 enum class UiPage : uint8_t {
     RADIO = 0,
     ACTIVITY,

@@ -312,33 +312,92 @@ constexpr uint32_t FAST_REDRAW_MS = 60;
 // trigger it explicitly (SCOPE_TOGGLE, below) once whatever's in the way
 // clears.
 void maybeStartScopeAcquire() {
-    if (page != UiPage::SCOPE || !keyboardReady || radioScopeAcquireIsActive()) return;
+    if (activeView() != UiPage::SCOPE || !keyboardReady || radioScopeAcquireIsActive()) return;
     const uint32_t freqKhz = (uint32_t)(radioActiveChannel().freq_mhz * 1000.0f + 0.5f);
     radioRequestScopeAcquire(freqKhz);
 }
 
 // The operator-facing main carousel, explicit rather than an enum-value
 // range (originally so a hub page could be added without renumbering
-// anything). Tools/Analyze are no longer carousel stops (2026-09-05 — they
-// moved into the menu tree, see ROOT_ITEMS' own comment); PROBE/SWEEP/
-// CELL/METER..NODES are real UiPage values (each still needs its own draw
-// function and footer identity) but are reached only through the menu
-// now, never through prev/next paging. ACTIVITY inserted at slot 2
-// (operator request, same day) as a read-only mirror of whichever bounded
-// action is currently running — see its own comment on UiPage (ui_task.h).
+// anything). Tools/Analyze are not carousel stops of their own (2026-09-05 —
+// they moved into the menu tree, see ROOT_ITEMS' own comment); PROBE/SWEEP/
+// CELL/METER..NODES are real UiPage values, reached either from their menu
+// row — which still opens them standalone — or as a view of the card that
+// owns them (CARD_VIEWS below), never through prev/next paging.
 constexpr UiPage MAIN_PAGES[] = {
     UiPage::RADIO, UiPage::ACTIVITY, UiPage::CHANNEL, UiPage::GPS, UiPage::SYSTEM,
 };
 constexpr uint8_t MAIN_PAGE_COUNT = (uint8_t)(sizeof(MAIN_PAGES) / sizeof(MAIN_PAGES[0]));
 
+// Card views (2026-09-05). Each main-carousel card owns an ordered list of
+// pages rather than one; up/down cycles them, left/right still moves the
+// carousel. Generalizes what Activity shipped the same day as three hardcoded
+// views: a card owns a question, and its views answer that question at
+// different resolutions, with the bounded action that refreshes the answer on
+// Enter (cardSelectAction() below).
+//
+//   Radio    the receive chain, three time scales: counters, live level, burst
+//   Activity what is out there: summary, live scan, history, one-bin dwell
+//   Channel  what I am tuned to, what it yielded, and what else I could be on
+//   GPS      where I am, and what kind of place it is (cell-band occupancy)
+//   System   the device
+//
+// The view tokens are UiPage values, not a parallel enum, so each view reuses
+// the existing draw function and header name verbatim and the former
+// Tools/Analyze island pages keep working unchanged — the menu still opens
+// them directly (unchanged this pass), they are simply also reachable as a
+// card view now.
+constexpr UiPage RADIO_VIEWS[] = {UiPage::RADIO, UiPage::METER, UiPage::SCOPE};
+constexpr UiPage ACTIVITY_VIEWS[] = {UiPage::ACTIVITY, UiPage::SWEEP, UiPage::WATERFALL,
+                                     UiPage::FOCUS};
+constexpr UiPage CHANNEL_VIEWS[] = {UiPage::CHANNEL, UiPage::CAPTURES, UiPage::NODES,
+                                    UiPage::PROBE};
+constexpr UiPage GPS_VIEWS[] = {UiPage::GPS, UiPage::CELL};
+constexpr UiPage SYSTEM_VIEWS[] = {UiPage::SYSTEM};
+
+struct CardViews {
+    const UiPage *views;
+    uint8_t count;
+};
+
+// Same shape as menuItemCount() above, generic over element type so it counts
+// both a card's view list and the CARD_VIEWS table itself.
+template <typename T, size_t N>
+constexpr uint8_t viewCount(const T (&)[N]) {
+    return (uint8_t)N;
+}
+
+// Index-aligned with MAIN_PAGES — CARD_VIEWS[i] belongs to MAIN_PAGES[i], and
+// its first entry must be that card's own page (view 0 is always the card
+// itself). Both invariants are asserted below rather than trusted: this table
+// is edited by hand every time a tool moves between cards.
+constexpr CardViews CARD_VIEWS[] = {
+    {RADIO_VIEWS, viewCount(RADIO_VIEWS)},     {ACTIVITY_VIEWS, viewCount(ACTIVITY_VIEWS)},
+    {CHANNEL_VIEWS, viewCount(CHANNEL_VIEWS)}, {GPS_VIEWS, viewCount(GPS_VIEWS)},
+    {SYSTEM_VIEWS, viewCount(SYSTEM_VIEWS)},
+};
+static_assert(viewCount(CARD_VIEWS) == MAIN_PAGE_COUNT,
+              "CARD_VIEWS and MAIN_PAGES disagree on how many cards there are");
+static_assert(RADIO_VIEWS[0] == MAIN_PAGES[0] && ACTIVITY_VIEWS[0] == MAIN_PAGES[1] &&
+                  CHANNEL_VIEWS[0] == MAIN_PAGES[2] && GPS_VIEWS[0] == MAIN_PAGES[3] &&
+                  SYSTEM_VIEWS[0] == MAIN_PAGES[4],
+              "every card's view 0 must be the card's own page");
+
+// Which view each card was last left on, so returning to a card returns to
+// where you were rather than resetting to view 0 — the difference between
+// glancing away from a running sweep and losing your place in it.
+uint8_t cardViewIdx[MAIN_PAGE_COUNT] = {};
+
 // Captures inspector modal state. Index is a recency index into the ring
 // (0 = newest), clamped on use rather than on set, because the ring can grow
 // underneath an open modal.
-uint8_t activityViewIdx = 0;
-constexpr uint8_t ACTIVITY_VIEW_COUNT = 3;
-
 bool captureInspectOpen = false;
 uint8_t captureInspectIdx = 0;
+
+// The modal is scoped to whichever view is showing the Captures list, so any
+// navigation away from that view dismisses it — otherwise it would reappear
+// over an unrelated card the next time that view came back around.
+void closeCaptureInspect() { captureInspectOpen = false; }
 
 
 
@@ -359,6 +418,33 @@ uint8_t mainPageIndex(UiPage p) {
     return 0; // p wasn't a main page — shouldn't happen, fail to Radio's slot
 }
 
+bool isMainPage(UiPage p) {
+    for (uint8_t i = 0; i < MAIN_PAGE_COUNT; i++) {
+        if (MAIN_PAGES[i] == p) return true;
+    }
+    return false;
+}
+
+// Position of `view` among `card`'s views, or -1 if that card can't show it.
+// int8_t rather than a bool + separate lookup because both callers want the
+// index: one to switch to it, one only to know it exists.
+int8_t cardViewSlot(UiPage card, UiPage view) {
+    if (!isMainPage(card)) return -1;
+    const CardViews &cv = CARD_VIEWS[mainPageIndex(card)];
+    for (uint8_t i = 0; i < cv.count; i++) {
+        if (cv.views[i] == view) return (int8_t)i;
+    }
+    return -1;
+}
+
+void stepCardView(int8_t delta) {
+    const uint8_t card = mainPageIndex(page);
+    const uint8_t count = CARD_VIEWS[card].count;
+    cardViewIdx[card] = (uint8_t)((cardViewIdx[card] + count + delta) % count);
+    closeCaptureInspect();
+    maybeStartScopeAcquire();
+}
+
 // No fillScreen() here: drawPage() (ui_pages.cpp) already wipes and
 // redraws the whole content region every call, and the caller always
 // follows a page change with fullRedraw() in the same loop iteration. An
@@ -372,6 +458,7 @@ void nextPage() {
     const uint8_t idx = mainPageIndex(page);
     page = MAIN_PAGES[(idx + 1) % MAIN_PAGE_COUNT];
     lastPageChange = millis();
+    closeCaptureInspect();
     maybeStartScopeAcquire();
 }
 
@@ -379,13 +466,59 @@ void prevPage() {
     const uint8_t idx = mainPageIndex(page);
     page = MAIN_PAGES[(idx + MAIN_PAGE_COUNT - 1) % MAIN_PAGE_COUNT];
     lastPageChange = millis();
+    closeCaptureInspect();
     maybeStartScopeAcquire();
 }
 
 void jumpToPage(UiPage p) {
     page = p;
     lastPageChange = millis();
+    closeCaptureInspect();
     maybeStartScopeAcquire();
+}
+
+// The one rule for Enter on a card: run the bounded action that refreshes
+// what this view is showing. Keyed on the resolved view, not the card, so
+// Radio's Scope view re-acquires a trace while Radio's own counters view
+// pauses/resumes Watch — in both cases the key changes the number in front of
+// you. These are the plain toggles the island pages already fire; staying put
+// rather than navigating to the island page is showResultsPage()'s job now,
+// not a separate per-card MenuAction (which is what ACTIVITY_SWEEP_TOGGLE was
+// before this generalized).
+//
+// CAPTURES is absent deliberately: Enter there opens the inspector modal, not
+// a radio action, and is handled before this table is consulted. NODES has no
+// action of its own — the roster is filled by Watch, which Radio already owns.
+MenuAction cardSelectAction(UiPage view) {
+    switch (view) {
+        case UiPage::RADIO:
+        case UiPage::METER: return MenuAction::TRACE_TOGGLE;
+        case UiPage::SCOPE: return MenuAction::SCOPE_TOGGLE;
+        case UiPage::ACTIVITY:
+        case UiPage::SWEEP:
+        case UiPage::WATERFALL: return MenuAction::SWEEP_TOGGLE;
+        case UiPage::FOCUS: return MenuAction::FOCUS_TOGGLE;
+        case UiPage::CHANNEL:
+        case UiPage::PROBE: return MenuAction::PROBE_TOGGLE;
+        case UiPage::GPS:
+        case UiPage::CELL: return MenuAction::CELL_TOGGLE;
+        case UiPage::SYSTEM: return MenuAction::SD_RETRY;
+        default: return MenuAction::NONE;
+    }
+}
+
+// R, same rule one level up: keep doing it. Only the two band sweeps have a
+// repeat mode — Probe deliberately has none (operator decision, "Repeat only
+// on the Sweeps", see ui_menu.h's CELL_REPEAT_TOGGLE comment).
+MenuAction cardRepeatAction(UiPage view) {
+    switch (view) {
+        case UiPage::ACTIVITY:
+        case UiPage::SWEEP:
+        case UiPage::WATERFALL: return MenuAction::SWEEP_REPEAT_TOGGLE;
+        case UiPage::GPS:
+        case UiPage::CELL: return MenuAction::CELL_REPEAT_TOGGLE;
+        default: return MenuAction::NONE;
+    }
 }
 
 // UP/DOWN while on one of Analyze's/Tools' own pages cycles the other pages
@@ -645,15 +778,14 @@ void uiTask(void *) {
             redraw = true;
         } else if (action == KeyAction::SWEEP) {
             // Same global-shortcut shape as P/Probe — works from any UI
-            // state. The one exception is Activity, which is a page built to
-            // watch a sweep run: jumping to the Sweep card from there would
-            // strand up/down on the Tools carousel, which is the whole reason
-            // ACTIVITY_SWEEP_TOGGLE and WATERFALL_SWEEP_REPEAT_TOGGLE exist.
-            // Everywhere else the jump is right -- firing S from Radio or GPS
-            // should show you what you just started.
-            const bool stayPut = !menu.isOpen() && page == UiPage::ACTIVITY;
-            fireMenuAction(stayPut ? MenuAction::ACTIVITY_SWEEP_TOGGLE
-                                   : MenuAction::SWEEP_TOGGLE);
+            // state. Whether it navigates to the Sweep card or stays put is
+            // showResultsPage()'s call now, not a second MenuAction's: firing
+            // S from Radio should show you what you just started, firing it
+            // from Activity should not move you off the page you fired it to
+            // watch. That used to be this branch's own ACTIVITY_SWEEP_TOGGLE
+            // special case (2026-09-05, removed once every card could carry a
+            // Sweep view).
+            fireMenuAction(MenuAction::SWEEP_TOGGLE);
             redraw = true;
         } else if (action == KeyAction::CELL) {
             // Same global-shortcut shape as P/Probe and S/Sweep above
@@ -685,6 +817,25 @@ void uiTask(void *) {
             } else if (action == KeyAction::JUMP_5) {
                 jumpToPage(UiPage::SYSTEM);
                 redraw = true;
+            } else if (activeView() == UiPage::CAPTURES && captureInspectOpen) {
+                // Hoisted above every page/card branch below (2026-09-05): the
+                // modal owns the keys wherever it is open — on the island
+                // Captures page or on Channel's Captures view — so UP/DOWN
+                // browse the ring rather than changing sub-page or card view,
+                // and BACK closes the modal rather than leaving to the menu.
+                CaptureHistory history;
+                const uint8_t count = analyzerCaptureHistorySnapshot(history, pdMS_TO_TICKS(20))
+                                          ? history.count : 0;
+                if (action == KeyAction::BACK || action == KeyAction::SELECT) {
+                    captureInspectOpen = false;
+                    redraw = true;
+                } else if (action == KeyAction::UP || action == KeyAction::PREV) {
+                    if (count > 0 && captureInspectIdx + 1 < count) captureInspectIdx++;
+                    redraw = true;
+                } else if (action == KeyAction::DOWN || action == KeyAction::NEXT) {
+                    if (captureInspectIdx > 0) captureInspectIdx--;
+                    redraw = true;
+                }
             } else if (isToolsSubPage(page)) {
                 // Reached only via Menu > Tools > Probe/Sweep/Cell now
                 // (2026-09-05) — no more hub page to fall back to. SELECT/
@@ -731,23 +882,6 @@ void uiTask(void *) {
                     fireMenuAction(MenuAction::CELL_REPEAT_TOGGLE);
                     redraw = true;
                 }
-            } else if (page == UiPage::CAPTURES && captureInspectOpen) {
-                // The modal owns the keys while it is up: UP/DOWN browse the
-                // ring instead of changing sub-page, and BACK closes the modal
-                // rather than leaving to the menu.
-                CaptureHistory history;
-                const uint8_t count = analyzerCaptureHistorySnapshot(history, pdMS_TO_TICKS(20))
-                                          ? history.count : 0;
-                if (action == KeyAction::BACK || action == KeyAction::SELECT) {
-                    captureInspectOpen = false;
-                    redraw = true;
-                } else if (action == KeyAction::UP || action == KeyAction::PREV) {
-                    if (count > 0 && captureInspectIdx + 1 < count) captureInspectIdx++;
-                    redraw = true;
-                } else if (action == KeyAction::DOWN || action == KeyAction::NEXT) {
-                    if (captureInspectIdx > 0) captureInspectIdx--;
-                    redraw = true;
-                }
             } else if (isAnalyzeSubPage(page)) {
                 // Reached only via Menu > Analyze > Meter/Waterfall/Scope/
                 // Captures/Nodes now (2026-09-05) — exact structural twin of
@@ -782,53 +916,50 @@ void uiTask(void *) {
                     fireMenuAction(MenuAction::WATERFALL_SWEEP_REPEAT_TOGGLE);
                     redraw = true;
                 }
-            } else if (page == UiPage::ACTIVITY &&
-                       (action == KeyAction::UP || action == KeyAction::DOWN ||
-                        action == KeyAction::SELECT || action == KeyAction::REPEAT)) {
-                // Activity keeps up/down for its own views, the same way a
-                // Tools/Analyze sub-page does. Left/right still moves the main
-                // carousel, so nothing is trapped here.
+            } else {
+                // A main-carousel card. Left/right always moves the carousel;
+                // up/down cycles this card's own views (stepCardView()), the
+                // same way it cycles sub-pages inside a Tools/Analyze group.
                 //
-                // Enter and R drive Sweep from this page, matching the Sweep
-                // page itself: the whole page is oriented around a sweep (the
-                // dashboard's own SWEEP PK card, and two of its three views),
-                // so leaving one running and watching it here should not need
-                // a trip back through Tools. S is already global and reaches
-                // Sweep from anywhere; R was page-scoped to Sweep/Cell and did
-                // not, and Enter did nothing here at all.
-                if (action == KeyAction::SELECT) {
-                    fireMenuAction(MenuAction::ACTIVITY_SWEEP_TOGGLE);
+                // The exception is a card with a single view (System): there
+                // is nothing to cycle, so up/down keeps aliasing prev/next
+                // page exactly as it did before card views existed —
+                // preserving the printed Fn-arrow diamond's "doubles as page
+                // nav" behavior (Phase 5) wherever it still has a job to do,
+                // rather than making two of its four keys dead on that card.
+                const uint8_t views = CARD_VIEWS[mainPageIndex(page)].count;
+                const UiPage view = activeView();
+                if (action == KeyAction::UP && views > 1) {
+                    stepCardView(-1);
+                    redraw = true;
+                } else if (action == KeyAction::DOWN && views > 1) {
+                    stepCardView(1);
+                    redraw = true;
+                } else if (action == KeyAction::PREV || action == KeyAction::UP) {
+                    prevPage();
+                    redraw = true;
+                } else if (action == KeyAction::NEXT || action == KeyAction::DOWN) {
+                    nextPage();
+                    redraw = true;
+                } else if (action == KeyAction::BACK) {
+                    menu.open();
+                    redraw = true;
+                } else if (action == KeyAction::SELECT && view == UiPage::CAPTURES) {
+                    // Same modal entry the island Captures page has; the list
+                    // itself has no cursor because up/down is spoken for.
+                    captureInspectIdx = 0; // newest first
+                    captureInspectOpen = true;
+                    redraw = true;
+                } else if (action == KeyAction::SELECT) {
+                    const MenuAction fire = cardSelectAction(view);
+                    if (fire != MenuAction::NONE) fireMenuAction(fire);
+                    redraw = true;
                 } else if (action == KeyAction::REPEAT) {
-                    fireMenuAction(MenuAction::WATERFALL_SWEEP_REPEAT_TOGGLE);
-                } else if (action == KeyAction::DOWN) {
-                    activityViewIdx = (uint8_t)((activityViewIdx + 1) % ACTIVITY_VIEW_COUNT);
-                } else {
-                    activityViewIdx = (uint8_t)((activityViewIdx + ACTIVITY_VIEW_COUNT - 1) %
-                                                 ACTIVITY_VIEW_COUNT);
+                    const MenuAction fire = cardRepeatAction(view);
+                    if (fire != MenuAction::NONE) fireMenuAction(fire);
+                    redraw = true;
                 }
-                redraw = true;
-            } else if (action == KeyAction::PREV || action == KeyAction::UP) {
-                // UP aliases PREV on every ordinary page — preserves the
-                // printed Fn-arrow diamond's original "doubles as page nav"
-                // behavior (Phase 5) outside a Tools/Analyze sub-page, where
-                // up/down now has its own real meaning instead. Only RADIO/
-                // CHANNEL/GPS/SYSTEM reach this branch now.
-                prevPage();
-                redraw = true;
-            } else if (action == KeyAction::NEXT || action == KeyAction::DOWN) {
-                nextPage();
-                redraw = true;
-            } else if (action == KeyAction::BACK) {
-                menu.open();
-                redraw = true;
-            } else if (action == KeyAction::SELECT && page == UiPage::RADIO) {
-                fireMenuAction(MenuAction::TRACE_TOGGLE);
-                redraw = true;
             }
-            // Enter acts on RADIO (Trace) here; Probe/Sweep/Cell's own
-            // SELECT/REPEAT dispatch moved to the isToolsSubPage() branch
-            // above. Elsewhere both remain a no-op; ESC (BACK) opens the
-            // menu.
         } else if (action != KeyAction::NONE) {
             // Menu open (root/group/slider) — MenuState owns navigation;
             // this file only reacts to what fired. Captured before handle()
@@ -942,59 +1073,66 @@ uint8_t mainCarouselCount() {
     return MAIN_PAGE_COUNT;
 }
 
-void showProbeResults() {
-    jumpToPage(UiPage::PROBE);
-    menu.close();
+// The page a card is currently rendering: its own on view 0, one of the
+// former Tools/Analyze island pages otherwise. On an island page — reached
+// straight from the menu, which still opens them directly — there is no card
+// to resolve against, so the page is its own view.
+UiPage activeView() {
+    if (!isMainPage(page)) return page;
+    const uint8_t card = mainPageIndex(page);
+    return CARD_VIEWS[card].views[cardViewIdx[card]];
 }
 
-void showSweepResults() {
-    jumpToPage(UiPage::SWEEP);
+uint8_t activeViewIndex() { return isMainPage(page) ? cardViewIdx[mainPageIndex(page)] : 0; }
+
+uint8_t activeViewCount() { return isMainPage(page) ? CARD_VIEWS[mainPageIndex(page)].count : 0; }
+
+// Where a bounded action's "show me the result" lands. Navigating to the
+// island page is right from the menu, and right from a card that has no view
+// of its own for this action (firing S from Radio should show you the sweep
+// you just started). It is wrong from a card that can already display it:
+// jumping away would strand up/down on the island page's own sub-page
+// cycling, which is exactly the complaint that produced Activity's
+// ACTIVITY_SWEEP_TOGGLE — generalized here so every card gets it, and no
+// action needs a second, card-specific MenuAction to stay put.
+//
+// The view itself is deliberately left alone rather than switched to the one
+// that shows the action: on Activity the dashboard *is* the view built to
+// watch a sweep run, and yanking off it on Enter would undo the reason it
+// exists. The footer's view dots advertise that the detail view is one key
+// away.
+void showResultsPage(UiPage p) {
+    const bool fromMenu = menu.isOpen();
     menu.close();
+    if (!fromMenu && cardViewSlot(page, p) >= 0) return;
+    jumpToPage(p);
 }
 
-void showCellResults() {
-    jumpToPage(UiPage::CELL);
-    menu.close();
-}
+void showProbeResults() { showResultsPage(UiPage::PROBE); }
 
-uint8_t activityView() { return activityViewIdx; }
+void showSweepResults() { showResultsPage(UiPage::SWEEP); }
+
+void showCellResults() { showResultsPage(UiPage::CELL); }
 
 bool captureInspectIsOpen() { return captureInspectOpen; }
 uint8_t captureInspectIndex() { return captureInspectIdx; }
 
-void showFocusResults() {
-    jumpToPage(UiPage::FOCUS);
-    menu.close();
-}
+void showFocusResults() { showResultsPage(UiPage::FOCUS); }
 
-// Field Analyzer (Phase 10) — same "closes any open menu onto a specific
-// page" shape as the three above. jumpToPage() itself is what triggers a
-// first Scope capture (maybeStartScopeAcquire()); showScopePage() doesn't
-// need its own copy of that logic.
-void showMeterPage() {
-    jumpToPage(UiPage::METER);
-    menu.close();
-}
+// Field Analyzer (Phase 10) — same showResultsPage() shape as the four
+// above. jumpToPage() is what triggers a first Scope capture
+// (maybeStartScopeAcquire()), so showScopePage() needs no copy of that
+// logic; nor does stepCardView() onto Radio's own Scope view, which calls
+// it directly for the same reason.
+void showMeterPage() { showResultsPage(UiPage::METER); }
 
-void showWaterfallPage() {
-    jumpToPage(UiPage::WATERFALL);
-    menu.close();
-}
+void showWaterfallPage() { showResultsPage(UiPage::WATERFALL); }
 
-void showScopePage() {
-    jumpToPage(UiPage::SCOPE);
-    menu.close();
-}
+void showScopePage() { showResultsPage(UiPage::SCOPE); }
 
-void showCapturesPage() {
-    jumpToPage(UiPage::CAPTURES);
-    menu.close();
-}
+void showCapturesPage() { showResultsPage(UiPage::CAPTURES); }
 
-void showNodesPage() {
-    jumpToPage(UiPage::NODES);
-    menu.close();
-}
+void showNodesPage() { showResultsPage(UiPage::NODES); }
 
 // menu's constructor needs ROOT_ITEMS/ROOT_COUNT, fine to reference here
 // even though this definition needs external linkage (ui_pages.cpp/

@@ -205,6 +205,27 @@ void drawFooterStatus() {
         uiTft->setCursor(uiTft->width() - (int16_t)strlen(posBuf) * 6 - 2, y);
         uiTft->print(posBuf);
     }
+
+    // View dots, immediately left of the "N/M" carousel position: one per view
+    // this card carries, filled for the current one. Without them up/down is
+    // invisible — the card looks like a single screen until an operator
+    // happens to press a key that appears to do nothing on four of five cards.
+    // Drawn only where there is something to cycle (System has one view), so a
+    // lone dot never implies a hidden second screen.
+    const uint8_t views = activeViewCount();
+    if (views > 1) {
+        constexpr int16_t PITCH = 7;
+        const int16_t dotsRight = uiTft->width() - 3 * 6 - 6; // clear of "N/M"
+        const int16_t x0 = dotsRight - (int16_t)(views - 1) * PITCH;
+        for (uint8_t i = 0; i < views; i++) {
+            const int16_t cx = x0 + (int16_t)i * PITCH;
+            if (i == activeViewIndex()) {
+                uiTft->fillCircle(cx, y + 3, 2, COL_FG);
+            } else {
+                uiTft->drawCircle(cx, y + 3, 2, COL_DIM);
+            }
+        }
+    }
 }
 
 // "Label above value" block for the secondary/context column every page
@@ -738,8 +759,21 @@ void drawFocusPage() {
         uiTft->setTextSize(1);
         uiTft->setCursor(2, HEADER_H + 34);
         uiTft->print("Enter: survey a bin");
+        // Name the frequency Enter would actually survey rather than only the
+        // rule that picks it (ui_actions.cpp's selectFocusRequest()): after a
+        // sweep this is the same peak Activity's own SWEEP PK card is showing,
+        // which is what makes the sweep-then-focus loop legible instead of
+        // something the operator has to take on trust.
+        const EnergyStrongestPeak peak = radioEnergyStrongestPeak();
+        char target[40];
+        if (peak.valid) {
+            snprintf(target, sizeof(target), "target %.3f MHz (Sweep peak)", (double)peak.freq_mhz);
+        } else {
+            snprintf(target, sizeof(target), "target %.3f MHz (home, no sweep)",
+                     (double)radioActiveChannel().freq_mhz);
+        }
         uiTft->setCursor(2, HEADER_H + 46);
-        uiTft->print("uses last Sweep peak, else home");
+        uiTft->print(target);
         return;
     }
 
@@ -1476,27 +1510,6 @@ void drawActivitySummary() {
     activityCard(2 + (CW + 3) * 2, cy, CW, "AWAY T", COL_DIM, value, sub);
 }
 
-void drawWaterfallPage();   // defined below; Activity offers it as a view
-
-// Activity is a carousel stop with three views, cycled with up/down:
-//
-//   0  the split RF dashboard (default)
-//   1  Sweep's own live page
-//   2  Waterfall
-//
-// It used to replace itself wholesale whenever Probe/Sweep/Cell/Scope was
-// running, which meant the dashboard vanished exactly when there was most to
-// watch -- and with Sweep in repeat mode, more or less permanently. The tools
-// keep their own pages under Tools/Analyze; this page now stays put, and the
-// two views an operator actually wants alongside a running sweep are reachable
-// without leaving it.
-void drawActivityPage() {
-    switch (activityView()) {
-        case 1: drawSweepPage(); break;
-        case 2: drawWaterfallPage(); break;
-        default: drawActivitySummary(); break;
-    }
-}
 
 // A SLIDER row's live value, formatted for both the list row and the
 // slider screen itself (drawMenuSlider() below) — one switch on
@@ -2299,7 +2312,7 @@ void drawHeader() {
         // Page name only — profile and page position live in the footer
         // status line (drawFooterStatus()) so this text never crowds the
         // status-dot cluster or the battery reading.
-        uiTft->print(pageName(page));
+        uiTft->print(pageName(activeView()));
     }
 
     drawBattery();
@@ -2321,9 +2334,14 @@ void drawPage() {
     } else if (menu.isOpen()) {
         drawMenuList();
     } else {
-        switch (page) {
+        // The resolved card view, not `page` — a card renders whichever of its
+        // views is current (ui_task.cpp's CARD_VIEWS), and every view is a real
+        // UiPage with its own draw function, so this switch is unchanged apart
+        // from what it switches on. A page opened directly from the menu
+        // resolves to itself.
+        switch (activeView()) {
             case UiPage::RADIO: drawRadioPage(); break;
-            case UiPage::ACTIVITY: drawActivityPage(); break;
+            case UiPage::ACTIVITY: drawActivitySummary(); break;
             case UiPage::CHANNEL: drawChannelPage(); break;
             case UiPage::GPS: drawGpsPage(); break;
             case UiPage::SYSTEM: drawSystemPage(); break;

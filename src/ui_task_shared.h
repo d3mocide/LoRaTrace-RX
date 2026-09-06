@@ -129,9 +129,17 @@ void showFocusResults();                // ui_task.cpp — closes menu onto the 
 // cursor: UP/DOWN there already cycles the Analyze sub-pages, so the modal is
 // the browser -- SELECT opens it on the newest capture, UP/DOWN move through
 // the ring while it is open, and BACK closes it.
-// Activity's three views (0 dashboard, 1 Sweep, 2 Waterfall), cycled with
-// up/down while left/right still moves the main carousel.
-uint8_t activityView();                 // ui_task.cpp
+// Card views (2026-09-05, ui_task.cpp's CARD_VIEWS): every main-carousel card
+// renders one of an ordered list of pages, cycled with up/down while
+// left/right still moves the carousel. activeView() is the page actually being
+// drawn — the card's own on view 0, one of the Tools/Analyze pages otherwise,
+// and the page itself when that page was opened directly from the menu.
+// Generalizes the three hardcoded views Activity shipped earlier the same day.
+UiPage activeView();                    // ui_task.cpp
+// Position/total for drawFooterStatus()'s view dots. Count is 0 on a
+// menu-opened island page, which has no card to belong to and so draws none.
+uint8_t activeViewIndex();              // ui_task.cpp
+uint8_t activeViewCount();              // ui_task.cpp
 
 bool captureInspectIsOpen();            // ui_task.cpp
 uint8_t captureInspectIndex();          // ui_task.cpp

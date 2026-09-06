@@ -154,11 +154,6 @@ enum class MenuAction : uint8_t {
     // Starts a survey, or cancels the one running -- one key, same dual
     // start/stop shape as PROBE_TOGGLE/SWEEP_TOGGLE/CELL_TOGGLE.
     FOCUS_TOGGLE,
-    // Sweep single-shot without SWEEP_TOGGLE's showSweepResults() jump, for
-    // pages that are already showing the sweep. Exact counterpart to
-    // WATERFALL_SWEEP_REPEAT_TOGGLE, which exists for the same reason: firing
-    // the tool should not navigate away from the page you fired it to watch.
-    ACTIVITY_SWEEP_TOGGLE,
 };
 
 enum class ItemKind : uint8_t { ACTION, GROUP, SLIDER };

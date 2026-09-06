@@ -209,21 +209,6 @@ void fireMenuAction(MenuAction action) {
             }
             break;
         }
-        case MenuAction::ACTIVITY_SWEEP_TOGGLE: {
-            // SWEEP_TOGGLE's radio call without its showSweepResults(). Same
-            // reasoning as WATERFALL_SWEEP_REPEAT_TOGGLE below: Activity's
-            // whole point is watching a sweep run, so starting one must not
-            // navigate off the page and strand up/down on the Tools carousel.
-            const bool cancelling = radioEnergySweepIsActive();
-            if (!cancelling && !loggerSdReady()) {
-                showToast("Sweep: SD REQUIRED");
-            } else if (radioRequestEnergySweep()) {
-                showToast(cancelling ? "Sweep: CANCEL" : "Sweep: START");
-            } else {
-                showToast("Sweep: UNAVAILABLE");
-            }
-            break;
-        }
         case MenuAction::WATERFALL_SWEEP_REPEAT_TOGGLE: {
             // Same radioRequestEnergySweepRepeat() call as SWEEP_REPEAT_TOGGLE
             // above, deliberately without its showSweepResults() — see

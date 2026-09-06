@@ -9,6 +9,15 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- **Card views.** Every main-carousel card now carries an ordered list of
+  pages cycled with up/down, generalizing the three Activity shipped
+  hardcoded: Meter/Scope under Radio, Sweep/Waterfall/Focus under Activity,
+  Captures/Nodes/Probe under Channel, Cell under GPS. Enter runs the bounded
+  action that refreshes whichever view is showing; footer dots make up/down
+  discoverable; each card remembers its last view. `showResultsPage()`
+  replaces per-card no-jump MenuActions (`ACTIVITY_SWEEP_TOGGLE` removed).
+  Menu unchanged — Tools/Analyze still open these pages standalone.
+
 - **v1.1.0-beta.** Focus becomes operator-reachable (Menu > Tools > Focus)
   with the plate, Activity dashboard and Captures inspector from
   `docs/UI-Recommendations.html`. Pre-release, not v1.1.0: the roadmap reserves
