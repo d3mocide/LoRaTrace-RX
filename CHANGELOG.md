@@ -9,6 +9,14 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- **v1.1.0-beta.** Focus becomes operator-reachable (Menu > Tools > Focus)
+  with the plate, Activity dashboard and Captures inspector from
+  `docs/UI-Recommendations.html`. Pre-release, not v1.1.0: the roadmap reserves
+  the stable minor for a closed Workstream 12, and the coverage thresholds,
+  away-time budget, WiFi resource matrix and field validation are all still
+  open. `coverage` blank and `qualifying_count` zero on purpose. Also lifts the
+  payload-display boundary for the Captures inspector's 32-byte frame prefix.
+
 - **v1.0.8.** Ships the `STATUS` frame silent-drop fix (a real production bug:
   the argument buffer was hand-sized past the frame budget and an over-long
   frame is dropped, not truncated, so long sessions lost status entirely) plus

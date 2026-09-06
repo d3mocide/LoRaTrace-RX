@@ -24,6 +24,57 @@ Versions before `v1.0.6` predate this file; their history is in
 
 ---
 
+## v1.1.0-beta
+
+**Focus Survey is now usable, as a beta.** Menu > Tools > Focus. Enter starts a
+survey and Enter again cancels it. It parks on one frequency for two seconds,
+records what it heard there, and returns to normal listening — you will see
+`SURVEYING`, then `RESTORING`, then the result.
+
+It picks the frequency for you: the strongest peak from your last Sweep, or
+your home channel if you have not run one. So the useful order is Sweep first,
+then Focus on what it found.
+
+The plate shows the frequency, a dwell progress bar, and where the median, P90
+and peak signal levels fell on a −120 to −40 dBm scale, plus how many passes
+and samples it took and how long the radio was away from listening. If a
+survey ever finishes without getting back to normal listening, the status
+turns red and says `NO HOME` — that is the one result worth chasing.
+
+**What it deliberately does not tell you.** There is no coverage label and no
+confidence word. Whether a frequency was "sampled enough" depends on
+thresholds we have not earned yet, and several plausible ways of deciding "is
+something transmitting here" were measured on real hardware and thrown out —
+including one that looked convincing until it was tested against a weak signal
+instead of a loud one. Rather than show you a word we cannot stand behind,
+Focus reports what it observed and stops. That is the main reason this is a
+beta.
+
+**The Activity page is rebuilt** and no longer disappears when a tool runs.
+Previously starting a Sweep replaced it entirely; now it stays, showing a
+30-second packet-rate graph and three cards: the strongest peak from your last
+sweep, your last received packet with its signal quality, and how long the
+radio was last away from listening. Up and down cycle three views — the
+dashboard, the live Sweep page, and Waterfall — and **Enter, S and R all
+control Sweep without leaving the page**, so you can leave a repeat sweep
+running and watch it.
+
+**Captures gains an inspector.** Press Enter on the Captures list to open it,
+up and down to move through the ring, back to close. It shows signal strength,
+SNR, frequency, length, modulation, and the first 32 bytes of the frame in hex.
+Those bytes are shown exactly as received — nothing is decrypted, and if a
+packet is longer than 32 bytes the header says so rather than pretending you
+are seeing all of it.
+
+**A note on that last one.** Showing packet contents on the device was
+previously ruled out entirely. That has changed deliberately: the same bytes
+already go to your SD card, so hiding them on screen protected nobody while
+making the device worse for working out what you are looking at in the field.
+Decryption is still not happening and still is not planned. Be aware that what
+is on your screen belongs to whoever sent it.
+
+---
+
 ## v1.0.8
 
 **Fixes: USB status reporting could stop silently during long sessions.**

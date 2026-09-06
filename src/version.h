@@ -21,6 +21,39 @@
 //    share one semantic version. Carries a "-dirty" suffix when built from
 //    a modified working tree.
 
+// 1.1.0-beta: Focus gets an operator surface, and the Activity and Captures
+// pages are rebuilt from docs/UI-Recommendations.html.
+//
+// A pre-release, not v1.1.0. The roadmap reserves v1.1.0 for a *closed*
+// Workstream 12, and it is not closed: the coverage thresholds
+// (sampled/repeated) are unselected, the maximum radio-away budget is measured
+// but unapproved, and the WiFi resource matrix and field validation have not
+// run. What is shipping is the part that earned its evidence -- a bounded
+// request whose timing, sampling policy, arbitration, recovery and cost to
+// Watch were all measured on hardware across roughly 2,000 requests -- with
+// the parts that did not left visibly absent rather than guessed.
+//
+// That absence is the point of the beta. `coverage` stays blank,
+// `qualifying_count` stays zero, and the plate carries no coverage label and
+// no confidence word, because §3 of the design forbids replacing observed
+// counts with a single word and the thresholds that would justify one do not
+// exist yet. Several plausible candidates were measured and rejected: an
+// absolute RSSI threshold that worked only against a source 70 dB hot, and
+// every floor-relative variant of it. An adaptive count survived and is
+// documented, but its form still depends on a measurement not yet taken.
+//
+// Also lifts a permanent boundary. On-device payload display was prohibited
+// alongside decryption and transmit; the Captures inspector now shows a
+// 32-byte frame prefix, by operator decision recorded in docs/ROADMAP.md.
+// Decryption, keys, transmit and protocol-client behaviour remain prohibited.
+// The reasoning is that the device already writes these bytes to SD and the
+// companion reads them, so refusing to show them on the device protected
+// nothing while making it worse at field triage.
+//
+// MINOR with a pre-release suffix: real operator-facing behaviour arrives, so
+// PATCH would be wrong, but no workstream gate closed, so the stable minor is
+// not earned.
+
 // 1.0.8: Fixes a silent-drop in Serial Control's STATUS frame, and lands the
 // production half of V2 Workstream 12's Focus Survey work with no
 // operator-facing surface.
@@ -180,7 +213,7 @@
 // PATCH, not MINOR -- a UI reorganization within already-closed phase
 // scope, no new capability. Not yet hardware-verified on real hardware;
 // flag before calling this done.
-#define FIRMWARE_VERSION "1.0.8"
+#define FIRMWARE_VERSION "1.1.0-beta"
 
 // 1.0.6: correctness pass over what v1.0.5 shipped, from a code review and
 // a whole-project audit (docs/research/2026-09-04-project-audit.md).
