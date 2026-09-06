@@ -153,6 +153,21 @@ struct SessionStats {
     // survives a mid-run pull off the card without needing the boot row
     // specifically.
     uint32_t analyzer_static_bytes = 0;
+
+    // UI frame cost (2026-09-06). Worst and mean microseconds for one full
+    // redraw since boot. Added to answer an open question the card rebuild
+    // left behind: whether the extra per-view draw paths cost measurable time
+    // while a bounded action owns the radio. It belongs here rather than in
+    // Serial Control's STATUS because a gate wants durable evidence, not a
+    // live poll — and because STATUS's argument is already 316 of its 340
+    // bytes, so three more fields would have silently dropped the whole frame
+    // (serial_control_protocol.h's own history).
+    //
+    // The UI task is Core 0 and never touches the radio, so this cannot
+    // explain a missed packet on its own; what it can show is whether redraw
+    // time moves at all when the radio is away, which is the question.
+    uint32_t ui_redraw_max_us = 0;
+    uint32_t ui_redraw_mean_us = 0;
 };
 
 // Column order for each run's session.csv. One string so the header row and
@@ -171,7 +186,8 @@ constexpr const char *SESSION_CSV_HEADER =
     "probe_timeouts,probe_failures,probe_recoveries,probe_last_away_ms,"
     "identities_decoded,identity_drops,"
     "cell_observations,cell_observation_drops,cell_runs,cell_cancels,"
-    "cell_failures,cell_recoveries,cell_last_away_ms,analyzer_static_bytes";
+    "cell_failures,cell_recoveries,cell_last_away_ms,analyzer_static_bytes,"
+    "ui_redraw_max_us,ui_redraw_mean_us";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
 // detectionFormatTimestamp() the detection rows use, and is empty before
@@ -206,7 +222,7 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
-                     "%lu",
+                     "%lu,%lu,%lu",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -261,7 +277,9 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.cell_failures,
                      (unsigned long)s.cell_recoveries,
                      (unsigned long)s.cell_last_away_ms,
-                     (unsigned long)s.analyzer_static_bytes);
+                     (unsigned long)s.analyzer_static_bytes,
+                     (unsigned long)s.ui_redraw_max_us,
+                     (unsigned long)s.ui_redraw_mean_us);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

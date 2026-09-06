@@ -25,9 +25,10 @@ append-only where practical, and older firmware runs may have fewer fields.
 | `session.csv` | Boot and once per minute | Did the receiver, GPS, queue, and SD logger stay healthy? |
 | `probe.csv` | A Probe is run | Which fixed-candidate channels produced CAD activity. A CAD hit is not necessarily a packet. |
 | `energy.csv` | An Energy Sweep is run | Sparse high-energy bins and follow-up CAD results. Not a full spectrum recording. |
+| `focus.csv` | A Focus survey is run | How one frequency bin behaved over a longer dwell than a Sweep gives it. Reports what was observed; it does not conclude that anything transmitted. |
 
-`probe.csv` and `energy.csv` may exist with only a header when the feature was
-not used. Their absence is not an error on older runs.
+`probe.csv`, `energy.csv` and `focus.csv` may exist with only a header when the
+feature was not used. Their absence is not an error on older runs.
 
 ## Fields shared by observation files
 
@@ -141,6 +142,53 @@ The first health checks are:
 `max_flush_ms` is the worst detection-batch SD bus hold. `max_session_ms` is
 the separate worst health-row write; do not use it to tune the batch size.
 
+`ui_redraw_max_us` and `ui_redraw_mean_us` are the worst and mean cost of one
+full screen redraw since boot. The UI task runs on Core 0 and never touches the
+radio, so a slow frame cannot explain a missed packet on its own; what these
+answer is whether redraw cost moves at all while a bounded action owns the
+radio. Compare rows from a quiet window against rows written during a Sweep.
+
+## `focus.csv`: one bin, observed for longer
+
+A Sweep gives each bin a few tens of milliseconds. Focus gives one bin up to
+two seconds, sampling it every 20 ms, and writes a single row per request. Run
+it from **Activity** (press down to the Focus view, then Enter); it surveys the
+last Sweep's strongest peak, or the bin containing the home channel if no sweep
+has completed.
+
+Read the row in this order:
+
+- `request_status` and `home_restore` first. Only a `complete` row with
+  `home_restore=1` is evidence of anything. A `timeout` row means the request
+  hit its wall-clock deadline under bus contention and stopped sampling; its
+  partial statistics are still real, but `observation_ms` will be short of
+  `requested_dwell_ms`.
+- `sample_count` against `requested_samples`. Samples are derived from the
+  dwell at a fixed 20 ms spacing, not requested independently, so a short
+  `observation_ms` means fewer samples and a correspondingly thinner picture.
+- `rssi_median_dbm`, `rssi_p90_dbm`, `rssi_peak_dbm`. These are exact
+  percentiles from a 1 dB histogram, or **blank** when the histogram cannot
+  give an exact answer. A blank is not a zero and not a missing reading; it
+  means the summary was refused rather than estimated.
+- `qualifying_count` is the number of samples that sat above the pass's own
+  median by the qualifying margin. It is the count that survived controlled
+  measurement where every RSSI summary statistic failed.
+
+Two things this file deliberately does not tell you:
+
+- **`coverage` is empty.** It is a persisted field with no value yet, because
+  the thresholds that would populate it are about pass counts and accumulated
+  time across repeated requests and have not been measured. An empty column is
+  the honest state; a label chosen by eye would not be.
+- **Elevated RSSI is not a transmission.** A high `qualifying_count` says
+  samples were elevated over that pass's own floor. Whether that is a
+  transmission depends on link quality the device cannot know, and controlled
+  measurement found the indication least reliable exactly where a band is
+  busiest. Use `detections.csv` for what was actually received.
+
+`wifi_on` records whether the AP was up during the request; keep it in mind
+when comparing rows, since it changes the resource picture around the radio.
+
 ## Practical workflow
 
 1. Copy the complete `runNNNN` folder before editing or importing it.
@@ -150,7 +198,10 @@ the separate worst health-row write; do not use it to tune the batch size.
    before interpreting protocol-specific fields.
 4. Join `nodes.csv` to packet observations by run and nearby
    `rx_uptime_ms`; do not assume every packet from a node carries an identity.
-5. Preserve the original header with exports. If combining runs, union fields
+5. Treat `focus.csv` as a follow-up to `energy.csv`, not a replacement: join
+   them on `selection_bin_index` to see what a longer look at a swept peak
+   found.
+6. Preserve the original header with exports. If combining runs, union fields
    by column name rather than concatenating by position.
 
 `raw_packet_hex` is useful for offline protocol research, but it is not a

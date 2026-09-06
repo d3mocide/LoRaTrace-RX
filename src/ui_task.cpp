@@ -551,10 +551,31 @@ KeyAction pollKeyAction() {
 // before it became a hang on first boot). Moot anyway: uiTft->flush()
 // below is the real single-transaction boundary over the whole composed
 // frame, and it isn't nested inside anything.
+// Worst and cumulative frame cost since boot. The open question this exists to
+// answer is whether the card rebuild's extra per-view draw paths cost anything
+// measurable while a bounded action owns the radio (docs/STATUS.md) — which is
+// unanswerable by eye, since the expensive frames are exactly the ones an
+// operator is least likely to be watching. Two uint32s and a counter; the draw
+// itself is unchanged.
+//
+// Deliberately not split per page: the question is whether ANY frame got slow,
+// and a per-page table would cost more RAM than the answer is worth. Serial
+// Control's STATUS carries it, so a fixture can sample it without a display.
+volatile uint32_t uiRedrawMaxUs = 0;
+volatile uint32_t uiRedrawTotalUs = 0;
+volatile uint32_t uiRedrawCount = 0;
+
 void fullRedraw() {
+    const uint32_t started = micros();
     drawHeader();
     drawPage();
     uiTft->flush();
+    // micros() wraps every ~71 minutes; an unsigned difference stays correct
+    // across the wrap, which a signed comparison would not.
+    const uint32_t elapsed = micros() - started;
+    if (elapsed > uiRedrawMaxUs) uiRedrawMaxUs = elapsed;
+    uiRedrawTotalUs += elapsed;
+    uiRedrawCount++;
 }
 
 void uiTask(void *) {
@@ -927,6 +948,18 @@ uint8_t mainCarouselPosition() {
 
 uint8_t mainCarouselCount() {
     return MAIN_PAGE_COUNT;
+}
+
+uint32_t uiRedrawWorstUs() { return uiRedrawMaxUs; }
+uint32_t uiRedrawMeanUs() {
+    const uint32_t n = uiRedrawCount;
+    return n ? (uint32_t)(uiRedrawTotalUs / n) : 0;
+}
+uint32_t uiRedrawFrames() { return uiRedrawCount; }
+void uiRedrawStatsReset() {
+    uiRedrawMaxUs = 0;
+    uiRedrawTotalUs = 0;
+    uiRedrawCount = 0;
 }
 
 // The page a card is currently rendering: the card's own on view 0, one of

@@ -9,6 +9,15 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-06
 
+- **W12 prep.** `LOG_GUIDE.md` gains its `focus.csv` section, unblocked by the
+  operator control the card-view work shipped. UI frame cost (`ui_redraw_max_us`,
+  `ui_redraw_mean_us`) joins `session.csv` — it was measured against Serial
+  Control's STATUS first, which would have overflowed its 340-byte argument by
+  18 and silently dropped the whole frame. `scripts/phase12_coverage_campaign.py`
+  drives the repeated-request measurement the coverage thresholds need. The
+  design entry's "next, in order" is corrected: steps 1, 2 and most of 5 had
+  already closed, leaving two product decisions and one measurement.
+
 - **System's trend becomes two lanes.** Heap and battery were overlaid in one
   plot at unrelated scales — the dual-axis mistake, unreadable at 45px. Now
   small multiples: a lane each, own baseline, own label and readout. Both lanes

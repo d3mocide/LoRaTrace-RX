@@ -491,39 +491,47 @@ local spectrum identity or coverage of the city.
 
 ### Next, in order
 
-The Engineering gate is closed and the bench slice is hardware-proven, so what
-remains is ordered by what blocks what. **The sampling change comes first: it
-invalidates any threshold or budget chosen before it.**
+**Revised 2026-09-06.** Steps 1, 2 and most of 5 have since closed; what is
+left is no longer measurement. Struck items are kept rather than deleted so
+the ordering argument stays readable.
 
-1. **Scale the sample budget with the dwell** (§6.4 finding 1). Today's fixed
-   8 samples mean a long dwell observes a handful of instants, so a dwell or
-   observation-time figure does not mean what an operator would read it to
-   mean. Decide what a pass should sample — a target spacing, a rate, or a
-   dwell-proportional count — inside the existing static-RAM budget (§4.2 has
-   66 B of row margin and 68 B under the working-state target). Re-run the
-   affected §6.2 arms afterwards; the shorter-airtime positions are the ones
-   that move.
-2. **Re-select the qualifying RSSI condition** against the new sampling, and
-   at a source closer to realistic levels than this bench's ~-26 dBm. §6.4's
-   `p90 >= -90 dBm` is a candidate measured under the old sampling and a very
-   strong source; it should not survive into the product unexamined.
-3. **Run §6.3's Watch-opportunity comparison**
-   (`scripts/phase12_watch_opportunity.py`) and approve, or refuse, a maximum
-   radio-away budget. Measured away time is already known (dwell + ~73 ms);
-   what is unknown is what repeated requests cost Watch.
-4. **Select the coverage thresholds.** These are about valid-pass counts and
-   accumulated observation time across repeated requests, which no
-   single-pass matrix can supply — it needs its own repeated-request
-   measurement, once 1--3 have settled what a pass is worth.
-5. Only then: the operator menu control, the Activity/status surface, the
-   durable final schema with a populated `coverage`, `LOG_GUIDE.md`'s
-   operator-facing `focus.csv` section, and Portland field validation. Until
-   an operator control exists, `focus.csv` is deliberately absent from the
-   operator log guide — documenting a file nobody can produce would be worse
-   than omitting it.
+1. ~~**Scale the sample budget with the dwell**~~ — **done.** `focus_plan.h`
+   derives sample count from dwell at a measured 20 ms spacing
+   (`FOCUS_SAMPLE_SPACING_MS`, `focusSamplesForDwell()`), chosen because
+   detection tracks the source's airtime against `dwell/(samples-1)` rather
+   than against dwell. A 94 ms source was missed at 286 ms and 100 ms spacing
+   and caught 15/15 at both 50 ms and 20 ms; 20 ms keeps roughly 2x margin
+   against the ~40-50 ms airtime of the fastest realistic mesh traffic. Finer
+   sampling is free in the only currency that matters: measured away time was
+   2,073-2,075 ms across every arm, whether the pass took 8 samples or 101.
+2. ~~**Re-select the qualifying RSSI condition**~~ — **measured, and the
+   answer is that no RSSI summary supports the claim.** See the Design-entry
+   item above: every summary statistic failed at realistic levels, the count
+   route (`C6 >= 2`) survived 1,200 trials, and its remaining condition is a
+   link quality the device cannot know. **What is left is a product decision,
+   not a measurement.**
+3. **Approve, or refuse, a maximum radio-away budget.** The exchange rate is
+   measured and clean — loss is proportional to away time and nothing else,
+   predicted 0.459 against a measured 0.463 — so this too is now a product
+   decision. §6.3 requires it be made *after* the measurement rather than
+   implied by it, which is where it now sits.
+4. **Select the coverage thresholds.** Still genuinely open, and still the
+   only remaining item that needs new measurement: these are about valid-pass
+   counts and accumulated observation time across *repeated* requests, which
+   no single-pass matrix supplies. `scripts/phase12_coverage_campaign.py`
+   drives that campaign.
+5. Mostly done. The operator control exists (Focus is Activity's view 4;
+   Enter surveys the last Sweep peak, or the home channel's bin if no sweep
+   has completed), the Activity/status surface shipped with it, and
+   `LOG_GUIDE.md` now carries the operator-facing `focus.csv` section that was
+   deliberately withheld until a control existed. Remaining: the durable
+   schema's `coverage` column stays empty until step 4, and Portland field
+   validation is unrun.
 
-A release is further out than the closed gates suggest: Focus is reachable
-only from the bench image, and step 1 is a design change, not a tuning pass.
+The release is now gated on two product decisions and one measurement, not on
+engineering. **If the answer to 2 is "Focus reports coverage and never
+activity", that closes the gate** — but it has to be written down as a
+decision, or it will keep reading as an unfinished measurement.
 
 ## Sources
 

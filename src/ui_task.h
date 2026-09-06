@@ -121,6 +121,17 @@ bool uiTaskStart(Arduino_GFX *gfx, const DisplaySettings &settings);
 // rather than stuck on one page.
 bool uiKeyboardReady();
 
+// Frame-cost telemetry (2026-09-06). Worst and mean microseconds spent in one
+// full redraw since boot or since the last reset, and how many frames that
+// covers. Exists to answer an open question the card rebuild left behind:
+// whether the extra per-view draw paths cost measurable time while a bounded
+// action owns the radio. Sampled over Serial Control so a fixture can read it
+// without watching the screen; reset before a measured window.
+uint32_t uiRedrawWorstUs();
+uint32_t uiRedrawMeanUs();
+uint32_t uiRedrawFrames();
+void uiRedrawStatsReset();
+
 // Raw keyboard event dump, off by default and toggled over Serial Control
 // (KEY_DUMP). Emits one `[keydump]` line per TCA8418 FIFO event with its raw
 // byte, key number, press/release edge, and decoded (row, col) — the

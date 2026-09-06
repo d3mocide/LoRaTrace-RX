@@ -18,6 +18,7 @@
 #include "run_log.h"
 #include "serial_lock.h"
 #include "session_log.h"
+#include "ui_task.h"
 #include "spi_bus.h"
 
 namespace {
@@ -361,6 +362,8 @@ void writeSessionRow(const char *reason) {
     s.cell_recoveries = radioCellRecoveryCount();
     s.cell_last_away_ms = radioCellLastAwayMs();
     s.analyzer_static_bytes = ANALYZER_STATIC_BYTES;
+    s.ui_redraw_max_us = uiRedrawWorstUs();
+    s.ui_redraw_mean_us = uiRedrawMeanUs();
 
     char timestamp[24];
     detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,

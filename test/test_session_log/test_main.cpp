@@ -101,6 +101,8 @@ static SessionStats healthySample() {
     // capture_count for the Waterfall's green packet marks (+96B across
     // 24 rows); 1368 bytes of headroom remain.
     s.analyzer_static_bytes = ANALYZER_STATIC_BYTES;
+    s.ui_redraw_max_us = 4820;
+    s.ui_redraw_mean_us = 1960;
     return s;
 }
 
@@ -124,7 +126,7 @@ void test_row_with_fix_carries_position_and_counters() {
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7,"
         "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,"
-        "9,2,3,1,0,3,1500,7112",
+        "9,2,3,1,0,3,1500,7112,4820,1960",
         row);
 }
 
@@ -240,7 +242,8 @@ void test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters() {
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     const char *suffix =
-        "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,9,2,3,1,0,3,1500,7112";
+        "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,9,2,3,1,0,3,1500,"
+        "7112,4820,1960";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -250,28 +253,50 @@ void test_cell_diagnostics_precede_analyzer_static_bytes() {
     // convention gps_max_loop_gap_ms/gps_oversize_drops and
     // logger_stack_free established before it. No longer the row's own
     // last columns as of analyzer_static_bytes (Phase 10, 2026-09-04) —
-    // see test_analyzer_static_bytes_is_the_last_column() below for that
+    // nor as of the UI frame-cost pair after it (2026-09-06) — see
+    // test_ui_redraw_cost_is_the_last_column() below for that
     // claim now.
     SessionStats s = healthySample();
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
-    const char *suffix = "9,2,3,1,0,3,1500,7112";
+    const char *suffix = "9,2,3,1,0,3,1500,7112,4820,1960";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
 
-void test_analyzer_static_bytes_is_the_last_column() {
-    // Phase 10's one memory number (docs/research/LoRaTrace-Phases-7-10-
-    // Design.md §9), appended after cell_last_away_ms per this schema's own
-    // append-only-at-the-end convention.
+void test_ui_redraw_cost_is_the_last_column() {
+    // UI frame cost (2026-09-06), appended after analyzer_static_bytes per this
+    // schema's own append-only-at-the-end convention. Asserted as a pair and as
+    // the row's tail, so a field appended between them fails here rather than
+    // silently shifting a column a host parser reads by position.
     SessionStats s = healthySample();
     s.analyzer_static_bytes = 12345;
-    char row[320];
+    s.ui_redraw_max_us = 9100;
+    s.ui_redraw_mean_us = 2050;
+    char row[384];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     TEST_ASSERT_TRUE(n > 0);
-    const char *suffix = "12345";
+    const char *suffix = "12345,9100,2050";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
+}
+
+void test_header_column_count_matches_a_rendered_row() {
+    // The header and the row writer are one string each and drift apart
+    // silently. This catches a field added to one and not the other — the
+    // failure mode that would otherwise reach the card as a shifted column.
+    SessionStats s = healthySample();
+    char row[384];
+    size_t n = sessionFormatCsv(s, row, sizeof(row), "2026-08-23T04:15:00Z");
+    TEST_ASSERT_TRUE(n > 0);
+    size_t headerCommas = 0, rowCommas = 0;
+    for (const char *p = SESSION_CSV_HEADER; *p; p++) {
+        if (*p == ',') headerCommas++;
+    }
+    for (const char *p = row; *p; p++) {
+        if (*p == ',') rowCommas++;
+    }
+    TEST_ASSERT_EQUAL_size_t(headerCommas, rowCommas);
 }
 
 void test_truncation_is_reported() {
@@ -308,7 +333,8 @@ int main(int, char **) {
     RUN_TEST(test_gps_diagnostics_keep_their_append_only_positions);
     RUN_TEST(test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters);
     RUN_TEST(test_cell_diagnostics_precede_analyzer_static_bytes);
-    RUN_TEST(test_analyzer_static_bytes_is_the_last_column);
+    RUN_TEST(test_ui_redraw_cost_is_the_last_column);
+    RUN_TEST(test_header_column_count_matches_a_rendered_row);
     RUN_TEST(test_truncation_is_reported);
     RUN_TEST(test_null_timestamp_is_tolerated);
     return UNITY_END();
