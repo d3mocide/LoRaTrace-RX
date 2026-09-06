@@ -9,6 +9,15 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-06
 
+- **System's trend becomes two lanes.** Heap and battery were overlaid in one
+  plot at unrelated scales — the dual-axis mistake, unreadable at 45px. Now
+  small multiples: a lane each, own baseline, own label and readout. Both lanes
+  auto-scale with a *minimum* span, which fixes the other half of the problem —
+  pure min/max scaling amplified a 2KB wobble to full height, so a flat heap
+  looked alarming. Channel gains the same well treatment, its floor doubling as
+  the frequency axis; Scope leads with frequency and puts the result age top
+  right; Activity's cards were still on pre-78px geometry and now align.
+
 - **Probe, Sweep, Cell and Meter modernized.** Focus's layout is lifted into a
   shared bounded-action skeleton (hero + status, progress bar, detail labels,
   content block, three summary values) and Probe/Sweep/Cell rebuilt on it —

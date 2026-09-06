@@ -1121,31 +1121,32 @@ uint32_t estimateTimeOnAirMs(uint8_t sf, float bwKhz) {
 // Read-only RF detail behind RADIO's counters — an on-device way to
 // confirm a profile switch actually retuned the radio, rather than
 // trusting the header text alone.
-// Channel's band map: the whole tuned range, where we are pointed in it, and
-// where the evidence actually landed. Green ticks are frequencies that decoded
-// a packet (capture ring), amber are peaks the last completed Sweep found.
+// Channel's band map, drawn against the plot well's own floor (2026-09-06).
+// The map used to carry its own 10px track rect; with the well around it that
+// was a box inside a box, so the floor became the frequency axis instead and
+// the ticks rise from it. Green ticks are frequencies that decoded a packet
+// (capture ring), amber are peaks the last completed Sweep found.
 //
 // This is the card's whole argument. "Am I on the right channel" was
 // previously unanswerable here — the old 108px freq bar showed position within
 // the front end and nothing else, so a channel with all the energy 4MHz away
 // looked identical to one sitting on top of it.
-void drawChannelBandMap(int16_t x, int16_t y, int16_t w, float tunedMhz) {
+void drawChannelBandMap(int16_t x, int16_t w, int16_t floorY, float tunedMhz) {
     constexpr float LO = 868.0f, HI = 928.0f;
     auto frac = [](float mhz) {
         float f = (mhz - LO) / (HI - LO);
         return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
     };
+    constexpr int16_t TICK_H = 10;
 
-    uiTft->drawRect(x, y, w, 10, COL_DIM);
-
-    // Sweep peaks first, so a capture tick on the same bin draws over it —
-    // a decode is stronger evidence than energy, and should win the pixel.
+    // Sweep peaks first, so a capture tick on the same bin draws over it — a
+    // decode is stronger evidence than energy, and should win the pixel.
     const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
     const uint16_t bins = energyBinCount(band, ENERGY_SWEEP_DEFAULT_STEP);
     for (uint16_t b = 0; b < bins; b++) {
         if (!radioEnergyPeakBinSetAtLastComplete(b)) continue;
         const float mhz = energyBinFrequencyMhz(b, band, ENERGY_SWEEP_DEFAULT_STEP);
-        uiTft->drawFastVLine(x + 1 + (int16_t)((w - 3) * frac(mhz)), y + 1, 8, COL_WARN);
+        uiTft->drawFastVLine(x + (int16_t)((w - 1) * frac(mhz)), floorY - TICK_H, TICK_H, COL_WARN);
     }
 
     CaptureHistory history;
@@ -1153,23 +1154,15 @@ void drawChannelBandMap(int16_t x, int16_t y, int16_t w, float tunedMhz) {
         CaptureSummary entry;
         for (uint8_t i = 0; i < history.count; i++) {
             if (!captureHistoryEntryAt(history, i, entry)) break;
-            uiTft->drawFastVLine(x + 1 + (int16_t)((w - 3) * frac(entry.freq_mhz)), y + 1, 8, COL_GOOD);
+            uiTft->drawFastVLine(x + (int16_t)((w - 1) * frac(entry.freq_mhz)), floorY - TICK_H,
+                                 TICK_H, COL_GOOD);
         }
     }
 
-    // The tuned marker overhangs the box so it reads as "you are here" rather
-    // than as one more tick inside the data.
-    const int16_t mx = x + 1 + (int16_t)((w - 3) * frac(tunedMhz));
-    uiTft->fillRect(mx - 1, y - 3, 3, 16, COL_FG);
-
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->setCursor(x, y + 14);
-    uiTft->print("868");
-    uiTft->setCursor(x + w / 2 - 9, y + 14);
-    uiTft->print("898");
-    uiTft->setCursor(x + w - 18, y + 14);
-    uiTft->print("928");
+    // The tuned marker runs taller than the data ticks and is 3px wide, so it
+    // reads as "you are here" rather than as one more tick among them.
+    const int16_t mx = x + (int16_t)((w - 1) * frac(tunedMhz));
+    uiTft->fillRect(mx - 1, floorY - TICK_H - 6, 3, TICK_H + 6, COL_FG);
 }
 
 // Channel, view 1 of 4 (Captures, Nodes and Probe are 2-4). Redesigned
@@ -1180,15 +1173,30 @@ void drawChannelBandMap(int16_t x, int16_t y, int16_t w, float tunedMhz) {
 void drawChannelPage() {
     const ChannelParams ch = radioActiveChannel();
 
-    // A 26px band, not the shared 43 (2026-09-06). Nothing requires every card
+    // A 28px well, not the shared 45 (2026-09-06). Nothing requires every card
     // to spend the same height on its visual: this one is an axis with ticks on
     // it, not a plot, and it was padding 15px of nothing to match its
     // neighbours. The reclaimed space goes to the frequency hero below — the
     // one number this card exists to state, and the last thing that should have
-    // been demoted into a 77px tile.
-    constexpr int16_t PX = 2, PW = 236, PH = 26;
-    const int16_t py = HEADER_H + 2;
-    drawChannelBandMap(PX + 4, py + 4, PW - 8, ch.freq_mhz);
+    // been demoted into a 78px tile.
+    //
+    // Same rails-and-floor treatment as the plot cards (operator request): the
+    // floor doubles as the frequency axis the ticks rise from, which is why the
+    // map no longer draws a track of its own.
+    constexpr int16_t FLOOR_Y = HEADER_H + 28;
+    drawPlotWell(HEADER_H, FLOOR_Y);
+    drawChannelBandMap(6, 228, FLOOR_Y, ch.freq_mhz);
+
+    // Axis labels sit at the top of the well, clear of the ticks rising from
+    // the floor below them.
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(4, HEADER_H + 3);
+    uiTft->print("868");
+    uiTft->setCursor(112, HEADER_H + 3);
+    uiTft->print("898");
+    uiTft->setCursor(219, HEADER_H + 3);
+    uiTft->print("928");
 
     uint16_t peaks = 0;
     const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
@@ -1423,26 +1431,12 @@ void drawSystemPage() {
 
     constexpr int16_t PX = 2, PW = 236, PH = 43;
     const int16_t py = HEADER_H + 2;
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(COL_DIM, COL_BG);
-    // A two-trace legend rather than one title: the band carries both
-    // constrained resources, and each keeps its own colour so neither is read
-    // off the other's scale. Their numbers live on the cards below — this is a
-    // pair of sparklines sharing a time axis, not a dual-axis chart, and it
-    // deliberately prints no y values it would have to pick an axis for.
-    uiTft->setCursor(PX + 4, py + 3);
-    uiTft->setTextColor(COL_GOOD, COL_BG);
-    uiTft->print("HEAP");
-    uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->print(" / ");
-    uiTft->setTextColor(COL_FG, COL_BG);
-    uiTft->print("BATT");
-    uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->print("  30min");
     drawPlotWell(HEADER_H, py + PH);
 
     // Verdict from the window's own endpoints. Below two samples there is no
-    // trend to report, and saying "FLAT" then would be an unearned claim.
+    // trend to report, and saying "FLAT" then would be an unearned claim. It
+    // rides the heap lane's readout now rather than taking a header row of its
+    // own — it is a statement about the heap, not about the card.
     const char *verdict = "--";
     uint16_t verdictCol = COL_DIM;
     if (sysRingCount >= 2) {
@@ -1453,58 +1447,75 @@ void drawSystemPage() {
         else if (deltaK <= -6) { verdict = "DRIFT"; verdictCol = COL_WARN; }
         else { verdict = "FLAT"; verdictCol = COL_GOOD; }
     }
-    // A dead keyboard outranks a heap trend, so it takes this slot outright —
-    // it is the one thing here an operator must not miss, and it is why the
-    // old "keys ok" text does not need a line of its own.
+    // A dead keyboard outranks a heap trend, so it takes the readout outright —
+    // it is the one thing here an operator must not miss.
     if (!keyboardReady) {
         verdict = "NO KEYS";
         verdictCol = COL_BAD;
     }
-    uiTft->setTextColor(verdictCol, COL_BG);
-    uiTft->setCursor(PX + PW - 4 - (int16_t)strlen(verdict) * 6, py + 3);
-    uiTft->print(verdict);
 
-    // Plotted against the window's own min/max, not zero: a 512KB axis would
-    // flatten every real change into one indistinguishable row of full bars.
-    uint8_t lo = 255, hi = 0;
-    for (uint8_t i = 0; i < sysRingCount; i++) {
-        const uint8_t v = sysRingAt(heapRing, i);
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-    }
-    const uint8_t span = (uint8_t)(hi > lo ? hi - lo : 1);
-    const int16_t bw = (PW - 8) / SYS_RING_LEN;
-    const int16_t base = py + PH - 1; // the well floor doubles as the baseline
-    constexpr int16_t PLOT_H = PH - 16;
+    // Two stacked lanes, not two traces overlaid (operator report, 2026-09-06:
+    // "the line doesn't really pan out or read very well"). Heap and battery
+    // share nothing but a time axis, so drawing them in one plot meant a white
+    // line wandering across a green area at an unrelated scale — the classic
+    // dual-axis mistake, and unreadable at 45px. Small multiples instead: each
+    // series gets its own lane, own baseline and own label, and the only thing
+    // being compared is shape against shape.
+    //
+    // Each lane auto-scales to its own window but with a MINIMUM span, which is
+    // the other half of why the old plot read as noise: pure min/max scaling
+    // amplifies a 2KB wobble to full height, so a perfectly flat heap looked
+    // alarming. With a floor on the span, flat reads flat and only real
+    // movement fills the lane.
+    constexpr int16_t LANE_H = 19;
+    const int16_t lane1Y = HEADER_H + 3, lane2Y = HEADER_H + 25;
 
-    // Heap as a filled area, not bars (2026-09-06): free heap is a slowly
-    // varying level where only the slope carries information, and bars break
-    // that slope into 30 separate readings the eye has to reassemble. The fill
-    // is dim with a bright top edge — RGB565 has no alpha, so an "area" is a
-    // solid body plus a drawn edge.
-    for (uint8_t i = 0; i < sysRingCount; i++) {
-        const int16_t h = (int16_t)(PLOT_H * (sysRingAt(heapRing, i) - lo) / span) + 2;
-        const int16_t bx = PX + 4 + i * bw;
-        uiTft->fillRect(bx, base - h + 1, bw, h, COL_DIM);
-        uiTft->drawFastHLine(bx, base - h + 1, bw, COL_GOOD);
-    }
-
-    // Battery over the top as a line only. White because the palette's other
-    // colours are semantic (good/warn/bad) and a second trace must not imply a
-    // severity it is not reporting; the BATTERY card below carries the state.
-    int16_t prevY = 0;
-    bool prevPlotted = false;
-    for (uint8_t i = 0; i < sysRingCount; i++) {
-        const int16_t y = (int16_t)(base - (PLOT_H * sysRingAt(battRing, i) / 100));
-        const int16_t bx = PX + 4 + i * bw;
-        uiTft->drawFastHLine(bx, y, bw, COL_FG);
-        if (prevPlotted && prevY != y) {
-            const int16_t top = prevY < y ? prevY : y;
-            uiTft->drawFastVLine(bx, top, (int16_t)(prevY > y ? prevY - y : y - prevY), COL_FG);
+    auto drawLane = [&](int16_t y, const uint8_t *ring, uint8_t minSpan, uint16_t colour,
+                        const char *label, const char *readout, uint16_t readoutCol) {
+        uint8_t lo = 255, hi = 0;
+        for (uint8_t i = 0; i < sysRingCount; i++) {
+            const uint8_t v = sysRingAt(ring, i);
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
         }
-        prevY = y;
-        prevPlotted = true;
-    }
+        if (sysRingCount == 0) { lo = 0; hi = minSpan; }
+        uint8_t span = (uint8_t)(hi - lo);
+        if (span < minSpan) {
+            // Centre the flat window inside the minimum span so a steady value
+            // sits mid-lane rather than pinned to the floor.
+            const uint8_t pad = (uint8_t)((minSpan - span) / 2);
+            lo = (uint8_t)(lo > pad ? lo - pad : 0);
+            span = minSpan;
+        }
+        const int16_t bw = (PW - 8) / SYS_RING_LEN;
+        const int16_t base = y + LANE_H - 1;
+        for (uint8_t i = 0; i < sysRingCount; i++) {
+            const uint8_t v = sysRingAt(ring, i);
+            const int16_t rel = (int16_t)(v > lo ? v - lo : 0);
+            int16_t h = (int16_t)((LANE_H - 2) * rel / span) + 1;
+            if (h > LANE_H) h = LANE_H;
+            const int16_t bx = PX + 4 + i * bw;
+            uiTft->fillRect(bx, base - h + 1, bw - 1, h, colour);
+        }
+        // Label and current value punch through the plot with an opaque
+        // background, so neither has to reserve empty space above the lane.
+        uiTft->setTextSize(1);
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(PX + 4, y);
+        uiTft->print(label);
+        uiTft->setTextColor(readoutCol, COL_BG);
+        uiTft->setCursor(234 - (int16_t)strlen(readout) * 6, y);
+        uiTft->print(readout);
+    };
+
+    char readout[20];
+    snprintf(readout, sizeof(readout), "%luk %s", (unsigned long)(ESP.getFreeHeap() / 1024), verdict);
+    drawLane(lane1Y, heapRing, 8, COL_GOOD, "HEAP", readout, verdictCol);
+
+    const uint8_t battPct = batteryPercent();
+    snprintf(readout, sizeof(readout), "%u%%", (unsigned)battPct);
+    drawLane(lane2Y, battRing, 5, COL_DIM, "BATT", readout,
+             battPct > 20 ? COL_FG : COL_BAD);
 
     const int16_t cy = py + PH + 4;
     const uint32_t mv = batteryMilliVolts();
@@ -1690,7 +1701,6 @@ void drawActivitySummary() {
 
     // Three triage cards.
     const int16_t cy = py + PH + 4;
-    constexpr int16_t CW = 77;
     char value[14], sub[16];
 
     const EnergyStrongestPeak strongest = radioEnergyStrongestPeak();
@@ -1701,7 +1711,7 @@ void drawActivitySummary() {
         snprintf(value, sizeof(value), "--");
         snprintf(sub, sizeof(sub), "no sweep");
     }
-    statCard(2, cy, CW, "SWEEP PK", COL_WARN, value, sub);
+    statCard(statCardX(0), cy, STAT_CARD_W, "SWEEP PK", COL_WARN, value, sub);
 
     // Last decoded packet. RSSI and SNR are real here, which is why this card
     // replaced the proposal's "CAD HIT ... +8.5dB SNR": CAD returns a binary
@@ -1717,7 +1727,7 @@ void drawActivitySummary() {
         snprintf(value, sizeof(value), "--");
         snprintf(sub, sizeof(sub), "no packets");
     }
-    statCard(2 + CW + 3, cy, CW, "LAST PKT", COL_GOOD, value, sub);
+    statCard(statCardX(1), cy, STAT_CARD_W, "LAST PKT", COL_GOOD, value, sub);
 
     // Away time: the most recent bounded action to have held the radio, shown
     // plainly. No budget line -- §6.3 measured the cost and deliberately left
@@ -1738,7 +1748,7 @@ void drawActivitySummary() {
         snprintf(value, sizeof(value), "--");
         snprintf(sub, sizeof(sub), "none yet");
     }
-    statCard(2 + (CW + 3) * 2, cy, CW, "AWAY T", COL_DIM, value, sub);
+    statCard(statCardX(2), cy, STAT_CARD_W, "AWAY T", COL_DIM, value, sub);
 }
 
 
@@ -2180,32 +2190,31 @@ void drawScopePage() {
         return;
     }
 
-    uiTft->setTextSize(2);
-    uiTft->setCursor(2, HEADER_H + 6);
+    // Frequency is the hero, not the state word: what this trace is *of* is the
+    // durable fact, where CAPTURING/CAPTURED is momentary. The age takes the
+    // top right (operator request, 2026-09-06) — once a trace is on screen,
+    // "CAPTURED" is self-evident and how old it is is not. While running the
+    // slot carries the live state instead, which is the one time it is news.
+    char freqBuf[28], status[16];
+    snprintf(freqBuf, sizeof(freqBuf), "%.3f MHz", (double)trace.tuned_freq_mhz);
     if (running) {
-        uiTft->setTextColor(COL_WARN, COL_BG);
-        uiTft->print("CAPTURING");
+        snprintf(status, sizeof(status), "CAPTURING");
     } else {
-        // Dim rather than replaced by "IDLE" past the hold, same as Probe/
-        // Sweep/Cell — the trace below is real and the age says how real.
-        uiTft->setTextColor(holdExpired ? COL_DIM : COL_GOOD, COL_BG);
-        uiTft->print("CAPTURED");
+        snprintf(status, sizeof(status), "%s", resultAge(scopeTerminalShownAt));
     }
+    drawActionHero(freqBuf, nullptr, COL_DIM, status,
+                   running ? COL_WARN : (holdExpired ? COL_DIM : COL_GOOD));
 
     uiTft->setTextSize(1);
-    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->setTextColor(running ? COL_WARN : COL_DIM, COL_BG);
     uiTft->setCursor(2, HEADER_H + 24);
-    char freqBuf[28];
-    snprintf(freqBuf, sizeof(freqBuf), "%.3fMHz  %ums/sample", (double)trace.tuned_freq_mhz,
-             (unsigned)trace.sample_interval_ms);
-    uiTft->print(freqBuf);
-    uiTft->setCursor(2, HEADER_H + 34);
     if (running) {
-        uiTft->setTextColor(COL_WARN, COL_BG);
         uiTft->print("Watch away");
     } else {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print(resultAge(scopeTerminalShownAt));
+        char detail[28];
+        snprintf(detail, sizeof(detail), "%u samples  %ums each", (unsigned)trace.count,
+                 (unsigned)trace.sample_interval_ms);
+        uiTft->print(detail);
     }
 
     constexpr int16_t PLOT_X = 2, PLOT_Y = HEADER_H + 48, PLOT_W = 232, PLOT_H = 50;
