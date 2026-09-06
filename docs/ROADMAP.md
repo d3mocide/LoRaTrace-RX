@@ -14,8 +14,11 @@ and what earns a release.
 
 V2 preserves the shipped foundation:
 
-- Receive-only; no transmit, beacon, injection, decryption, keys, payload
-  display, or protocol-client behavior.
+- Receive-only; no transmit, beacon, injection, decryption, keys, or
+  protocol-client behavior. **Payload display was removed from this list on
+  2026-09-05** — see "Amended boundary: on-device payload display" below.
+  Decryption, keys, transmit and protocol-client behaviour remain prohibited
+  and are not affected by that change.
 - One radio-owner task on Core 1; at most one bounded acquisition action owns
   the SX1262. SD, display, GPS, and WiFi never block its real-time path.
 - Fixed/static storage, bounded queues, streaming metrics, and SD as the
@@ -30,6 +33,35 @@ V2 preserves the shipped foundation:
 
 The detailed rationale and product wording live in
 [research/V2_DESIGN.md](research/V2_DESIGN.md); do not duplicate it here.
+
+## Amended boundary: on-device payload display
+
+Until 2026-09-05, "payload display" sat alongside decryption and transmit as a
+permanent prohibition. It is now allowed on-device, by operator decision. The
+reasoning is recorded because a future reader will otherwise find a boundary
+and a feature that contradict each other and be unable to tell which is
+current.
+
+**What changed.** The device already records raw received bytes to SD
+(`detections.csv`), and the companion tooling reads them. Refusing to show on
+the device what is already written to the card, and already readable by
+anything that reads the card, protected nothing — it made the hardware less
+useful for RF triage without making anyone's traffic less exposed. The
+Captures inspector is the concrete case: signal quality and framing detail are
+diagnostic, and the payload bytes alongside them are what make a capture
+interpretable in the field rather than back at a desk.
+
+**What did not change.** No decryption, no key handling, no transmit, no
+beaconing or injection, and no protocol-client behaviour. Bytes may be shown
+as received. Nothing may be decoded that requires a key, and nothing that is
+shown may be presented as a protocol identity that the evidence rules
+elsewhere in this document do not already permit.
+
+**What this obliges.** Displaying payload makes the operator's screen a
+disclosure surface: a captured payload belongs to whoever sent it. Sharing and
+export features (Workstream 15) must treat displayed payload as at least as
+sensitive as location, and the redaction work there covers it rather than
+treating it as already-public because it was on screen.
 
 ## Status and gate model
 
@@ -65,6 +97,38 @@ cost acceptable; the measurement is part of the decision.
 | **15 — Field markers and sharing** | Not entered | Add fixed, safe marker presets and `marker.csv`, then integrate redacted sharing. Prove markers cannot affect radio behavior and realistic exports remove selected location/identity detail. |
 | **16 — Cell closeout** | Deferred bonus | Close the existing V1 Phase 11 evidence gap: a real tower-adjacent RSSI rise plus fresh SD verification of `cell.csv` and Cell's appended `session.csv` fields. This preserves V1 history; it does not renumber it. |
 | **17 — Sweep/Waterfall sampling review** | **Design entry** | Re-evaluate whether Sweep's per-bin sampling and Waterfall's presentation can support what they imply, using the measurement apparatus Workstream 12 built. Entry needs a two-baseline sensitivity measurement, not an argument from analogy. See below. |
+
+## Planned — v1.1.0-beta UI slice
+
+Adopted 2026-09-05 from `docs/UI-Recommendations.html`, whose layout premises
+were checked against the firmware rather than taken on trust. It ships
+alongside Focus's first operator-facing surface because these touch the same
+screens; splitting them would mean two releases editing the same files.
+
+- **Focus Survey plate (P3)** — target frequency and bin, dwell progress,
+  valid/requested passes, elapsed observation time, the median/P90/peak
+  summary against the measured floor, request state and home-restore result,
+  and an abort. **Without the proposed "Operator Truth Badge"**: its
+  `SAMPLING`/`REPEATED`/`INSUFFICIENT` labels depend on coverage thresholds
+  that are still unselected, and "(High confidence)" is precisely the single
+  confidence word §3 of the design forbids. The plate reports what was
+  observed and declines to conclude.
+- **Slot 2 split Activity dashboard (P2)** — the rolling packet-rate sparkline
+  and triage cards. The proposal's `AWAY T ... 60s budget` displays a
+  radio-away budget nobody approved; §6.3 measured the cost and left the
+  policy to an operator decision. The displayed limit is therefore the
+  existing System > Tuning capture setting rather than an invented constant,
+  and moves to a real budget when one is chosen.
+- **Captures packet inspector (P4)** — signal quality, framing detail, and raw
+  received bytes, permitted by the amended boundary above.
+- **Palette switching (P5)** is not in this slice. It is cheap and useful but
+  unrelated to Focus, and it can ship on its own.
+
+Note for whoever implements this: the proposals describe a five-stop carousel
+with Activity in slot 2, which matches `MAIN_PAGES` in `ui_task.cpp`. A stale
+comment in `ui_pages.cpp` claimed four stops and was used during planning to
+wrongly contradict the proposal; it has been corrected. Check the code, not
+the prose.
 
 ## Candidate — Workstream 17 (Sweep/Waterfall sampling review)
 

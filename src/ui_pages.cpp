@@ -174,8 +174,13 @@ uint16_t heapStatusColour() {
 //
 // Position/total come from mainCarouselPosition()/mainCarouselCount()
 // (ui_task.cpp), not raw UiPage ordinals/UiPage::COUNT: this project's
-// operator-facing carousel is four stops (Radio/Channel/GPS/System) since
-// Tools/Analyze moved into the menu (2026-09-05) — mainCarouselPosition()
+// operator-facing carousel is five stops (Radio/Activity/Channel/GPS/System)
+// — MAIN_PAGES in ui_task.cpp is the authority, not this comment, which said
+// "four stops (Radio/Channel/GPS/System)" until 2026-09-05: written when
+// Tools/Analyze moved into the menu, and not updated when Activity rejoined
+// the carousel. It was read back as fact during V2 planning and used to
+// contradict a correct UI proposal, so check MAIN_PAGES rather than this
+// sentence. mainCarouselPosition()
 // returns 0 while on one of their sub-pages (Probe/Sweep/Cell, Meter/
 // Waterfall/Scope/Captures/Nodes), reached only through the menu now and
 // with no carousel position of their own, so the "N/M" text is omitted
