@@ -294,74 +294,169 @@ void statBlock(int16_t x, int16_t y, const char *label, const char *value, uint1
     uiTft->print(value);
 }
 
-void drawRadioPage() {
-    const uint32_t drops = radioQueueDropCount() + loggerRowsDropped() + loggerScanRowsDropped();
-    char buf[16];
+// One boxed card: title, size-2 value, size-1 subtitle. Arrived as Activity's
+// own private helper and became the shared idiom when Radio was rebuilt in the
+// same language (2026-09-06) — a card carries a visual band across the top and
+// a row of three of these under it. `valueCol` defaults to COL_FG; Radio's
+// state and storage cards colour it to carry health.
+constexpr int16_t STAT_CARD_H = 60;
+constexpr int16_t STAT_CARD_W = 77; // three across 240px with 2px margins, 3px gaps
 
-    // Left column — the three numbers an operator checks first.
-    uiTft->setTextSize(2);
-    uiTft->setTextColor(COL_FG, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 6);
-    uiTft->print("rx ");
-    uiTft->print(radioPacketCount());
-
-    uiTft->setCursor(2, HEADER_H + 26);
-    uiTft->print("log ");
-    uiTft->print(loggerRowsWritten());
-    // RX activity pulse — solid flash under "log" while a detection was
-    // heard in the last RX_PULSE_MS; reverts on its own because drawPage()
-    // clears this whole region before every redraw.
-    if (rxPulseActive()) {
-        uiTft->fillRect(2, HEADER_H + 23, 58, 2, COL_GOOD);
-    }
-
-    // Drops are the number that decides whether the architecture is holding
-    // up under real traffic, so they get colour rather than being buried.
-    uiTft->setTextColor(drops == 0 ? COL_GOOD : COL_BAD, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 46);
-    uiTft->print("drop ");
-    uiTft->print(drops);
-
-    // STANDBY: the one piece of the old Probe/repeat-scan banner brought
-    // back here (operator request, 2026-09-05) after Activity's own idle
-    // view dropped its hero line and lost this as its last remaining home
-    // — watch-paused is exactly the kind of thing this page's rx/log/drop
-    // counters need it to not be silently ambiguous about. True whenever
-    // the radio isn't actively listening, whether that's a manual pause or
-    // a bounded action (Probe/Sweep/Cell/Scope) currently owning it — the
-    // specific "which one and how far along" detail is Activity's job, not
-    // this one line's.
-    if (radioIsTracePaused()) {
-        uiTft->setTextSize(2);
-        uiTft->setTextColor(COL_WARN, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 66);
-        uiTft->print("STANDBY");
-    }
-
-    // Right column, x=170 — kept consistent across every page so it
-    // lands in the same physical 70px-wide zone rather than drifting.
-    constexpr int16_t RIGHT_X = 170;
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)radioCrcErrorCount());
-    statBlock(RIGHT_X, HEADER_H + 6, "crc", buf);
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)radioBusMissCount());
-    statBlock(RIGHT_X, HEADER_H + 28, "miss", buf);
-    statBlock(RIGHT_X, HEADER_H + 50, "sd", loggerSdReady() ? "ok" : "DOWN",
-              loggerSdReady() ? COL_FG : COL_BAD);
-    snprintf(buf, sizeof(buf), "r%u", (unsigned)loggerRunIndex());
-    statBlock(RIGHT_X, HEADER_H + 72, "run", buf);
-
-    // Bottom band, full width — flush stats matter for judging whether
-    // BATCH_BUF_SIZE needs retuning (docs/DESIGN.md §8.2), not for a quick
-    // glance, so they sit below both columns rather than competing with
-    // either for attention.
+void statCard(int16_t x, int16_t y, int16_t w, const char *title, uint16_t titleCol,
+              const char *value, const char *sub, uint16_t valueCol = COL_FG) {
+    uiTft->drawRect(x, y, w, STAT_CARD_H, COL_DIM);
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(titleCol, COL_BG);
+    uiTft->setCursor(x + 4, y + 4);
+    uiTft->print(title);
+    // 5 characters is what fits at size 2 inside the 4px left inset; longer
+    // values drop to size 1 rather than running out through the border. Cheap
+    // insurance for every caller — Activity's AWAY T card would already
+    // overflow on a sweep past 100s ("120.5s") without it.
+    const bool wide = strlen(value) > 5;
+    uiTft->setTextSize(wide ? 1 : 2);
+    uiTft->setTextColor(valueCol, COL_BG);
+    uiTft->setCursor(x + 4, y + (wide ? 24 : 18));
+    uiTft->print(value);
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 94);
-    uiTft->print("flush ");
-    uiTft->print(loggerFlushCount());
-    uiTft->print("  max ");
-    uiTft->print(loggerMaxFlushMs());
-    uiTft->print("ms");
+    uiTft->setCursor(x + 4, y + 44);
+    // Clamped to the box, like the value above it. A size-1 character is 6px
+    // and the text starts 4px in, so a 77px card holds 11 — "Enter resumes"
+    // was 13 and bled into the neighbouring card on real hardware. Callers
+    // should still write something that fits; this only stops an overrun from
+    // corrupting the card beside it.
+    char fitted[20];
+    const size_t maxChars = (size_t)((w - 6) / 6);
+    snprintf(fitted, sizeof(fitted), "%.*s", (int)(maxChars < sizeof(fitted) - 1 ? maxChars : sizeof(fitted) - 1), sub);
+    uiTft->print(fitted);
+}
+
+// x of the Nth stat card in the standard three-across row.
+constexpr int16_t statCardX(uint8_t n) { return (int16_t)(2 + n * (STAT_CARD_W + 3)); }
+
+// One stage of the receive pipeline: a name, the count that reached it, and
+// what was lost getting there. The loss figure carries the colour — green at
+// zero, red otherwise — because "0" is the only good value and an operator
+// should not have to compare two numbers to notice a leak.
+void pipelineStage(int16_t x, int16_t y, const char *name, uint32_t reached, const char *lossLabel,
+                   uint32_t lost, bool flash) {
+    char buf[16];
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(flash ? COL_GOOD : COL_DIM, COL_BG);
+    uiTft->setCursor(x, y);
+    uiTft->print(name);
+
+    uiTft->setTextSize(2);
+    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->setCursor(x, y + 11);
+    // 5 size-2 digits (60px) is what clears the arrow drawn 8px further on; a
+    // long soak can exceed 99,999 packets, so past that the count switches to
+    // thousands rather than growing into the next column.
+    if (reached < 100000UL) {
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)reached);
+    } else {
+        snprintf(buf, sizeof(buf), "%luk", (unsigned long)(reached / 1000UL));
+    }
+    uiTft->print(buf);
+
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(lost == 0 ? COL_GOOD : COL_BAD, COL_BG);
+    uiTft->setCursor(x, y + 30);
+    snprintf(buf, sizeof(buf), "%s %lu", lossLabel, (unsigned long)lost);
+    uiTft->print(buf);
+}
+
+// Radio, view 0: the receive chain as what it actually is — a pipeline with a
+// named loss at each handoff. Replaces seven equal-weight numbers in two
+// unrelated columns, which said nothing about which of them mattered or how
+// they related (a bare "drop 3" means nothing without the "rx 1284" beside it,
+// and the two sat in different columns).
+//
+// Same shape as Activity's dashboard, deliberately: a visual band across the
+// top, then three statCard()s. Activity's band is a time series because its
+// question is "what is out there now"; Radio's is a flow because its question
+// is "is what I hear reaching the card, and if not, where is it going".
+void drawRadioPage() {
+    const uint32_t heard = radioPacketCount();
+    const uint32_t crc = radioCrcErrorCount();
+    const uint32_t queueDropped = radioQueueDropCount();
+    const uint32_t logged = loggerRowsWritten();
+    const uint32_t logDropped = loggerRowsDropped() + loggerScanRowsDropped();
+
+    // Band 1: the pipeline. Air -> demod -> queue handoff -> SD, each stage
+    // showing what got through and what was lost reaching it. The arrows go
+    // red when the stage they feed lost anything, so the failing handoff is
+    // findable without reading a single number.
+    constexpr int16_t PX = 2, PW = 236, PH = 43;
+    const int16_t py = HEADER_H + 2;
+    uiTft->drawRect(PX, py, PW, PH, COL_DIM);
+
+    constexpr int16_t COL_STEP = 78;
+    const int16_t sy = py + 3;
+    // HEARD flashes on a live detection — the RX pulse that used to be a bar
+    // under "log", moved onto the stage it actually describes.
+    pipelineStage(PX + 4, sy, "HEARD", heard, "crc", crc, rxPulseActive());
+    pipelineStage(PX + 4 + COL_STEP, sy, "QUEUED", heard - queueDropped, "drop", queueDropped, false);
+    pipelineStage(PX + 4 + COL_STEP * 2, sy, "LOGGED", logged, "drop", logDropped, false);
+
+    uiTft->setTextSize(1);
+    uiTft->setCursor(PX + COL_STEP - 6, sy + 14);
+    uiTft->setTextColor(queueDropped == 0 ? COL_DIM : COL_BAD, COL_BG);
+    uiTft->print(">");
+    uiTft->setCursor(PX + COL_STEP * 2 - 6, sy + 14);
+    uiTft->setTextColor(logDropped == 0 ? COL_DIM : COL_BAD, COL_BG);
+    uiTft->print(">");
+
+    // Band 2: three cards, Activity's own idiom and geometry.
+    const int16_t cy = py + PH + 4;
+    char value[14], sub[16];
+
+    // STATE answers "am I even listening", which this page could not say
+    // before: its old bare STANDBY word conflated an operator pause with a
+    // bounded action holding the radio, and showed nothing at all in the
+    // second case. Those are different situations — one is waiting on you,
+    // the other resolves itself — so they get different words.
+    const char *awayWho = nullptr;
+    if (radioDiscoverySweepIsActive()) awayWho = "probe";
+    else if (radioEnergySweepIsActive()) awayWho = "sweep";
+    else if (radioCellSweepIsActive()) awayWho = "cell";
+    else if (radioScopeAcquireIsActive()) awayWho = "scope";
+    else if (radioFocusSurveyIsActive()) awayWho = "focus";
+
+    // The value word carries the state; the sub names what that state is about
+    // — the profile being watched or paused, or the tool that took the radio.
+    // It used to restate the value ("sweep running", "Enter resumes"), which
+    // was both redundant and too wide for the card (operator report).
+    uint16_t stateCol;
+    snprintf(sub, sizeof(sub), "%s", awayWho != nullptr ? awayWho
+                                                        : uiProfileLabel(radioActiveProfile()));
+    if (awayWho != nullptr) {
+        snprintf(value, sizeof(value), "AWAY");
+        stateCol = COL_WARN;
+    } else if (radioIsTracePaused()) {
+        snprintf(value, sizeof(value), "STANDBY");
+        stateCol = COL_WARN;
+    } else {
+        snprintf(value, sizeof(value), "WATCH");
+        stateCol = COL_GOOD;
+    }
+    statCard(statCardX(0), cy, STAT_CARD_W, "STATE", stateCol, value, sub, stateCol);
+
+    const bool sdReady = loggerSdReady();
+    snprintf(value, sizeof(value), "%s", sdReady ? "ok" : "DOWN");
+    snprintf(sub, sizeof(sub), "run %u", (unsigned)loggerRunIndex());
+    statCard(statCardX(1), cy, STAT_CARD_W, "STORAGE", sdReady ? COL_GOOD : COL_BAD, value, sub,
+             sdReady ? COL_FG : COL_BAD);
+
+    // Worst flush, not the flush count: this is the number that decides
+    // whether BATCH_BUF_SIZE needs retuning (docs/DESIGN.md 8.2), and bus
+    // misses are the same SPI-contention story one layer down, so they share
+    // a card rather than sitting in separate columns.
+    const uint32_t misses = radioBusMissCount();
+    snprintf(value, sizeof(value), "%lums", (unsigned long)loggerMaxFlushMs());
+    snprintf(sub, sizeof(sub), "%lu bus miss", (unsigned long)misses);
+    statCard(statCardX(2), cy, STAT_CARD_W, "BUS", misses == 0 ? COL_DIM : COL_BAD, value, sub);
 }
 
 void drawProbePage() {
@@ -1339,25 +1434,6 @@ void samplePacketRate() {
     pktRingLastTotal = total;
 }
 
-// One card: title, size-2 value, size-1 subtitle, boxed.
-void activityCard(int16_t x, int16_t y, int16_t w, const char *title, uint16_t titleCol,
-                  const char *value, const char *sub) {
-    constexpr int16_t H = 60;
-    uiTft->drawRect(x, y, w, H, COL_DIM);
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(titleCol, COL_BG);
-    uiTft->setCursor(x + 4, y + 4);
-    uiTft->print(title);
-    uiTft->setTextSize(2);
-    uiTft->setTextColor(COL_FG, COL_BG);
-    uiTft->setCursor(x + 4, y + 18);
-    uiTft->print(value);
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->setCursor(x + 4, y + 44);
-    uiTft->print(sub);
-}
-
 void drawActivitySummary() {
     samplePacketRate();
 
@@ -1397,9 +1473,9 @@ void drawActivitySummary() {
         snprintf(sub, sizeof(sub), "%.0f dBm", (double)strongest.rssi_peak_dbm_x10 / 10.0);
     } else {
         snprintf(value, sizeof(value), "--");
-        snprintf(sub, sizeof(sub), "no sweep yet");
+        snprintf(sub, sizeof(sub), "no sweep");
     }
-    activityCard(2, cy, CW, "SWEEP PK", COL_WARN, value, sub);
+    statCard(2, cy, CW, "SWEEP PK", COL_WARN, value, sub);
 
     // Last decoded packet. RSSI and SNR are real here, which is why this card
     // replaced the proposal's "CAD HIT ... +8.5dB SNR": CAD returns a binary
@@ -1413,9 +1489,9 @@ void drawActivitySummary() {
         snprintf(sub, sizeof(sub), "%+.1fdB SNR", (double)latest.snr_db);
     } else {
         snprintf(value, sizeof(value), "--");
-        snprintf(sub, sizeof(sub), "no packets yet");
+        snprintf(sub, sizeof(sub), "no packets");
     }
-    activityCard(2 + CW + 3, cy, CW, "LAST PKT", COL_GOOD, value, sub);
+    statCard(2 + CW + 3, cy, CW, "LAST PKT", COL_GOOD, value, sub);
 
     // Away time: the most recent bounded action to have held the radio, shown
     // plainly. No budget line -- §6.3 measured the cost and deliberately left
@@ -1436,7 +1512,7 @@ void drawActivitySummary() {
         snprintf(value, sizeof(value), "--");
         snprintf(sub, sizeof(sub), "none yet");
     }
-    activityCard(2 + (CW + 3) * 2, cy, CW, "AWAY T", COL_DIM, value, sub);
+    statCard(2 + (CW + 3) * 2, cy, CW, "AWAY T", COL_DIM, value, sub);
 }
 
 
