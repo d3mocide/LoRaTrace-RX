@@ -298,6 +298,73 @@ void drawPlotWell(int16_t top, int16_t floorY) {
     uiTft->drawFastHLine(0, floorY, w, COL_DIM);
 }
 
+// --- Bounded-action result skeleton ---------------------------------------
+// Probe, Sweep, Cell and Focus all report the same shape of thing: one headline
+// value, a terminal state, progress through a bounded run, and a small summary.
+// Focus grew the best version of that layout (Workstream 12) and the other
+// three were each carrying their own arrangement of the same parts, so this is
+// Focus's skeleton lifted out for all four (operator request, 2026-09-06).
+//
+// Row 1  hero (size 2) + a mid detail + right-aligned status word
+// Row 2  full-width progress bar
+// Row 3  left and right detail labels
+// ...    each page's own content block
+// Row 5  three colour-coded summary values
+
+void drawActionHero(const char *hero, const char *mid, uint16_t midCol, const char *status,
+                    uint16_t statusCol) {
+    uiTft->setTextSize(2);
+    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 4);
+    uiTft->print(hero);
+
+    uiTft->setTextSize(1);
+    if (mid != nullptr) {
+        uiTft->setTextColor(midCol, COL_BG);
+        uiTft->setCursor(138, HEADER_H + 6);
+        uiTft->print(mid);
+    }
+    uiTft->setTextColor(statusCol, COL_BG);
+    uiTft->setCursor(238 - (int16_t)strlen(status) * 6, HEADER_H + 6);
+    uiTft->print(status);
+}
+
+void drawActionBar(uint32_t done, uint32_t total, uint16_t col) {
+    constexpr int16_t GX = 2, GW = 236;
+    const int16_t y = HEADER_H + 28;
+    uiTft->drawRect(GX, y, GW, 8, COL_DIM);
+    const uint32_t span = total ? total : 1;
+    const uint32_t clamped = done > span ? span : done;
+    const int16_t fill = (int16_t)((GW - 2) * clamped / span);
+    if (fill > 0) uiTft->fillRect(GX + 1, y + 1, fill, 6, col);
+}
+
+void drawActionLabels(const char *left, const char *right) {
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 39);
+    uiTft->print(left);
+    if (right != nullptr) {
+        uiTft->setCursor(238 - (int16_t)strlen(right) * 6, HEADER_H + 39);
+        uiTft->print(right);
+    }
+}
+
+// Three summary values on one row, at Focus's own P50/P90/PK columns.
+void drawActionStats(const char *a, uint16_t ca, const char *b, uint16_t cb, const char *c,
+                     uint16_t cc) {
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(ca, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 95);
+    uiTft->print(a);
+    uiTft->setTextColor(cb, COL_BG);
+    uiTft->setCursor(86, HEADER_H + 95);
+    uiTft->print(b);
+    uiTft->setTextColor(cc, COL_BG);
+    uiTft->setCursor(164, HEADER_H + 95);
+    uiTft->print(c);
+}
+
 // "Label above value" block for the secondary/context column every page
 // carries alongside its primary left-column numbers, so each page doesn't
 // invent its own right-column formatting.
@@ -317,7 +384,10 @@ void statBlock(int16_t x, int16_t y, const char *label, const char *value, uint1
 // a row of three of these under it. `valueCol` defaults to COL_FG; Radio's
 // state and storage cards colour it to carry health.
 constexpr int16_t STAT_CARD_H = 60;
-constexpr int16_t STAT_CARD_W = 77; // three across 240px with 2px margins, 3px gaps
+// 3 cards + 2 gaps span the full 240: 78*3 + 3*2 = 240, so the outer card
+// edges land on x=0 and x=239 — flush with the plot well's rails above them
+// (operator request, 2026-09-06). Radio's six grid cells share this geometry.
+constexpr int16_t STAT_CARD_W = 78;
 
 void statCard(int16_t x, int16_t y, int16_t w, const char *title, uint16_t titleCol,
               const char *value, const char *sub, uint16_t valueCol = COL_FG) {
@@ -350,7 +420,7 @@ void statCard(int16_t x, int16_t y, int16_t w, const char *title, uint16_t title
 }
 
 // x of the Nth stat card in the standard three-across row.
-constexpr int16_t statCardX(uint8_t n) { return (int16_t)(2 + n * (STAT_CARD_W + 3)); }
+constexpr int16_t statCardX(uint8_t n) { return (int16_t)(n * (STAT_CARD_W + 3)); }
 
 // One cell of Radio's 2x3 grid: a label and its count, boxed. Counts are
 // neutral; a loss figure carries colour, green at zero and red otherwise,
@@ -358,13 +428,17 @@ constexpr int16_t statCardX(uint8_t n) { return (int16_t)(2 + n * (STAT_CARD_W +
 // numbers to notice a leak.
 void radioCell(int16_t x, int16_t y, const char *label, uint32_t v, bool isLoss, bool flash) {
     char buf[12];
-    uiTft->drawRect(x, y, STAT_CARD_W, 21, COL_DIM);
+    // No box (operator request, 2026-09-06): six cell borders plus three card
+    // borders made nine rectangles on one screen, and the chrome became the
+    // figure while the numbers became the ground. The grid still reads as a
+    // grid from column alignment and the well around it — the boxes were
+    // carrying nothing the layout was not already saying.
     uiTft->setTextSize(1);
     uiTft->setTextColor(flash ? COL_GOOD : COL_DIM, COL_BG);
-    uiTft->setCursor(x + 4, y + 3);
+    uiTft->setCursor(x + 4, y);
     uiTft->print(label);
     uiTft->setTextColor(isLoss ? (v == 0 ? COL_GOOD : COL_BAD) : COL_FG, COL_BG);
-    uiTft->setCursor(x + 4, y + 12);
+    uiTft->setCursor(x + 4, y + 9);
     if (v < 100000UL) {
         snprintf(buf, sizeof(buf), "%lu", (unsigned long)v);
     } else {
@@ -380,10 +454,10 @@ void radioCell(int16_t x, int16_t y, const char *label, uint32_t v, bool isLoss,
 // ones. Row 1 is what the radio did, row 2 is what the pipeline did with it,
 // so the chain still reads in order without being drawn.
 void drawRadioPage() {
-    // No container box around the grid (operator request, same session): the
-    // header's own hairline already separates this region, and a second border
-    // immediately under it was clutter. The cells keep theirs, as do the cards.
-    constexpr int16_t ROW1 = HEADER_H + 2, ROW2 = HEADER_H + 25;
+    // The same well the plot cards use, so Radio's band is bounded the way
+    // theirs are without every value inside it being boxed too.
+    drawPlotWell(HEADER_H, HEADER_H + 45);
+    constexpr int16_t ROW1 = HEADER_H + 4, ROW2 = HEADER_H + 26;
     radioCell(statCardX(0), ROW1, "RX", radioPacketCount(), false, rxPulseActive());
     radioCell(statCardX(1), ROW1, "CRC", radioCrcErrorCount(), true, false);
     radioCell(statCardX(2), ROW1, "MISS", radioBusMissCount(), true, false);
@@ -443,12 +517,17 @@ void drawRadioPage() {
     statCard(statCardX(2), cy, STAT_CARD_W, "BUS", COL_DIM, value, sub);
 }
 
+// Probe, on the shared bounded-action skeleton (2026-09-06). The most
+// overdue of the four: it was still a headline word over a stack of text
+// lines, with the answer -- which candidate tuples actually heard something --
+// last on the page. Now the hit count is the hero, and the named candidates
+// take the content block where Sweep puts occupancy and Focus its gauge.
 void drawProbePage() {
     const DiscoverySweepState state = radioDiscoverySweepState();
     const uint8_t done = radioDiscoveryCandidateIndex();
     const uint8_t total = radioDiscoveryCandidateCount();
     const uint16_t hits = radioDiscoveryCadDetectedCount();
-    const uint16_t free = radioDiscoveryCadFreeCount();
+    const uint16_t freeCount = radioDiscoveryCadFreeCount();
     const uint16_t timeouts = radioDiscoveryCadTimeoutCount();
     const uint16_t errors = radioDiscoveryErrorCount();
 
@@ -458,106 +537,69 @@ void drawProbePage() {
     }
 
     const bool running = state == DiscoverySweepState::RUNNING;
-    // Past RESULT_HOLD_MS the headline keeps its real terminal word and only
-    // goes dim; the age of that result lands on the detail line below
-    // (resultAge()). It used to be replaced by "IDLE" — see resultAge()'s own
-    // comment for why a tool view reporting radio idleness was the wrong
-    // thing to say.
     const bool holdExpired = !running && probeTerminalShownAt != 0 &&
                              millis() - probeTerminalShownAt >= RESULT_HOLD_MS;
-    uiTft->setTextSize(2);
-    uiTft->setCursor(2, HEADER_H + 8);
-    const uint16_t colour = holdExpired ? COL_DIM
-                            : state == DiscoverySweepState::FAILED
-                                ? COL_BAD
-                                : (running || state == DiscoverySweepState::CANCELLED ? COL_WARN : COL_GOOD);
-    uiTft->setTextColor(colour, COL_BG);
+    const char *status;
+    uint16_t statusCol;
     if (running) {
-        uiTft->print("SCANNING");
+        status = "SCANNING"; statusCol = COL_WARN;
     } else if (state == DiscoverySweepState::COMPLETE) {
-        uiTft->print("COMPLETE");
+        status = "COMPLETE"; statusCol = holdExpired ? COL_DIM : COL_GOOD;
     } else if (state == DiscoverySweepState::CANCELLED) {
-        uiTft->print("CANCELLED");
+        status = "CANCELLED"; statusCol = holdExpired ? COL_DIM : COL_WARN;
     } else {
-        uiTft->print("FAILED");
+        status = "FAILED"; statusCol = COL_BAD;
     }
 
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(COL_FG, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 31);
+    // The hero is the finding, not the progress: "2 of 8 candidate channels
+    // had energy" is what an operator ran this for.
+    char hero[20], mid[16], left[32], right[24];
+    snprintf(hero, sizeof(hero), "%u / %u", (unsigned)hits, (unsigned)total);
+    snprintf(mid, sizeof(mid), "ACTIVE");
+    drawActionHero(hero, mid, hits > 0 ? COL_WARN : COL_DIM, status, statusCol);
+
+    drawActionBar(done, total, running ? COL_WARN : COL_GOOD);
+    snprintf(left, sizeof(left), running ? "TESTING %u / %u" : "TARGETS %u / %u", (unsigned)done,
+             (unsigned)total);
     if (running) {
-        uiTft->print("Watch away  ");
-        uiTft->print(done);
-        uiTft->print('/');
-        uiTft->print(total);
-        return; // nothing else to summarize until a candidate lands somewhere
-    }
-    uiTft->print("targets ");
-    uiTft->print(done);
-    uiTft->print('/');
-    uiTft->print(total);
-    uiTft->print("  away ");
-    uiTft->print(radioDiscoveryLastAwayMs());
-    uiTft->print("ms  ");
-    uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->print(resultAge(probeTerminalShownAt));
-
-    // Plain-English headline instead of raw "cad hit"/"free" jargon — the
-    // actual answer to "did I find anything", not internal counters.
-    char summary[24];
-    snprintf(summary, sizeof(summary), "%u/%u channels active", (unsigned)hits, (unsigned)total);
-    uiTft->setTextColor(hits > 0 ? COL_WARN : COL_DIM, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 47);
-    uiTft->print(summary);
-
-    // Which named candidates actually hit. Mask bit i corresponds to
-    // plan.candidates[i] — radio_task.cpp's own raw loop index into the
-    // candidate table, not the skip-adjusted done/total counters above
-    // (see radioDiscoveryCadDetectedMask()'s own doc comment).
-    uiTft->setCursor(2, HEADER_H + 59);
-    if (hits == 0) {
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print("no activity heard");
+        snprintf(right, sizeof(right), "Watch away");
     } else {
-        const DiscoveryPlan plan = discoveryPlanForProfile(radioActiveProfile());
-        const uint16_t mask = radioDiscoveryCadDetectedMask();
-        char names[40] = {0};
-        for (uint8_t i = 0; i < plan.count && i < 16; i++) {
-            if (!(mask & (1U << i))) continue;
-            const char *label = uiDiscoveryCandidateLabel(plan.candidates[i]);
-            const size_t used = strlen(names);
-            const size_t needed = (used == 0 ? 0 : 2) + strlen(label);
-            if (used + needed >= sizeof(names) - 4) {
-                strcat(names, "...");
-                break;
-            }
-            if (used != 0) strcat(names, ", ");
-            strcat(names, label);
-        }
-        uiTft->setTextColor(COL_FG, COL_BG);
-        uiTft->print(names);
+        snprintf(right, sizeof(right), "%lums  %s", (unsigned long)radioDiscoveryLastAwayMs(),
+                 resultAge(probeTerminalShownAt));
+    }
+    drawActionLabels(left, right);
+
+    // Content block: which named candidates hit. Mask bit i is
+    // plan.candidates[i] -- radio_task.cpp's raw loop index into the candidate
+    // table, not the skip-adjusted done/total above (see
+    // radioDiscoveryCadDetectedMask()'s own doc comment).
+    uiTft->drawRect(2, HEADER_H + 59, 236, 32, COL_DIM);
+    uiTft->setTextSize(1);
+    const DiscoveryPlan plan = discoveryPlanForProfile(radioActiveProfile());
+    const uint32_t mask = radioDiscoveryCadDetectedMask();
+    uint8_t shown = 0;
+    for (uint8_t i = 0; i < plan.count && shown < 3; i++) {
+        if ((mask & (1UL << i)) == 0) continue;
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(6, HEADER_H + 63 + shown * 9);
+        uiTft->print(uiDiscoveryCandidateLabel(plan.candidates[i]));
+        shown++;
+    }
+    if (shown == 0) {
+        uiTft->setTextColor(COL_DIM, COL_BG);
+        uiTft->setCursor(6, HEADER_H + 63);
+        uiTft->print(running ? "listening..." : "no candidate heard energy");
     }
 
-    // The raw per-channel breakdown, restored as a single reference line
-    // under the readable summary above rather than dropped — full detail
-    // still lives in probe.csv, but the operator shouldn't have to pull
-    // the card to see "how many timed out" right after a run.
-    char stats[40];
-    snprintf(stats, sizeof(stats), "hits %u  free %u  timeout %u  err %u",
-             (unsigned)hits, (unsigned)free, (unsigned)timeouts, (unsigned)errors);
-    uiTft->setTextColor(errors > 0 ? COL_BAD : COL_DIM, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 84);
-    uiTft->print(stats);
-
-    if (state == DiscoverySweepState::FAILED) {
-        char value[10];
-        snprintf(value, sizeof(value), "%d", radioLastError());
-        // y=96, not 100: statBlock draws its value 9px below the label, so at
-        // 100 the value landed on the footer's profile text (y=125..132). A
-        // pre-existing overlap, only visible in the radio-error case, fixed
-        // during the 2026-09-06 layout pass.
-        statBlock(2, HEADER_H + 96, "radio error", value, COL_BAD);
+    char a[16], b[16], c[16];
+    snprintf(a, sizeof(a), "HIT %u", (unsigned)hits);
+    snprintf(b, sizeof(b), "FREE %u", (unsigned)freeCount);
+    if (errors > 0) {
+        snprintf(c, sizeof(c), "ERR %u", (unsigned)errors);
+    } else {
+        snprintf(c, sizeof(c), "T/O %u", (unsigned)timeouts);
     }
+    drawActionStats(a, hits > 0 ? COL_WARN : COL_DIM, b, COL_DIM, c, errors > 0 ? COL_BAD : COL_DIM);
 }
 
 // Track + marker, not a fill bar — frequency is a *position* within a band,
@@ -681,6 +723,12 @@ void drawSweepOccupancy(int16_t x, int16_t y, int16_t w, uint16_t totalBins) {
 // operator request, same meaning as the original "energy only, not
 // LoRa"): docs/DESIGN.md's central Sweep rule is that a measured RSSI peak is
 // never by itself evidence of LoRa traffic.
+// Sweep, on the shared bounded-action skeleton (2026-09-06). Its own layout
+// predated Focus's and carried the same parts in a different arrangement:
+// headline word top-left, progress buried in a text line, results split
+// between a left column and right-hand statBlocks. Now the frequency is the
+// hero it always should have been — a sweep's answer is "where", not "how far
+// along" — with the state word right-aligned as a status, not a headline.
 void drawSweepPage() {
     const EnergySweepState state = radioEnergySweepState();
     const uint16_t bin = radioEnergyBinIndex();
@@ -694,93 +742,117 @@ void drawSweepPage() {
         return;
     }
 
-    uiTft->setTextSize(2);
-    uiTft->setCursor(2, HEADER_H + 8);
     const bool running = state == EnergySweepState::RUNNING;
-    // Same IDLE-after-hold reversion as drawProbePage() — the headline
-    // word is the only thing that changes; bin/peak data below still
-    // reflects the real last result. Repeat mode (R, operator request
-    // 2026-08-29; moved off a Ctrl+S chord to its own key 2026-08-30 — see
-    // keyboard.h) takes priority over all of that: back-to-back laps would
-    // otherwise flicker SCANNING/COMPLETE every single one, which reads as
-    // broken rather than as one continuous ambient scan.
+    // Repeat mode outranks the terminal word: back-to-back laps would otherwise
+    // flicker SCANNING/COMPLETE every single one, which reads as broken rather
+    // than as one continuous ambient scan.
     const bool holdExpired = !repeating && !running && sweepTerminalShownAt != 0 &&
                              millis() - sweepTerminalShownAt >= RESULT_HOLD_MS;
+    const char *status;
+    uint16_t statusCol;
     if (repeating) {
-        uiTft->setTextColor(COL_WARN, COL_BG);
-        uiTft->print("REPEATING");
+        status = "REPEATING"; statusCol = COL_WARN;
+    } else if (running) {
+        status = "SCANNING"; statusCol = COL_WARN;
+    } else if (state == EnergySweepState::COMPLETE) {
+        status = "COMPLETE"; statusCol = holdExpired ? COL_DIM : COL_GOOD;
+    } else if (state == EnergySweepState::CANCELLED) {
+        status = "CANCELLED"; statusCol = holdExpired ? COL_DIM : COL_WARN;
     } else {
-        const uint16_t colour = holdExpired ? COL_DIM
-                                : state == EnergySweepState::FAILED
-                                    ? COL_BAD
-                                    : (running || state == EnergySweepState::CANCELLED ? COL_WARN : COL_GOOD);
-        uiTft->setTextColor(colour, COL_BG);
-        if (running) {
-            uiTft->print("SCANNING");
-        } else if (state == EnergySweepState::COMPLETE) {
-            uiTft->print("COMPLETE");
-        } else if (state == EnergySweepState::CANCELLED) {
-            uiTft->print("CANCELLED");
-        } else {
-            uiTft->print("FAILED");
-        }
+        status = "FAILED"; statusCol = COL_BAD;
     }
 
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(COL_FG, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 31);
+    // While running the hero tracks the bin being measured; once finished it
+    // becomes the strongest peak, which is the result an operator came for.
+    const EnergyStrongestPeak strongest = radioEnergyStrongestPeak();
+    char hero[20], mid[16], left[32], right[24];
+    if (!running && strongest.valid) {
+        snprintf(hero, sizeof(hero), "%.3f MHz", (double)strongest.freq_mhz);
+    } else {
+        snprintf(hero, sizeof(hero), "%.3f MHz",
+                 (double)energyBinFrequencyMhz(bin, band, ENERGY_SWEEP_DEFAULT_STEP));
+    }
+    snprintf(mid, sizeof(mid), "BIN %u", (unsigned)bin);
+    drawActionHero(hero, mid, COL_WARN, status, statusCol);
+
+    drawActionBar(bin, total, running ? COL_WARN : COL_GOOD);
+    snprintf(left, sizeof(left), running ? "SCANNING %u / %u" : "BINS %u / %u", (unsigned)bin,
+             (unsigned)total);
     if (running) {
-        uiTft->print("Watch away  ");
+        snprintf(right, sizeof(right), "Watch away");
     } else {
-        uiTft->print("bins ");
+        snprintf(right, sizeof(right), "%lums  %s", (unsigned long)radioEnergyLastAwayMs(),
+                 resultAge(sweepTerminalShownAt));
     }
-    uiTft->print(bin);
-    uiTft->print('/');
-    uiTft->print(total);
-    if (!running) {
-        uiTft->print("  away ");
-        uiTft->print(radioEnergyLastAwayMs());
-        uiTft->print("ms  ");
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print(resultAge(sweepTerminalShownAt));
-    }
+    drawActionLabels(left, right);
 
-    drawFreqBar(2, HEADER_H + 62, 108, energyBinFrequencyMhz(bin, band, ENERGY_SWEEP_DEFAULT_STEP),
-               band.lo_mhz, band.hi_mhz);
-    drawSweepOccupancy(2, HEADER_H + 62, 108, total);
+    // Occupancy strip in the content block, where Focus puts its gauge: every
+    // bin the last completed sweep marked as a peak, positioned across the band.
+    uiTft->drawRect(2, HEADER_H + 59, 236, 20, COL_DIM);
+    drawSweepOccupancy(4, HEADER_H + 62, 232, total);
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(4, HEADER_H + 83);
+    uiTft->print((int)band.lo_mhz);
+    char hiBuf[8];
+    snprintf(hiBuf, sizeof(hiBuf), "%d", (int)band.hi_mhz);
+    uiTft->setCursor(236 - (int16_t)strlen(hiBuf) * 6, HEADER_H + 83);
+    uiTft->print(hiBuf);
 
-    char value[10];
-    snprintf(value, sizeof(value), "%u", (unsigned)peaks);
-    statBlock(170, HEADER_H + 6, "peaks", value, peaks == 0 ? COL_DIM : COL_WARN);
-    if (state == EnergySweepState::FAILED) {
-        snprintf(value, sizeof(value), "%d", radioLastError());
-        statBlock(170, HEADER_H + 34, "radio", value, COL_BAD);
+    char a[16], b[16], c[16];
+    snprintf(a, sizeof(a), "PEAKS %u", (unsigned)peaks);
+    if (strongest.valid) {
+        snprintf(b, sizeof(b), "PK %d", (int)(strongest.rssi_peak_dbm_x10 / 10));
     } else {
-        // The single strongest peak this sweep — a more useful "what did
-        // we find" callout than a bare count.
-        const EnergyStrongestPeak strongest = radioEnergyStrongestPeak();
-        if (strongest.valid) {
-            char freqBuf[10];
-            snprintf(freqBuf, sizeof(freqBuf), "%.1f", (double)strongest.freq_mhz);
-            statBlock(170, HEADER_H + 34, "best MHz", freqBuf, COL_WARN);
-            char rssiBuf[10];
-            snprintf(rssiBuf, sizeof(rssiBuf), "%ddB", (int)(strongest.rssi_peak_dbm_x10 / 10));
-            statBlock(170, HEADER_H + 62, "rssi", rssiBuf);
-        } else {
-            uiTft->setTextColor(COL_DIM, COL_BG);
-            uiTft->setCursor(170, HEADER_H + 34);
-            uiTft->print("none found");
-        }
+        snprintf(b, sizeof(b), "PK --");
     }
-
-    // Lap counter, bottom of the right column (operator request,
-    // 2026-08-29) — separate from peaks/best-MHz/rssi above it, which
-    // still describe the most recently finished lap, not the chain itself.
     if (repeating) {
-        char lapValue[10];
-        snprintf(lapValue, sizeof(lapValue), "%lu", (unsigned long)radioEnergySweepRepeatCount());
-        statBlock(170, HEADER_H + 90, "lap", lapValue, COL_WARN);
+        snprintf(c, sizeof(c), "LAP %lu", (unsigned long)radioEnergySweepRepeatCount());
+    } else if (state == EnergySweepState::FAILED) {
+        snprintf(c, sizeof(c), "ERR %d", radioLastError());
+    } else {
+        snprintf(c, sizeof(c), "MGN %.0fdB", (double)radioEnergySweepMarginDbmX10() / 10.0);
     }
+    drawActionStats(a, peaks == 0 ? COL_DIM : COL_WARN, b, COL_FG, c,
+                    state == EnergySweepState::FAILED ? COL_BAD : COL_DIM);
+}
+
+// One marker inside the bracket, with its label above the box.
+// Focus (V2 Workstream 12). Geometry follows drawFocusScreen() in
+// docs/UI-Recommendations.html: size-2 target frequency with the bin and
+// status on the same row, a full-width dwell bar, a boxed -120..-40 dBm
+// bracket with the summary values marked inside it, and a stats readout.
+//
+// Two deliberate departures from that spec. The "Operator Truth Badge"
+// (SAMPLING/REPEATED/INSUFFICIENT, "High confidence") is absent: its
+// thresholds are unselected and a single confidence word is what §3 of the
+// design forbids substituting for the counts. And the guide's third statistic
+// is a noise Floor, which a pass does not measure -- FocusObservation carries
+// median, P90 and peak -- so peak takes that slot, which is also the value the
+// 2026-09-05 field measurements showed actually separates a source from
+// ambient.
+constexpr int16_t FOCUS_SCALE_MIN_DBM = -120;
+constexpr int16_t FOCUS_SCALE_SPAN_DB = 80;   // -120 .. -40
+int16_t focusScaleX(int16_t dbm_x10, int16_t x, int16_t w) {
+    const float dbm = (float)dbm_x10 / 10.0f;
+    const float lo = (float)FOCUS_SCALE_MIN_DBM;
+    const float hi = lo + (float)FOCUS_SCALE_SPAN_DB;
+    const float clamped = dbm < lo ? lo : (dbm > hi ? hi : dbm);
+    return (int16_t)(x + (clamped - lo) / (float)FOCUS_SCALE_SPAN_DB * (float)w);
+}
+
+void drawFocusMarker(int16_t dbm_x10, int16_t x, int16_t w, int16_t boxY,
+                     uint16_t colour, const char *label) {
+    if (dbm_x10 == FOCUS_RSSI_NO_SAMPLE_DBM_X10) return;
+    const int16_t mx = focusScaleX(dbm_x10, x, w);
+    uiTft->fillRect(mx - 1, boxY + 1, 3, 18, colour);
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(colour, COL_BG);
+    int16_t lx = mx - 10;
+    if (lx < 0) lx = 0;
+    if (lx > 240 - 24) lx = 240 - 24;
+    uiTft->setCursor(lx, boxY - 10);
+    uiTft->print(label);
 }
 
 // Phase 11 Cell result card (2026-09-01), same layout shape as
@@ -828,45 +900,6 @@ void drawCellBandBlocks(int16_t x, int16_t y, int16_t w) {
             uiTft->print(block.label);
         }
     }
-}
-
-// Focus (V2 Workstream 12). Geometry follows drawFocusScreen() in
-// docs/UI-Recommendations.html: size-2 target frequency with the bin and
-// status on the same row, a full-width dwell bar, a boxed -120..-40 dBm
-// bracket with the summary values marked inside it, and a stats readout.
-//
-// Two deliberate departures from that spec. The "Operator Truth Badge"
-// (SAMPLING/REPEATED/INSUFFICIENT, "High confidence") is absent: its
-// thresholds are unselected and a single confidence word is what §3 of the
-// design forbids substituting for the counts. And the guide's third statistic
-// is a noise Floor, which a pass does not measure -- FocusObservation carries
-// median, P90 and peak -- so peak takes that slot, which is also the value the
-// 2026-09-05 field measurements showed actually separates a source from
-// ambient.
-constexpr int16_t FOCUS_SCALE_MIN_DBM = -120;
-constexpr int16_t FOCUS_SCALE_SPAN_DB = 80;   // -120 .. -40
-
-int16_t focusScaleX(int16_t dbm_x10, int16_t x, int16_t w) {
-    const float dbm = (float)dbm_x10 / 10.0f;
-    const float lo = (float)FOCUS_SCALE_MIN_DBM;
-    const float hi = lo + (float)FOCUS_SCALE_SPAN_DB;
-    const float clamped = dbm < lo ? lo : (dbm > hi ? hi : dbm);
-    return (int16_t)(x + (clamped - lo) / (float)FOCUS_SCALE_SPAN_DB * (float)w);
-}
-
-// One marker inside the bracket, with its label above the box.
-void drawFocusMarker(int16_t dbm_x10, int16_t x, int16_t w, int16_t boxY,
-                     uint16_t colour, const char *label) {
-    if (dbm_x10 == FOCUS_RSSI_NO_SAMPLE_DBM_X10) return;
-    const int16_t mx = focusScaleX(dbm_x10, x, w);
-    uiTft->fillRect(mx - 1, boxY + 1, 3, 18, colour);
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(colour, COL_BG);
-    int16_t lx = mx - 10;
-    if (lx < 0) lx = 0;
-    if (lx > 240 - 24) lx = 240 - 24;
-    uiTft->setCursor(lx, boxY - 10);
-    uiTft->print(label);
 }
 
 void drawFocusPage() {
@@ -990,6 +1023,11 @@ void drawFocusPage() {
     uiTft->print(buf);
 }
 
+// Cell, on the shared bounded-action skeleton (2026-09-06) — the same layout
+// as Sweep and Probe, since it is the same kind of run. The strongest carrier
+// is the hero: a cell-band scan's answer is which frequency was loudest, and
+// that was previously a right-column statBlock two rows down from the state
+// word that had the headline.
 void drawCellPage() {
     const CellSweepState state = radioCellSweepState();
     const uint16_t bin = radioCellBinIndex();
@@ -1001,99 +1039,73 @@ void drawCellPage() {
         return;
     }
 
-    uiTft->setTextSize(2);
-    uiTft->setCursor(2, HEADER_H + 8);
     const bool running = state == CellSweepState::RUNNING;
-    // Same dim-the-headline-and-age-it treatment as drawProbePage()/
-    // drawSweepPage(). Repeat mode takes priority, same reasoning as
-    // drawSweepPage()'s own repeating check: back-to-back laps would
-    // otherwise flicker SCANNING/COMPLETE every single one.
     const bool holdExpired = !repeating && !running && cellTerminalShownAt != 0 &&
                              millis() - cellTerminalShownAt >= RESULT_HOLD_MS;
+    const char *status;
+    uint16_t statusCol;
     if (repeating) {
-        uiTft->setTextColor(COL_WARN, COL_BG);
-        uiTft->print("REPEATING");
+        status = "REPEATING"; statusCol = COL_WARN;
+    } else if (running) {
+        status = "SCANNING"; statusCol = COL_WARN;
+    } else if (state == CellSweepState::COMPLETE) {
+        status = "COMPLETE"; statusCol = holdExpired ? COL_DIM : COL_GOOD;
+    } else if (state == CellSweepState::CANCELLED) {
+        status = "CANCELLED"; statusCol = holdExpired ? COL_DIM : COL_WARN;
     } else {
-        const uint16_t colour = holdExpired ? COL_DIM
-                                : state == CellSweepState::FAILED
-                                    ? COL_BAD
-                                    : (running || state == CellSweepState::CANCELLED ? COL_WARN : COL_GOOD);
-        uiTft->setTextColor(colour, COL_BG);
-        if (running) {
-            uiTft->print("SCANNING");
-        } else if (state == CellSweepState::COMPLETE) {
-            uiTft->print("COMPLETE");
-        } else if (state == CellSweepState::CANCELLED) {
-            uiTft->print("CANCELLED");
-        } else {
-            uiTft->print("FAILED");
-        }
+        status = "FAILED"; statusCol = COL_BAD;
     }
 
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(COL_FG, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 31);
+    const CellStrongestSignal strongest = radioCellStrongestSignal();
+    char hero[20], mid[16], left[32], right[24];
+    if (!running && strongest.valid) {
+        snprintf(hero, sizeof(hero), "%.1f MHz", (double)strongest.freq_mhz);
+    } else {
+        snprintf(hero, sizeof(hero), "%.1f MHz", (double)cellBinFrequencyMhz(bin));
+    }
+    snprintf(mid, sizeof(mid), "BIN %u", (unsigned)bin);
+    drawActionHero(hero, mid, COL_WARN, status, statusCol);
+
+    drawActionBar(bin, total, running ? COL_WARN : COL_GOOD);
+    snprintf(left, sizeof(left), running ? "SCANNING %u / %u" : "BINS %u / %u", (unsigned)bin,
+             (unsigned)total);
     if (running) {
-        uiTft->print("Watch away  ");
+        snprintf(right, sizeof(right), "Watch away");
     } else {
-        uiTft->print("bins ");
+        snprintf(right, sizeof(right), "%lums  %s", (unsigned long)radioCellLastAwayMs(),
+                 resultAge(cellTerminalShownAt));
     }
-    uiTft->print(bin);
-    uiTft->print('/');
-    uiTft->print(total);
-    if (!running) {
-        uiTft->print("  away ");
-        uiTft->print(radioCellLastAwayMs());
-        uiTft->print("ms  ");
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->print(resultAge(cellTerminalShownAt));
-    }
+    drawActionLabels(left, right);
 
-    drawFreqBar(2, HEADER_H + 62, 108, cellBinFrequencyMhz(bin), CELL_SWEEP_BAND_LO_MHZ,
-               CELL_SWEEP_BAND_HI_MHZ);
-    drawCellBandBlocks(2, HEADER_H + 80, 108);
-
-    // Permanent honesty line, not a one-time disclaimer — this is the
-    // feature's central rule (docs/DESIGN.md §5a), not incidental text.
+    // FCC A/B block markers in the content block, where Sweep puts occupancy.
+    uiTft->drawRect(2, HEADER_H + 59, 236, 20, COL_DIM);
+    drawCellBandBlocks(4, HEADER_H + 64, 232);
+    uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 96);
-    uiTft->print("RSSI only - no decode");
+    uiTft->setCursor(4, HEADER_H + 83);
+    uiTft->print((int)CELL_SWEEP_BAND_LO_MHZ);
+    uiTft->setCursor(214, HEADER_H + 83);
+    uiTft->print((int)CELL_SWEEP_BAND_HI_MHZ);
 
-    if (state == CellSweepState::FAILED) {
-        char value[10];
-        snprintf(value, sizeof(value), "%d", radioLastError());
-        statBlock(170, HEADER_H + 6, "radio", value, COL_BAD);
+    // Permanent honesty line, not a one-time disclaimer: docs/DESIGN.md S5a's
+    // central rule is that a cell-band RSSI reading is never presented as more
+    // than presence and strength -- no cell ID, no decode, no tower location.
+    char a[16], b[16], c[20];
+    if (strongest.valid) {
+        snprintf(a, sizeof(a), "PK %d", (int)(strongest.rssi_peak_dbm_x10 / 10));
     } else {
-        // The single strongest reading this sweep — same "what did we find"
-        // callout shape as Sweep's own strongest-peak block, just without a
-        // peak *count* (Cell logs every bin, not threshold-filtered peaks —
-        // cell_observation.h's file header).
-        const CellStrongestSignal strongest = radioCellStrongestSignal();
-        if (strongest.valid) {
-            char freqBuf[10];
-            snprintf(freqBuf, sizeof(freqBuf), "%.1f", (double)strongest.freq_mhz);
-            statBlock(170, HEADER_H + 6, "best MHz", freqBuf, COL_WARN);
-            char rssiBuf[10];
-            snprintf(rssiBuf, sizeof(rssiBuf), "%ddB", (int)(strongest.rssi_peak_dbm_x10 / 10));
-            statBlock(170, HEADER_H + 34, "rssi", rssiBuf);
-        } else {
-            uiTft->setTextColor(COL_DIM, COL_BG);
-            uiTft->setCursor(170, HEADER_H + 6);
-            uiTft->print("none found");
-        }
+        snprintf(a, sizeof(a), "PK --");
     }
-
-    // Lap counter, same bottom-right placement convention as Sweep's own
-    // (drawSweepPage() above) — Cell's right column only has two stat
-    // blocks (no "peaks" concept, cell_observation.h's file header), so its
-    // free slot is +62 rather than Sweep's +90. Shown even on a FAILED lap
-    // (the branch above no longer returns early) so a failed lap mid-chain
-    // doesn't hide how many laps ran before it.
     if (repeating) {
-        char lapValue[10];
-        snprintf(lapValue, sizeof(lapValue), "%lu", (unsigned long)radioCellSweepRepeatCount());
-        statBlock(170, HEADER_H + 62, "lap", lapValue, COL_WARN);
+        snprintf(b, sizeof(b), "LAP %lu", (unsigned long)radioCellSweepCount());
+    } else if (state == CellSweepState::FAILED) {
+        snprintf(b, sizeof(b), "ERR %d", radioLastError());
+    } else {
+        snprintf(b, sizeof(b), "RSSI only");
     }
+    snprintf(c, sizeof(c), "no decode");
+    drawActionStats(a, strongest.valid ? COL_WARN : COL_DIM, b,
+                    state == CellSweepState::FAILED ? COL_BAD : COL_DIM, c, COL_DIM);
 }
 
 // Rough estimate, deliberately not the full LoRa airtime spec (skips
@@ -1288,23 +1300,18 @@ void drawGpsPage() {
     uiTft->setCursor(PX + PW - 4 - (int16_t)strlen(verdict) * 6, py + 3);
     uiTft->print(verdict);
 
-    // A step line, not bars (2026-09-06). Satellites-used is a *level* with a
-    // meaningful zero, and the story of this band is the dropout — a gap in a
-    // line reads as loss, where a short bar reads as a small value. It is also
-    // what keeps this card visually distinct from Activity's and System's
-    // bands, which sit at the same coordinates: the mark follows the data type
-    // rather than a house chart style.
+    // Bars, not a step line (operator request, 2026-09-06, after seeing both on
+    // hardware). The earlier reasoning was that satellites-used is a level and a
+    // gap in a line reads as loss — true, but at a 7px pitch on a 240px panel a
+    // 1px line is simply harder to read than a filled bar, and the red floor
+    // carries the dropout just as clearly. Bars start 2px under the label row
+    // and run to the well floor, so they use the full height available.
     const int16_t bw = (PW - 8) / SAT_RING_LEN;
     const int16_t base = py + PH - 1; // the well floor doubles as the baseline
-    constexpr uint8_t SAT_FULL = 12; // a comfortable 3D fix; above this the line tops out
-    constexpr int16_t PLOT_H = PH - 16;
-    auto levelY = [&](uint8_t v) -> int16_t {
-        const uint8_t clamped = v > SAT_FULL ? SAT_FULL : v;
-        return (int16_t)(base - (PLOT_H * clamped / SAT_FULL));
-    };
+    const int16_t top = py + 13;      // 2px clear of the "SATS USED 60s" row
+    const int16_t plotH = (int16_t)(base - top);
+    constexpr uint8_t SAT_FULL = 12;  // a comfortable 3D fix; above this bars top out
 
-    int16_t prevY = 0;
-    bool prevPlotted = false;
     for (uint8_t i = 0; i < satRingCount; i++) {
         const uint8_t idx = (uint8_t)((satRingNext + SAT_RING_LEN - satRingCount + i) % SAT_RING_LEN);
         const uint8_t v = satRing[idx];
@@ -1313,19 +1320,12 @@ void drawGpsPage() {
             // No fix: a solid floor segment, not an absent bar. Absence of ink
             // would read as "no data yet" — this is data, and it says the run
             // was unmappable for those two seconds.
-            uiTft->fillRect(bx, base - 1, bw, 2, COL_BAD);
-            prevPlotted = false;
+            uiTft->fillRect(bx, base - 1, bw - 1, 2, COL_BAD);
             continue;
         }
-        const int16_t y = levelY(v);
-        const uint16_t colour = v < 5 ? COL_WARN : COL_GOOD;
-        uiTft->drawFastHLine(bx, y, bw, colour);
-        if (prevPlotted && prevY != y) {
-            const int16_t top = prevY < y ? prevY : y;
-            uiTft->drawFastVLine(bx, top, (int16_t)(prevY > y ? prevY - y : y - prevY), colour);
-        }
-        prevY = y;
-        prevPlotted = true;
+        int16_t h = (int16_t)(plotH * (v > SAT_FULL ? SAT_FULL : v) / SAT_FULL);
+        if (h < 1) h = 1;
+        uiTft->fillRect(bx, base - h + 1, bw - 1, h, v < 5 ? COL_WARN : COL_GOOD);
     }
 
     const int16_t cy = py + PH + 4;
@@ -1874,12 +1874,15 @@ void drawMenuSlider() {
 // requested from ui_task.cpp's maybeStartScopeAcquire()/SCOPE_TOGGLE, not
 // from here.
 
-// Meter: "packet RSSI, selected-bin RSSI, or current scope RSSI with its
-// source identified... show measurement age" (§8.2) — prefers a live/recent
-// Scope sample when Scope is what actually produced the newest number,
-// otherwise the most recent real detection's RSSI. Never both at once and
-// never unlabeled, so a frozen reading can't be mistaken for continuous
-// sampling.
+// Meter, in the card idiom (2026-09-06). It is not a bounded action, so it
+// takes the well-plus-three-cards shape the carousel cards use rather than
+// Probe/Sweep/Cell/Focus's result skeleton: the gauge is the band, and the
+// context that used to be four stacked text lines plus a right column becomes
+// three cards.
+//
+// The two source branches (a live Scope sample vs. the newest decoded packet)
+// previously duplicated the whole layout between them. They now differ only in
+// what they put in the cards, which is the only thing that actually differs.
 void drawMeterPage() {
     ScopeTrace trace;
     const bool haveTrace = radioScopeTraceSnapshot(trace, 0) && trace.count > 0;
@@ -1887,107 +1890,79 @@ void drawMeterPage() {
     const bool haveScopeSample = haveTrace && scopeTraceSampleAt(trace, 0, scopeSample);
 
     CaptureHistory captures;
-    CaptureSummary latestCapture;
+    CaptureSummary latest;
     const bool haveCapture = analyzerCaptureHistorySnapshot(captures, pdMS_TO_TICKS(50)) &&
-                             captureHistoryEntryAt(captures, 0, latestCapture);
+                             captureHistoryEntryAt(captures, 0, latest);
 
-    // Scope wins when it's actively running, or when nothing else exists,
-    // or when its own capture is newer than the latest packet — "current
-    // scope RSSI", not a stale one left over from an earlier visit.
+    // Scope wins when it is actively running, when nothing else exists, or when
+    // its capture is newer than the latest packet -- "current scope RSSI", not
+    // a stale one left over from an earlier visit.
     const bool useScope = haveScopeSample &&
-        (radioScopeAcquireIsActive() || !haveCapture || trace.start_millis >= latestCapture.rx_millis);
+        (radioScopeAcquireIsActive() || !haveCapture || trace.start_millis >= latest.rx_millis);
 
+    if (!useScope && !haveCapture) {
+        drawEmptyView("NO MEASUREMENT", "fills while Watch runs");
+        return;
+    }
+
+    const float dbm = useScope ? (float)scopeSample : latest.rssi_dbm;
+    const float freq = useScope ? trace.tuned_freq_mhz : latest.freq_mhz;
+    const uint32_t ageS = (millis() - (useScope ? trace.start_millis : latest.rx_millis)) / 1000;
+
+    // Band: the gauge, in a well like the carousel plots. Range is -120..0, not
+    // Scope's -120..-30: real readings from a close repeater hit -16dBm and
+    // clipped flat against the old ceiling (operator, 2026-09-04). Scope's own
+    // ceiling exists so trace heights stay comparable across captures, which is
+    // a different job.
+    constexpr float DISPLAY_LO = -120.0f, DISPLAY_HI = 0.0f;
+    const int16_t py = HEADER_H + 2;
+    drawPlotWell(HEADER_H, py + 43);
+
+    char buf[24];
     uiTft->setTextSize(2);
     uiTft->setTextColor(COL_FG, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 8);
+    uiTft->setCursor(4, py + 4);
+    snprintf(buf, sizeof(buf), "%d dBm", (int)dbm);
+    uiTft->print(buf);
 
-    if (useScope) {
-        char buf[12];
-        snprintf(buf, sizeof(buf), "%d dBm", (int)scopeSample);
-        uiTft->print(buf);
-        uiTft->setTextSize(1);
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 30);
-        char detail[32];
-        snprintf(detail, sizeof(detail), "scope @ %.3fMHz", (double)trace.tuned_freq_mhz);
-        uiTft->print(detail);
-        // No SNR line here (operator request, 2026-09-04, mocked up first
-        // in docs/research/analyzer-preview.html): Scope samples raw RSSI
-        // at one tuned frequency without demodulating anything
-        // (drawScopePage()'s own "never a spectrum, no decode" design), so
-        // it genuinely has no SNR to report — honest omission, not an
-        // inconsistency, same reasoning as Waterfall's "no fabricated
-        // vertical texture" rule. Same reason the right-column SF/BW/CR
-        // block below is watch-only too.
-        uiTft->setCursor(2, HEADER_H + 54);
-        if (radioScopeAcquireIsActive()) {
-            uiTft->setTextColor(COL_WARN, COL_BG);
-            uiTft->print("live - Watch away");
-        } else {
-            char ageBuf[24];
-            snprintf(ageBuf, sizeof(ageBuf), "%lus ago", (unsigned long)((millis() - trace.start_millis) / 1000));
-            uiTft->print(ageBuf);
-        }
-        // Range widened -30 -> 0 (operator feedback, 2026-09-04: real
-        // readings from a close repeater hit -16dBm, clipping flat
-        // against the old ceiling — a real defect, since a clipped bar
-        // can't distinguish -16dBm from -5dBm). Deliberately not shared
-        // with drawScopePage()'s own DISPLAY_LO/DISPLAY_HI (-120/-30,
-        // unchanged) — that page's ceiling exists so trace heights stay
-        // visually comparable across captures, a different reason than
-        // Meter's own "show the SX1262's real RSSI range without
-        // clipping" here.
-        constexpr float DISPLAY_LO = -120.0f, DISPLAY_HI = 0.0f;
-        drawMeterBar(2, HEADER_H + 72, 232, 12, (float)scopeSample, DISPLAY_LO, DISPLAY_HI);
-    } else if (haveCapture) {
-        char buf[12];
-        snprintf(buf, sizeof(buf), "%.0f dBm", (double)latestCapture.rssi_dbm);
-        uiTft->print(buf);
-        uiTft->setTextSize(1);
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 30);
-        char detail[32];
-        snprintf(detail, sizeof(detail), "watch @ %.3fMHz", (double)latestCapture.freq_mhz);
-        uiTft->print(detail);
-        // SNR (operator request, 2026-09-04): real data this page already
-        // had access to and never showed — capture_history.h's
-        // CaptureSummary carries snr_db for every real decoded packet.
-        char snrBuf[16];
-        snprintf(snrBuf, sizeof(snrBuf), "SNR: %+.1fdB", (double)latestCapture.snr_db);
-        uiTft->setCursor(2, HEADER_H + 42);
-        uiTft->print(snrBuf);
-        uiTft->setCursor(2, HEADER_H + 54);
-        char ageBuf[24];
-        snprintf(ageBuf, sizeof(ageBuf), "%lus ago", (unsigned long)((millis() - latestCapture.rx_millis) / 1000));
-        uiTft->print(ageBuf);
-        // Right column ("what can we use the dead space on the right
-        // for?", operator request, 2026-09-04) — the channel params this
-        // exact packet was decoded with, also real CaptureSummary data
-        // and also never shown. Right-aligned, vertically matched to the
-        // freq/SNR/age rows it sits beside.
-        char rightBuf[16];
-        snprintf(rightBuf, sizeof(rightBuf), "SF%u", (unsigned)latestCapture.sf);
-        uiTft->setCursor(232 - (int16_t)strlen(rightBuf) * 6, HEADER_H + 30);
-        uiTft->print(rightBuf);
-        snprintf(rightBuf, sizeof(rightBuf), "%.1fkHz", (double)latestCapture.bw_khz_x10 / 10.0);
-        uiTft->setCursor(232 - (int16_t)strlen(rightBuf) * 6, HEADER_H + 42);
-        uiTft->print(rightBuf);
-        snprintf(rightBuf, sizeof(rightBuf), "CR4/%u", (unsigned)latestCapture.cr_denom);
-        uiTft->setCursor(232 - (int16_t)strlen(rightBuf) * 6, HEADER_H + 54);
-        uiTft->print(rightBuf);
-        // Range widened -30 -> 0 (operator feedback, 2026-09-04: real
-        // readings from a close repeater hit -16dBm, clipping flat
-        // against the old ceiling — a real defect, since a clipped bar
-        // can't distinguish -16dBm from -5dBm). Deliberately not shared
-        // with drawScopePage()'s own DISPLAY_LO/DISPLAY_HI (-120/-30,
-        // unchanged) — that page's ceiling exists so trace heights stay
-        // visually comparable across captures, a different reason than
-        // Meter's own "show the SX1262's real RSSI range without
-        // clipping" here.
-        constexpr float DISPLAY_LO = -120.0f, DISPLAY_HI = 0.0f;
-        drawMeterBar(2, HEADER_H + 72, 232, 12, latestCapture.rssi_dbm, DISPLAY_LO, DISPLAY_HI);
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    snprintf(buf, sizeof(buf), "%.3f MHz", (double)freq);
+    uiTft->setCursor(234 - (int16_t)strlen(buf) * 6, py + 8);
+    uiTft->print(buf);
+
+    drawMeterBar(4, py + 24, 232, 12, dbm, DISPLAY_LO, DISPLAY_HI);
+
+    const int16_t cy = py + 43 + 4;
+    char value[14], sub[16];
+
+    snprintf(value, sizeof(value), "%s", useScope ? "SCOPE" : "WATCH");
+    if (useScope && radioScopeAcquireIsActive()) {
+        snprintf(sub, sizeof(sub), "Watch away");
     } else {
-        drawEmptyView("NO MEASUREMENT", "fills while Watch runs");
+        snprintf(sub, sizeof(sub), "%lus ago", (unsigned long)ageS);
+    }
+    statCard(statCardX(0), cy, STAT_CARD_W, "SOURCE", useScope ? COL_WARN : COL_GOOD, value, sub,
+             useScope ? COL_WARN : COL_GOOD);
+
+    // Scope samples raw RSSI at one frequency without demodulating anything, so
+    // it genuinely has no SNR to report -- an honest omission, the same rule as
+    // Waterfall's "no fabricated vertical texture" (docs/research/V2_DESIGN.md).
+    if (useScope) {
+        snprintf(value, sizeof(value), "--");
+        snprintf(sub, sizeof(sub), "no decode");
+        statCard(statCardX(1), cy, STAT_CARD_W, "SNR", COL_DIM, value, sub);
+        snprintf(value, sizeof(value), "%ums", (unsigned)trace.sample_interval_ms);
+        snprintf(sub, sizeof(sub), "per sample");
+        statCard(statCardX(2), cy, STAT_CARD_W, "RATE", COL_DIM, value, sub);
+    } else {
+        snprintf(value, sizeof(value), "%+.1f", (double)latest.snr_db);
+        snprintf(sub, sizeof(sub), "dB");
+        statCard(statCardX(1), cy, STAT_CARD_W, "SNR", COL_GOOD, value, sub);
+        snprintf(value, sizeof(value), "SF%u", (unsigned)latest.sf);
+        snprintf(sub, sizeof(sub), "BW%.0f CR4/%u", (double)latest.bw_khz_x10 / 10.0,
+                 (unsigned)latest.cr_denom);
+        statCard(statCardX(2), cy, STAT_CARD_W, "PARAMS", COL_DIM, value, sub);
     }
 }
 

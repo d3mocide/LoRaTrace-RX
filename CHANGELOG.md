@@ -9,6 +9,18 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-06
 
+- **Probe, Sweep, Cell and Meter modernized.** Focus's layout is lifted into a
+  shared bounded-action skeleton (hero + status, progress bar, detail labels,
+  content block, three summary values) and Probe/Sweep/Cell rebuilt on it —
+  each now leads with its finding (hit count, peak frequency, strongest
+  carrier) instead of a state word, with the state right-aligned as status.
+  Probe moves to Channel's view 2, above Captures. Meter takes the
+  well-plus-three-cards shape instead of four stacked text lines and a right
+  column. Cards widen to 78px starting at x=0 so their outer edges align with
+  the well rails. GPS returns to bars (taller, 2px under the label row);
+  Radio's six cells lose their boxes and gain a well — nine borders on one
+  screen made the chrome the figure and the numbers the ground.
+
 - **Plot wells on Activity, GPS and System.** Left and right rails plus a
   floor, with the header's own hairline as the top edge, so the band reads as a
   compartment carved out below the header rather than a second box under it.

@@ -331,8 +331,11 @@ constexpr uint8_t MAIN_PAGE_COUNT = (uint8_t)(sizeof(MAIN_PAGES) / sizeof(MAIN_P
 constexpr UiPage RADIO_VIEWS[] = {UiPage::RADIO, UiPage::METER, UiPage::SCOPE};
 constexpr UiPage ACTIVITY_VIEWS[] = {UiPage::ACTIVITY, UiPage::SWEEP, UiPage::WATERFALL,
                                      UiPage::FOCUS};
-constexpr UiPage CHANNEL_VIEWS[] = {UiPage::CHANNEL, UiPage::CAPTURES, UiPage::NODES,
-                                    UiPage::PROBE};
+// Probe sits directly after the card (operator request, 2026-09-06): it
+// answers "should I be on a different channel", which is the card's own
+// question, where Captures and Nodes report what the current one yielded.
+constexpr UiPage CHANNEL_VIEWS[] = {UiPage::CHANNEL, UiPage::PROBE, UiPage::CAPTURES,
+                                    UiPage::NODES};
 constexpr UiPage GPS_VIEWS[] = {UiPage::GPS, UiPage::CELL};
 constexpr UiPage SYSTEM_VIEWS[] = {UiPage::SYSTEM};
 
