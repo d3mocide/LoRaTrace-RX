@@ -9,6 +9,15 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-05
 
+- **v1.0.8.** Ships the `STATUS` frame silent-drop fix (a real production bug:
+  the argument buffer was hand-sized past the frame budget and an over-long
+  frame is dropped, not truncated, so long sessions lost status entirely) plus
+  the production half of Workstream 12's Focus work — bounded request path,
+  wall-clock timeout, measured 20 ms sampling policy, shared
+  `FOCUS_CSV_ROW_MAX`. Focus stays unreachable outside the bench image;
+  `coverage` blank and `qualifying_count` zero because neither earned a value.
+  PATCH, not MINOR: no gate closed, no operator-facing behaviour changed.
+
 - Measured the positive case the withdrawal left open: **a single packet is
   detectable**. One armed 148 ms transmission placed inside a 2,000 ms pass —
   7.4% occupancy — was caught 29/30 with 0/30 false positives at the stronger

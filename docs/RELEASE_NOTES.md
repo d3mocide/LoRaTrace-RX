@@ -24,6 +24,33 @@ Versions before `v1.0.6` predate this file; their history is in
 
 ---
 
+## v1.0.8
+
+**Fixes: USB status reporting could stop silently during long sessions.**
+If you drive the device over USB with Serial Control, its `STATUS` line could
+stop arriving partway through a long run — typically after several hours, once
+the packet and error counters had grown a few digits. Nothing warned you: the
+device simply stopped answering, which looks identical to a wedged receiver.
+It is fixed, and there is now a test that catches the same class of problem
+before it ships.
+
+You are only affected if you use the USB control interface. Normal wardriving,
+the on-device menu, SD logging and the WiFi web UI were never involved.
+
+**No other change you will notice.** Groundwork for a future Focus Survey
+feature ships in this build, but it is switched off: there is no menu entry
+for it, no page, and nothing it can do on a normal image. It writes nothing to
+your SD card. It is here so the release is one build rather than a
+carried-forward patch, and it is deliberately not something to look for yet.
+
+If you are curious what it will eventually do, the short version: park on one
+frequency for a bounded time, record what was observed there, and restore
+normal listening. What is not settled is how it should *describe* what it
+observed — several plausible answers were measured on hardware and rejected,
+which is why nothing is shown rather than something provisional.
+
+---
+
 ## v1.0.7
 
 **Tools and Analyze moved into the menu.** They were home-screen carousel

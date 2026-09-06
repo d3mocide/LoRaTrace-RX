@@ -21,6 +21,36 @@
 //    share one semantic version. Carries a "-dirty" suffix when built from
 //    a modified working tree.
 
+// 1.0.8: Fixes a silent-drop in Serial Control's STATUS frame, and lands the
+// production half of V2 Workstream 12's Focus Survey work with no
+// operator-facing surface.
+//
+// The STATUS bug is the reason this is a release rather than a branch note.
+// Its argument buffer was hand-sized to 240 bytes while the frame budget was
+// about 230, and serialControlFormatFrame() *drops* an over-long frame rather
+// than truncating it -- returns 0, sends nothing, reports no error. So a
+// long-running session whose cumulative counters grew a few digits would stop
+// emitting STATUS entirely, newest fields lost first, with the host unable to
+// tell that from a wedged device. Found by counting the budget rather than by
+// hitting it. The argument size is now derived from SERIAL_CONTROL_FRAME_MAX
+// (raised to 384), a host test formats at saturation, and the formatter builds
+// in place instead of staging through a second full-size buffer, which nets
+// less stack on the 4KB UI task than before.
+//
+// Focus itself remains unreachable in production: no menu entry, no page, and
+// every BENCH_* command that reaches it is rejected outside the bench image.
+// What ships here is its bounded request path -- including a wall-clock
+// timeout, since the sample budget alone does not bound radio-away time when
+// the SPI bus is contended -- plus the measured 20ms sampling policy and a
+// shared FOCUS_CSV_ROW_MAX. `coverage` stays blank and `qualifying_count`
+// stays zero because neither has earned a value; see
+// docs/research/phase12-survey-truth-design.md for what each measurement
+// established and what it refused.
+//
+// PATCH, not MINOR: no phase gate closed and no operator-facing behaviour
+// changed. The Workstream 12 release gate (menu control, Activity surface,
+// coverage thresholds, field validation) is untouched.
+
 // 1.0.7: Tools and Analyze moved from main-carousel hub pages into real
 // menu GROUPs (operator report: having both a home carousel with card-like
 // hubs and a separate BACK-triggered menu read as "am I in the menu or
@@ -150,7 +180,7 @@
 // PATCH, not MINOR -- a UI reorganization within already-closed phase
 // scope, no new capability. Not yet hardware-verified on real hardware;
 // flag before calling this done.
-#define FIRMWARE_VERSION "1.0.7"
+#define FIRMWARE_VERSION "1.0.8"
 
 // 1.0.6: correctness pass over what v1.0.5 shipped, from a code review and
 // a whole-project audit (docs/research/2026-09-04-project-audit.md).
