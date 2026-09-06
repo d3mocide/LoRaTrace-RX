@@ -158,6 +158,31 @@ block Workstreams 12–15 or the V2.0 composition release.
 
 ## What's hardware-verified
 
+**Card views (`5f472c4`, confirmed on hardware 2026-09-06).** The main
+carousel's five cards each carry an ordered list of views, cycled with
+up/down while left/right still moves the carousel: Meter/Scope under Radio,
+Sweep/Waterfall/Focus under Activity, Captures/Nodes/Probe under Channel,
+Cell under GPS. Enter runs the bounded action that refreshes whichever view
+is showing. Because every former Tools/Analyze page is now a card view, both
+of those menu groups were removed and the menu root is Profile / Trace /
+System; Trace returned to a root row. Flashed to the Cardputer-Adv and
+operator-confirmed: boots clean, IO expander P0 high, GPS fix sets the
+clock, radio listening on Core 1, ~257KB free heap after task start.
+
+Two things were caught by the flash itself and fixed: the boot banner still
+described the pre-card-view key bindings (and named the wrong carousel keys
+— the pair is `,` and `/`, with `;` and `.` as up/down), and Waterfall's
+empty state had been telling operators "Enter: start repeat Sweep" for two
+commits after Enter became single-shot. That second one is why key hints are
+now generated from `cardSelectAction()`/`cardRepeatAction()` rather than
+typed per page (`cardHintLine()`), and why the four post-hold `IDLE`
+headlines became the real terminal word dimmed plus a result age — `IDLE`
+described the radio while the view below it still showed a real result, so
+one card could disagree with itself about whether a sweep had happened.
+
+Still unverified for this change: no soak, and no measurement of whether the
+extra per-card draw paths affect redraw timing under a running sweep.
+
 Phases 0-9 are complete and hardware-verified: radio bring-up (Phase 1),
 the task/queue architecture + GPS + SD logging that makes up MVP-Beta
 (Phase 2), the WiFi AP + web command center (Phase 3), the MeshCore
