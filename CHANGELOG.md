@@ -9,6 +9,16 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-06
 
+- **Channel, GPS and System rebuilt** in the band-plus-three-cards language
+  (options A/B/B from `docs/research/2026-09-06-og-card-redesigns.html`).
+  Channel gets a full-band map marking decoded frequencies and Sweep peaks
+  against the tuned marker; GPS gets a 60s satellites-used trace with
+  STABLE/HUNTING and a TAGGED card; System gets a 30-minute free-heap trace
+  with FLAT/DRIFT/FALLING. New state: `loggerRowsUntagged()`, a 30-byte sats
+  ring and a 60-byte heap/battery ring. The battery card reports a *measured*
+  discharge rate over a stated window, not a projected runtime — V2_DESIGN.md
+  §3. **Not hardware-verified.**
+
 - **`docs/UI-Design_Guide.html` brought up to the current UI.** Plates are now
   ordered and numbered by owning card (Radio > Meter/Scope, Activity >
   Sweep/Waterfall/Focus, Channel > Captures/Nodes/Probe, GPS > Cell) instead of

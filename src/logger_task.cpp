@@ -87,6 +87,13 @@ uint32_t batchRows = 0; // rows currently buffered but not yet on the card
 
 volatile uint32_t rowsWritten = 0;
 volatile uint32_t rowsDropped = 0;
+// Detection rows accepted into a batch without a fresh GPS position. The
+// wardriving quality number: a detection logged without one is a wasted data
+// point, and nothing on the device said so before (GPS card, 2026-09-06).
+// Counted at batch-accept, not at flush, because only this function knows the
+// per-row fix state — so during an SD outage this and rowsWritten diverge, and
+// the UI states it against the detections seen rather than rows written.
+volatile uint32_t rowsUntagged = 0;
 volatile uint32_t flushCount = 0;
 volatile uint32_t maxFlushMs = 0;
 volatile uint32_t sessionRows = 0;
@@ -424,6 +431,7 @@ void appendDetection(const Detection &det) {
     batchLen += n;
     batchBuf[batchLen++] = '\n';
     batchRows++;
+    if (!fresh) rowsUntagged++;
 }
 
 void appendScanObservation(const ScanObservation &observation) {
@@ -752,6 +760,8 @@ uint32_t loggerRowsWritten() {
 uint32_t loggerRowsDropped() {
     return rowsDropped;
 }
+
+uint32_t loggerRowsUntagged() { return rowsUntagged; }
 uint32_t loggerFlushCount() {
     return flushCount;
 }

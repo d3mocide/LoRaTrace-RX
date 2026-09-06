@@ -73,6 +73,10 @@ bool loggerRequestSdRetry();
 // --- Diagnostics -------------------------------------------------------
 uint32_t loggerRowsWritten();
 uint32_t loggerRowsDropped();  // dequeued but unwritable (no SD, format fail)
+// Detection rows logged without a fresh GPS position — the number that says
+// how much of a run is actually mappable. Counted at batch-accept (see its
+// definition), so compare it against detections seen, not rows written.
+uint32_t loggerRowsUntagged();
 uint32_t loggerFlushCount();
 uint32_t loggerMaxFlushMs();   // worst DETECTION-flush bus hold; the number
                                // that decides whether batch sizing is

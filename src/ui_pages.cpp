@@ -1121,124 +1121,238 @@ uint32_t estimateTimeOnAirMs(uint8_t sf, float bwKhz) {
 // Read-only RF detail behind RADIO's counters — an on-device way to
 // confirm a profile switch actually retuned the radio, rather than
 // trusting the header text alone.
+// Channel's band map: the whole tuned range, where we are pointed in it, and
+// where the evidence actually landed. Green ticks are frequencies that decoded
+// a packet (capture ring), amber are peaks the last completed Sweep found.
+//
+// This is the card's whole argument. "Am I on the right channel" was
+// previously unanswerable here — the old 108px freq bar showed position within
+// the front end and nothing else, so a channel with all the energy 4MHz away
+// looked identical to one sitting on top of it.
+void drawChannelBandMap(int16_t x, int16_t y, int16_t w, float tunedMhz) {
+    constexpr float LO = 868.0f, HI = 928.0f;
+    auto frac = [](float mhz) {
+        float f = (mhz - LO) / (HI - LO);
+        return f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+    };
+
+    uiTft->drawRect(x, y, w, 10, COL_DIM);
+
+    // Sweep peaks first, so a capture tick on the same bin draws over it —
+    // a decode is stronger evidence than energy, and should win the pixel.
+    const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
+    const uint16_t bins = energyBinCount(band, ENERGY_SWEEP_DEFAULT_STEP);
+    for (uint16_t b = 0; b < bins; b++) {
+        if (!radioEnergyPeakBinSetAtLastComplete(b)) continue;
+        const float mhz = energyBinFrequencyMhz(b, band, ENERGY_SWEEP_DEFAULT_STEP);
+        uiTft->drawFastVLine(x + 1 + (int16_t)((w - 3) * frac(mhz)), y + 1, 8, COL_WARN);
+    }
+
+    CaptureHistory history;
+    if (analyzerCaptureHistorySnapshot(history, pdMS_TO_TICKS(20))) {
+        CaptureSummary entry;
+        for (uint8_t i = 0; i < history.count; i++) {
+            if (!captureHistoryEntryAt(history, i, entry)) break;
+            uiTft->drawFastVLine(x + 1 + (int16_t)((w - 3) * frac(entry.freq_mhz)), y + 1, 8, COL_GOOD);
+        }
+    }
+
+    // The tuned marker overhangs the box so it reads as "you are here" rather
+    // than as one more tick inside the data.
+    const int16_t mx = x + 1 + (int16_t)((w - 3) * frac(tunedMhz));
+    uiTft->fillRect(mx - 1, y - 3, 3, 16, COL_FG);
+
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(x, y + 14);
+    uiTft->print("868");
+    uiTft->setCursor(x + w / 2 - 9, y + 14);
+    uiTft->print("898");
+    uiTft->setCursor(x + w - 18, y + 14);
+    uiTft->print("928");
+}
+
+// Channel, view 1 of 4 (Captures, Nodes and Probe are 2-4). Redesigned
+// 2026-09-06 (docs/research/2026-09-06-og-card-redesigns.html, option A) into
+// the band-plus-three-cards language Activity and Radio share. It was the
+// weakest card on the device: four lines that never changed unless you
+// switched profile — a label, not an instrument.
 void drawChannelPage() {
     const ChannelParams ch = radioActiveChannel();
 
-    uiTft->setTextSize(2);
-    uiTft->setTextColor(COL_FG, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 6);
-    uiTft->print(ch.freq_mhz, 3);
-    uiTft->print(" MHz");
-
-    uiTft->setCursor(2, HEADER_H + 32);
-    uiTft->print("SF");
-    uiTft->print(ch.sf);
-    uiTft->print(" BW");
-    uiTft->print(ch.bw_khz, 1);
-
-    drawFreqBar(2, HEADER_H + 62, 108, ch.freq_mhz);
-
+    constexpr int16_t PX = 2, PW = 236, PH = 43;
+    const int16_t py = HEADER_H + 2;
+    uiTft->drawRect(PX, py, PW, PH, COL_DIM);
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 94);
-    uiTft->print("CR4/");
-    uiTft->print(ch.cr_denom);
-    uiTft->print("  sync 0x");
-    uiTft->print(ch.sync_word, HEX);
+    uiTft->setCursor(PX + 4, py + 3);
+    uiTft->print("BAND");
 
-    // Right column — the radio-mode label (docs/BRAND.md's "Watch" for
-    // HOME_LISTEN) is the only one of the three mode labels with anything
-    // to name until Phases 8/9 add the other two radio states.
-    statBlock(170, HEADER_H + 6, "mode", uiModeLabelWatch());
-    char airtimeBuf[16];
-    snprintf(airtimeBuf, sizeof(airtimeBuf), "~%lums", (unsigned long)estimateTimeOnAirMs(ch.sf, ch.bw_khz));
-    statBlock(170, HEADER_H + 34, "airtime", airtimeBuf);
+    uint16_t peaks = 0;
+    const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
+    const uint16_t bins = energyBinCount(band, ENERGY_SWEEP_DEFAULT_STEP);
+    for (uint16_t b = 0; b < bins; b++) {
+        if (radioEnergyPeakBinSetAtLastComplete(b)) peaks++;
+    }
+    char buf[20];
+    snprintf(buf, sizeof(buf), "%u peak%s", (unsigned)peaks, peaks == 1 ? "" : "s");
+    uiTft->setTextColor(peaks == 0 ? COL_DIM : COL_WARN, COL_BG);
+    uiTft->setCursor(PX + PW - 4 - (int16_t)strlen(buf) * 6, py + 3);
+    uiTft->print(buf);
+
+    drawChannelBandMap(PX + 4, py + 16, PW - 8, ch.freq_mhz);
+
+    const int16_t cy = py + PH + 4;
+    char value[14], sub[16];
+
+    snprintf(value, sizeof(value), "%.1f", (double)ch.freq_mhz);
+    snprintf(sub, sizeof(sub), "SF%u BW%.0f", (unsigned)ch.sf, (double)ch.bw_khz);
+    statCard(statCardX(0), cy, STAT_CARD_W, "TUNED", COL_GOOD, value, sub);
+
+    // Decoded packets are counted for the whole power-on, not per channel —
+    // the radio keeps one counter and a profile switch does not reset it. The
+    // title says DECODED rather than YIELD for exactly that reason: on a card
+    // about this channel, "yield" would claim an attribution the number cannot
+    // support.
+    NodeRoster roster;
+    uint8_t nodes = 0;
+    if (analyzerNodeRosterSnapshot(roster, pdMS_TO_TICKS(20))) {
+        for (uint8_t i = 0; i < NODE_ROSTER_MAX_ENTRIES; i++) {
+            if (roster.entries[i].node_id != NODE_ROSTER_EMPTY_ID) nodes++;
+        }
+    }
+    snprintf(value, sizeof(value), "%lu", (unsigned long)radioPacketCount());
+    snprintf(sub, sizeof(sub), "%u node%s", (unsigned)nodes, nodes == 1 ? "" : "s");
+    statCard(statCardX(1), cy, STAT_CARD_W, "DECODED", COL_GOOD, value, sub);
+
+    snprintf(value, sizeof(value), "%lums", (unsigned long)estimateTimeOnAirMs(ch.sf, ch.bw_khz));
+    snprintf(sub, sizeof(sub), "CR4/%u 0x%02X", (unsigned)ch.cr_denom, (unsigned)ch.sync_word);
+    statCard(statCardX(2), cy, STAT_CARD_W, "AIRTIME", COL_DIM, value, sub);
 }
 
-// 4 small bars instead of a dim "GP:12 GL:6 GA:2 BD:2" text line — same
-// per-constellation counts, scannable at a glance instead of read digit by
-// digit. Capped at 4 talkers: the right column is 70px wide (x=170..240)
-// and 4 bars at a 16px pitch fit it with room to spare.
-void drawConstellationBars(int16_t x, int16_t y, int16_t h, const GpsFix &fix) {
-    if (fix.talker_count == 0) return;
-    uint16_t maxCount = 1;
-    for (uint8_t i = 0; i < fix.talker_count && i < 4; i++) {
-        if (fix.talkers[i].in_view > maxCount) maxCount = fix.talkers[i].in_view;
-    }
-    constexpr int16_t BAR_W = 12, PITCH = 16;
-    for (uint8_t i = 0; i < fix.talker_count && i < 4; i++) {
-        const int16_t bx = x + i * PITCH;
-        int16_t barH = (int16_t)((uint32_t)h * fix.talkers[i].in_view / maxCount);
-        if (barH < 1) barH = 1;
-        uiTft->fillRect(bx, y + h - barH, BAR_W, barH, COL_GOOD);
-        uiTft->setTextSize(1);
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(bx, y + h + 3);
-        uiTft->print(fix.talkers[i].id);
-    }
+
+// Satellites used, sampled every 2s into 30 buckets — a 60s window for 30
+// bytes of static RAM, the same shape and budget as Activity's packet ring.
+// Sampled here rather than in gps_task because it is a display concern: the
+// task already has the fix, this only remembers it.
+//
+// A fix hunting under tree cover while logging continues is the failure that
+// quietly ruins a wardrive, and no instantaneous readout can show it — which
+// is the whole reason this card carries a time series (option B,
+// docs/research/2026-09-06-og-card-redesigns.html).
+constexpr uint8_t SAT_RING_LEN = 30;
+constexpr uint32_t SAT_SAMPLE_MS = 2000;
+uint8_t satRing[SAT_RING_LEN] = {};
+uint8_t satRingNext = 0;
+uint8_t satRingCount = 0;
+uint32_t satRingLastMs = 0;
+
+void sampleSatCount(const GpsFix &fix, bool have) {
+    const uint32_t now = millis();
+    if (satRingLastMs != 0 && now - satRingLastMs < SAT_SAMPLE_MS) return;
+    satRing[satRingNext] = (have && fix.has_position) ? fix.satellites : 0;
+    satRingNext = (uint8_t)((satRingNext + 1) % SAT_RING_LEN);
+    if (satRingCount < SAT_RING_LEN) satRingCount++;
+    satRingLastMs = now;
 }
 
+// GPS, view 1 of 2 (Cell is view 2). Redesigned 2026-09-06 into the shared
+// band-plus-cards language. The wardriving question is not "do I have a fix"
+// but "are my detections getting positions" — a detection logged without one
+// is a wasted data point, and nothing on the device said so before.
 void drawGpsPage() {
     GpsFix fix;
     const bool have = gpsGetFix(fix, pdMS_TO_TICKS(100));
+    sampleSatCount(fix, have);
 
-    uiTft->setTextSize(2);
-    if (have && fix.has_position) {
-        uiTft->setTextColor(COL_GOOD, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 6);
-        uiTft->print(fix.fix_type >= 3 ? "3D FIX" : "2D FIX");
-
-        uiTft->setTextColor(COL_FG, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 28);
-        uiTft->print(fix.lat, 5);
-        uiTft->setCursor(2, HEADER_H + 48);
-        uiTft->print(fix.lon, 5);
-
-        // Right column: satellites USED — the old layout showed
-        // sats-in-view before a fix but never the used count once a fix
-        // landed.
-        char buf[8];
-        snprintf(buf, sizeof(buf), "%u", (unsigned)fix.satellites);
-        statBlock(170, HEADER_H + 6, "sats", buf);
-        snprintf(buf, sizeof(buf), "%u", (unsigned)fix.fix_quality);
-        statBlock(170, HEADER_H + 28, "qual", buf);
-    } else {
-        // Before a fix, sats-IN-VIEW is the number that matters: it says
-        // whether the antenna can see sky at all, minutes before a fix
-        // lands. `satellites` (used) stays 0 until then and would look
-        // identical whether the antenna were working or disconnected.
-        uiTft->setTextColor(fix.sats_in_view > 0 ? COL_WARN : COL_BAD, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 6);
-        uiTft->print("NO FIX");
-
-        uiTft->setTextColor(COL_FG, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 30);
-        uiTft->print("view ");
-        uiTft->print(fix.sats_in_view);
-
-        uiTft->setTextSize(1);
-        uiTft->setTextColor(COL_DIM, COL_BG);
-        uiTft->setCursor(2, HEADER_H + 52);
-        uiTft->print(fix.sats_in_view > 0 ? "acquiring, keep still" : "no sky - go outside");
-    }
-
-    // Right column, under sats/qual (or under NO FIX in the no-fix
-    // branch) — shared 170..240 zone with the other pages.
-    drawConstellationBars(170, HEADER_H + 58, 14, fix);
-
+    constexpr int16_t PX = 2, PW = 236, PH = 43;
+    const int16_t py = HEADER_H + 2;
+    uiTft->drawRect(PX, py, PW, PH, COL_DIM);
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 72);
-    if (have && fix.has_time) {
-        char ts[24];
-        detectionFormatTimestamp(ts, sizeof(ts), true, fix.year, fix.month, fix.day, fix.hour,
-                                 fix.minute, fix.second);
-        uiTft->print(ts);
+    uiTft->setCursor(PX + 4, py + 3);
+    uiTft->print("SATS USED  60s");
+
+    // Dropouts within the window, and how long ago the most recent one was.
+    uint8_t dropouts = 0;
+    uint32_t lastDropAgoS = 0;
+    bool prevHadFix = true;
+    for (uint8_t i = 0; i < satRingCount; i++) {
+        const uint8_t idx = (uint8_t)((satRingNext + SAT_RING_LEN - satRingCount + i) % SAT_RING_LEN);
+        const bool hasFix = satRing[idx] > 0;
+        if (prevHadFix && !hasFix) {
+            dropouts++;
+            lastDropAgoS = (uint32_t)(satRingCount - i) * SAT_SAMPLE_MS / 1000;
+        }
+        prevHadFix = hasFix;
+    }
+    const char *verdict = dropouts == 0 ? "STABLE" : "HUNTING";
+    uiTft->setTextColor(dropouts == 0 ? COL_GOOD : COL_WARN, COL_BG);
+    uiTft->setCursor(PX + PW - 4 - (int16_t)strlen(verdict) * 6, py + 3);
+    uiTft->print(verdict);
+
+    // Bars are coloured by what the fix was worth, not by height: red where it
+    // was lost outright, amber where it was thin enough to be unreliable.
+    const int16_t bw = (PW - 8) / SAT_RING_LEN;
+    const int16_t base = py + PH - 3;
+    constexpr uint8_t SAT_FULL = 12; // a comfortable 3D fix; above this the bar tops out
+    for (uint8_t i = 0; i < satRingCount; i++) {
+        const uint8_t idx = (uint8_t)((satRingNext + SAT_RING_LEN - satRingCount + i) % SAT_RING_LEN);
+        const uint8_t v = satRing[idx];
+        const int16_t bx = PX + 4 + i * bw;
+        if (v == 0) {
+            uiTft->fillRect(bx, base - 2, bw - 1, 2, COL_BAD);
+            continue;
+        }
+        int16_t h = (int16_t)((PH - 16) * (v > SAT_FULL ? SAT_FULL : v) / SAT_FULL);
+        if (h < 1) h = 1;
+        uiTft->fillRect(bx, base - h, bw - 1, h, v < 5 ? COL_WARN : COL_GOOD);
+    }
+
+    const int16_t cy = py + PH + 4;
+    char value[14], sub[16];
+
+    if (have && fix.has_position) {
+        snprintf(value, sizeof(value), "%s", fix.fix_type >= 3 ? "3D" : "2D");
+        snprintf(sub, sizeof(sub), "%u of %u", (unsigned)fix.satellites, (unsigned)fix.sats_in_view);
+        statCard(statCardX(0), cy, STAT_CARD_W, "FIX", COL_GOOD, value, sub, COL_GOOD);
     } else {
-        uiTft->print("nmea ");
-        uiTft->print(gpsSentenceCount());
-        uiTft->print(" crc ");
-        uiTft->print(gpsChecksumErrorCount());
+        // Before a fix, sats-IN-VIEW is the number that matters: it says
+        // whether the antenna can see sky at all, minutes before a fix lands.
+        snprintf(value, sizeof(value), "NONE");
+        snprintf(sub, sizeof(sub), fix.sats_in_view > 0 ? "%u in view" : "no sky", (unsigned)fix.sats_in_view);
+        statCard(statCardX(0), cy, STAT_CARD_W, "FIX",
+                 fix.sats_in_view > 0 ? COL_WARN : COL_BAD, value, sub,
+                 fix.sats_in_view > 0 ? COL_WARN : COL_BAD);
+    }
+
+    // Against detections seen, not rows written: loggerRowsUntagged() counts
+    // at batch-accept, so an SD outage would otherwise make this read as if
+    // positions had been lost when it was storage that failed.
+    const uint32_t seen = radioPacketCount();
+    const uint32_t untagged = loggerRowsUntagged();
+    const uint32_t tagged = seen > untagged ? seen - untagged : 0;
+    snprintf(value, sizeof(value), "%lu", (unsigned long)tagged);
+    snprintf(sub, sizeof(sub), "%lu untagged", (unsigned long)untagged);
+    statCard(statCardX(1), cy, STAT_CARD_W, "TAGGED", untagged == 0 ? COL_GOOD : COL_WARN, value, sub);
+
+    if (have && fix.has_time) {
+        snprintf(value, sizeof(value), "%02u:%02u", (unsigned)fix.hour, (unsigned)fix.minute);
+        snprintf(sub, sizeof(sub), "UTC  q%u", (unsigned)fix.fix_quality);
+    } else {
+        snprintf(value, sizeof(value), "--:--");
+        snprintf(sub, sizeof(sub), "nmea %lu", (unsigned long)gpsSentenceCount());
+    }
+    statCard(statCardX(2), cy, STAT_CARD_W, "UTC", COL_DIM, value, sub);
+
+    // Dropout detail replaces the UTC card's subtitle only when there is one
+    // to report — it is the actionable half of the band above.
+    if (dropouts > 0) {
+        uiTft->setTextSize(1);
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(statCardX(2) + 4, cy + 44);
+        snprintf(sub, sizeof(sub), "%u drop %lus", (unsigned)dropouts, (unsigned long)lastDropAgoS);
+        uiTft->print(sub);
     }
 }
 
@@ -1247,78 +1361,135 @@ void drawGpsPage() {
 // compare against 512 in your head. ~512KB is the ESP32-S3FN8's total SRAM
 // with no PSRAM (docs/DESIGN.md §1).
 //
-// Fills with USAGE, not remaining free space: a bar that grows as the
-// budget is consumed reads the same direction as the colour tiers above it
-// (both escalate toward "full is bad").
-void drawHeapBar(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t freeHeapK, uint16_t colour) {
-    uiTft->drawRect(x, y, w, h, colour);
-    const uint32_t usedK = (freeHeapK < HEAP_BUDGET_KB) ? (HEAP_BUDGET_KB - freeHeapK) : HEAP_BUDGET_KB;
-    float frac = (float)usedK / (float)HEAP_BUDGET_KB;
-    if (frac < 0.0f) frac = 0.0f;
-    if (frac > 1.0f) frac = 1.0f;
-    const int16_t fill = (int16_t)((w - 2) * frac);
-    if (fill > 0) uiTft->fillRect(x + 1, y + 1, fill, h - 2, colour);
+
+// Free heap and battery, sampled once a minute into 30 buckets — a 30-minute
+// window for 60 bytes of static RAM. Heap is stored in 2KB units so a uint8
+// spans the ESP32-S3FN8's whole ~512KB SRAM (docs/DESIGN.md S1) without a
+// wider type.
+//
+// System's question is "will the device survive the drive", which is a
+// question about a trend: every value on the old card was an instant, so a
+// slow leak and a healthy idle looked identical until one of them wasn't
+// (option B, docs/research/2026-09-06-og-card-redesigns.html).
+constexpr uint8_t SYS_RING_LEN = 30;
+constexpr uint32_t SYS_SAMPLE_MS = 60000;
+uint8_t heapRing[SYS_RING_LEN] = {};
+uint8_t battRing[SYS_RING_LEN] = {};
+uint8_t sysRingNext = 0;
+uint8_t sysRingCount = 0;
+uint32_t sysRingLastMs = 0;
+
+void sampleSystemTrend() {
+    const uint32_t now = millis();
+    if (sysRingLastMs != 0 && now - sysRingLastMs < SYS_SAMPLE_MS) return;
+    const uint32_t heapK = ESP.getFreeHeap() / 1024;
+    heapRing[sysRingNext] = (uint8_t)(heapK / 2 > 255 ? 255 : heapK / 2);
+    battRing[sysRingNext] = batteryPercent();
+    sysRingNext = (uint8_t)((sysRingNext + 1) % SYS_RING_LEN);
+    if (sysRingCount < SYS_RING_LEN) sysRingCount++;
+    sysRingLastMs = now;
 }
 
-// SYSTEM: minutes up, heap (text + bar), a 2x2 stat grid (min heap,
-// battery, SPI bus contention, WiFi state), keyboard/health/version footer.
-// WiFi's old dedicated carousel page was merged in here (Phase 6): SSID
-// moved to the WIFI_TOGGLE toast instead (ui_actions.cpp), this page now
-// shows only ON/OFF + client count.
+uint8_t sysRingAt(const uint8_t *ring, uint8_t i) {
+    return ring[(uint8_t)((sysRingNext + SYS_RING_LEN - sysRingCount + i) % SYS_RING_LEN)];
+}
+
+// SYSTEM, the one single-view card. Redesigned 2026-09-06: a 30-minute free-heap
+// trace as the band, then battery / heap / uptime cards. Keys, health-row count
+// and firmware version keep their bottom line — lower-priority context that
+// still has to be readable before driving off with the lid shut.
 void drawSystemPage() {
-    char buf[16];
+    sampleSystemTrend();
+    char buf[16], value[14], sub[16];
 
-    uiTft->setTextSize(2);
-    uiTft->setTextColor(COL_FG, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 6);
-    uiTft->print(millis() / 60000);
-    uiTft->print(" min");
-
-    const uint32_t heap = ESP.getFreeHeap();
-    const uint16_t heapColour = heapUsageColour(heap / 1024);
-    uiTft->setTextColor(heapColour, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 28);
-    uiTft->print(heap / 1024);
-    uiTft->print("k heap");
-    drawHeapBar(2, HEADER_H + 48, 108, 8, heap / 1024, heapColour);
-
-    // Col A: x=136, clearing the heap bar's right edge (x=110) by 26px.
-    // Col B: x=205, holding its own gap from col A ("3.98V" is the longest
-    // value and about as far right as it still fits with margin).
-    snprintf(buf, sizeof(buf), "%luk", (unsigned long)(ESP.getMinFreeHeap() / 1024));
-    statBlock(136, HEADER_H + 6, "min heap", buf);
-
-    const uint32_t mv = batteryMilliVolts();
-    if (mv == 0) {
-        statBlock(205, HEADER_H + 6, "batt", "unknown");
-    } else {
-        snprintf(buf, sizeof(buf), "%.2fV", mv / 1000.0);
-        statBlock(205, HEADER_H + 6, "batt", buf);
-    }
-
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)spiBusContentionCount());
-    statBlock(136, HEADER_H + 36, "bus", buf);
-
-    const bool wifiOn = wifiIsEnabled();
-    if (wifiOn) {
-        snprintf(buf, sizeof(buf), "ON %u", (unsigned)wifiClientCount());
-    } else {
-        snprintf(buf, sizeof(buf), "OFF");
-    }
-    statBlock(205, HEADER_H + 36, "wifi", buf, wifiOn ? COL_GOOD : COL_DIM);
-
-    // Bottom band, full width — lower-priority context: keyboard presence,
-    // health-row count (confirms the session log is actually being written
-    // before driving off with the lid shut), firmware version.
+    constexpr int16_t PX = 2, PW = 236, PH = 43;
+    const int16_t py = HEADER_H + 2;
+    uiTft->drawRect(PX, py, PW, PH, COL_DIM);
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 66);
-    uiTft->print("keys ");
-    uiTft->print(keyboardReady ? "tca8418" : "none (auto)");
+    uiTft->setCursor(PX + 4, py + 3);
+    uiTft->print("HEAP  30min");
+
+    // Verdict from the window's own endpoints. Below two samples there is no
+    // trend to report, and saying "FLAT" then would be an unearned claim.
+    const char *verdict = "--";
+    uint16_t verdictCol = COL_DIM;
+    if (sysRingCount >= 2) {
+        const int16_t firstK = (int16_t)sysRingAt(heapRing, 0) * 2;
+        const int16_t lastK = (int16_t)sysRingAt(heapRing, (uint8_t)(sysRingCount - 1)) * 2;
+        const int16_t deltaK = (int16_t)(lastK - firstK);
+        if (deltaK <= -16) { verdict = "FALLING"; verdictCol = COL_BAD; }
+        else if (deltaK <= -6) { verdict = "DRIFT"; verdictCol = COL_WARN; }
+        else { verdict = "FLAT"; verdictCol = COL_GOOD; }
+    }
+    uiTft->setTextColor(verdictCol, COL_BG);
+    uiTft->setCursor(PX + PW - 4 - (int16_t)strlen(verdict) * 6, py + 3);
+    uiTft->print(verdict);
+
+    // Plotted against the window's own min/max, not zero: a 512KB axis would
+    // flatten every real change into one indistinguishable row of full bars.
+    uint8_t lo = 255, hi = 0;
+    for (uint8_t i = 0; i < sysRingCount; i++) {
+        const uint8_t v = sysRingAt(heapRing, i);
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+    }
+    const uint8_t span = (uint8_t)(hi > lo ? hi - lo : 1);
+    const int16_t bw = (PW - 8) / SYS_RING_LEN;
+    const int16_t base = py + PH - 3;
+    for (uint8_t i = 0; i < sysRingCount; i++) {
+        int16_t h = (int16_t)((PH - 16) * (sysRingAt(heapRing, i) - lo) / span) + 2;
+        uiTft->fillRect(PX + 4 + i * bw, base - h, bw - 1, h, COL_GOOD);
+    }
+
+    const int16_t cy = py + PH + 4;
+    const uint32_t mv = batteryMilliVolts();
+
+    // The subtitle is the MEASURED discharge rate over a stated window, not a
+    // projected runtime. V2_DESIGN.md S3 forbids presenting derived confidence
+    // as measurement, and "~4h left" is a projection dressed as a reading —
+    // this states the slope and the span it came from and lets the operator do
+    // the division.
+    if (mv == 0) {
+        snprintf(value, sizeof(value), "--");
+        snprintf(sub, sizeof(sub), "no reading");
+        statCard(statCardX(0), cy, STAT_CARD_W, "BATTERY", COL_DIM, value, sub);
+    } else {
+        const uint8_t pct = batteryPercent();
+        snprintf(value, sizeof(value), "%u%%", (unsigned)pct);
+        const uint32_t spanMin = (uint32_t)(sysRingCount - 1) * (SYS_SAMPLE_MS / 60000);
+        if (sysRingCount >= 5 && spanMin > 0) {
+            const int16_t drop = (int16_t)sysRingAt(battRing, 0) -
+                                 (int16_t)sysRingAt(battRing, (uint8_t)(sysRingCount - 1));
+            snprintf(sub, sizeof(sub), "%+d%%/h %lum", -(int)(drop * 60 / (int)spanMin),
+                     (unsigned long)spanMin);
+        } else {
+            snprintf(sub, sizeof(sub), "%.2fV", mv / 1000.0);
+        }
+        statCard(statCardX(0), cy, STAT_CARD_W, "BATTERY", pct > 20 ? COL_GOOD : COL_BAD, value, sub,
+                 pct > 20 ? COL_FG : COL_BAD);
+    }
+
+    const uint32_t heap = ESP.getFreeHeap();
+    snprintf(value, sizeof(value), "%luk", (unsigned long)(heap / 1024));
+    snprintf(sub, sizeof(sub), "min %luk", (unsigned long)(ESP.getMinFreeHeap() / 1024));
+    statCard(statCardX(1), cy, STAT_CARD_W, "HEAP", heapUsageColour(heap / 1024), value, sub,
+             heapUsageColour(heap / 1024));
+
+    snprintf(value, sizeof(value), "%lum", (unsigned long)(millis() / 60000));
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)spiBusContentionCount());
+    snprintf(sub, sizeof(sub), "bus %s", buf);
+    statCard(statCardX(2), cy, STAT_CARD_W, "UPTIME", COL_DIM, value, sub);
+
+    // Bottom line, full width — keyboard presence, health-row count (confirms
+    // the session log is actually being written), WiFi, firmware version.
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 111);
+    uiTft->print(keyboardReady ? "keys ok" : "keys none");
     uiTft->print("  health ");
     uiTft->print(loggerSessionRows());
-
-    uiTft->setCursor(2, HEADER_H + 78);
+    uiTft->print(wifiIsEnabled() ? "  wifi ON  " : "  wifi off  ");
     uiTft->print(FIRMWARE_VERSION);
 }
 
@@ -1615,7 +1786,7 @@ void drawMenuList() {
 // Slider screen — generic over whichever SLIDER row is currently open
 // (Brightness or Margin, ui_menu.h's MenuItem). Large live readout plus a
 // filled-bar track, same outline+fill visual language as
-// drawHeapBar()/drawFreqBar() rather than a third bar style.
+// drawFreqBar()/drawMeterBar() rather than a third bar style.
 void drawMenuSlider() {
     const MenuItem &item = menu.currentItem();
 
