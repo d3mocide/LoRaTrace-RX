@@ -34,7 +34,12 @@ kept for reference rather than written to be read start to finish.
   are what stay current going forward.
 - **`research/`** — design/investigation notes written during specific
   phases (e.g. Phase 8/9 sweep design), not maintained after the phase
-  they were written for.
+  they were written for. Includes UI explorations as standalone HTML
+  mockups; the open one is
+  [research/2026-09-06-og-card-redesigns.html](research/2026-09-06-og-card-redesigns.html)
+  — three options each for the Channel, GPS and System cards, which still
+  predate the band-plus-three-cards language Activity and Radio now share.
+  Nothing there is implemented.
 - **`hardware-results/`** — dated bench/field test result reports.
   `hardware-results/private/` (git-ignored) holds raw device captures
   that may contain precise GPS locations; only redacted aggregate
