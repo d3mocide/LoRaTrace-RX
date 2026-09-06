@@ -212,3 +212,65 @@ same change. 3 ms costs about 0.26 s of a 1.7 s lap. Shipping the settle alone
 would leave a 35 dB margin calibrated against under-read values now being
 applied to correctly-read ones, which changes peak decisions in an untested
 direction — the fix is one change, not two.
+
+
+---
+
+# Confirmation at 300 laps
+
+**Raw:** `private/ws17-traffic2-20260905T231056Z.jsonl`. 300 laps, **0 skipped**,
+62.7 minutes, fully passive — the bench transmitter was quieted and this run
+transmitted nothing. Same two live repeaters, same alternating 0/3 ms settle,
+same within-lap controls. The harness gained retry-on-transport-failure and
+skip-a-lap-rather-than-abort after the previous attempt died at lap 68.
+
+Judged by Sweep's own rule: a bin is flagged when it sits 35 dB
+(`ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10`) above the lap's noise floor.
+
+| | bin 34 (MeshCore) | bin 66 (MeshOregon) | adjacent + control bins | best traffic excursion |
+|---|---|---|---|---|
+| **0 ms (shipped)** | 0/150, CI [0.000, 0.025] | 0/150, CI [0.000, 0.025] | **0 flagged** | **19.0 dB** |
+| **3 ms** | 3/150, CI [0.007, 0.057] | 3/150, CI [0.007, 0.057] | **0 flagged** | **51.6 dB** |
+
+## What this establishes
+
+**The shipped configuration never came close to flagging traffic it was
+physically sampling.** Its best excursion across 150 laps was 19.0 dB against
+a 35 dB threshold — not a near miss, a factor of two in dB terms. The settled
+configuration reached 51.6 dB on the same traffic in interleaved laps.
+
+**Specificity is clean.** Across both arms, no adjacent bin (33/35/65/67) and
+no control bin (5/15/25/45/55/75/80) was ever flagged — roughly 1,650
+non-traffic bin observations per arm with zero false flags. When the settled
+configuration flags something, it flags the two channels that actually carry
+traffic and nothing else.
+
+**Both repeaters behaved alike at 3 ms** (3/150 each), where the shorter
+earlier run had seen MeshOregon twice and MeshCore twice. The per-session
+difference in activity the operator described shows up as variance between
+runs rather than as a systematic difference here.
+
+## What this does not establish
+
+**The flag *rates* are still not statistically separated.** 0/150 gives
+[0.000, 0.025] and 3/150 gives [0.007, 0.057]; those overlap on [0.007,
+0.025]. Separating a 0% rate from a 2% one needs roughly 300 laps per arm, not
+150, and this run was sized before that arithmetic was done.
+
+That gap does not weaken the conclusion, because the rate is a *consequence*
+of the margin arithmetic rather than independent evidence for it: a
+configuration whose best excursion is 19.0 dB cannot flag a 35 dB threshold at
+any sample size. The rate would only become the load-bearing evidence if the
+excursion result were ambiguous, and it is not.
+
+**The ~2% flag rate at 3 ms is a coincidence rate, not a sensitivity figure.**
+Pass A visits each bin for about 3 ms per lap, so it can only flag traffic
+that happens to be transmitting during that window. That bound applies equally
+to a fixed Sweep and is a property of the design, not of the settle.
+
+## Status
+
+This closes Workstream 17's entry question. Pass A's settle under-read is not a
+calibration curiosity: it is the difference between flagging the two busiest
+channels in the band and flagging nothing at all. The fix — settle, and
+re-derive the margin in the same change — remains unapplied and untested.

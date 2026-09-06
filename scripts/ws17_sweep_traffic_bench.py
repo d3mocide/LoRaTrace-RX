@@ -55,11 +55,25 @@ def run_lap(card):
     raise TimeoutError("sweep did not reach a terminal state")
 
 
-def read_bin(card, index):
-    opcode, payload = card.request("BENCH_SWEEP_FLOOR", str(index), timeout=8.0)
-    if opcode != "ACK":
-        raise RuntimeError(f"BENCH_SWEEP_FLOOR({index}) failed: {opcode} {payload}")
-    return int(parse_fields(payload)["FLOOR"]) / 10.0
+def read_bin(card, index, attempts=3):
+    """Read one bin's floor, retrying transport failures.
+
+    Native USB-CDC occasionally truncates a reply under sustained round trips;
+    an earlier run of this bench died at lap 68 of 200 for exactly that. The
+    query is idempotent -- it reads state the sweep already recorded -- so a
+    re-send cannot disturb the measurement.
+    """
+    last = None
+    for attempt in range(attempts):
+        try:
+            opcode, payload = card.request("BENCH_SWEEP_FLOOR", str(index), timeout=12.0)
+            if opcode != "ACK":
+                raise RuntimeError(f"BENCH_SWEEP_FLOOR({index}): {opcode} {payload}")
+            return int(parse_fields(payload)["FLOOR"]) / 10.0
+        except (RuntimeError, TimeoutError, KeyError, ValueError) as error:
+            last = error
+            time.sleep(0.3)
+    raise RuntimeError(f"BENCH_SWEEP_FLOOR({index}) failed {attempts}x: {last}")
 
 
 def main():
@@ -99,11 +113,23 @@ def main():
                            "controls": list(CONTROL_BINS), "laps": args.laps})
 
             started = time.monotonic()
+            skipped = 0
             for lap in range(args.laps):
                 settle = settles[lap % len(settles)]
                 require_ack(card, "BENCH_SWEEP_SETTLE", str(settle), timeout=8.0)
-                run_lap(card)
-                floors = {b: read_bin(card, b) for b in watched}
+                # A lost lap is a lost sample, not a lost run: at a ~6% hit
+                # rate the value is in the count of laps, so aborting on one
+                # transport failure discards everything gathered so far.
+                try:
+                    run_lap(card)
+                    floors = {b: read_bin(card, b) for b in watched}
+                except (RuntimeError, TimeoutError) as error:
+                    skipped += 1
+                    results.write({"event": "lap_error", "lap": lap,
+                                   "settle_ms": settle, "error": str(error)})
+                    print(f"  [{lap + 1:4d}/{args.laps}] skipped: {error}", flush=True)
+                    time.sleep(1.0)
+                    continue
                 results.write({"event": "lap", "lap": lap, "settle_ms": settle,
                                "floors": {str(b): v for b, v in floors.items()},
                                "elapsed_s": round(time.monotonic() - started, 1)})
@@ -112,7 +138,7 @@ def main():
                     print(f"  [{lap + 1:4d}/{args.laps}] settle {settle}ms  "
                           f"bin34 {floors[34]:7.1f}  bin66 {floors[66]:7.1f}  "
                           f"controls {ctl:7.1f}", flush=True)
-            print(f"\n{args.laps} laps in {(time.monotonic() - started) / 60:.1f} min")
+            print(f"\n{args.laps} laps in {(time.monotonic() - started) / 60:.1f} min, {skipped} skipped")
         finally:
             try:
                 require_ack(card, "BENCH_SWEEP_SETTLE", "0", timeout=8.0)
