@@ -9,6 +9,16 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-06
 
+- **Chrome and Radio grid pass.** Band container borders removed on all five
+  cards — the header hairline already separates that region and a second border
+  under it was clutter; cells and cards keep theirs. WiFi moves from System's
+  bottom line to a fourth header status dot, and System names its build in the
+  header. Radio's pipeline becomes a 2x3 grid of six boxed cells (RX/CRC/MISS
+  over QUEUE/LOG/DROP — radio layer over pipeline layer), so the chain still
+  reads in order without arrows. Fixes a footer collision this branch
+  introduced on System (bottom line at y=123 vs footer at 125) and a
+  pre-existing one on Probe's radio-error block.
+
 - **Differentiated the five cards' bands.** Three of five were drawing the
   same mark — 30 green bars at 7px pitch in an identical 236x43 box — so
   Activity, GPS and System were near-indistinguishable at a glance. The mark

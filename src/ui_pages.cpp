@@ -47,7 +47,7 @@ constexpr int16_t HEADER_H = 12;
 // and also on two 3-deep group lists whose own label is long enough to
 // overrun this alone ("MENU > System > Connectivity", 28 chars; "MENU >
 // System > Diagnostics", 27) -- not just the slider case.
-constexpr size_t HEADER_BREADCRUMB_MAX_CHARS = 25;
+constexpr size_t HEADER_BREADCRUMB_MAX_CHARS = 23;
 constexpr uint16_t COL_BG = 0x0000;     // black
 constexpr uint16_t COL_FG = 0xFFFF;     // white
 constexpr uint16_t COL_DIM = 0xBDF7;    // light grey, ~75% brightness -- mid-grey (0x8410, ~51%)
@@ -335,81 +335,46 @@ void statCard(int16_t x, int16_t y, int16_t w, const char *title, uint16_t title
 // x of the Nth stat card in the standard three-across row.
 constexpr int16_t statCardX(uint8_t n) { return (int16_t)(2 + n * (STAT_CARD_W + 3)); }
 
-// One stage of the receive pipeline: a name, the count that reached it, and
-// what was lost getting there. The loss figure carries the colour — green at
-// zero, red otherwise — because "0" is the only good value and an operator
-// should not have to compare two numbers to notice a leak.
-void pipelineStage(int16_t x, int16_t y, const char *name, uint32_t reached, const char *lossLabel,
-                   uint32_t lost, bool flash) {
-    char buf[16];
+// One cell of Radio's 2x3 grid: a label and its count, boxed. Counts are
+// neutral; a loss figure carries colour, green at zero and red otherwise,
+// because 0 is the only good value and nobody should have to compare two
+// numbers to notice a leak.
+void radioCell(int16_t x, int16_t y, const char *label, uint32_t v, bool isLoss, bool flash) {
+    char buf[12];
+    uiTft->drawRect(x, y, STAT_CARD_W, 21, COL_DIM);
     uiTft->setTextSize(1);
     uiTft->setTextColor(flash ? COL_GOOD : COL_DIM, COL_BG);
-    uiTft->setCursor(x, y);
-    uiTft->print(name);
-
-    uiTft->setTextSize(2);
-    uiTft->setTextColor(COL_FG, COL_BG);
-    uiTft->setCursor(x, y + 11);
-    // 5 size-2 digits (60px) is what clears the arrow drawn 8px further on; a
-    // long soak can exceed 99,999 packets, so past that the count switches to
-    // thousands rather than growing into the next column.
-    if (reached < 100000UL) {
-        snprintf(buf, sizeof(buf), "%lu", (unsigned long)reached);
+    uiTft->setCursor(x + 4, y + 3);
+    uiTft->print(label);
+    uiTft->setTextColor(isLoss ? (v == 0 ? COL_GOOD : COL_BAD) : COL_FG, COL_BG);
+    uiTft->setCursor(x + 4, y + 12);
+    if (v < 100000UL) {
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)v);
     } else {
-        snprintf(buf, sizeof(buf), "%luk", (unsigned long)(reached / 1000UL));
+        snprintf(buf, sizeof(buf), "%luk", (unsigned long)(v / 1000UL));
     }
-    uiTft->print(buf);
-
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(lost == 0 ? COL_GOOD : COL_BAD, COL_BG);
-    uiTft->setCursor(x, y + 30);
-    snprintf(buf, sizeof(buf), "%s %lu", lossLabel, (unsigned long)lost);
     uiTft->print(buf);
 }
 
-// Radio, view 0: the receive chain as what it actually is — a pipeline with a
-// named loss at each handoff. Replaces seven equal-weight numbers in two
-// unrelated columns, which said nothing about which of them mattered or how
-// they related (a bare "drop 3" means nothing without the "rx 1284" beside it,
-// and the two sat in different columns).
-//
-// Same shape as Activity's dashboard, deliberately: a visual band across the
-// top, then three statCard()s. Activity's band is a time series because its
-// question is "what is out there now"; Radio's is a flow because its question
-// is "is what I hear reaching the card, and if not, where is it going".
+// Radio, view 1 of 3 (Meter and Scope are 2 and 3). The receive chain as six
+// facts rather than three composite stages with arrows between them (operator
+// request, 2026-09-06): the arrows carried causality but cost every stage its
+// own box, and the result read as one dense object instead of six readable
+// ones. Row 1 is what the radio did, row 2 is what the pipeline did with it,
+// so the chain still reads in order without being drawn.
 void drawRadioPage() {
-    const uint32_t heard = radioPacketCount();
-    const uint32_t crc = radioCrcErrorCount();
-    const uint32_t queueDropped = radioQueueDropCount();
-    const uint32_t logged = loggerRowsWritten();
-    const uint32_t logDropped = loggerRowsDropped() + loggerScanRowsDropped();
+    // No container box around the grid (operator request, same session): the
+    // header's own hairline already separates this region, and a second border
+    // immediately under it was clutter. The cells keep theirs, as do the cards.
+    constexpr int16_t ROW1 = HEADER_H + 2, ROW2 = HEADER_H + 25;
+    radioCell(statCardX(0), ROW1, "RX", radioPacketCount(), false, rxPulseActive());
+    radioCell(statCardX(1), ROW1, "CRC", radioCrcErrorCount(), true, false);
+    radioCell(statCardX(2), ROW1, "MISS", radioBusMissCount(), true, false);
+    radioCell(statCardX(0), ROW2, "QUEUE", radioQueueDropCount(), true, false);
+    radioCell(statCardX(1), ROW2, "LOG", loggerRowsWritten(), false, false);
+    radioCell(statCardX(2), ROW2, "DROP", loggerRowsDropped() + loggerScanRowsDropped(), true, false);
 
-    // Band 1: the pipeline. Air -> demod -> queue handoff -> SD, each stage
-    // showing what got through and what was lost reaching it. The arrows go
-    // red when the stage they feed lost anything, so the failing handoff is
-    // findable without reading a single number.
-    constexpr int16_t PX = 2, PW = 236, PH = 43;
-    const int16_t py = HEADER_H + 2;
-    uiTft->drawRect(PX, py, PW, PH, COL_DIM);
-
-    constexpr int16_t COL_STEP = 78;
-    const int16_t sy = py + 3;
-    // HEARD flashes on a live detection — the RX pulse that used to be a bar
-    // under "log", moved onto the stage it actually describes.
-    pipelineStage(PX + 4, sy, "HEARD", heard, "crc", crc, rxPulseActive());
-    pipelineStage(PX + 4 + COL_STEP, sy, "QUEUED", heard - queueDropped, "drop", queueDropped, false);
-    pipelineStage(PX + 4 + COL_STEP * 2, sy, "LOGGED", logged, "drop", logDropped, false);
-
-    uiTft->setTextSize(1);
-    uiTft->setCursor(PX + COL_STEP - 6, sy + 14);
-    uiTft->setTextColor(queueDropped == 0 ? COL_DIM : COL_BAD, COL_BG);
-    uiTft->print(">");
-    uiTft->setCursor(PX + COL_STEP * 2 - 6, sy + 14);
-    uiTft->setTextColor(logDropped == 0 ? COL_DIM : COL_BAD, COL_BG);
-    uiTft->print(">");
-
-    // Band 2: three cards, Activity's own idiom and geometry.
-    const int16_t cy = py + PH + 4;
+    const int16_t cy = HEADER_H + 49;
     char value[14], sub[16];
 
     // STATE answers "am I even listening", which this page could not say
@@ -453,10 +418,12 @@ void drawRadioPage() {
     // whether BATCH_BUF_SIZE needs retuning (docs/DESIGN.md 8.2), and bus
     // misses are the same SPI-contention story one layer down, so they share
     // a card rather than sitting in separate columns.
-    const uint32_t misses = radioBusMissCount();
+    // MISS moved into the grid above, so this card carries the flush story on
+    // its own: the worst hold is what decides whether BATCH_BUF_SIZE needs
+    // retuning (docs/DESIGN.md 8.2), and the count says how often it happens.
     snprintf(value, sizeof(value), "%lums", (unsigned long)loggerMaxFlushMs());
-    snprintf(sub, sizeof(sub), "%lu bus miss", (unsigned long)misses);
-    statCard(statCardX(2), cy, STAT_CARD_W, "BUS", misses == 0 ? COL_DIM : COL_BAD, value, sub);
+    snprintf(sub, sizeof(sub), "bus %lu", (unsigned long)spiBusContentionCount());
+    statCard(statCardX(2), cy, STAT_CARD_W, "BUS", COL_DIM, value, sub);
 }
 
 void drawProbePage() {
@@ -568,7 +535,11 @@ void drawProbePage() {
     if (state == DiscoverySweepState::FAILED) {
         char value[10];
         snprintf(value, sizeof(value), "%d", radioLastError());
-        statBlock(2, HEADER_H + 100, "radio error", value, COL_BAD);
+        // y=96, not 100: statBlock draws its value 9px below the label, so at
+        // 100 the value landed on the footer's profile text (y=125..132). A
+        // pre-existing overlap, only visible in the radio-error case, fixed
+        // during the 2026-09-06 layout pass.
+        statBlock(2, HEADER_H + 96, "radio error", value, COL_BAD);
     }
 }
 
@@ -1188,7 +1159,6 @@ void drawChannelPage() {
     // been demoted into a 77px tile.
     constexpr int16_t PX = 2, PW = 236, PH = 26;
     const int16_t py = HEADER_H + 2;
-    uiTft->drawRect(PX, py, PW, PH, COL_DIM);
     drawChannelBandMap(PX + 4, py + 4, PW - 8, ch.freq_mhz);
 
     uint16_t peaks = 0;
@@ -1277,7 +1247,6 @@ void drawGpsPage() {
 
     constexpr int16_t PX = 2, PW = 236, PH = 43;
     const int16_t py = HEADER_H + 2;
-    uiTft->drawRect(PX, py, PW, PH, COL_DIM);
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
     uiTft->setCursor(PX + 4, py + 3);
@@ -1436,7 +1405,6 @@ void drawSystemPage() {
 
     constexpr int16_t PX = 2, PW = 236, PH = 43;
     const int16_t py = HEADER_H + 2;
-    uiTft->drawRect(PX, py, PW, PH, COL_DIM);
     uiTft->setTextSize(1);
     uiTft->setTextColor(COL_DIM, COL_BG);
     // A two-trace legend rather than one title: the band carries both
@@ -1465,6 +1433,13 @@ void drawSystemPage() {
         if (deltaK <= -16) { verdict = "FALLING"; verdictCol = COL_BAD; }
         else if (deltaK <= -6) { verdict = "DRIFT"; verdictCol = COL_WARN; }
         else { verdict = "FLAT"; verdictCol = COL_GOOD; }
+    }
+    // A dead keyboard outranks a heap trend, so it takes this slot outright —
+    // it is the one thing here an operator must not miss, and it is why the
+    // old "keys ok" text does not need a line of its own.
+    if (!keyboardReady) {
+        verdict = "NO KEYS";
+        verdictCol = COL_BAD;
     }
     uiTft->setTextColor(verdictCol, COL_BG);
     uiTft->setCursor(PX + PW - 4 - (int16_t)strlen(verdict) * 6, py + 3);
@@ -1546,21 +1521,12 @@ void drawSystemPage() {
     statCard(statCardX(1), cy, STAT_CARD_W, "HEAP", heapUsageColour(heap / 1024), value, sub,
              heapUsageColour(heap / 1024));
 
+    // Health rows keep their home here rather than on a bottom line: they
+    // confirm session.csv is actually being written, which is a real check to
+    // make before driving off with the lid shut.
     snprintf(value, sizeof(value), "%lum", (unsigned long)(millis() / 60000));
-    snprintf(buf, sizeof(buf), "%lu", (unsigned long)spiBusContentionCount());
-    snprintf(sub, sizeof(sub), "bus %s", buf);
+    snprintf(sub, sizeof(sub), "health %lu", (unsigned long)loggerSessionRows());
     statCard(statCardX(2), cy, STAT_CARD_W, "UPTIME", COL_DIM, value, sub);
-
-    // Bottom line, full width — keyboard presence, health-row count (confirms
-    // the session log is actually being written), WiFi, firmware version.
-    uiTft->setTextSize(1);
-    uiTft->setTextColor(COL_DIM, COL_BG);
-    uiTft->setCursor(2, HEADER_H + 111);
-    uiTft->print(keyboardReady ? "keys ok" : "keys none");
-    uiTft->print("  health ");
-    uiTft->print(loggerSessionRows());
-    uiTft->print(wifiIsEnabled() ? "  wifi ON  " : "  wifi off  ");
-    uiTft->print(FIRMWARE_VERSION);
 }
 
 // One row of a menu list (root or group), selected or not. Selection is
@@ -1687,7 +1653,6 @@ void drawActivitySummary() {
     // at 240x135, where vertical space is the scarce axis.
     constexpr int16_t PX = 2, PW = 236, PH = 43;
     const int16_t py = HEADER_H + 2;
-    uiTft->drawRect(PX, py, PW, PH, COL_DIM);
     uint8_t peak = 1;
     for (uint8_t i = 0; i < pktRingCount; i++) {
         if (pktRing[i] > peak) peak = pktRing[i];
@@ -2547,12 +2512,28 @@ void drawHeader() {
         // status line (drawFooterStatus()) so this text never crowds the
         // status-dot cluster or the battery reading.
         uiTft->print(pageName(activeView()));
+        // System names the build it is running. The header is where identity
+        // lives, and this is the only card with room for it — the bottom line
+        // that used to carry the version collided with the footer.
+        if (activeView() == UiPage::SYSTEM) {
+            uiTft->setTextColor(COL_DIM, COL_BG);
+            uiTft->print("  ");
+            uiTft->print(FIRMWARE_VERSION);
+        }
     }
 
     drawBattery();
 
-    // Status dot cluster: GPS fix state, heap health, RX activity —
-    // always visible from any page instead of only their own.
+    // Status dot cluster: WiFi AP, GPS fix, heap health, RX activity — always
+    // visible from any page instead of only their own. WiFi joined here
+    // 2026-09-06 (operator request): it was text on System's bottom line, which
+    // is a worse place for a binary state than the cluster that already exists
+    // for exactly that. Client count moves to the web UI and the toggle toast;
+    // a dot cannot carry it and does not need to.
+    //
+    // Cluster shifted left to 148 to fit a fourth dot: drawBattery() clears
+    // from x=184, so 177 was the old right edge and there was no room after it.
+    uiTft->fillCircle(148, 6, 2, wifiIsEnabled() ? COL_GOOD : COL_DIM);
     uiTft->fillCircle(157, 6, 2, gpsStatusColour());
     uiTft->fillCircle(166, 6, 2, heapStatusColour());
     uiTft->fillCircle(175, 6, 2, rxPulseActive() ? COL_GOOD : COL_DIM);
