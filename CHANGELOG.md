@@ -9,6 +9,11 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-07
 
+- **v1.1.1.** Repair pass over the v1.1.0 audit, plus A29 which the repairs
+  made measurable. Operator-visible: the AP key is per device now (the shared
+  `loratrace123` is gone), Cell produces usable data for the first time, and
+  every run carries a `manifest.txt`. See `docs/RELEASE_NOTES.md`.
+
 - **Hardware pass.** A01 confirmed fixed (Cell tunes: lap timing matches the
   documented full-`begin()` figure, 40 dB of structured spread). A23 found by
   measurement and fixed: the logger dropped **192 of 404 Cell rows** with

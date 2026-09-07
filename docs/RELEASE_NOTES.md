@@ -24,6 +24,100 @@ Versions before `v1.0.6` predate this file; their history is in
 
 ---
 
+## v1.1.1
+
+**Your Wi-Fi password changes with this update, and you cannot get the new one
+over Wi-Fi.** Every build before this one used the same password,
+`loratrace123`, baked into the firmware — which meant anyone who had ever seen
+any LoRaTrace build could join your AP and download your captures. Each device
+now generates its own key the first time the AP starts.
+
+Read it on the device: **System > Connectivity > Wi-Fi Key**. That opens a
+screen showing the network name and the key, and it stays up until you press
+Enter or `` ` `` — it is not a toast, because twelve characters is more than
+anyone can copy in a second and a half. Write it down once; it survives
+reboots. To change it, delete `/loratrace/wifi.txt` from the card and enable
+the AP again. If the device could not write to the card it will say
+**"not saved - changes on reboot"** on that screen, and it means it.
+
+The key is deliberately not available over serial, over the web page, or in
+any export or log. That screen is the only place it exists.
+
+**Cell is worth using now. Everything it recorded before is not.** Three
+separate faults were stacked on top of each other, and each one hid the next:
+
+- it never actually tuned to the frequency it was recording against, so every
+  reading belonged to the previous one;
+- roughly a third of every lap never reached the card, while the health log
+  reported no drops at all;
+- and it read signal strength before the receiver had settled, so about two
+  thirds of bins came back at a floor value belonging to no frequency.
+
+All three are fixed. A lap now writes all 101 bins and reads a real level on
+essentially every one. **Delete or ignore any Cell data captured before this
+release — including anything that showed a frequency as quiet.** A "quiet" bin
+was usually just an unsettled reading; the same band now reads about 22 dB
+louder. Laps take about as long as before.
+
+Cell is still an optional narrowband signal-strength survey. A strong bin is
+not a tower, a distance, or a calibrated power measurement.
+
+**Two files you could never download are downloadable.** `cell.csv` and
+`focus.csv` were missing from the web page and from the device's own list of
+allowed files, so the only way to get them was to pull the SD card. They are in
+the run list now.
+
+**Each run folder gets a `manifest.txt`.** It records which firmware built it,
+the exact radio settings in use, the region, and one block per power-on — so a
+folder you copy off the card months later can still say what the device was
+when it heard all that. It also states two things people get wrong: the
+millisecond columns are device uptime, not clock time, and a position is where
+*your receiver* was, never where a transmitter was. It downloads with the CSVs.
+
+**A "NODES (SAFE)" download sits beside the normal one.** Node names arrive over
+the air, and a name like `=1+1` is treated as a formula by every spreadsheet.
+The normal file keeps exactly what was received; the safe one is for opening in
+a spreadsheet. Negative signal values are left alone.
+
+**If a settings page was already open in a browser, reload it.** Saving now
+requires a token the page picks up when it loads, so a tab left open from
+before will answer "reload the page" instead of saving. This stops another
+website you happen to be visiting from quietly changing your radio settings
+while you are connected to the AP.
+
+**The settings page now shows saved and running values separately.** Before, it
+always showed what the radio booted with, so an unrebooted save looked like it
+had not happened — and editing that form silently reverted it. The form now
+edits what is on the card and tells you when the radio is still running
+something else.
+
+**Timestamps and positions are attributed more carefully.** A packet is tagged
+with the GPS fix that was current when it was *received*, not when it was
+written to the card — those differ when the card is busy and you are moving.
+UTC now comes only from a complete GPS date-and-time pair and stops being
+reported when the GPS stops, instead of a frozen clock that still looks
+authoritative.
+
+**New columns, and one to stop over-trusting.** `classification` in
+`detections.csv` has always meant *what the radio was listening for*, not what
+the packet was — but it reads the other way, especially under Reticulum or
+General Exploration, which listen on the Meshtastic channel. Three columns now
+carry the honest answer: `protocol_candidate`, `parse_status` and
+`auth_status`. `auth_status` always reads `unauthenticated`, and that is the
+point — nothing this firmware decodes proves who sent it. Treat every node
+name, ID and key as a claim.
+
+`session.csv` gains `home` (whether the radio was actually listening — a quiet
+run with `home=down` is not evidence the band was quiet), separate reception
+error counts, SD write-fault counters, and a per-boot ID.
+
+**Known issues.** The AP still has no login beyond the Wi-Fi key and no
+encryption: treat anyone who joins as having full access. The full-card and
+failing-card paths are handled in code but have not been forced on real
+hardware. Cell's field validation against a known tower is still deferred.
+
+---
+
 ## v1.1.0
 
 **The whole home screen is rebuilt.** Every card now carries more than one

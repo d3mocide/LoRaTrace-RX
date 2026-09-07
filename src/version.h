@@ -277,7 +277,82 @@
 // PATCH, not MINOR -- a UI reorganization within already-closed phase
 // scope, no new capability. Not yet hardware-verified on real hardware;
 // flag before calling this done.
-#define FIRMWARE_VERSION "1.1.0"
+#define FIRMWARE_VERSION "1.1.1"
+
+// 1.1.1: repair pass over the v1.1.0 audit
+// (docs/research/2026-09-07-v1.1.0-v2-audit.md), plus one defect the repairs
+// themselves made measurable. PATCH, not MINOR: no workstream closed and no
+// new capability shipped -- the roadmap reserves v1.2.0 for Workstream 13.
+//
+// Three separate defects had to be fixed before Cell produced a number that
+// meant anything, and each one hid the next:
+// - It never tuned. The per-bin block declared an uninitialised `beginState`
+//   and compared it before startReceive(), with no begin()/setFrequency()
+//   anywhere, so every bin reported RSSI at the previous frequency (A01).
+// - A third of its rows never reached the card. The logger drained one row
+//   per auxiliary queue per pass and each pass opened with a 100ms blocking
+//   wait, capping every auxiliary file near ten rows/s against Cell's
+//   eighteen. Measured: 192 of 404 lost, with row_drop 0 and sd ok the whole
+//   time, so nothing in the health record showed it (A23).
+// - It sampled RSSI before the receiver had settled after each retune (A29,
+//   found only once the first two were fixed). Two thirds of bins returned a
+//   floor value belonging to no particular frequency, and which third landed
+//   after settling moved with SD writes and bus contention -- producing a
+//   0.75MHz comb whose phase wandered randomly between laps.
+//
+// A29's fix is measured, not chosen. Bench sweep, two interleaved reps per
+// value, 101 bins each:
+//
+//   settle   bins above -110dBm   median       settle   bins    median
+//      0ms         33.5 / 101   -117.0 dBm        3ms    92.5   -98.0 dBm
+//      1ms         44.0 / 101   -111.8 dBm        5ms   101.0   -91.3 dBm
+//      2ms         83.5 / 101   -101.4 dBm       10ms   101.0   -90.8 dBm
+//
+// CELL_SETTLE_MS = 5 is the knee: the smallest value where every bin reads,
+// costing ~0.5s on a 101-bin lap. The same 5ms was found on 2026-09-04 during
+// the light-retune investigation and lost when that port was reverted -- the
+// second time this project has paid for that number.
+//
+// Direction reversal is what cleared real RF as the explanation before any
+// delay was tried: over eight interleaved forward/reverse laps the strong-bin
+// overlap between two forward laps ranged 0.00 to 1.00 and forward-versus-
+// reverse averaged 0.36, no lower than same-direction. No real spectrum and no
+// fixed pipeline offset does that. Deliberately no transmitter: 869-894MHz is
+// FCC Part 22 licensed cellular downlink, and this firmware is RX-only.
+//
+// Worth stating for whoever reads old captures: settled, the median bin reads
+// -95 dBm against -117 dBm unsettled. Every quiet Cell reading this project
+// ever produced is suspect, not only the obviously wrong ones.
+//
+// The AP key is per device now (A10). Every build before this shipped
+// `loratrace123`, so the key protecting raw frames, decoded identities and a
+// GPS track was public knowledge. Generated from the hardware RNG on first
+// use, persisted, and readable only on the device -- kept out of the boot log,
+// serial control, HTTP and every export. It got its own INFO screen after the
+// first attempt put it in a toast: TOAST_DURATION_MS is 1400ms and the key is
+// twelve characters being typed into a phone (operator, on hardware).
+//
+// Evidence-integrity changes worth knowing about when reading a run:
+// - SD appends compare byte counts and CSV headers are verified, repaired or
+//   set aside rather than adopted unread (A02).
+// - Observations carry the GPS fix current at the reception, not at dequeue,
+//   and UTC comes only from a complete RMC pair and expires with it (A06/A07).
+// - `classification` is documented as the listening configuration and is no
+//   longer the only word on what a packet was; protocol_candidate,
+//   parse_status and auth_status carry the evidence-based answer, with
+//   auth_status a constant `unauthenticated` because nothing here verifies a
+//   signature (A13).
+// - Focus coverage is keyed on resolved frequency plus modem config, so a
+//   Region change can no longer hand a new frequency the old one's observation
+//   time (A04).
+// - wifi_on and qualifying_count are measured rather than fabricated (A19).
+// - Each run gets manifest.txt and a 128-bit per-boot session id (A18/A25).
+//
+// Hardware-verified this release: A01, A10, A11, A15, A18, A23, A24, A25 and
+// A29 were exercised on the device, several over its own AP. A02's counters
+// read live but a full-card and short-write path has not been forced. Still
+// open and named in the audit: A14, A16, A21's arbiter, A22, A26's outage
+// summaries and A27's fuzzing.
 
 // 1.0.6: correctness pass over what v1.0.5 shipped, from a code review and
 // a whole-project audit (docs/research/2026-09-04-project-audit.md).
