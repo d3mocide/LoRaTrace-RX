@@ -100,6 +100,10 @@ volatile bool tracePaused = false;
 // evidence that Watch is running (audit A21).
 volatile bool homeArmed = false;
 
+// Pushed by wifi_task on every AP transition. Read at acquisition time, on
+// this core, so a survey row records the conditions it was measured under.
+volatile bool wifiActiveDuringAcquisition = false;
+
 // Probe uses a one-slot start mailbox plus a cancellation flag. The scan
 // itself runs only on this task, so the flag needs no lock and cancellation
 // cannot race a second radio owner.
@@ -537,9 +541,11 @@ bool discoveryAbortPending() {
 
 // A threshold-filtered peak only — Pass A never enqueues a non-peak bin
 // (docs/DESIGN.md §8.1: "don't dump every sweep point, only peaks"). `wifi_on`
-// is hardcoded false: a real WiFi-state getter is a later slice's concern
-// (this task has no WiFi dependency today and shouldn't grow one just to
-// answer this field).
+// is a real reading now: it was hardcoded false, so every survey row claimed
+// the 2.4GHz radio was off whether or not it was, in a file whose whole
+// purpose is recording measurement conditions (audit A19). wifi_task pushes
+// the state here rather than this task pulling it, so the dependency still
+// runs one way.
 void enqueueEnergyObservation(uint16_t binIndex, const ChannelParams &channel,
                               const EnergyBinStats &stats) {
     EnergyObservation observation;
@@ -559,7 +565,7 @@ void enqueueEnergyObservation(uint16_t binIndex, const ChannelParams &channel,
     observation.sample_count = stats.sample_count;
     observation.result = EnergyObservationResult::ENERGY_PEAK;
     observation.packet_metadata_present = false;
-    observation.wifi_on = false;
+    observation.wifi_on = wifiActiveDuringAcquisition;
 
     energyPeakCount++;
     energyObservationCount++;
@@ -597,7 +603,7 @@ void enqueuePassBObservation(uint16_t binIndex, const PassBModemParams &combo,
     observation.sample_count = 0;
     observation.result = result;
     observation.packet_metadata_present = packetMetadataPresent;
-    observation.wifi_on = false;
+    observation.wifi_on = wifiActiveDuringAcquisition;
 
     passBAttemptCount++;
     energyObservationCount++;
@@ -746,6 +752,10 @@ void enqueueFocusObservation(const FocusRequest &request, const FocusRssiHistogr
     FocusObservation observation;
     observation.rx_millis = millis();
     observation.observation_ms = runtime.observation_ms;
+    observation.partial_observation_ms = runtime.partial_observation_ms;
+    observation.qualifying_count =
+        focusHistogramCountAboveMedian(histogram, FOCUS_QUALIFYING_MARGIN_DBM_X10);
+    observation.wifi_on = wifiActiveDuringAcquisition;
     observation.freq_mhz = focusRequestFrequencyMhz(request);
     observation.focus_id = focusId;
     observation.selection_bin_index = request.selection_bin_index;
@@ -886,6 +896,9 @@ void performFocusSurvey(const FocusRequest &request) {
                 }
             }
             if (!gotSample) {
+                // Without this the row reported radio_status 0 for a bus
+                // failure, which reads as "no error" (audit A19).
+                lastError = RADIOLIB_ERR_SPI_CMD_TIMEOUT;
                 focusRuntimeFail(runtime);
                 break;
             }
@@ -895,8 +908,11 @@ void performFocusSurvey(const FocusRequest &request) {
             passSamples++;
             focusHistogramAddSample(histogram, energyRssiDbmToFixed(rssi));
         }
+        const uint32_t sampledSpan = passSamples > 0 ? lastSample - firstSample : 0;
         if (!runtime.cancelled && !runtime.failed && passSamples == request.requested_samples) {
-            focusRuntimeNoteValidPass(runtime, lastSample - firstSample);
+            focusRuntimeNoteValidPass(runtime, sampledSpan);
+        } else {
+            focusRuntimeNotePartialPass(runtime, sampledSpan);
         }
     }
     focusRuntimeBeginRestore(runtime);
@@ -2490,6 +2506,10 @@ uint16_t radioEnergyPeakCount() {
 bool radioEnergyPeakBinSet(uint16_t bin) {
     if (bin >= sizeof(energyPeakBinMask) * 8) return false;
     return (energyPeakBinMask[bin / 8] & (uint8_t)(1U << (bin % 8))) != 0;
+}
+
+void radioNoteWifiActive(bool active) {
+    wifiActiveDuringAcquisition = active;
 }
 
 bool radioHomeIsReady() {

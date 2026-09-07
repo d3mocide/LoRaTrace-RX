@@ -98,3 +98,13 @@ inline size_t runFilePath(char *out, size_t outSize, const char *root, uint16_t 
 inline uint16_t runNextIndex(uint16_t highestSeen) {
     return highestSeen < RUN_INDEX_MAX ? (uint16_t)(highestSeen + 1) : RUN_INDEX_MAX;
 }
+
+// True when this run number is one the numbering could not allocate freshly —
+// either the card is full of runs, or the logger is rejoining run 9999 after
+// a reseat. Either way the folder name no longer identifies one drive on its
+// own, so the caller must say so rather than let the number imply it does
+// (audit A25). manifest.txt's per-session id is what actually distinguishes
+// them.
+inline bool runIndexIsExhausted(uint16_t highestSeen) {
+    return highestSeen >= RUN_INDEX_MAX;
+}

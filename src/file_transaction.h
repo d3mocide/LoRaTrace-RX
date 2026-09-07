@@ -68,7 +68,10 @@ template<class FS> bool writeCsvHeader(FS &fs, const char *path, const char *hea
 
 template<class FS> CsvFileState ensureCsvFile(FS &fs, const char *path, const char *header) {
     const size_t headerLen = strlen(header);
-    auto f = fs.open(path, "r");
+    // exists() first: a read-open of a missing file is a normal first-boot
+    // case here, but Arduino's VFS logs it at error level, so every new run
+    // printed seven scary-looking failures that were nothing of the kind.
+    auto f = fs.exists(path) ? fs.open(path, "r") : decltype(fs.open(path, "r")){};
     if (f && f.size() > 0) {
         bool valid = true;
         for (size_t i = 0; valid && i < headerLen; ++i) valid = f.read() == (uint8_t)header[i];

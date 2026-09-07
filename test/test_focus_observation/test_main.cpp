@@ -6,8 +6,12 @@
 
 void test_focus_working_state_stays_below_one_result_budget() {
     TEST_ASSERT_EQUAL_size_t(148, sizeof(FocusRssiHistogram));
-    TEST_ASSERT_EQUAL_size_t(40, sizeof(FocusObservation));
-    TEST_ASSERT_EQUAL_size_t(188, sizeof(FocusRssiHistogram) + sizeof(FocusObservation));
+    // 40 -> 44 on 2026-09-07: partial_observation_ms, so an interrupted pass
+    // stops reporting zero observation time (audit A19). Still inside the
+    // 48B/record evaluation ceiling energy_observation.h documents.
+    TEST_ASSERT_EQUAL_size_t(44, sizeof(FocusObservation));
+    TEST_ASSERT_TRUE(sizeof(FocusObservation) <= 48);
+    TEST_ASSERT_EQUAL_size_t(192, sizeof(FocusRssiHistogram) + sizeof(FocusObservation));
 }
 
 void test_focus_histogram_reports_median_p90_and_peak_without_raw_samples() {
@@ -84,7 +88,7 @@ void test_focus_csv_with_fix_persists_coverage_and_raw_counts() {
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_STRING(
         "2026-09-04T10:00:00Z,45.500000,-122.600000,1,3,555000,general,7,sweep,43,"
-        "912.750,1,1,500,470,4,4,-92.0,-85.0,-85.0,0,sampled,complete,1,0,0", row);
+        "912.750,1,1,500,470,4,4,-92.0,-85.0,-85.0,0,sampled,complete,1,0,0,0", row);
 }
 
 void test_focus_csv_without_fix_or_samples_keeps_unknown_values_blank() {

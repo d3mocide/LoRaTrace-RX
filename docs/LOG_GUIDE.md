@@ -162,8 +162,33 @@ Five columns added 2026-09-07 answer questions the older ones could not:
   damaged or foreign files before this run started; check for `.bad` files in
   the run directory.
 
+`session_id` names the boot that wrote the row. A card reseated mid-drive
+rejoins the run directory it left on purpose, so the run number alone cannot
+separate two boots' rows; `manifest.txt` carries a matching block per boot.
+
 None of these count RF the receiver never had a chance to hear. Unknown
 reception loss stays unknown.
+
+## `manifest.txt`: what the device was while it heard all this
+
+Added 2026-09-07 (audit A18). One `[session]` block per boot that opened this
+run directory, appended, never rewritten. Read it before interpreting anything
+else in the folder: the settings files at the SD root can be edited after a run
+ends, so they are not evidence of what the run used.
+
+Each block records the firmware version and git revision (including a `-dirty`
+marker when the build had uncommitted changes), the board and radio, the
+resolved modem parameters actually in use, the region, capture window and sweep
+margin, and the mission profile. Two lines state the semantics that host
+analysts most often get wrong:
+
+- every `*_millis` column is device uptime, not wall clock; and
+- a position is where the **receiver** was, never where a transmitter was.
+
+`rejoined_existing_run=1` means this boot appended to a directory that already
+existed — a reseated card, or run 9999 with no free number left. When you see
+it, the folder holds more than one measurement session and `session_id` is what
+separates them.
 
 `ui_redraw_max_us` and `ui_redraw_mean_us` are the worst and mean cost of one
 full screen redraw since boot. The UI task runs on Core 0 and never touches the

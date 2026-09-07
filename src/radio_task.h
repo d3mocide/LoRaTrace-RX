@@ -3,6 +3,11 @@
 
 bool radioSweepSnapshot(SweepSnapshot &out);
 bool radioHomeIsReady();
+
+// wifi_task pushes AP transitions here so survey rows can record whether a
+// 2.4GHz radio was transmitting beside the receiver, without the radio task
+// growing a dependency on wifi_task (audit A19).
+void radioNoteWifiActive(bool active);
 uint32_t radioReadErrorCount();
 uint32_t radioRearmErrorCount();
 // LoRaTrace RX — radio task (Core 1, highest priority).

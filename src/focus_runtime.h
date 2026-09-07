@@ -22,6 +22,10 @@ struct FocusRuntime {
     FocusRuntimeState state = FocusRuntimeState::IDLE;
     uint16_t valid_passes = 0;
     uint32_t observation_ms = 0;
+    // Sampling time that happened but did not earn coverage credit — an
+    // interrupted or failed pass. Reported so a partial row does not claim
+    // zero observation when it sampled for a second and a half (audit A19).
+    uint32_t partial_observation_ms = 0;
     bool cancelled = false;
     bool timed_out = false;
     bool failed = false;
@@ -36,6 +40,13 @@ inline bool focusRuntimeBegin(FocusRuntime &runtime, const FocusRequest &request
     runtime.request = request;
     runtime.state = FocusRuntimeState::SURVEYING;
     return true;
+}
+
+// Sampling time from a pass that did not qualify. Kept apart from
+// observation_ms so coverage can never be earned by an interrupted pass.
+inline void focusRuntimeNotePartialPass(FocusRuntime &runtime, uint32_t observation_ms) {
+    const uint32_t room = UINT32_MAX - runtime.partial_observation_ms;
+    runtime.partial_observation_ms += (observation_ms > room) ? room : observation_ms;
 }
 
 inline void focusRuntimeNoteValidPass(FocusRuntime &runtime, uint32_t observation_ms) {

@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <SD.h>
+#include <esp_random.h>
 #include <freertos/task.h>
 
 #include "analyzer_state.h"
@@ -17,8 +18,12 @@
 #include "serial_control.h"
 #include "radio_task.h"
 #include "run_log.h"
+#include "run_manifest.h"
 #include "serial_lock.h"
 #include "session_log.h"
+#include "version.h"
+#include "board_pins.h"
+#include "region_plan.h"
 #include "ui_task.h"
 #include "spi_bus.h"
 
@@ -34,9 +39,16 @@ constexpr const char *ENERGY_LEAF = "energy.csv";
 constexpr const char *NODES_LEAF = "nodes.csv";
 constexpr const char *CELL_LEAF = "cell.csv";
 constexpr const char *FOCUS_LEAF = "focus.csv";
+constexpr const char *MANIFEST_LEAF = "manifest.txt";
 
 // Resolved once, on the first successful mount of this power-on.
 uint16_t runIndex = 0;
+// Distinguishes this boot from any other that shares the run number — a
+// reseated card rejoins its run directory on purpose, and 9999 saturates
+// (audit A25). Generated once per power-on.
+char sessionId[RUN_SESSION_ID_BUF] = {0};
+bool runNumberExhausted = false;
+char manifestPath[RUN_PATH_MAX];
 char detectionsPath[RUN_PATH_MAX];
 char sessionPath[RUN_PATH_MAX];
 char probePath[RUN_PATH_MAX];
@@ -170,6 +182,57 @@ bool ensureCsvLocked(const char *path, const char *header) {
     return false;
 }
 
+// Appends this boot's provenance block to the run's manifest (run_manifest.h,
+// audit A18). Append-only: a card reseated mid-drive rejoins the same run
+// directory, and that second boot is a different measurement session even
+// though it shares the folder. Best-effort like the health log — a missing
+// manifest must not stop detections being written — but its absence is
+// visible, because the file simply will not have a block for that boot.
+void appendManifestSessionLocked(bool rejoined) {
+    if (manifestPath[0] == '\0') return;
+
+    GpsFix fix;
+    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
+    char timestamp[24];
+    detectionFormatTimestamp(timestamp, sizeof(timestamp),
+                             haveFix && gpsTimeIsFresh(fix, millis(), FIX_MAX_AGE_MS), fix.year,
+                             fix.month, fix.day, fix.hour, fix.minute, fix.second);
+
+    const ChannelParams channel = radioActiveChannel();
+    RunManifestSession session;
+    session.session_id = sessionId;
+    session.firmware_version = FIRMWARE_VERSION;
+    session.build_rev = FIRMWARE_BUILD_REV;
+    session.board = "cardputer-adv";
+    session.radio = "sx1262";
+    session.profile = missionProfileName((uint8_t)radioActiveProfile());
+    session.region = regionLabel(radioEnergySweepRegion());
+    session.timestamp_utc = timestamp;
+    session.run = runIndex;
+    session.uptime_ms = millis();
+    session.freq_mhz = channel.freq_mhz;
+    session.bw_khz = channel.bw_khz;
+    session.sf = channel.sf;
+    session.cr_denom = channel.cr_denom;
+    session.sync_word = channel.sync_word;
+    session.capture_window_ms = (uint16_t)radioEnergySweepHomeListenMs();
+    session.sweep_margin_dbm_x10 = radioEnergySweepMarginDbmX10();
+    // Either a reseat rejoining this run, or run 9999 with nowhere left to
+    // allocate — both mean the folder name alone no longer names one drive.
+    session.sd_recovered = rejoined || runNumberExhausted;
+
+    static char block[768];
+    const size_t n = runManifestFormatSession(session, block, sizeof(block));
+    if (n == 0) return;
+
+    File f = SD.open(manifestPath, FILE_APPEND);
+    if (!f) return;
+    // Same byte-count discipline as every other write on this card (A02):
+    // a half-written manifest block is worse than none.
+    if (f.write((const uint8_t *)block, n) != n) shortWrites++;
+    f.close();
+}
+
 // Ensures all run CSVs exist with their header rows. When `remount` is true,
 // first establishes a fresh SD mount; otherwise it intentionally adopts the
 // successful mount left by the boot-time config read. Assumes the caller
@@ -190,7 +253,9 @@ bool openLogsLocked(bool remount) {
     // splitting one drive across two folders — the gap shows up as `sd`
     // going down and back in this run's own health rows.
     if (runIndex == 0) {
-        runIndex = runNextIndex(highestRunIndexLocked());
+        const uint16_t highest = highestRunIndexLocked();
+        runIndex = runNextIndex(highest);
+        runNumberExhausted = runIndexIsExhausted(highest);
 
         char runDir[RUN_PATH_MAX];
         if (runDirPath(runDir, sizeof(runDir), LOG_DIR, runIndex) == 0) return false;
@@ -218,6 +283,10 @@ bool openLogsLocked(bool remount) {
         if (runFilePath(focusPath, sizeof(focusPath), LOG_DIR, runIndex, FOCUS_LEAF) == 0) {
             return false;
         }
+        if (runFilePath(manifestPath, sizeof(manifestPath), LOG_DIR, runIndex, MANIFEST_LEAF) ==
+            0) {
+            return false;
+        }
     }
 
     if (!ensureCsvLocked(detectionsPath, LOG_CSV_HEADER)) return false;
@@ -236,6 +305,7 @@ bool openLogsLocked(bool remount) {
     // output too when an operator runs it.
     if (!ensureCsvLocked(cellPath, CELL_CSV_HEADER)) return false;
     if (!ensureCsvLocked(focusPath, FOCUS_CSV_HEADER)) return false;
+    appendManifestSessionLocked(remount);
     return true;
 }
 
@@ -381,6 +451,7 @@ void writeSessionRow(const char *reason) {
     s.read_errors = radioReadErrorCount();
     s.rearm_errors = radioRearmErrorCount();
     s.home_ready = radioHomeIsReady();
+    s.session_id = sessionId;
     s.queue_drops = radioQueueDropCount();
     s.bus_misses = radioBusMissCount();
 
@@ -792,6 +863,10 @@ bool loggerTaskStart(QueueHandle_t queue, QueueHandle_t scanQueue, QueueHandle_t
     initialSdMounted = mountedAtBoot;
     sdReady = false;
     sdRetryRequested = false;
+    // One id per power-on, generated before any card work so it exists even
+    // if the card never mounts (audit A25).
+    runSessionIdGenerate(sessionId, sizeof(sessionId),
+                         []() -> uint8_t { return (uint8_t)(esp_random() & 0xFF); });
     // Core 0, priority 2: above GPS (1) so rows drain promptly, below the
     // radio (3) which must always win.
     //

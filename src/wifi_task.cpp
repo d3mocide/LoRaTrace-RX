@@ -689,6 +689,9 @@ void startAp() {
     registerRoutes();
     server.begin();
     apActive = true;
+    // Survey rows record the conditions they were measured under, and a
+    // 2.4GHz radio transmitting beside the receiver is one of them.
+    radioNoteWifiActive(true);
 
     // One buffer, one print call, under the Serial lock — an earlier
     // unlocked version of this exact line printed with the SSID missing,
@@ -715,6 +718,7 @@ void stopAp() {
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_OFF);
     apActive = false;
+    radioNoteWifiActive(false);
     {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) serialPrintln("[wifi] AP stopped.");

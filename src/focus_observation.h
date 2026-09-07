@@ -126,6 +126,13 @@ inline uint16_t focusHistogramCountAtLeast(const FocusRssiHistogram &histogram,
     return total;
 }
 
+// The margin the `qualifying_count` column is measured at. 6 dB is the C6 of
+// the phase-12 campaigns (docs/research/phase12-survey-truth-design.md): the
+// one rule that separated source-on from source-off where every summary
+// statistic failed. Recorded, never turned into an activity claim on device —
+// it degrades exactly where the band is busiest.
+constexpr int16_t FOCUS_QUALIFYING_MARGIN_DBM_X10 = 60;
+
 // The same count expressed relative to the pass's own median, so the rule
 // adapts to the ambient floor where it ran instead of assuming one. An
 // absolute threshold was measured and rejected at field levels; this is the
@@ -159,13 +166,18 @@ inline const char *focusRequestStatusName(FocusRequestStatus status) {
 struct FocusObservation {
     uint32_t rx_millis = 0;
     uint32_t observation_ms = 0;
+    // Sampling time that did not earn coverage credit. A cancelled or failed
+    // pass used to report observation_ms 0 whatever it had actually sampled.
+    uint32_t partial_observation_ms = 0;
     float freq_mhz = 0.0f;
     uint16_t focus_id = 0;
     uint16_t selection_bin_index = 0;
     uint16_t requested_dwell_ms = 0;
     uint16_t requested_samples = 0;
     uint16_t sample_count = 0;
-    // Samples above this pass's own median by the qualifying margin. Recorded
+    // Samples above this pass's own median by FOCUS_QUALIFYING_MARGIN_DBM_X10.
+    // Zero until 2026-09-07 despite the column being documented as measured
+    // (audit A19). Recorded
     // raw and deliberately unlabelled: a rule over this count was measured and
     // works, but its accuracy depends on link quality the device cannot know
     // and degrades where the band is busiest, so Focus reports coverage and
@@ -207,7 +219,7 @@ constexpr const char *FOCUS_CSV_HEADER =
     "selection_source,selection_bin_index,freq_mhz,requested_passes,valid_passes,"
     "requested_dwell_ms,observation_ms,requested_samples,sample_count,"
     "rssi_median_dbm,rssi_p90_dbm,rssi_peak_dbm,qualifying_count,coverage,"
-    "request_status,home_restore,wifi_on,radio_status";
+    "request_status,home_restore,wifi_on,radio_status,partial_observation_ms";
 
 inline void focusFormatRssiOrBlank(int16_t rssi_dbm_x10, char *out, size_t out_size) {
     if (rssi_dbm_x10 == FOCUS_RSSI_NO_SAMPLE_DBM_X10) {
@@ -242,7 +254,7 @@ inline size_t focusObservationFormatCsv(const FocusObservation &observation,
     // they were unmeasured.
     const int n = snprintf(
         out, out_size,
-        "%s,%s,%s,%u,%u,%lu,%s,%u,%s,%u,%.3f,%u,%u,%u,%lu,%u,%u,%s,%s,%s,%u,%s,%s,%u,%u,%d",
+        "%s,%s,%s,%u,%u,%lu,%s,%u,%s,%u,%.3f,%u,%u,%u,%lu,%u,%u,%s,%s,%s,%u,%s,%s,%u,%u,%d,%lu",
         timestamp_utc ? timestamp_utc : "", latbuf, lonbuf,
         (unsigned)fix_quality, (unsigned)run, (unsigned long)observation.rx_millis,
         missionProfileName(observation.profile), (unsigned)observation.focus_id,
@@ -255,7 +267,7 @@ inline size_t focusObservationFormatCsv(const FocusObservation &observation,
         focusCoverageLabelName(observation.coverage),
         focusRequestStatusName(observation.request_status),
         (unsigned)observation.home_restore, (unsigned)observation.wifi_on,
-        (int)observation.radio_status);
+        (int)observation.radio_status, (unsigned long)observation.partial_observation_ms);
 
     if (n < 0 || (size_t)n >= out_size) return 0;
     return (size_t)n;

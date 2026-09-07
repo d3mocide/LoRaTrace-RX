@@ -126,7 +126,7 @@ void test_row_with_fix_carries_position_and_counters() {
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7,"
         "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,"
-        "9,2,3,1,0,3,1500,7112,4820,1960,0,0,0,0,down",
+        "9,2,3,1,0,3,1500,7112,4820,1960,0,0,0,0,down,",
         row);
 }
 
@@ -243,7 +243,7 @@ void test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters() {
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     const char *suffix =
         "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,9,2,3,1,0,3,1500,"
-        "7112,4820,1960,0,0,0,0,down";
+        "7112,4820,1960,0,0,0,0,down,";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -259,7 +259,7 @@ void test_cell_diagnostics_precede_analyzer_static_bytes() {
     SessionStats s = healthySample();
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
-    const char *suffix = "9,2,3,1,0,3,1500,7112,4820,1960,0,0,0,0,down";
+    const char *suffix = "9,2,3,1,0,3,1500,7112,4820,1960,0,0,0,0,down,";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -277,7 +277,7 @@ void test_ui_redraw_cost_precedes_the_sd_fault_columns() {
     char row[384];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     TEST_ASSERT_TRUE(n > 0);
-    const char *suffix = "12345,9100,2050,0,0,0,0,down";
+    const char *suffix = "12345,9100,2050,0,0,0,0,down,";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -293,7 +293,7 @@ void test_sd_write_faults_precede_the_reception_columns() {
     char row[384];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     TEST_ASSERT_TRUE(n > 0);
-    const char *suffix = "4820,1960,3,1,0,0,down";
+    const char *suffix = "4820,1960,3,1,0,0,down,";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -308,10 +308,11 @@ void test_reception_faults_are_reported_separately() {
     s.read_errors = 5;
     s.rearm_errors = 2;
     s.home_ready = true;
+    s.session_id = "0123456789abcdef0123456789abcdef";
     char row[384];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     TEST_ASSERT_TRUE(n > 0);
-    const char *suffix = "5,2,armed";
+    const char *suffix = "5,2,armed,0123456789abcdef0123456789abcdef";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
