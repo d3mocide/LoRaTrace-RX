@@ -52,6 +52,9 @@ MissionProfile activeProfile = MissionProfile::MESHTASTIC;
 // served by Serial Control on Core 0. A 40-byte critical copy avoids a torn
 // summary; it never carries GPS/run data and does not affect radio ownership.
 portMUX_TYPE focusResultMux = portMUX_INITIALIZER_UNLOCKED;
+// Coverage accumulator for the currently selected bin. Radio-task-owned:
+// only this task terminates a Focus request, so it needs no lock.
+FocusCoverage focusCoverage;
 FocusObservation lastFocusObservation;
 bool haveLastFocusObservation = false;
 #if defined(LORATRACE_BENCH_FAULTS)
@@ -716,6 +719,17 @@ void enqueueFocusObservation(const FocusRequest &request, const FocusRssiHistogr
     observation.selection_source = request.selection_source;
     observation.request_status = focusRuntimeFinishRestore(runtime, restored);
     observation.home_restore = restored;
+
+    // Coverage accumulates across repeated requests at the same bin
+    // (focus_coverage.h). A pass counts only if it completed, restored home,
+    // and produced samples — §3's "valid pass", which explicitly is not "a
+    // quiet channel". The accumulator resets itself when the selection moves,
+    // so accumulated observation time always describes the bin it is labelling.
+    const bool validPass = observation.request_status == FocusRequestStatus::COMPLETE &&
+                           restored && observation.sample_count > 0;
+    focusCoverageNote(focusCoverage, request.selection_bin_index, request.requested_dwell_ms,
+                      observation.observation_ms, validPass);
+    observation.coverage = focusCoverageLabelFor(focusCoverage);
     // Recovery must overwrite the live radio error to resume Watch, but the
     // Focus row reports the request operation that led to this terminal state.
     observation.radio_status = operationStatus;

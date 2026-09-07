@@ -8,6 +8,7 @@
 #include <stdio.h>
 
 #include "detection.h"   // missionProfileName()
+#include "focus_coverage.h"
 #include "focus_plan.h"
 
 constexpr int16_t FOCUS_RSSI_NO_SAMPLE_DBM_X10 = 32767;
@@ -179,6 +180,10 @@ struct FocusObservation {
     uint8_t profile = 0; // MissionProfile
     uint8_t requested_passes = 0;
     uint8_t valid_passes = 0;
+    // Coverage across repeated requests at this bin, not this request alone —
+    // one row cannot know about earlier ones, so radio_task carries the
+    // accumulator (focus_coverage.h) and stamps the resulting label here.
+    FocusCoverageLabel coverage = FocusCoverageLabel::INSUFFICIENT;
     FocusSelectionSource selection_source = FocusSelectionSource::PRESET;
     FocusRequestStatus request_status = FocusRequestStatus::FAILED;
     bool home_restore = false;
@@ -231,11 +236,13 @@ inline size_t focusObservationFormatCsv(const FocusObservation &observation,
     focusFormatRssiOrBlank(observation.rssi_p90_dbm_x10, p90buf, sizeof(p90buf));
     focusFormatRssiOrBlank(observation.rssi_peak_dbm_x10, peakbuf, sizeof(peakbuf));
 
-    // The doubled comma before request_status is intentional: coverage is an
-    // empty persisted field until controlled measurements select its policy.
+    // coverage is populated as of 2026-09-07 — the thresholds §3.1 required be
+    // selected by measurement now are (focus_coverage.h). It was an empty field
+    // with a doubled comma here until then, which was the honest state while
+    // they were unmeasured.
     const int n = snprintf(
         out, out_size,
-        "%s,%s,%s,%u,%u,%lu,%s,%u,%s,%u,%.3f,%u,%u,%u,%lu,%u,%u,%s,%s,%s,%u,,%s,%u,%u,%d",
+        "%s,%s,%s,%u,%u,%lu,%s,%u,%s,%u,%.3f,%u,%u,%u,%lu,%u,%u,%s,%s,%s,%u,%s,%s,%u,%u,%d",
         timestamp_utc ? timestamp_utc : "", latbuf, lonbuf,
         (unsigned)fix_quality, (unsigned)run, (unsigned long)observation.rx_millis,
         missionProfileName(observation.profile), (unsigned)observation.focus_id,
@@ -245,6 +252,7 @@ inline size_t focusObservationFormatCsv(const FocusObservation &observation,
         (unsigned)observation.requested_dwell_ms, (unsigned long)observation.observation_ms,
         (unsigned)observation.requested_samples, (unsigned)observation.sample_count,
         medianbuf, p90buf, peakbuf, (unsigned)observation.qualifying_count,
+        focusCoverageLabelName(observation.coverage),
         focusRequestStatusName(observation.request_status),
         (unsigned)observation.home_restore, (unsigned)observation.wifi_on,
         (int)observation.radio_status);

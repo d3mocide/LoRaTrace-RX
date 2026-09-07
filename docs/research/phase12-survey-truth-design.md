@@ -417,10 +417,21 @@ local spectrum identity or coverage of the city.
   ambient at any threshold. Short passes are worse on both axes simultaneously,
   and repeating them fixes neither.
 
-  What remains is the selection itself, and its stakes dropped with the
-  activity decision below: with no activity claim resting on them,
-  `sampled`/`repeated` describe how much looking happened rather than
-  qualifying an inference.
+  **Selected 2026-09-07** (`src/focus_coverage.h`, `test/test_focus_coverage/`):
+  `FOCUS_MIN_VALID_PASSES` 1 / `FOCUS_MIN_OBSERVATION_MS` 2000 for **sampled**,
+  `FOCUS_REPEATED_VALID_PASSES` 3 / `FOCUS_REPEATED_OBSERVATION_MS` 6000 for
+  **repeated**, plus a `FOCUS_COVERAGE_MIN_DWELL_MS` 500 floor below which a
+  pass counts toward neither.
+
+  `sampled` = 1 because Focus *is* one deliberate look; requiring two before the
+  device will describe what it saw would be strange. `repeated` = 3 is
+  judgement, and recorded as such — the campaign showed every threshold is
+  equally achievable and equally predictable, so nothing in the data prefers 3
+  over 4. The dwell floor is the one part that *is* from measurement, twice
+  over: §6.4's short-pass finding and the campaign's flat 74 ms overhead.
+
+  The third item §3.1 listed, a qualifying RSSI condition for the activity
+  count, is closed by the activity decision below rather than selected.
 - [x] **Approve the maximum radio-away budget — refused, conditionally
   (2026-09-06). See "Decisions" below.** **The measurement is complete**
   ([evidence](../hardware-results/2026-09-04-phase12-focus-matrix.md)): at a
@@ -570,8 +581,12 @@ project's stated differentiator, not a consolation.
   condition, and measured Watch's cost. What they left open is recorded above:
   the away-time budget decision, the coverage thresholds, and an activity
   basis that is not an RSSI summary.
-- [ ] WiFi-off/on resource matrix, Portland field validation, `STATUS.md`,
-  `LOG_GUIDE.md`, release notes, and any companion-schema update reconcile.
+- [~] WiFi-off/on resource matrix **done** (run0089's 8-hour soak drove WiFi
+  off for 4 h then on: Pass-A radio time 833 → 847 ms, heap flat for 10.7 h,
+  every drop counter zero — [evidence](../hardware-results/2026-09-07-phase9-soak-run0089.md)).
+  `LOG_GUIDE.md` now documents `focus.csv` including the coverage labels, and
+  `STATUS.md` reconciles. **Remaining: Portland field validation, release notes,
+  and any companion-schema update.**
 
 ### Next, in order
 

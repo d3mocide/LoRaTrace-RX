@@ -176,11 +176,20 @@ Read the row in this order:
 
 Two things this file deliberately does not tell you:
 
-- **`coverage` is empty.** It is a persisted field with no value yet, because
-  the thresholds that would populate it are about pass counts and accumulated
-  time across repeated requests and have not been measured. An empty column is
-  the honest state; a label chosen by eye would not be.
-- **Elevated RSSI is not a transmission.** A high `qualifying_count` says
+- **`coverage` says how much looking a bin has had — nothing else.** It reads
+  `insufficient`, `sampled`, or `repeated`, derived only from valid-pass count
+  and accumulated observation time. It is not signal strength, not a likelihood
+  that the bin is empty, and not confidence in anything. With the shipped 2s
+  pass, one Enter earns `sampled` and three earn `repeated`.
+  - Coverage accumulates **per bin, for consecutive requests at that bin**, and
+    resets when you survey a different one. Accumulated time means time on
+    *that* frequency, so it cannot be carried across a retune.
+  - A cancelled, failed or timed-out request contributes nothing, and neither
+    does a pass shorter than 500ms.
+  - The raw `valid_passes` and `observation_ms` stay in the row beside the
+    label. If the two ever disagree with your reading of it, trust the counts.
+- **Elevated RSSI is not a transmission, and coverage does not imply
+  activity.** A high `qualifying_count` says
   samples were elevated over that pass's own floor. Whether that is a
   transmission depends on link quality the device cannot know, and controlled
   measurement found the indication least reliable exactly where a band is

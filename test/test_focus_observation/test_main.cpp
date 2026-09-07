@@ -50,7 +50,12 @@ void test_focus_request_status_names_are_explicit() {
     TEST_ASSERT_EQUAL_STRING("failed", focusRequestStatusName(FocusRequestStatus::FAILED));
 }
 
-void test_focus_csv_with_fix_persists_blank_coverage_and_raw_counts() {
+void test_focus_csv_with_fix_persists_coverage_and_raw_counts() {
+    // coverage was a deliberately blank column until 2026-09-07, when §3.1's
+    // thresholds were selected from measurement (focus_coverage.h). The row
+    // now carries the label AND the raw counts it was derived from, which is
+    // §3's requirement: the display may never replace the underlying values
+    // with a single word.
     FocusObservation observation;
     observation.rx_millis = 555000;
     observation.observation_ms = 470;
@@ -70,6 +75,7 @@ void test_focus_csv_with_fix_persists_blank_coverage_and_raw_counts() {
     observation.selection_source = FocusSelectionSource::SWEEP_BIN;
     observation.request_status = FocusRequestStatus::COMPLETE;
     observation.home_restore = true;
+    observation.coverage = FocusCoverageLabel::SAMPLED;
 
     char row[256];
     const size_t n = focusObservationFormatCsv(observation, row, sizeof(row),
@@ -78,7 +84,7 @@ void test_focus_csv_with_fix_persists_blank_coverage_and_raw_counts() {
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_STRING(
         "2026-09-04T10:00:00Z,45.500000,-122.600000,1,3,555000,general,7,sweep,43,"
-        "912.750,1,1,500,470,4,4,-92.0,-85.0,-85.0,0,,complete,1,0,0", row);
+        "912.750,1,1,500,470,4,4,-92.0,-85.0,-85.0,0,sampled,complete,1,0,0", row);
 }
 
 void test_focus_csv_without_fix_or_samples_keeps_unknown_values_blank() {
@@ -93,7 +99,7 @@ void test_focus_csv_without_fix_or_samples_keeps_unknown_values_blank() {
                                                0.0, 0.0, 0, 1) > 0);
     TEST_ASSERT_NOT_NULL(strstr(row, ",,,0,1,777,reticulum,"));
     TEST_ASSERT_NULL(strstr(row, "0.000000"));
-    TEST_ASSERT_NOT_NULL(strstr(row, ",0,0,,,,0,,failed,"));
+    TEST_ASSERT_NOT_NULL(strstr(row, ",0,0,,,,0,insufficient,failed,"));
 }
 
 void test_focus_csv_truncation_is_reported() {
@@ -129,6 +135,8 @@ void test_worst_case_row_fits_the_logger_buffer_with_margin() {
     observation.request_status = FocusRequestStatus::CANCELLED;          // "cancelled"
     observation.home_restore = true;
     observation.wifi_on = true;
+    // "insufficient" is the longest coverage label (12 chars).
+    observation.coverage = FocusCoverageLabel::INSUFFICIENT;
 
     char row[FOCUS_CSV_ROW_MAX];
     const size_t n = focusObservationFormatCsv(observation, row, sizeof(row),
@@ -137,8 +145,11 @@ void test_worst_case_row_fits_the_logger_buffer_with_margin() {
     TEST_ASSERT_TRUE(n > 0);
     // The logger appends a newline at row[n], so n + 1 must still fit.
     TEST_ASSERT_TRUE(n + 1 <= FOCUS_CSV_ROW_MAX);
-    // Measured at 189 bytes; fail loudly if a schema change eats the margin.
-    TEST_ASSERT_TRUE(n <= 200);
+    // Measured at 189 bytes, then 201 once coverage stopped being an empty
+    // column (2026-09-07). Bound kept close to the measurement rather than to
+    // the 256-byte buffer, so a schema change fails here while there is still
+    // room to react — an over-long row is dropped, not truncated.
+    TEST_ASSERT_TRUE(n <= 215);
 }
 
 void test_sample_counts_integrate_where_a_peak_would_not() {
@@ -179,7 +190,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_focus_histogram_rounds_to_one_db_and_flags_clamped_input);
     RUN_TEST(test_focus_histogram_refuses_quantiles_after_bucket_saturation);
     RUN_TEST(test_focus_request_status_names_are_explicit);
-    RUN_TEST(test_focus_csv_with_fix_persists_blank_coverage_and_raw_counts);
+    RUN_TEST(test_focus_csv_with_fix_persists_coverage_and_raw_counts);
     RUN_TEST(test_focus_csv_without_fix_or_samples_keeps_unknown_values_blank);
     RUN_TEST(test_focus_csv_truncation_is_reported);
     RUN_TEST(test_worst_case_row_fits_the_logger_buffer_with_margin);

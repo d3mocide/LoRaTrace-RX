@@ -9,6 +9,14 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-07
 
+- **Focus coverage thresholds selected; `focus.csv`'s `coverage` column is no
+  longer blank.** `sampled` = 1 valid pass / 2000ms, `repeated` = 3 / 6000ms,
+  with a 500ms dwell floor. New `src/focus_coverage.h` carries the constants and
+  a per-bin accumulator that resets on retune; `test/test_focus_coverage/` has
+  ten tests, mostly about what a coverage label must refuse to claim. Closes
+  §3.1's four constants and, with the soak's WiFi matrix, leaves W12 needing only
+  Portland field validation.
+
 - **8-hour soak passed; three findings.** 4,112 laps, 0 failures, heap flat for
   10.7h after two discrete allocation steps — bounded memory confirmed by an
   accidental idle tail. Pass-B spent 3.90h of the 8 and promoted nothing

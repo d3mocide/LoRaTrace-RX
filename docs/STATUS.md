@@ -624,9 +624,21 @@ independently of the §6.3 fixture, which is what argues for a minimum *dwell*
 rather than only a minimum accumulated time: 10 s of observation costs 13.0 s
 of Watch at 250 ms passes against 10.4 s at 2000 ms.
 
-What remains for W12: selecting the `sampled`/`repeated` values (a
-presentational choice now, not a measurement), plus Portland field validation
-and the WiFi-off/on resource matrix. `LOG_GUIDE.md` now
+**Coverage thresholds selected 2026-09-07** (`src/focus_coverage.h`): `sampled`
+= 1 valid pass / 2000 ms, `repeated` = 3 / 6000 ms, with a 500 ms dwell floor
+below which a pass counts toward neither. With the shipped 2 s pass that makes
+one Enter `sampled` and three `repeated`. `sampled` = 1 because Focus *is* one
+deliberate look; `repeated` = 3 is judgement and recorded as such, since the
+campaign showed every threshold equally achievable. The dwell floor is the part
+from measurement. `focus.csv`'s `coverage` column is populated for the first
+time, alongside the raw counts it derives from — §3 forbids replacing those with
+a single word. Ten host tests cover it, most of them about what coverage must
+refuse to say: no label from an invalid pass, none carried across a retune, and
+none earned by repeating passes too short to mean anything.
+
+The WiFi-off/on resource matrix is **done** — run0089's soak covered both
+conditions. What remains for W12: Portland field validation, release notes, and
+any companion-schema update. `LOG_GUIDE.md` now
 documents `focus.csv`, unblocked by the operator control the card-view work
 shipped.
 
