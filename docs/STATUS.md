@@ -714,8 +714,20 @@ see the frames that make up the rest of it.
   `home`, which the audit scopes to Workstream 13), whole-action deadlines
   (A22), logger fair-drain and lock-hold measurement (A23), A26's outage
   summaries, and A27's fuzzing.
-  **A01 is fixed in code but still unverified on hardware** — Cell only logs
-  when an operator runs it, and no lap has been run since the repair.
+  **A01 is fixed and confirmed on hardware** (run0117/run0119): a 5.6 s lap
+  matching the documented full-`begin()` timing, 40 dB of structured spread
+  across bins, no radio errors. **A23 is fixed and confirmed** (run0119): 404
+  of 404 Cell rows written, drops 0, against 192 of 404 lost before.
+
+- **Cell is not usable, for a new reason (A29, 2026-09-07).** With tuning and
+  row loss both repaired, run0119 showed that Cell's strong bins form an exact
+  0.75 MHz comb that shifts phase entirely between laps: median lap-to-lap
+  spread 25.3 dB, only 11 of 101 bins stable within 3 dB, and zero overlap
+  between two pairs of laps 8 s apart. The value recorded against a bin does
+  not reliably correspond to that frequency. Cell samples RSSI with no settle
+  window after `startReceive()`. **Do not use any Cell data**, and do not fix
+  this by guessing a delay — see the audit's §14 for the controlled experiment
+  this needs.
 
 - ~~Bench SD card / boot-loop finding~~ — resolved 2026-09-03. The
   bench Cardputer's `task_wdt` boot-loop (see Phase 10 section above) was

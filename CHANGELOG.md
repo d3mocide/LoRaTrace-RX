@@ -9,6 +9,15 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-07
 
+- **Hardware pass.** A01 confirmed fixed (Cell tunes: lap timing matches the
+  documented full-`begin()` figure, 40 dB of structured spread). A23 found by
+  measurement and fixed: the logger dropped **192 of 404 Cell rows** with
+  `row_drop` 0 and `sd` ok, because each auxiliary queue drained one row per
+  100 ms pass; now a bounded batch per pass, 404/404 written. A10/A11/A15/A18/
+  A24/A25 all exercised over the device's own AP. **New finding A29: Cell's
+  per-bin RSSI is attributed to the wrong bins** — an exact 0.75 MHz comb that
+  shifts phase between laps. Cell data must not be used; see the audit's §14.
+
 - **Audit repairs, part 3 (A10–A12, A15, A18, A19, A24, A25).** The AP's
   shared `loratrace123` is gone — the key is per device, generated on first
   use and readable only at **System > Connectivity > WiFi Key**, which is a
