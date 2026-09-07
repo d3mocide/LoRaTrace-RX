@@ -709,11 +709,11 @@ see the frames that make up the rest of it.
   A second pass the same day closed A10–A13, A15, A17–A19, A24 and A25, with
   the AP credential, CSRF defenses, downloads, run manifest and session id
   **exercised on hardware over the device's own AP**.
-  Still open: key-import gates (A14, nothing to gate yet), bench-bridge
-  authorization (A16), the bounded radio command arbiter (A21 beyond
-  `home`, which the audit scopes to Workstream 13), whole-action deadlines
-  (A22), logger fair-drain and lock-hold measurement (A23), A26's outage
-  summaries, and A27's fuzzing.
+  A third pass closed A16, A22, A26 and A27, and the repair half of A21.
+  Fuzzing (A27) found two real defects in the safe-export written the same
+  day. **Still open:** key-import gates (A14, nothing to gate yet), A21's
+  bounded command arbiter (Workstream 13 scope), and per-action budgets for
+  Probe and Sweep, deliberately not set without measurement.
   **A01 is fixed and confirmed on hardware** (run0117/run0119): a 5.6 s lap
   matching the documented full-`begin()` timing, 40 dB of structured spread
   across bins, no radio errors. **A23 is fixed and confirmed** (run0119): 404
