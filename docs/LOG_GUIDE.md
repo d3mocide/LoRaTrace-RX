@@ -121,6 +121,25 @@ firmware only decrypts the published default public channel. MeshCore
 advertisements are signed, but LoRaTrace records the signed observation and
 does not claim on-device Ed25519 signature verification.
 
+Three columns added 2026-09-07 (audit A13) separate what the radio was
+configured for from what was actually established about the bytes:
+
+- `classification` is unchanged and is **the listening configuration** — the
+  mission profile in use. It is not an identification. Reticulum and General
+  Exploration fall back to the Meshtastic channel tuple, so traffic heard
+  under them could read `reticulum` with no Reticulum parser involved.
+- `protocol_candidate` is evidence-based: `unknown` until a parser actually
+  got somewhere, then `meshtastic_header` or `meshcore_advert`, or
+  `unknown_lora_candidate` for an off-grid Pass-B hit.
+- `parse_status` is `none`, `header`, or `identity` — how far parsing got.
+- `auth_status` is always `unauthenticated`, and that is the point. MeshCore
+  adverts carry an Ed25519 signature this firmware does not verify, and
+  decrypting with a published default PSK proves possession of a public key,
+  not a sender's identity. Treat every node id, name and key in these files
+  as an **observed claim**.
+
+`manifest.txt` is downloadable alongside the CSVs over the AP.
+
 ## `session.csv`: health evidence
 
 Use this file before drawing conclusions from a drive. A `reason=boot` row

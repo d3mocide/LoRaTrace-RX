@@ -25,6 +25,25 @@ constexpr size_t DETECTION_RAW_MAX_LEN = 255;
 // decoded field. Logger uses this bound to keep a complete row together.
 constexpr size_t DETECTION_CSV_MAX_ROW = 768;
 
+// How far a parser got on these bytes. A mission profile is a listening
+// configuration, not proof of which protocol produced a packet: any 16-byte
+// frame matching a Meshtastic receive configuration used to be labelled
+// `meshtastic` outright (audit A13). These say what was actually established.
+enum class DetectionParseStatus : uint8_t {
+    NONE = 0,       // nothing but the radio's own framing was understood
+    HEADER,         // a protocol header parsed to plausible values
+    IDENTITY,       // an identity record decoded out of the payload
+};
+
+inline const char *detectionParseStatusName(DetectionParseStatus status) {
+    switch (status) {
+        case DetectionParseStatus::HEADER: return "header";
+        case DetectionParseStatus::IDENTITY: return "identity";
+        case DetectionParseStatus::NONE:
+        default: return "none";
+    }
+}
+
 // Radio-side record of one received packet. Field order groups the small
 // scalar fields first; raw_packet follows so the queue record stays bounded.
 struct Detection {
@@ -45,7 +64,7 @@ struct Detection {
     uint8_t sf;
     uint8_t cr_denom;
     uint8_t sync_word;
-    uint8_t profile;      // MissionProfile
+    uint8_t profile;      // MissionProfile — what we were LISTENING for
     uint8_t channel_hash; // Meshtastic GGA-style channel hint; 0 = unknown
     uint8_t hop_limit;    // remaining hops; with hop_start gives hops taken
     uint8_t hop_start;
@@ -59,6 +78,10 @@ struct Detection {
     // since Sweep only ever runs under RETICULUM/GENERAL_EXPLORATION and
     // profile-name classification would just print one of those two names.
     bool off_grid;
+    // Whether a parser actually ran on these bytes, and got anywhere. Set by
+    // detectionApplyMeshtasticHeader() and by the identity decoders; NONE
+    // means nothing but the radio's own framing was understood (audit A13).
+    DetectionParseStatus parse_status;
     uint8_t raw_packet[DETECTION_RAW_MAX_LEN];
 };
 
@@ -99,6 +122,7 @@ inline bool detectionSetRawPacket(Detection &det, const uint8_t *packet, size_t 
 // mirrors Meshtastic's) — a MeshCore Detection leaves node_id/packet_id/etc.
 // zeroed rather than parsing this layout against unverified bytes.
 constexpr size_t MESHTASTIC_HEADER_LEN = 16;
+
 constexpr uint32_t MESHTASTIC_BROADCAST_ADDR = 0xFFFFFFFFu;
 
 inline uint32_t readLE32(const uint8_t *p) {
@@ -116,6 +140,7 @@ inline bool detectionApplyMeshtasticHeader(Detection &det, const uint8_t *buf, s
     det.hop_limit = 0;
     det.hop_start = 0;
     det.relay_node = 0;
+    det.parse_status = DetectionParseStatus::NONE;
     if (buf == nullptr || len < MESHTASTIC_HEADER_LEN) return false;
 
     det.node_id = readLE32(buf + 4);   // `from`
@@ -125,6 +150,9 @@ inline bool detectionApplyMeshtasticHeader(Detection &det, const uint8_t *buf, s
     det.hop_start = (uint8_t)((flags >> 5) & 0x07);
     det.channel_hash = buf[13];
     det.relay_node = buf[15];
+    // A header that parsed. Not a claim that a Meshtastic node sent it —
+    // these sixteen bytes are just bytes that fit the layout.
+    det.parse_status = DetectionParseStatus::HEADER;
     return true;
 }
 
@@ -159,13 +187,36 @@ inline const char *missionProfileName(uint8_t profile) {
 constexpr const char *LOG_CSV_HEADER =
     "timestamp_utc,lat,lon,fix_quality,run,rx_uptime_ms,profile,"
     "classification,channel_or_node_id,packet_id,hop_limit,hop_start,"
-    "relay_node,freq_mhz,sf,bw_khz,rssi_dbm,snr_db,raw_len,raw_packet_hex,decoded";
+    "relay_node,freq_mhz,sf,bw_khz,rssi_dbm,snr_db,raw_len,raw_packet_hex,decoded,"
+    "protocol_candidate,parse_status,auth_status";
 
 // Phase 2 placeholder for docs/DESIGN.md §6 fingerprinting (Phase 8+): with
 // HOME_LISTEN locked to one profile's channel at a time, "what we were
 // listening for" is the only honest classification available. Real
 // post-hoc classification (needs Phases 8/9's sweep data) replaces this
 // via fingerprint.h.
+// What the bytes could be, from evidence rather than from configuration.
+// `classification` above is the listening configuration and is kept
+// byte-identical for existing consumers; this is the field to read.
+inline const char *detectionProtocolCandidate(const Detection &det) {
+    if (det.off_grid) return "unknown_lora_candidate";
+    if (det.parse_status == DetectionParseStatus::NONE) return "unknown";
+    switch ((MissionProfile)det.profile) {
+        case MissionProfile::MESHTASTIC: return "meshtastic_header";
+        case MissionProfile::MESHCORE: return "meshcore_advert";
+        default: return "unknown";
+    }
+}
+
+// Nothing this firmware decodes authenticates a sender. MeshCore adverts
+// carry an Ed25519 signature that is not verified here, and decrypting with
+// a published default PSK proves possession of a public key, not identity.
+// Constant today on purpose: a column that only ever reads one value is a
+// standing statement, and the value is the honest one (audit A13).
+inline const char *detectionAuthStatus(const Detection &) {
+    return "unauthenticated";
+}
+
 inline const char *detectionClassification(const Detection &det) {
     if (det.off_grid) return "unknown_lora_candidate";
     return missionProfileName(det.profile);
@@ -261,9 +312,17 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
     // `decoded` stays deliberately empty until a complete payload decoder
     // is verified. raw_packet_hex is usable for offline protocol work even
     // when the frame payload is encrypted.
-    if (outSize - used < 2) return 0;
-    out[used++] = ',';
-    out[used] = '\0';
+    //
+    // The three evidence columns follow it: what the bytes could be, how far
+    // a parser actually got, and whether any of it is authenticated (audit
+    // A13). They are appended rather than replacing `classification`, whose
+    // existing meaning — the listening configuration — is unchanged.
+    const int tail = snprintf(out + used, outSize - used, ",,%s,%s,%s",
+                              detectionProtocolCandidate(det),
+                              detectionParseStatusName(det.parse_status),
+                              detectionAuthStatus(det));
+    if (tail < 0 || (size_t)tail >= outSize - used) return 0;
+    used += (size_t)tail;
     return used;
 }
 

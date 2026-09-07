@@ -523,7 +523,7 @@ function refreshRuns() {
     el.innerHTML = runs.slice().reverse().map(function (n) {
       var name = 'r' + String(n).padStart(4, '0');
       return '<article class="run"><div class="run-head"><span class="name">RUN ' + name +
-        '</span><span class="meta">7 CSV files</span></div><div class="run-files">' +
+        '</span><span class="meta">7 CSVs + manifest</span></div><div class="run-files">' +
         runFileLink(n, 'PACKETS', 'detections.csv') +
         runFileLink(n, 'HEALTH', 'session.csv') +
         runFileLink(n, 'PROBE', 'probe.csv') +
@@ -532,6 +532,7 @@ function refreshRuns() {
         runFileLink(n, 'NODES (SAFE)', 'nodes.csv?safe') +
         runFileLink(n, 'CELL', 'cell.csv') +
         runFileLink(n, 'FOCUS', 'focus.csv') +
+        runFileLink(n, 'PROVENANCE', 'manifest.txt') +
         '</div></article>';
     }).join('');
   }).catch(function () {

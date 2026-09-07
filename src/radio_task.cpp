@@ -487,17 +487,22 @@ void enqueueDetection(const Detection &det) {
     if (xQueueSend(detectionQueue, &det, 0) != pdTRUE) queueDropCount++;
 }
 
-void enqueueNodeIdentity(const Detection &det) {
-    if (!identityCaptureEnabled || identityQueue == nullptr) return;
+// Attempts identity decode and reports whether it got one, so the caller can
+// record how far parsing actually got before the detection is queued (audit
+// A13). Returns false when identity capture is off — that is "not attempted",
+// which is the same thing as "nothing established" for the row.
+bool enqueueNodeIdentity(const Detection &det) {
+    if (!identityCaptureEnabled || identityQueue == nullptr) return false;
     NodeIdentity identity;
     const bool decoded = det.profile == (uint8_t)MissionProfile::MESHTASTIC
         ? meshtasticDecodeDefaultNodeIdentity(det, identity)
         : det.profile == (uint8_t)MissionProfile::MESHCORE
             ? meshcoreDecodeAdvertIdentity(det, identity)
             : false;
-    if (!decoded) return;
+    if (!decoded) return false;
     identityDecodeCount++;
     if (xQueueSend(identityQueue, &identity, 0) != pdTRUE) identityDropCount++;
+    return true;
 }
 
 void enqueueScanObservation(const DiscoveryCandidate &candidate, uint8_t candidateIndex,
@@ -1110,8 +1115,10 @@ void performDiscoverySweep() {
         }
         if (failed) break;
         if (haveDetection) {
+            // Decode first: the detection row records how far parsing got,
+            // so it must be known before the row is queued (audit A13).
+            if (enqueueNodeIdentity(detection)) detection.parse_status = DetectionParseStatus::IDENTITY;
             enqueueDetection(detection);
-            enqueueNodeIdentity(detection);
         }
     }
 
@@ -1280,8 +1287,10 @@ void passBCadOneCombo(uint16_t bin, float freq, const PassBModemParams &combo,
             // of activeProfile (always RETICULUM/GENERAL_EXPLORATION
             // here) -- see detection.h's detectionClassification().
             detection.off_grid = true;
+            // Decode first: the detection row records how far parsing got,
+            // so it must be known before the row is queued (audit A13).
+            if (enqueueNodeIdentity(detection)) detection.parse_status = DetectionParseStatus::IDENTITY;
             enqueueDetection(detection);
-            enqueueNodeIdentity(detection);
             passBDetectionCount++;
             gotPacket = true;
         }
@@ -1710,8 +1719,10 @@ void performEnergySweepHomeListen() {
             }
         }
         if (haveDetection) {
+            // Decode first: the detection row records how far parsing got,
+            // so it must be known before the row is queued (audit A13).
+            if (enqueueNodeIdentity(det)) det.parse_status = DetectionParseStatus::IDENTITY;
             enqueueDetection(det);
-            enqueueNodeIdentity(det);
             energyHomeListenCaptureTotal++;
         }
     }
@@ -2124,8 +2135,10 @@ void radioTask(void *) {
         } // bus released here, before any queue work
 
         if (haveDetection) {
+            // Decode first: the detection row records how far parsing got,
+            // so it must be known before the row is queued (audit A13).
+            if (enqueueNodeIdentity(det)) det.parse_status = DetectionParseStatus::IDENTITY;
             enqueueDetection(det);
-            enqueueNodeIdentity(det);
         }
     }
 }

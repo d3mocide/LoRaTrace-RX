@@ -105,7 +105,9 @@ void test_csv_row_with_fix() {
     TEST_ASSERT_EQUAL_STRING(
         "2026-08-23T01:20:00Z,45.512346,-122.678901,1,7,41250,meshtastic,meshtastic,!1bbf065c,"
         "2c618f2d,7,7,5c,918.500,8,125.0,-60.0,13.75,26,"
-        "ffffffff5c06bf1b2d8f612ce7f7005c8b7f1cbe425161503e02,",
+        "ffffffff5c06bf1b2d8f612ce7f7005c8b7f1cbe425161503e02,"
+        // decoded stays empty; the three evidence columns follow it (A13).
+        ",meshtastic_header,header,unauthenticated",
         row);
 }
 
@@ -262,8 +264,63 @@ void test_timestamp_formatting() {
     TEST_ASSERT_EQUAL_STRING("", ts);
 }
 
+// Audit A13: a mission profile is a listening configuration, not proof of
+// which protocol produced a packet. `classification` says what we were tuned
+// for and is unchanged for existing consumers; these three say what was
+// actually established from the bytes.
+void test_protocol_candidate_reports_evidence_not_configuration() {
+    Detection det = {};
+    det.profile = (uint8_t)MissionProfile::MESHTASTIC;
+    det.parse_status = DetectionParseStatus::NONE;
+    // Tuned to Meshtastic, but nothing parsed: the row must not claim the
+    // protocol just because that is what the radio was configured for.
+    TEST_ASSERT_EQUAL_STRING("meshtastic", detectionClassification(det));
+    TEST_ASSERT_EQUAL_STRING("unknown", detectionProtocolCandidate(det));
+    TEST_ASSERT_EQUAL_STRING("none", detectionParseStatusName(det.parse_status));
+
+    det.parse_status = DetectionParseStatus::HEADER;
+    TEST_ASSERT_EQUAL_STRING("meshtastic_header", detectionProtocolCandidate(det));
+
+    det.profile = (uint8_t)MissionProfile::MESHCORE;
+    det.parse_status = DetectionParseStatus::IDENTITY;
+    TEST_ASSERT_EQUAL_STRING("meshcore_advert", detectionProtocolCandidate(det));
+    TEST_ASSERT_EQUAL_STRING("identity", detectionParseStatusName(det.parse_status));
+
+    // Reticulum and General fall back to the Meshtastic tuple in
+    // channel_plans.h, so matching traffic used to be labelled with a
+    // protocol this firmware has no parser for.
+    det.profile = (uint8_t)MissionProfile::RETICULUM;
+    det.parse_status = DetectionParseStatus::HEADER;
+    TEST_ASSERT_EQUAL_STRING("unknown", detectionProtocolCandidate(det));
+
+    // An off-grid Pass-B hit stays what it always was.
+    det.off_grid = true;
+    TEST_ASSERT_EQUAL_STRING("unknown_lora_candidate", detectionProtocolCandidate(det));
+}
+
+void test_nothing_this_firmware_decodes_is_authenticated() {
+    // MeshCore adverts are signed and the signature is not verified here;
+    // decrypting with a published default PSK proves possession of a public
+    // key, not identity. The column is a standing statement, not a variable.
+    Detection det = {};
+    det.parse_status = DetectionParseStatus::IDENTITY;
+    TEST_ASSERT_EQUAL_STRING("unauthenticated", detectionAuthStatus(det));
+}
+
+void test_a_runt_frame_leaves_parse_status_none() {
+    Detection det = {};
+    const uint8_t runt[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+    det.parse_status = DetectionParseStatus::HEADER; // must be cleared
+    TEST_ASSERT_FALSE(detectionApplyMeshtasticHeader(det, runt, sizeof(runt)));
+    TEST_ASSERT_EQUAL(DetectionParseStatus::NONE, det.parse_status);
+    TEST_ASSERT_EQUAL_STRING("unknown", detectionProtocolCandidate(det));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
+    RUN_TEST(test_protocol_candidate_reports_evidence_not_configuration);
+    RUN_TEST(test_nothing_this_firmware_decodes_is_authenticated);
+    RUN_TEST(test_a_runt_frame_leaves_parse_status_none);
     RUN_TEST(test_detection_fits_queue_budget);
     RUN_TEST(test_meshtastic_header_fields);
     RUN_TEST(test_original_and_relay_share_dedupe_key);

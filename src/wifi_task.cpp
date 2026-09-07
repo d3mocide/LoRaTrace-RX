@@ -365,13 +365,21 @@ void streamSafeCsvFile(const char *path, const char *downloadName) {
     }
 }
 
-// The seven files a run directory holds. cell.csv and focus.csv were missing
-// from the allowlist and the page, so two of the run's own outputs could not
-// be retrieved over the AP at all (audit A24).
+// Everything a run directory holds. cell.csv and focus.csv were missing from
+// the allowlist and the page, so two of the run's own outputs could not be
+// retrieved over the AP at all (audit A24); manifest.txt is here because
+// provenance nobody can fetch alongside the data is not provenance (A18).
 const char *const RUN_CSV_LEAVES[] = {
-    "detections.csv", "session.csv", "probe.csv", "energy.csv",
-    "nodes.csv",      "cell.csv",    "focus.csv",
+    "detections.csv", "session.csv", "probe.csv",   "energy.csv",
+    "nodes.csv",      "cell.csv",    "focus.csv",   "manifest.txt",
 };
+
+// manifest.txt is key=value provenance, not a CSV, so the spreadsheet-safe
+// rendering does not apply to it and its content type differs.
+bool runLeafIsCsv(const char *leaf) {
+    const size_t len = strlen(leaf);
+    return len > 4 && strcmp(leaf + len - 4, ".csv") == 0;
+}
 
 bool runCsvLeafAllowed(const char *leaf) {
     for (const char *known : RUN_CSV_LEAVES) {
@@ -393,6 +401,7 @@ void handleNotFound() {
             // %s stops at whitespace, not '?', so the query rides in `leaf`.
             char *query = strchr(leaf, '?');
             const bool wantSafe = query != nullptr && strcmp(query, "?safe") == 0;
+
             if (query != nullptr) *query = '\0';
             if (!runCsvLeafAllowed(leaf)) {
                 server.send(404, "text/plain", "not found");
@@ -403,7 +412,7 @@ void handleNotFound() {
                 char downloadName[56];
                 snprintf(downloadName, sizeof(downloadName), "run%04u_%s%s", (unsigned)idx,
                          wantSafe ? "safe_" : "", leaf);
-                if (wantSafe) {
+                if (wantSafe && runLeafIsCsv(leaf)) {
                     streamSafeCsvFile(path, downloadName);
                 } else {
                     streamCsvFile(path, downloadName);
