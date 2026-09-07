@@ -706,14 +706,16 @@ see the frames that make up the rest of it.
   hardware run yet.** Cell's missing per-bin retune (A01) is fixed in code;
   Cell results from released v1.1.0 remain unreliable and any Cell data
   captured on that build should be discarded, not reinterpreted.
-  Still open and untouched: the AP's fixed PSK and unauthenticated
-  state-changing endpoints (A10/A11), spreadsheet-safe export (A12), protocol
-  label honesty (A13), USB `WIFI_SET` idempotency (A15), release pinning
-  (A17), the run manifest (A18), fabricated `wifi_on`/`qualifying_count`
-  defaults in Focus/energy rows (A19), the radio command arbiter (A21 beyond
-  `home`), whole-action deadlines (A22), logger fair-drain (A23), HTTP
-  download bounds and the missing `cell.csv`/`focus.csv` (A24), and run/card
-  identity (A25).
+  A second pass the same day closed A10–A13, A15, A17–A19, A24 and A25, with
+  the AP credential, CSRF defenses, downloads, run manifest and session id
+  **exercised on hardware over the device's own AP**.
+  Still open: key-import gates (A14, nothing to gate yet), bench-bridge
+  authorization (A16), the bounded radio command arbiter (A21 beyond
+  `home`, which the audit scopes to Workstream 13), whole-action deadlines
+  (A22), logger fair-drain and lock-hold measurement (A23), A26's outage
+  summaries, and A27's fuzzing.
+  **A01 is fixed in code but still unverified on hardware** — Cell only logs
+  when an operator runs it, and no lap has been run since the repair.
 
 - ~~Bench SD card / boot-loop finding~~ — resolved 2026-09-03. The
   bench Cardputer's `task_wdt` boot-loop (see Phase 10 section above) was
