@@ -5,21 +5,26 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only by default. The one job that needs to write raises it for itself
+# (audit A17): a workflow-scope write token is handed to every step,
+# including dependency installation and compilation of a pull request's code.
 permissions:
-  contents: write # needed to move the dev-latest tag and publish its release
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
       - name: Cache PlatformIO
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.platformio
@@ -27,8 +32,11 @@ jobs:
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-${{ runner.os }}-
 
+      # Pinned rather than --upgrade so a green build stays reproducible and
+      # a PlatformIO release cannot change what "passing" means overnight
+      # (audit A17).
       - name: Install PlatformIO
-        run: pip install --upgrade platformio
+        run: pip install "platformio==6.1.19"
 
       # jgromes/RadioLib and the other lib_deps come from PlatformIO's
       # registry over HTTP; that registry occasionally throws a bare
@@ -68,44 +76,60 @@ jobs:
           ls -la .pio/build/cardputer-adv/firmware.bin >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload firmware artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmware-${{ github.sha }}
-          path: .pio/build/cardputer-adv/firmware.bin
-          retention-days: 14
-
-      # Rolling "latest main" build, separate from the versioned vX.Y.Z
-      # releases in release.yml. Overwrites the same dev-latest tag/release
-      # on every merge so there's always a one-click, no-login download for
-      # SD-drop/Launcher testing — see the root README's install guidance.
-      # Only on pushes to main (not PRs, not every commit on a branch).
-      - name: Move dev-latest tag
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          git tag -f dev-latest
-          git push origin -f dev-latest
-
-      - name: Rename binary for dev release
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      # Staged here, in the job that compiled them, so publish-dev can hand
+      # over exactly what was tested instead of building a second time.
+      - name: Stage flash parts
         run: |
           mkdir -p dist
           cp .pio/build/cardputer-adv/firmware.bin dist/LoRaTraceRX-dev.bin
-
-      # Same three extra parts as release.yml's "Collect flash parts" step
-      # — the web flasher (pages.yml) needs bootloader/partitions/boot_app0
-      # in addition to the app image to write a blank device from scratch.
-      - name: Collect flash parts for the web flasher
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
           cp .pio/build/cardputer-adv/bootloader.bin dist/LoRaTraceRX-dev-bootloader.bin
           cp .pio/build/cardputer-adv/partitions.bin dist/LoRaTraceRX-dev-partitions.bin
           boot_app0="$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -n1)"
           cp "$boot_app0" dist/LoRaTraceRX-dev-boot_app0.bin
 
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flash-parts-${{ github.sha }}
+          path: dist
+          retention-days: 14
+
+  # Publishing is the only thing here that needs a write token, so it is the
+  # only thing that gets one (audit A17). It consumes the artifact the
+  # read-only build job produced rather than recompiling, so what is
+  # published is exactly what was tested.
+  publish-dev:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # move the dev-latest tag and update its release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Download the tested build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: flash-parts-${{ github.sha }}
+          path: dist
+
+      - name: Publish checksums for every flash part
+        run: |
+          ( cd dist && sha256sum ./*.bin > LoRaTraceRX-dev-SHA256SUMS.txt )
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "built_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_run=${GITHUB_RUN_ID}"
+          } > dist/LoRaTraceRX-dev-BUILDINFO.txt
+          cat dist/LoRaTraceRX-dev-SHA256SUMS.txt
+
+      - name: Move dev-latest tag
+        run: |
+          git tag -f dev-latest
+          git push origin -f dev-latest
+
       - name: Update rolling dev release
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: dev-latest
           name: "Dev build (latest main)"
@@ -119,4 +143,7 @@ jobs:
             Stable download link (always the current main):
             https://github.com/${{ github.repository }}/releases/download/dev-latest/LoRaTraceRX-dev.bin
           prerelease: true
-          files: dist/LoRaTraceRX-dev*.bin
+          files: |
+            dist/LoRaTraceRX-dev*.bin
+            dist/LoRaTraceRX-dev-SHA256SUMS.txt
+            dist/LoRaTraceRX-dev-BUILDINFO.txt

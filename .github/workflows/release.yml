@@ -26,12 +26,16 @@ on:
         description: "Existing release tag to attach the built assets to, e.g. v1.0.0"
         required: true
 
+# Read-only at workflow scope; each job raises only what it needs (audit
+# A17). dispatch-deploy already did this for `actions: write`.
 permissions:
-  contents: write # needed to publish the release
+  contents: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # publish the release and its assets
     steps:
       # On a tag push this is the tagged commit already. On a manual
       # dispatch it must be made so explicitly: GitHub only allows
@@ -45,25 +49,40 @@ jobs:
       # later commit that still says 1.0.5" — which is exactly the state
       # main was in on 2026-09-04. Checking out the tag makes the check a
       # second line of defence instead of the only one.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
+      # Pinned, not --upgrade: a release must be reproducible from its tag,
+      # and "whatever PlatformIO published this morning" is not a pin
+      # (audit A17). Bump deliberately, alongside a build that was tested.
       - name: Install PlatformIO
-        run: pip install --upgrade platformio
+        run: pip install "platformio==6.1.19"
 
+      # The tag reaches the shell through the environment, never through
+      # ${{ }} interpolation that would generate shell text from a manual
+      # input (audit A17). It is also syntax-checked here, so a malformed or
+      # hostile input fails before it is used to build file paths below.
       - name: Resolve target release tag
         id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$DISPATCH_TAG"
           else
-            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            tag="$GITHUB_REF_NAME"
           fi
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Refusing tag '$tag': expected vMAJOR.MINOR.PATCH" >&2; exit 1 ;;
+          esac
+          printf 'value=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
       # docs/ROADMAP.md's Versioning section previously noted that a
       # tag/version.h mismatch was "a review-time catch, not an automated
@@ -97,6 +116,12 @@ jobs:
       - name: Verify release notes exist for this tag
         run: python3 scripts/extract_release_notes.py "${{ steps.tag.outputs.value }}" --check
 
+      # The same tests the branch runs, on the exact commit being published.
+      # build.yml proves main was green; it does not prove this tag is
+      # (audit A17).
+      - name: Run unit tests (native) on the release ref
+        run: pio test -e native
+
       - name: Build firmware
         run: pio run -e cardputer-adv
 
@@ -118,6 +143,24 @@ jobs:
           boot_app0="$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -n1)"
           cp "$boot_app0" "dist/LoRaTraceRX-${{ steps.tag.outputs.value }}-boot_app0.bin"
 
+      # Every published part, not just the app image: a flasher writes all
+      # four, so all four need something to check them against (audit A17).
+      - name: Publish checksums and build provenance
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          ( cd dist && sha256sum ./*.bin > "LoRaTraceRX-${TAG}-SHA256SUMS.txt" )
+          {
+            echo "tag=${TAG}"
+            echo "commit=${GITHUB_SHA}"
+            echo "firmware_version=$(sed -n 's/^#define FIRMWARE_VERSION "\(.*\)"/\1/p' src/version.h)"
+            echo "platformio=$(pio --version)"
+            echo "built_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "workflow_run=${GITHUB_RUN_ID}"
+          } > "dist/LoRaTraceRX-${TAG}-BUILDINFO.txt"
+          pio pkg list -e cardputer-adv >> "dist/LoRaTraceRX-${TAG}-BUILDINFO.txt" || true
+          cat "dist/LoRaTraceRX-${TAG}-SHA256SUMS.txt"
+
       # body_path carries docs/RELEASE_NOTES.md's curated section rather than
       # GitHub's auto-generated commit list, which is not something an
       # operator can read. Both body_path and generate_release_notes are
@@ -132,10 +175,13 @@ jobs:
           echo "--- release body ---"; cat release-body.md
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ steps.tag.outputs.value }}
-          files: dist/LoRaTraceRX-${{ steps.tag.outputs.value }}*.bin
+          files: |
+            dist/LoRaTraceRX-${{ steps.tag.outputs.value }}*.bin
+            dist/LoRaTraceRX-${{ steps.tag.outputs.value }}-SHA256SUMS.txt
+            dist/LoRaTraceRX-${{ steps.tag.outputs.value }}-BUILDINFO.txt
           draft: ${{ github.event_name != 'workflow_dispatch' }}
           body_path: ${{ github.event_name == 'push' && 'release-body.md' || '' }}
           generate_release_notes: false

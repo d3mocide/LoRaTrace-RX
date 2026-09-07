@@ -42,6 +42,15 @@ backported.
   (node IDs, RSSI, etc. — see `detection.h`). Anyone with physical access
   to the SD card gets this in the clear. There is no on-device encryption
   of stored data.
+- **Build and release supply chain.** As of 2026-09-07 every GitHub Action
+  is pinned to a commit SHA rather than a mutable major tag, PlatformIO and
+  every `lib_deps` entry are pinned to exact versions, workflows are
+  read-only by default with write scoped to the one publishing job, the
+  release tag is validated and passed through the environment rather than
+  interpolated into shell text, the native tests run on the exact release
+  ref, and every published flash part ships a SHA256SUMS and BUILDINFO file.
+  The web flasher's CDN script remains an unvendored dependency.
+
 - **Physical access.** This is a handheld embedded device with no secure
   boot / flash encryption configured. Physical possession of the hardware
   is assumed to grant full read/write access to firmware and stored data;
