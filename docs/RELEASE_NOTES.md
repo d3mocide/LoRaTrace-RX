@@ -24,6 +24,79 @@ Versions before `v1.0.6` predate this file; their history is in
 
 ---
 
+## v1.1.0
+
+**The whole home screen is rebuilt.** Every card now carries more than one
+screen. Left and right still move between cards; **up and down move within
+one**, and the dots at the bottom centre tell you how many screens a card has
+and which one you are on. Enter runs whatever that screen is about.
+
+| Card | Press up/down for |
+|---|---|
+| Radio | Meter, Scope |
+| Activity | Sweep, Waterfall, Focus |
+| Channel | Probe, Captures, Nodes |
+| GPS | Cell |
+| System | — |
+
+Because every tool now lives on the card it belongs to, the **Tools and Analyze
+menus are gone**. The menu is Profile, Trace, System. Nothing was removed — the
+same pages are one press away from the card that owns them. Digits 1–5 still
+jump straight to a card, and P, S, C still start Probe, Sweep and Cell from
+anywhere.
+
+**Focus is finished, and it now tells you how much you have looked.** Its result
+carries a coverage word: `sampled` after one survey of a bin, `repeated` after
+three. Survey a different frequency and it starts over, because time spent on
+one bin says nothing about another.
+
+Coverage means **how much looking happened, and nothing else**. It is not signal
+strength and not a guess about whether the frequency is empty. Focus still does
+not tell you that something transmitted — several ways of deciding that were
+measured on real hardware and rejected, most recently one that worked well
+enough in general but got *worse* on a busy band, which is exactly where you
+would want to trust it. It reports what it observed and stops.
+
+**Cards you already knew, rebuilt:**
+
+- **Radio** is the receive chain as six numbers — heard, CRC, bus misses, then
+  queued, logged, dropped. A loss figure is green at zero and red otherwise, so
+  a leak is visible without comparing anything.
+- **Channel** shows the whole band with your tuned frequency marked, green ticks
+  where packets actually decoded and amber where the last Sweep found energy. If
+  the traffic is somewhere you are not, you can now see that.
+- **GPS** shows a 60-second trace of satellites used, so a fix that keeps
+  dropping out under trees is visible while it happens. A new **TAGGED** card
+  counts detections that got a real position — the number that says how much of
+  a run is actually mappable.
+- **System** plots free memory and battery over 30 minutes, and reports battery
+  as a **measured** discharge rate over a stated window rather than a guess at
+  hours remaining.
+- **Sweep, Cell and Probe** now lead with what they found rather than a status
+  word. Probe moved to Channel, directly after the card, since it answers "should
+  I be on a different channel".
+
+**WiFi moved to a dot in the top bar**, beside the GPS and heap dots. The
+firmware version shows in the header on the System card.
+
+**Reliability.** An 8-hour run of continuous sweeps completed 4,112 laps with
+zero failures, no dropped rows, and memory that stopped changing after startup
+and stayed flat for the following ten hours. Two problems it exposed are fixed
+here: the display task was running much closer to its memory limit than intended,
+and a diagnostic counter added the same week overflowed after about seven hours.
+
+**Known limitations, stated plainly:**
+
+- **Field validation has not been done.** This release was tested on the bench
+  and over long unattended runs, not on a drive. It is deferred deliberately, not
+  forgotten.
+- Sweep's follow-up stage spent nearly four of the eight soak hours checking
+  candidate channels and promoted nothing. That is being investigated separately;
+  if you care more about hearing packets than about finding new channels, run
+  Sweep less.
+- `focus.csv` records the coverage word next to the raw pass count and observed
+  time it came from. If they ever disagree with each other, trust the numbers.
+
 ## v1.1.0-beta
 
 **Focus Survey is now usable, as a beta.** Menu > Tools > Focus. Enter starts a

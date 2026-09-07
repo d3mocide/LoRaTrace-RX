@@ -21,6 +21,70 @@
 //    share one semantic version. Carries a "-dirty" suffix when built from
 //    a modified working tree.
 
+// 1.1.0: Workstream 12 (Survey truth) closes, and every carousel card is
+// rebuilt around it.
+//
+// The roadmap reserves v1.1.0 for a *closed* Workstream 12. What v1.1.0-beta
+// listed as blocking is now settled, and two of the four turned out not to be
+// measurements at all:
+//
+//   Coverage thresholds -- SELECTED, from a measurement made for the purpose
+//   (docs/hardware-results/2026-09-06-phase12-coverage-campaign.md, 80 passes).
+//   sampled = 1 valid pass / 2,000 ms, repeated = 3 / 6,000 ms, plus a 500 ms
+//   dwell floor below which a pass counts toward neither. The campaign is what
+//   made this small: repeated passes are deterministic (observation-time stdev
+//   0.0 ms, sample count invariant across every repeat at every dwell), so
+//   passes x dwell reproduces observation time exactly and the pass and
+//   millisecond thresholds are one constraint stated twice. Both are kept
+//   because §3.1 names four constants and a future variable dwell would
+//   separate them. sampled = 1 because Focus *is* one deliberate look;
+//   repeated = 3 is judgement and recorded as judgement, since every threshold
+//   measured equally achievable. The dwell floor is the measured part, twice
+//   over -- §6.4's short-pass finding, and the campaign's flat 74 ms per-pass
+//   overhead which makes short passes cost more Watch time per second observed.
+//
+//   Radio-away budget -- REFUSED, conditionally. The exchange rate is measured
+//   and linear (predicted 0.459 against a measured 0.463), one Enter is one
+//   pass, and Activity's AWAY T card already shows the cost, so an operator
+//   self-governs against a number on screen. A cap would need a refusal path, a
+//   UI state and a menu control for a runaway that cannot presently occur. The
+//   decision expires the moment Focus gains automatic repeat; that condition is
+//   recorded in focus_plan.h beside the code that would implement it.
+//
+//   Activity indication -- REFUSED. Focus reports coverage and never activity.
+//   The measured rule works (C6 >= 2, 57/60, 95% CI [0.863, 0.983]) but carries
+//   a condition that disqualifies it as a product claim: detection depends on
+//   link quality the device cannot know, so it cannot bound its own error, and
+//   it measured *worse* where the band was busiest -- a -57 dBm event both
+//   produced false positives and suppressed counts by lifting the median. An
+//   indicator that degrades where it is most wanted fails toward false
+//   confidence. The raw counts stay in focus.csv, so a host with ground truth
+//   can conclude what the device may not.
+//
+//   WiFi off/on resource matrix -- DONE, inside the 8-hour soak.
+//
+// Field validation is DEFERRED, not done, by explicit operator decision.
+// Portland field validation remains unrun and is recorded as outstanding in
+// docs/STATUS.md and the release notes rather than quietly folded into "closed".
+// Same convention as Phase 7's soak criterion, which was waived for a cycle and
+// documented as waived.
+//
+// The 8-hour soak behind this release passed its own gate (4,112 laps, 0
+// failures, heap flat for 10.7 h across an accidental idle tail) and found
+// three things that were not what it was looking for. Two were fixed here:
+// draw-path snapshot structs were being held as stack locals, putting the UI
+// task at 93% of its 4 KB stack, and the redraw counters added the day before
+// overflowed a uint32 of microseconds at 7.4 h. Snapshots are function-static
+// now, the stack is 5,120, and a walked measurement across every card view
+// reads 68% used -- headroom 288 B -> 1,624 B. The third, Pass-B spending
+// 3.90 h of the 8 and promoting nothing, is a cost measurement handed to
+// Workstream 17 rather than a defect.
+//
+// MINOR, per ROADMAP.md's policy that a closed core V2 workstream earns the
+// next stable minor. Hardware-verified: coverage labels confirmed end-to-end on
+// device, including the accumulator resetting on retune (sampled -> repeated at
+// bin 34, back to sampled at bin 67).
+//
 // 1.1.0-beta: Focus gets an operator surface, and the Activity and Captures
 // pages are rebuilt from docs/UI-Recommendations.html.
 //
@@ -213,7 +277,7 @@
 // PATCH, not MINOR -- a UI reorganization within already-closed phase
 // scope, no new capability. Not yet hardware-verified on real hardware;
 // flag before calling this done.
-#define FIRMWARE_VERSION "1.1.0-beta"
+#define FIRMWARE_VERSION "1.1.0"
 
 // 1.0.6: correctness pass over what v1.0.5 shipped, from a code review and
 // a whole-project audit (docs/research/2026-09-04-project-audit.md).

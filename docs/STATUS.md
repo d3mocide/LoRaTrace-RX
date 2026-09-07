@@ -9,7 +9,16 @@ prose that used to be duplicated (and drifting) across `CLAUDE.md`,
 
 ## Current version
 
-**v1.0.7** (`src/version.h`). In the completed v1 series, `MAJOR.MINOR`
+**v1.1.0** (`src/version.h`) — Workstream 12 closed 2026-09-07, the first stable
+minor of the V2 line. Its one outstanding item is stated rather than folded away:
+**Portland field validation is deferred by explicit operator decision**, not
+complete. Everything else in W12's gate is closed, including the WiFi off/on
+resource matrix (covered by the 8-hour soak) and the coverage thresholds
+(selected from an 80-pass campaign). Same convention as Phase 7's soak
+criterion, which was waived for a cycle and documented as waived rather than
+quietly satisfied.
+
+Previously **v1.0.7** (`src/version.h`). In the completed v1 series, `MAJOR.MINOR`
 tracks the build-order phase *reached*, not the phase in progress — see
 ROADMAP.md's Versioning section for the V2 workstream policy. Phase 9
 (`ENERGY_SWEEP`/"Sweep") reached 2026-09-03: all five

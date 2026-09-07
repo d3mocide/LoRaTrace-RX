@@ -9,6 +9,13 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-07
 
+- **v1.1.0.** Workstream 12 closed — coverage thresholds selected, radio-away
+  budget refused conditionally, activity indication refused, WiFi resource
+  matrix done in the soak. **Portland field validation deferred by operator
+  decision, recorded not hidden.** Ships the card-view UI rebuild, the soak's
+  two fixes (UI stack 93% -> 68%, redraw counter overflow), and `focus.csv`'s
+  populated `coverage` column.
+
 - **Focus coverage thresholds selected; `focus.csv`'s `coverage` column is no
   longer blank.** `sampled` = 1 valid pass / 2000ms, `repeated` = 3 / 6000ms,
   with a 500ms dwell floor. New `src/focus_coverage.h` carries the constants and
