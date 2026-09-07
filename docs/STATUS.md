@@ -665,10 +665,17 @@ Three things it caught that were not what it was looking for:
   8.01 h. Now uint64, with frame count exposed for windowed means. The max was
   unaffected: 223 ms worst frame, flat after 4.92 h.
 
-The stack, overflow and session-buffer fixes are built and host-tested but **not
-yet flashed** — the board was disconnected to read the card. The open follow-up
-is re-checking `ui_stack_free` after deliberately walking every card view, which
-this run could not measure.
+**Confirmed on hardware the same day** (run0094, build `58410cb`): with sweeps
+driven continuously and every card, every view, the Captures modal and the menu
+at full depth walked deliberately, `ui_stack_free` reads **1,624 B of 5,120 —
+68% used**, against 288 B of 4,096 (93%) before. Headroom improved 5.6x. The
+watermark settled within the first 65 seconds and never moved during the walk,
+so no card view is deeper than boot — which was the specific unmeasured worry.
+Redraw telemetry holds steady at ~60 ms mean with no wrap. Two honest
+corrections: the static fix moved the measured peak by 312 B rather than the
+720 B predicted from summing frames, so the `drawPage`+`drawMeterPage` chain was
+never the deepest path; and `-fstack-usage` on this project's own files cannot
+see the frames that make up the rest of it.
 
 ## What's still open
 
