@@ -30,6 +30,8 @@ struct GpsFix {
 
     // millis() at last successful update, for staleness checks. 0 = never.
     uint32_t updated_ms = 0;
+    uint32_t time_updated_ms = 0;
+    uint32_t state_updated_ms = 0;
 
     uint16_t year = 0;
     uint8_t month = 0, day = 0;
@@ -109,7 +111,11 @@ inline bool gpsParseDateField(const char *d, uint16_t *year, uint8_t *month, uin
     uint8_t dd = (uint8_t)((d[0] - '0') * 10 + (d[1] - '0'));
     uint8_t mo = (uint8_t)((d[2] - '0') * 10 + (d[3] - '0'));
     uint16_t yy = (uint16_t)((d[4] - '0') * 10 + (d[5] - '0'));
-    if (dd < 1 || dd > 31 || mo < 1 || mo > 12) return false;
+    if (mo < 1 || mo > 12) return false;
+    static const uint8_t days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    const uint16_t fullYear = 2000 + yy;
+    const bool leap = fullYear % 4 == 0 && (fullYear % 100 != 0 || fullYear % 400 == 0);
+    if (dd < 1 || dd > days[mo - 1] + (mo == 2 && leap ? 1 : 0)) return false;
     *day = dd; *month = mo; *year = (uint16_t)(2000 + yy);
     return true;
 }
@@ -142,6 +148,7 @@ inline bool gpsApplySentence(GpsFix &fix, const char *sentence, uint32_t now_ms)
 
     char buf[16], hemi[4];
     bool updated = false;
+    if (isGGA || isRMC) fix.state_updated_ms = now_ms;
 
     if (isGSV) {
         // GSV field 3 = satellites in view for this constellation.
@@ -177,7 +184,8 @@ inline bool gpsApplySentence(GpsFix &fix, const char *sentence, uint32_t now_ms)
         // GGA: 1=time 2=lat 3=N/S 4=lon 5=E/W 6=quality 7=satellites
         uint8_t h, m, s;
         if (nmeaField(sentence, 1, buf, sizeof(buf)) && gpsParseTimeField(buf, &h, &m, &s)) {
-            fix.hour = h; fix.minute = m; fix.second = s;
+            // UTC comes from a complete RMC date/time pair, never a new
+            // GGA clock combined with yesterday's RMC date.
             updated = true;
         }
         if (nmeaField(sentence, 6, buf, sizeof(buf)) && buf[0] != '\0') {
@@ -187,7 +195,7 @@ inline bool gpsApplySentence(GpsFix &fix, const char *sentence, uint32_t now_ms)
             // arrives once per cycle — so it's the right place to decay the
             // GSA-derived 2D/3D value. Without this, fix_type would latch at
             // its best-ever reading and keep claiming 3D after signal loss.
-            if (fix.fix_quality == 0) fix.fix_type = 1;
+            if (fix.fix_quality == 0) { fix.fix_type = 1; fix.has_position = false; }
             updated = true;
         }
         if (nmeaField(sentence, 7, buf, sizeof(buf)) && buf[0] != '\0') {
@@ -203,10 +211,10 @@ inline bool gpsApplySentence(GpsFix &fix, const char *sentence, uint32_t now_ms)
         double lat, lon;
         if (fix.fix_quality > 0 &&
             nmeaField(sentence, 2, buf, sizeof(buf)) &&
-            nmeaField(sentence, 3, hemi, sizeof(hemi)) &&
+            nmeaField(sentence, 3, hemi, sizeof(hemi)) && (hemi[0] == 'N' || hemi[0] == 'S') &&
             nmeaCoordToDegrees(buf, hemi[0], &lat) &&
             nmeaField(sentence, 4, buf, sizeof(buf)) &&
-            nmeaField(sentence, 5, hemi, sizeof(hemi)) &&
+            nmeaField(sentence, 5, hemi, sizeof(hemi)) && (hemi[0] == 'E' || hemi[0] == 'W') &&
             nmeaCoordToDegrees(buf, hemi[0], &lon)) {
             fix.lat = lat;
             fix.lon = lon;
@@ -225,27 +233,27 @@ inline bool gpsApplySentence(GpsFix &fix, const char *sentence, uint32_t now_ms)
         uint8_t h, m, s;
         const bool haveTime =
             nmeaField(sentence, 1, buf, sizeof(buf)) && gpsParseTimeField(buf, &h, &m, &s);
-        if (haveTime) {
-            fix.hour = h; fix.minute = m; fix.second = s;
-            updated = true;
-        }
 
         uint16_t y; uint8_t mo, d;
         if (nmeaField(sentence, 9, buf, sizeof(buf)) && gpsParseDateField(buf, &y, &mo, &d)) {
             fix.year = y; fix.month = mo; fix.day = d;
             // Date and time together are what make a usable UTC stamp;
             // RMC is the only sentence here carrying the date.
-            if (haveTime) fix.has_time = true;
+            if (haveTime) {
+                fix.hour = h; fix.minute = m; fix.second = s;
+                fix.has_time = true;
+                fix.time_updated_ms = now_ms;
+            } else fix.has_time = false;
             updated = true;
         }
 
         double lat, lon;
         if (active &&
             nmeaField(sentence, 3, buf, sizeof(buf)) &&
-            nmeaField(sentence, 4, hemi, sizeof(hemi)) &&
+            nmeaField(sentence, 4, hemi, sizeof(hemi)) && (hemi[0] == 'N' || hemi[0] == 'S') &&
             nmeaCoordToDegrees(buf, hemi[0], &lat) &&
             nmeaField(sentence, 5, buf, sizeof(buf)) &&
-            nmeaField(sentence, 6, hemi, sizeof(hemi)) &&
+            nmeaField(sentence, 6, hemi, sizeof(hemi)) && (hemi[0] == 'E' || hemi[0] == 'W') &&
             nmeaCoordToDegrees(buf, hemi[0], &lon)) {
             fix.lat = lat;
             fix.lon = lon;
@@ -304,5 +312,12 @@ inline int64_t gpsFixToEpoch(const GpsFix &fix) {
 
 inline bool gpsFixIsFresh(const GpsFix &fix, uint32_t now_ms, uint32_t max_age_ms) {
     if (!fix.has_position || fix.updated_ms == 0) return false;
-    return (uint32_t)(now_ms - fix.updated_ms) <= max_age_ms;
+    return (int32_t)(now_ms - fix.updated_ms) >= 0 &&
+           (uint32_t)(now_ms - fix.updated_ms) <= max_age_ms;
+}
+
+inline bool gpsTimeIsFresh(const GpsFix &fix, uint32_t event_ms, uint32_t max_age_ms) {
+    return fix.has_time && fix.time_updated_ms != 0 &&
+           (int32_t)(event_ms - fix.time_updated_ms) >= 0 &&
+           event_ms - fix.time_updated_ms <= max_age_ms;
 }

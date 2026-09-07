@@ -23,6 +23,7 @@ bool gpsTaskStart();
 // time (callers should treat that as "no fix available right now" rather
 // than blocking — the logger must keep draining the queue regardless).
 bool gpsGetFix(GpsFix &out, TickType_t timeout);
+bool gpsGetFixAt(uint32_t event_ms, GpsFix &out, TickType_t timeout);
 
 // Diagnostics for the periodic status line.
 uint32_t gpsSentenceCount();

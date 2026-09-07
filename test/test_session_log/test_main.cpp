@@ -126,7 +126,7 @@ void test_row_with_fix_carries_position_and_counters() {
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7,"
         "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,"
-        "9,2,3,1,0,3,1500,7112,4820,1960",
+        "9,2,3,1,0,3,1500,7112,4820,1960,0,0,0,0,down",
         row);
 }
 
@@ -243,7 +243,7 @@ void test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters() {
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     const char *suffix =
         "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,9,2,3,1,0,3,1500,"
-        "7112,4820,1960";
+        "7112,4820,1960,0,0,0,0,down";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -259,16 +259,17 @@ void test_cell_diagnostics_precede_analyzer_static_bytes() {
     SessionStats s = healthySample();
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
-    const char *suffix = "9,2,3,1,0,3,1500,7112,4820,1960";
+    const char *suffix = "9,2,3,1,0,3,1500,7112,4820,1960,0,0,0,0,down";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
 
-void test_ui_redraw_cost_is_the_last_column() {
+void test_ui_redraw_cost_precedes_the_sd_fault_columns() {
     // UI frame cost (2026-09-06), appended after analyzer_static_bytes per this
-    // schema's own append-only-at-the-end convention. Asserted as a pair and as
-    // the row's tail, so a field appended between them fails here rather than
-    // silently shifting a column a host parser reads by position.
+    // schema's own append-only-at-the-end convention. Asserted as a pair and in
+    // its position, so a field appended between them fails here rather than
+    // silently shifting a column a host parser reads by position. The row's own
+    // tail claim now belongs to test_sd_write_faults_precede_the_reception_columns().
     SessionStats s = healthySample();
     s.analyzer_static_bytes = 12345;
     s.ui_redraw_max_us = 9100;
@@ -276,7 +277,41 @@ void test_ui_redraw_cost_is_the_last_column() {
     char row[384];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     TEST_ASSERT_TRUE(n > 0);
-    const char *suffix = "12345,9100,2050";
+    const char *suffix = "12345,9100,2050,0,0,0,0,down";
+    TEST_ASSERT_TRUE(n >= strlen(suffix));
+    TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
+}
+
+void test_sd_write_faults_precede_the_reception_columns() {
+    // Added 2026-09-07 for audit A02: `sd` reported "ok" for a card that
+    // accepted an open and then wrote nothing, so a run could look healthy
+    // while losing rows. Non-zero here means bytes did not reach the card,
+    // or a CSV had to be repaired before this run could append to it.
+    SessionStats s = healthySample();
+    s.sd_short_writes = 3;
+    s.sd_csv_repairs = 1;
+    char row[384];
+    size_t n = sessionFormatCsv(s, row, sizeof(row), "");
+    TEST_ASSERT_TRUE(n > 0);
+    const char *suffix = "4820,1960,3,1,0,0,down";
+    TEST_ASSERT_TRUE(n >= strlen(suffix));
+    TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
+}
+
+void test_reception_faults_are_reported_separately() {
+    // crc_err carried CRC rejections, our own read failures and (invisibly)
+    // failed RX rearms as one number, which cannot answer "was that a noisy
+    // band or a sick radio" (audit A26). `home` says whether Watch was even
+    // armed, so a quiet interval can be told apart from a deaf one (A21).
+    SessionStats s = healthySample();
+    s.crc_errors = 12;
+    s.read_errors = 5;
+    s.rearm_errors = 2;
+    s.home_ready = true;
+    char row[384];
+    size_t n = sessionFormatCsv(s, row, sizeof(row), "");
+    TEST_ASSERT_TRUE(n > 0);
+    const char *suffix = "5,2,armed";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -363,7 +398,9 @@ int main(int, char **) {
     RUN_TEST(test_gps_diagnostics_keep_their_append_only_positions);
     RUN_TEST(test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters);
     RUN_TEST(test_cell_diagnostics_precede_analyzer_static_bytes);
-    RUN_TEST(test_ui_redraw_cost_is_the_last_column);
+    RUN_TEST(test_ui_redraw_cost_precedes_the_sd_fault_columns);
+    RUN_TEST(test_sd_write_faults_precede_the_reception_columns);
+    RUN_TEST(test_reception_faults_are_reported_separately);
     RUN_TEST(test_header_column_count_matches_a_rendered_row);
     RUN_TEST(test_plausible_long_run_row_fits_the_device_buffer);
     RUN_TEST(test_truncation_is_reported);

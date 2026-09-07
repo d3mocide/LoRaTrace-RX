@@ -12,6 +12,7 @@ inline bool meshtasticReadVarint(const uint8_t *data, size_t len, size_t &pos, u
     value = 0;
     for (uint8_t shift = 0; shift < 64 && pos < len; shift += 7) {
         const uint8_t byte = data[pos++];
+        if (shift == 63 && (byte & 0xFE)) return false;
         value |= (uint64_t)(byte & 0x7F) << shift;
         if ((byte & 0x80) == 0) return true;
     }

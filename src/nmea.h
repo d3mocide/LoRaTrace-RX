@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 
 // Longest legal NMEA sentence is 82 chars including delimiters; round up.
 constexpr size_t NMEA_MAX_SENTENCE = 96;
@@ -29,7 +30,7 @@ constexpr size_t NMEA_MAX_SENTENCE = 96;
 // '*' (checksum delimiter) or NUL as well as ','. Always NUL-terminates on
 // success; never writes past `outSize`.
 inline bool nmeaField(const char *s, uint8_t index, char *out, size_t outSize) {
-    if (out == nullptr || outSize == 0) return false;
+    if (s == nullptr || out == nullptr || outSize == 0) return false;
     uint8_t field = 0;
     size_t w = 0;
     for (const char *p = s;; p++) {
@@ -43,7 +44,10 @@ inline bool nmeaField(const char *s, uint8_t index, char *out, size_t outSize) {
             if (*p == '\0' || *p == '*') return false;
             continue;
         }
-        if (field == index && w + 1 < outSize) out[w++] = *p;
+        if (field == index) {
+            if (w + 1 >= outSize) { out[0] = '\0'; return false; }
+            out[w++] = *p;
+        }
     }
 }
 
@@ -58,7 +62,7 @@ inline bool nmeaChecksumValid(const char *s) {
     const char *p = s + 1;
     for (; *p && *p != '*'; p++) sum ^= (uint8_t)*p;
     if (*p != '*') return false;
-    if (p[1] == '\0' || p[2] == '\0') return false;
+    if (p[1] == '\0' || p[2] == '\0' || p[3] != '\0') return false;
 
     auto hexVal = [](char c) -> int {
         if (c >= '0' && c <= '9') return c - '0';
@@ -79,31 +83,22 @@ inline bool nmeaChecksumValid(const char *s) {
 inline bool nmeaCoordToDegrees(const char *value, char hemi, double *out) {
     if (value == nullptr || out == nullptr || value[0] == '\0') return false;
 
-    const char *dot = strchr(value, '.');
-    if (dot == nullptr) return false;
-    // Degrees are everything before the final two digits of the whole part.
-    size_t wholeLen = (size_t)(dot - value);
-    if (wholeLen < 3) return false; // need at least d + mm
-    size_t degLen = wholeLen - 2;
-
-    char degBuf[8];
-    if (degLen + 1 > sizeof(degBuf)) return false;
-    memcpy(degBuf, value, degLen);
-    degBuf[degLen] = '\0';
-
-    char *end = nullptr;
-    double degrees = strtod(degBuf, &end);
-    if (end == degBuf || *end != '\0') return false;
-
-    end = nullptr;
-    double minutes = strtod(value + degLen, &end);
-    if (end == value + degLen || *end != '\0') return false;
-    if (minutes < 0.0 || minutes >= 60.0) return false;
-
+    const bool latitude = hemi == 'N' || hemi == 'S';
+    if (!latitude && hemi != 'E' && hemi != 'W') return false;
+    const size_t whole = latitude ? 4 : 5;
+    const size_t len = strlen(value);
+    if (len < whole + 2 || value[whole] != '.') return false;
+    for (size_t i = 0; i < len; ++i) {
+        if (i != whole && (value[i] < '0' || value[i] > '9')) return false;
+    }
+    unsigned degrees = 0;
+    for (size_t i = 0; i < whole - 2; ++i) degrees = degrees * 10 + value[i] - '0';
+    const double minutes = strtod(value + whole - 2, nullptr);
+    const unsigned limit = latitude ? 90 : 180;
+    if (!isfinite(minutes) || minutes >= 60 || degrees > limit ||
+        (degrees == limit && minutes != 0)) return false;
     double result = degrees + minutes / 60.0;
     if (hemi == 'S' || hemi == 'W') result = -result;
-    else if (hemi != 'N' && hemi != 'E') return false;
-
     *out = result;
     return true;
 }

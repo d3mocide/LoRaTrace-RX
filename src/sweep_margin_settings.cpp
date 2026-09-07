@@ -4,6 +4,7 @@
 #include <SD.h>
 
 #include "spi_bus.h"
+#include "file_transaction.h"
 
 namespace {
 
@@ -11,20 +12,10 @@ constexpr const char *SWEEP_MARGIN_CONFIG_DIR = "/loratrace";
 constexpr const char *SWEEP_MARGIN_CONFIG_PATH = "/loratrace/sweep_margin.txt";
 
 
-// Delete-then-recreate, not truncate-in-place — same reasoning
-// writeRegionConfigFile()/writeDisplayConfigFile() document: a shorter new
-// file must not leave a trailing byte of the old one behind.
 bool writeSweepMarginConfigFile(const SweepMarginSettings &settings) {
-    SD.remove(SWEEP_MARGIN_CONFIG_PATH);
-    File f = SD.open(SWEEP_MARGIN_CONFIG_PATH, FILE_WRITE);
-    if (!f) return false;
-
-    f.println(F("# LoRaTrace RX — Sweep peak-detection margin"));
-    f.println(F("# margin_dbm_x10: tenths of dB above the rolling noise floor"));
-    f.print(F("margin_dbm_x10="));
-    f.println(settings.margin_dbm_x10);
-    f.close();
-    return true;
+    char text[160];
+    const int n = snprintf(text, sizeof(text), "margin_dbm_x10=%d\n", (int)settings.margin_dbm_x10);
+    return n > 0 && (size_t)n < sizeof(text) && replaceTextFile(SD, SWEEP_MARGIN_CONFIG_PATH, text, (size_t)n);
 }
 
 } // namespace
@@ -38,6 +29,7 @@ bool loadSweepMarginSettingsFromSD(SweepMarginSettings &settings) {
     if (!SD.exists(SWEEP_MARGIN_CONFIG_DIR)) {
         SD.mkdir(SWEEP_MARGIN_CONFIG_DIR);
     }
+    recoverTextFile(SD, SWEEP_MARGIN_CONFIG_PATH);
     if (!SD.exists(SWEEP_MARGIN_CONFIG_PATH)) {
         // First card seen by this firmware for the margin setting — write
         // the current (struct-default) state so there's something to
@@ -52,8 +44,9 @@ bool loadSweepMarginSettingsFromSD(SweepMarginSettings &settings) {
 
     bool appliedAny = false;
     while (f.available()) {
-        String line = f.readStringUntil('\n');
-        if (applySweepMarginConfigLine(line.c_str(), settings)) appliedAny = true;
+        char line[192];
+        if (!readBoundedLine(f, line, sizeof(line))) continue;
+        if (applySweepMarginConfigLine(line, settings)) appliedAny = true;
     }
     f.close();
     return appliedAny;

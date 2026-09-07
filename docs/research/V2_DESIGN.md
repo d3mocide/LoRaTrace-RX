@@ -1,6 +1,7 @@
 # LoRaTrace RX — Version 2 Design
 
-**Status:** draft for product decisions and phased validation.  
+**Status:** adopted product direction; passive-decryption policy updated 2026-09-07.
+The canonical workstream status is in `docs/ROADMAP.md`.
 **Baseline:** v1.0.7, released 2026-09-04.
 **Purpose:** describe the post-v1 direction without rewriting the hardware-verified v1 design, roadmap, or status record.
 
@@ -47,8 +48,15 @@ V1 hardware evidence also establishes two product facts V2 must respect:
 V2 preserves the project's safety, privacy, and truthfulness boundary:
 
 - Receive-only. No transmit, beacon, injection, or active probing.
-- Metadata-first. No payload display, retention, decryption, keys, chat, or
-  protocol-client functionality.
+- Metadata-first acquisition with bounded raw-frame retention and on-device
+  payload display. Passive decryption of public channels and traffic using
+  known operator-supplied keys is permitted (operator decision, 2026-09-07).
+  No brute-force, dictionary attacks, key guessing, or automated key recovery;
+  no chat sending or protocol-client functionality. Operator-key support is
+  future work and must require explicit on-device opt-in, disabled by default.
+  Key handling, plaintext privacy, and decode budgets follow
+  [the canonical policy](../ROADMAP.md#amended-boundary-passive-decryption-and-known-keys).
+  Successful decryption does not establish authenticated sender identity.
 - No automatic mission-profile selection or protocol claims from energy alone.
 - Energy/CAD observations may identify an **unknown LoRa candidate** only when
   the existing evidence rules permit it; they must not be relabeled as
@@ -152,8 +160,10 @@ where the existing schema cannot carry the new fact cleanly.
 | **mission.csv** | State transitions and radio-time accounting. | mission, action, start/end, requested/completed status, home-restore result, radio-away time |
 | **marker.csv** | Operator-created field annotations. | time, GPS snapshot, small preset marker type, optional numeric sequence |
 
-All records are compact fixed-field CSV rows. High-rate raw samples, packet
-contents, and raw GPS serial data remain out of scope. Existing CSV schemas
+All records are compact fixed-field CSV rows. High-rate raw RF samples and raw GPS serial data remain out of scope for
+these survey records. Received packet bytes already belong in `detections.csv`;
+derived plaintext must remain separate and follow the passive-decryption and
+privacy policy. Existing CSV schemas
 must stay backward-compatible; any column addition follows the project's
 append-only schema convention and is documented in LOG_GUIDE.md.
 

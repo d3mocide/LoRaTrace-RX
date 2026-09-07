@@ -9,6 +9,21 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-07
 
+- **Audit repairs, part 1 (A01–A09, A20, A21, A26 partial).** Cell now tunes
+  per bin (it never called `begin()`/`setFrequency()`, so every bin reported
+  the previous frequency). SD appends check byte counts and CSV headers are
+  verified, repaired, or set aside instead of adopted unread; `session.csv`
+  gains `sd_short_writes`, `sd_csv_repairs`, `read_err`, `rearm_err`, `home`.
+  Observations are stamped with the GPS fix current at the reception, not at
+  dequeue, and UTC expires with its own RMC. Focus coverage is keyed on
+  resolved frequency + modem config, not bin index. One `SweepSnapshot`
+  replaces the separately-read completed-sweep fields. Web preset saves merge
+  into the persisted file and validate whole tokens; the form shows saved vs
+  running. New host suites: `test_file_transaction`; `test_gps_parse`,
+  `test_session_log`, `test_focus_coverage` extended. 293 native tests pass.
+
+- **Documentation audit:** added the v1.1.0/V2 audit; aligned passive decryption with public channels and known operator keys, excluding brute-force recovery. No firmware changes.
+
 - **v1.1.0.** Workstream 12 closed — coverage thresholds selected, radio-away
   budget refused conditionally, activity indication refused, WiFi resource
   matrix done in the soak. **Portland field validation deferred by operator

@@ -118,7 +118,11 @@ def main():
     parser.add_argument("--arm-delay-ms", type=int, default=100)
     parser.add_argument("--log", required=True)
     parser.add_argument("--results", required=True)
+    parser.add_argument("--allow-transmit", action="store_true",
+                        help="explicitly authorize the controlled bench pulses")
     args = parser.parse_args()
+    if not args.allow_transmit:
+        parser.error("bench pulses require --allow-transmit")
     if not 1 <= args.cycles <= 100:
         parser.error("--cycles must be 1..100")
     if not 0 <= args.arm_delay_ms <= 5000:

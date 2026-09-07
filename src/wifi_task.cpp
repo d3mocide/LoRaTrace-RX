@@ -10,6 +10,7 @@
 #include <string.h> // strcmp/strncpy
 
 #include "battery.h"
+#include "channel_config.h"
 #include "config.h"
 #include "display_settings.h"
 #include "gps_task.h"
@@ -303,23 +304,47 @@ bool parseUint8Arg(const char *name, uint8_t min, uint8_t max, uint8_t &value) {
     return true;
 }
 
-// Both profiles' currently-resolved values (override if loaded, else
-// hardcoded default), plus which one HOME_LISTEN is actually locked to.
-// Reads radioActiveOverrides()/radioActiveProfile() rather than re-parsing
-// config.txt — a save through handleConfigPost() below only updates them
-// on the next boot, same "not live" boundary the channel override has.
+// Two different things a caller can mean by "the config", reported as two
+// objects rather than one: `active` is what the radio booted with, `saved` is
+// what is on the card and will apply next boot. Returning only `active` meant
+// the settings form redisplayed boot values over an operator's unrebooted
+// save, and posting that form silently reverted it (audit A08).
 void handleConfigGet() {
-    const ProfileOverrides ov = radioActiveOverrides();
-    const ChannelParams mt = resolvedChannelForProfile(ov, MissionProfile::MESHTASTIC);
-    const ChannelParams mc = resolvedChannelForProfile(ov, MissionProfile::MESHCORE);
-    char json[320]; // worst case (3-digit freq/sf/bw/sync on both profiles) measures ~201B — real margin
-    snprintf(json, sizeof(json),
-             "{\"active_profile\":\"%s\","
-             "\"meshtastic\":{\"freq_mhz\":%.3f,\"sf\":%u,\"bw_khz\":%.1f,\"cr_denom\":%u,\"sync_word\":%u},"
-             "\"meshcore\":{\"freq_mhz\":%.3f,\"sf\":%u,\"bw_khz\":%.1f,\"cr_denom\":%u,\"sync_word\":%u}}",
-             missionProfileName((uint8_t)radioActiveProfile()), (double)mt.freq_mhz, (unsigned)mt.sf,
-             (double)mt.bw_khz, (unsigned)mt.cr_denom, (unsigned)mt.sync_word, (double)mc.freq_mhz,
-             (unsigned)mc.sf, (double)mc.bw_khz, (unsigned)mc.cr_denom, (unsigned)mc.sync_word);
+    const ProfileOverrides active = radioActiveOverrides();
+    ProfileOverrides saved;
+    // An unreadable card is not evidence that nothing is saved, so the form
+    // falls back to what is running rather than to hardcoded defaults.
+    if (!readProfileConfigFromSD(saved)) saved = active;
+
+    const ChannelParams amt = resolvedChannelForProfile(active, MissionProfile::MESHTASTIC);
+    const ChannelParams amc = resolvedChannelForProfile(active, MissionProfile::MESHCORE);
+    const ChannelParams smt = resolvedChannelForProfile(saved, MissionProfile::MESHTASTIC);
+    const ChannelParams smc = resolvedChannelForProfile(saved, MissionProfile::MESHCORE);
+
+    char json[640]; // two full preset pairs; worst case measures ~390B
+    int n = snprintf(json, sizeof(json), "{\"active_profile\":\"%s\",",
+                     missionProfileName((uint8_t)radioActiveProfile()));
+    const struct { const char *key; const ChannelParams *mt; const ChannelParams *mc; } sets[] = {
+        {"active", &amt, &amc}, {"saved", &smt, &smc},
+    };
+    for (size_t i = 0; i < 2 && n > 0 && (size_t)n < sizeof(json); i++) {
+        n += snprintf(json + n, sizeof(json) - (size_t)n,
+                      "\"%s\":{"
+                      "\"meshtastic\":{\"freq_mhz\":%.3f,\"sf\":%u,\"bw_khz\":%.1f,\"cr_denom\":%u,\"sync_word\":%u},"
+                      "\"meshcore\":{\"freq_mhz\":%.3f,\"sf\":%u,\"bw_khz\":%.1f,\"cr_denom\":%u,\"sync_word\":%u}}%s",
+                      sets[i].key,
+                      (double)sets[i].mt->freq_mhz, (unsigned)sets[i].mt->sf,
+                      (double)sets[i].mt->bw_khz, (unsigned)sets[i].mt->cr_denom,
+                      (unsigned)sets[i].mt->sync_word,
+                      (double)sets[i].mc->freq_mhz, (unsigned)sets[i].mc->sf,
+                      (double)sets[i].mc->bw_khz, (unsigned)sets[i].mc->cr_denom,
+                      (unsigned)sets[i].mc->sync_word,
+                      i == 0 ? "," : "}");
+    }
+    if (n <= 0 || (size_t)n >= sizeof(json)) {
+        server.send(500, "application/json", "{\"ok\":false,\"error\":\"config too large\"}");
+        return;
+    }
     server.send(200, "application/json", json);
 }
 
@@ -334,22 +359,31 @@ void handleConfigPost() {
         server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing profile\"}");
         return;
     }
-    MissionProfile profile;
+    MissionProfile profile = MissionProfile::MESHTASTIC;
     if (!parseProfileArg(server.arg("profile"), profile)) {
         server.send(400, "application/json", "{\"ok\":false,\"error\":\"profile must be meshtastic or meshcore\"}");
         return;
     }
 
-    const ProfileOverrides current = radioActiveOverrides();
-    // Start from this profile's own currently-resolved values so a form
-    // that only edits one field doesn't zero the rest.
+    ProfileOverrides current;
+    // The persisted file, not the boot snapshot: a form that edits one field
+    // must merge into what is already saved, not into what booted (A08).
+    if (!readProfileConfigFromSD(current)) current = radioActiveOverrides();
     ChannelParams p = resolvedChannelForProfile(current, profile);
-    if (server.hasArg("freq_mhz")) p.freq_mhz = server.arg("freq_mhz").toFloat();
-    if (server.hasArg("sf")) p.sf = (uint8_t)server.arg("sf").toInt();
-    if (server.hasArg("bw_khz")) p.bw_khz = server.arg("bw_khz").toFloat();
-    if (server.hasArg("cr_denom")) p.cr_denom = (uint8_t)server.arg("cr_denom").toInt();
-    if (server.hasArg("sync_word")) {
-        p.sync_word = (uint8_t)strtol(server.arg("sync_word").c_str(), nullptr, 0);
+
+    // channel_config.h validates the whole token and the resulting value
+    // before it is narrowed. String::toInt()/toFloat() mapped junk to 0 and
+    // truncated 263 to SF7, and any positive number was an acceptable
+    // bandwidth (A08). Browser form bounds are not server validation.
+    static const char *FIELDS[] = {"freq_mhz", "sf", "bw_khz", "cr_denom", "sync_word"};
+    for (const char *field : FIELDS) {
+        if (!server.hasArg(field)) continue;
+        if (!channelApplyValue(p, field, server.arg(field).c_str())) {
+            char err[96];
+            snprintf(err, sizeof(err), "{\"ok\":false,\"error\":\"invalid %s\"}", field);
+            server.send(400, "application/json", err);
+            return;
+        }
     }
 
     if (!writeProfileConfigToSD(profile, p, current)) {

@@ -95,6 +95,10 @@ QueueHandle_t profileSwitchQueue = nullptr;
 // just what was requested — same convention activeProfile follows.
 QueueHandle_t pauseQueue = nullptr;
 volatile bool tracePaused = false;
+// Whether the last operation that was supposed to leave the radio listening
+// at home actually confirmed it. "No action is active" is not by itself
+// evidence that Watch is running (audit A21).
+volatile bool homeArmed = false;
 
 // Probe uses a one-slot start mailbox plus a cancellation flag. The scan
 // itself runs only on this task, so the flag needs no lock and cancellation
@@ -172,6 +176,16 @@ volatile uint16_t energyPeakCount = 0;
 // progresses, so drawSweepOccupancy() (ui_pages.cpp) can render ticks
 // appearing progressively during an active sweep.
 uint8_t energyPeakBinMask[28] = {};
+// Which bins this lap actually sampled. A cancelled or failed lap publishes a
+// partial peak mask, and "no peak" and "never visited" are different claims
+// (audit A20).
+uint8_t energySampledBinMask[28] = {};
+// One coherent completed-sweep record, replacing the several independently
+// read fields consumers used to assemble a row from (audit A20). Published
+// under a short spinlock, copied once by the reader, never held across
+// drawing or SD work.
+portMUX_TYPE sweepSnapshotMux = portMUX_INITIALIZER_UNLOCKED;
+SweepSnapshot sweepSnapshotPublished;
 // A stable copy of the mask above, taken once a sweep finishes (right where
 // energySweepCount++ fires) — analyzer_state.cpp's analyzerNoteSweepComplete()
 // reads this one instead, not the live mask. Necessary because in repeat
@@ -212,6 +226,11 @@ int lastError = RADIOLIB_ERR_NONE;
 
 volatile uint32_t packetCount = 0;
 volatile uint32_t crcErrorCount = 0;
+// Every unsuccessful read used to be charged to crcErrorCount, and a failed
+// RX rearm was not counted at all, so "how much did we miss, and why" had one
+// number covering three different faults (audit A26).
+volatile uint32_t readErrorCount = 0;
+volatile uint32_t rearmErrorCount = 0;
 volatile uint32_t queueDropCount = 0;
 volatile bool identityCaptureEnabled = true;
 volatile uint32_t identityDecodeCount = 0;
@@ -385,13 +404,28 @@ void IRAM_ATTR onDio1Action() {
     portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
+// Why a reception produced no usable frame. A rejected CRC is the radio
+// telling us it heard a corrupted packet; a read error is our own side
+// failing, and the two say different things about the RF environment.
+enum class RadioReadOutcome : uint8_t { PACKET, CRC_ERROR, READ_ERROR };
+
+void noteReadOutcome(RadioReadOutcome outcome) {
+    if (outcome == RadioReadOutcome::CRC_ERROR) crcErrorCount++;
+    else if (outcome == RadioReadOutcome::READ_ERROR) readErrorCount++;
+}
+
 // Reads one completed packet while the caller holds the SPI bus. Reusing
 // this path for Watch and Probe keeps packet-bearing CAD hits on the same
 // Detection pipeline and preserves the same read-before-rearm ordering.
+//
+// `rxDoneMs` is the caller's own timestamp for the DIO1 wake that led here,
+// taken before it queued for the shared bus. Stamping inside this function
+// instead recorded processing time, which walks an observation along a
+// driving route whenever the bus or the queue is busy (audit A07).
 bool readDetectionLocked(const ChannelParams &channel, MissionProfile profile,
-                         uint8_t *buf, size_t bufSize, Detection &det,
-                         bool &readFailed) {
-    readFailed = false;
+                         uint8_t *buf, size_t bufSize, Detection &det, uint32_t rxDoneMs,
+                         RadioReadOutcome &outcome) {
+    outcome = RadioReadOutcome::PACKET;
     det = {};
 
     const size_t len = radio.getPacketLength();
@@ -409,19 +443,25 @@ bool readDetectionLocked(const ChannelParams &channel, MissionProfile profile,
         rssi = radio.getRSSI();
         snr = radio.getSNR();
     }
-    radio.startReceive();
+    // The chip is deaf until this lands, so a failed rearm is lost airtime,
+    // not a lost packet — counted as its own fault rather than silently.
+    if (radio.startReceive() != RADIOLIB_ERR_NONE) {
+        rearmErrorCount++;
+        homeArmed = false;
+    }
 
     if (state != RADIOLIB_ERR_NONE) {
-        readFailed = true;
+        outcome = (state == RADIOLIB_ERR_CRC_MISMATCH) ? RadioReadOutcome::CRC_ERROR
+                                                       : RadioReadOutcome::READ_ERROR;
         return false;
     }
 
-    det.rx_millis = millis();
+    det.rx_millis = rxDoneMs;
     det.freq_mhz = channel.freq_mhz;
     det.rssi_dbm = rssi;
     det.snr_db = snr;
     if (!detectionSetRawPacket(det, buf, len)) {
-        readFailed = true;
+        outcome = RadioReadOutcome::READ_ERROR;
         return false;
     }
     det.bw_khz_x10 = (uint16_t)(channel.bw_khz * 10.0f + 0.5f);
@@ -678,6 +718,7 @@ bool applyBenchFault(BenchFaultPoint point, const DiscoveryCandidate *candidate,
 }
 
 bool restoreHomeListen(const ChannelParams &homeChannel, MissionProfile homeProfile) {
+    homeArmed = false;
     SpiBusLock lock(BUS_WAIT);
     if (!lock.held()) {
         busMissCount++;
@@ -695,12 +736,13 @@ bool restoreHomeListen(const ChannelParams &homeChannel, MissionProfile homeProf
     lastError = radio.startReceive();
     if (lastError != RADIOLIB_ERR_NONE) return false;
     setActiveChannelLocked(homeChannel, homeProfile);
+    homeArmed = true;
     return true;
 }
 
 void enqueueFocusObservation(const FocusRequest &request, const FocusRssiHistogram &histogram,
                              FocusRuntime &runtime, uint16_t focusId, bool restored,
-                             int16_t operationStatus) {
+                             int16_t operationStatus, const ChannelParams &passChannel) {
     FocusObservation observation;
     observation.rx_millis = millis();
     observation.observation_ms = runtime.observation_ms;
@@ -725,6 +767,13 @@ void enqueueFocusObservation(const FocusRequest &request, const FocusRssiHistogr
     // and produced samples — §3's "valid pass", which explicitly is not "a
     // quiet channel". The accumulator resets itself when the selection moves,
     // so accumulated observation time always describes the bin it is labelling.
+    //
+    // Keyed on the resolved frequency and the modem configuration that
+    // measured it, not on the bin index alone: US bin 43 is 912.750MHz and
+    // Global bin 43 is 878.750MHz, so an index-only accumulator credited a
+    // region change with the previous band's observation time (audit A04).
+    const uint32_t frequencyKhz = (uint32_t)lroundf(observation.freq_mhz * 1000.0f);
+    focusCoverageContext(focusCoverage, frequencyKhz, passChannel);
     const bool validPass = observation.request_status == FocusRequestStatus::COMPLETE &&
                            restored && observation.sample_count > 0;
     focusCoverageNote(focusCoverage, request.selection_bin_index, request.requested_dwell_ms,
@@ -855,7 +904,8 @@ void performFocusSurvey(const FocusRequest &request) {
     const bool restored = restoreHomeListen(homeChannel, homeProfile);
     // A failed recovery is more actionable than the original request error.
     if (!restored) operationStatus = (int16_t)lastError;
-    enqueueFocusObservation(request, histogram, runtime, focusId, restored, operationStatus);
+    enqueueFocusObservation(request, histogram, runtime, focusId, restored, operationStatus,
+                            homeChannel);
     focusState = runtime.state;
     focusLastAwayMs = millis() - awayStarted;
     focusCancelRequested = false;
@@ -1025,10 +1075,11 @@ void performDiscoverySweep() {
             continue;
         }
 
+        const uint32_t rxDoneMs = millis();
         ulTaskNotifyTake(pdTRUE, 0);
         uint8_t buf[DETECTION_RAW_MAX_LEN];
         Detection detection;
-        bool readFailed;
+        RadioReadOutcome outcome = RadioReadOutcome::PACKET;
         bool haveDetection = false;
         {
             SpiBusLock lock(BUS_WAIT);
@@ -1037,8 +1088,8 @@ void performDiscoverySweep() {
                 failed = true;
             } else {
                 haveDetection = readDetectionLocked(candidate.channel, homeProfile, buf,
-                                                    sizeof(buf), detection, readFailed);
-                if (readFailed) crcErrorCount++;
+                                                    sizeof(buf), detection, rxDoneMs, outcome);
+                noteReadOutcome(outcome);
             }
         }
         if (failed) break;
@@ -1189,10 +1240,11 @@ void passBCadOneCombo(uint16_t bin, float freq, const PassBModemParams &combo,
     }
     bool gotPacket = false;
     if (waitForDioUntil(DISCOVERY_RX_WINDOW_MS, energyAbortPending)) {
+        const uint32_t rxDoneMs = millis();
         ulTaskNotifyTake(pdTRUE, 0);
         uint8_t buf[DETECTION_RAW_MAX_LEN];
         Detection detection;
-        bool readFailed;
+        RadioReadOutcome outcome = RadioReadOutcome::PACKET;
         bool haveDetection = false;
         {
             SpiBusLock lock(BUS_WAIT);
@@ -1200,8 +1252,8 @@ void passBCadOneCombo(uint16_t bin, float freq, const PassBModemParams &combo,
                 const ChannelParams passBChannel = {freq, combo.sf, combo.bw_khz,
                                                     combo.cr_denom, combo.sync_word};
                 haveDetection = readDetectionLocked(passBChannel, activeProfile, buf,
-                                                    sizeof(buf), detection, readFailed);
-                if (readFailed) crcErrorCount++;
+                                                    sizeof(buf), detection, rxDoneMs, outcome);
+                noteReadOutcome(outcome);
             } else {
                 busMissCount++;
             }
@@ -1341,6 +1393,7 @@ void performEnergySweep() {
     energyTotalBins = totalBins;
     energyPeakCount = 0;
     for (size_t i = 0; i < sizeof(energyPeakBinMask); i++) energyPeakBinMask[i] = 0;
+    for (size_t i = 0; i < sizeof(energySampledBinMask); i++) energySampledBinMask[i] = 0;
     energyStrongestValid = false;
     benchSweepFloorReset();
     bool aborted = false;
@@ -1464,6 +1517,8 @@ void performEnergySweep() {
             if (s + 1 < ENERGY_SWEEP_SAMPLES_PER_BIN) vTaskDelay(pdMS_TO_TICKS(ENERGY_SAMPLE_INTERVAL_MS));
         }
 
+        sweepSetBit(energySampledBinMask, bin);
+
         // Bench-only (bench_fault.h): keeps this bin's average even when it
         // isn't a peak, so a rolloff-characterization harness can read the
         // raw floor curve back after the sweep -- energy.csv only ever
@@ -1550,6 +1605,32 @@ void performEnergySweep() {
     // enforces it. This path has already produced one hardware-only bug
     // (v0.10.1: every repeat-mode Waterfall row came back quiet), so the
     // ordering the comments promise is made explicit rather than assumed.
+    // One coherent record of the lap that just ended, assembled here where
+    // its band, step, configuration and result are all still in scope. A
+    // consumer reading region and bins separately could otherwise pair this
+    // lap's peaks with the region an operator selected after it (audit A20).
+    {
+        SweepSnapshot snapshot;
+        snapshot.generation = energySweepCount + 1;
+        snapshot.completed_ms = millis();
+        snapshot.region = activeEnergySweepRegion;
+        snapshot.step = ENERGY_SWEEP_DEFAULT_STEP;
+        snapshot.channel = homeChannel;
+        snapshot.bin_count = totalBins;
+        snapshot.capture_bin = energyHomeBinAtComplete;
+        snapshot.captures = energyCapturesAtComplete;
+        // A cancelled or failed lap still publishes what it measured; it just
+        // does not claim to be a full lap.
+        snapshot.complete = !aborted && !failed && !energyCancelRequested;
+        for (size_t i = 0; i < sizeof(snapshot.peaks); i++) {
+            snapshot.peaks[i] = energyPeakBinMaskAtComplete[i];
+            snapshot.sampled[i] = energySampledBinMask[i];
+        }
+        portENTER_CRITICAL(&sweepSnapshotMux);
+        sweepSnapshotPublished = snapshot;
+        portEXIT_CRITICAL(&sweepSnapshotMux);
+    }
+
     std::atomic_thread_fence(std::memory_order_release);
     energySweepCount++;
     if (aborted || energyCancelRequested) energyCancelCount++;
@@ -1594,9 +1675,10 @@ void performEnergySweepHomeListen() {
             return; // budget spent, or a control request is waiting
         }
 
+        const uint32_t rxDoneMs = millis();
         ulTaskNotifyTake(pdTRUE, 0);
         Detection det = {};
-        bool readFailed = false;
+        RadioReadOutcome outcome = RadioReadOutcome::PACKET;
         bool haveDetection = false;
         {
             // Same short critical section / read-then-rearm ordering the
@@ -1605,8 +1687,8 @@ void performEnergySweepHomeListen() {
             SpiBusLock lock(BUS_WAIT);
             if (lock.held()) {
                 haveDetection = readDetectionLocked(activeChannel, activeProfile, buf,
-                                                    sizeof(buf), det, readFailed);
-                if (readFailed) crcErrorCount++;
+                                                    sizeof(buf), det, rxDoneMs, outcome);
+                noteReadOutcome(outcome);
             } else {
                 busMissCount++;
             }
@@ -1661,30 +1743,9 @@ void performCellSweep() {
                 failed = true;
                 break;
             }
-            // RSSI-only measurement, not a decode attempt (cell_plan.h's
-            // file header) — reusing the home channel's own SF/BW/CR/sync
-            // keeps this simple; the configured receive bandwidth is
-            // logged per-observation (rx_bw_khz) since it's a real
-            // measurement condition, not a claim about the carrier itself.
-            //
-            // Deliberately still a full begin() per bin, unlike
-            // performEnergySweep()'s light standby()/setFrequency() retune.
-            // That port was tried and measured on 2026-09-04 and REVERTED:
-            // it ran 3.9x faster (5594ms -> 1423ms) but stopped seeing the
-            // band's strongest real carrier. Six laps each, minutes apart:
-            // full begin() found 892.000MHz at -72..-74dBm on 6/6 laps;
-            // the light retune never found it once, reporting -86..-91dBm
-            // noise peaks at a different frequency every lap. Cell exists
-            // to report absolute cell-band RSSI and has no relative
-            // threshold to hide a systematic under-read behind, so the
-            // speedup is not worth the measurement.
-            // Root cause looks like AGC/RSSI settling time that begin()'s
-            // own overhead was incidentally providing: adding a 5ms delay
-            // after startReceive() restored stable -72dBm readings while
-            // still running 2.6x faster. That is a promising route, but it
-            // then reported a *different* strongest bin (884MHz) than the
-            // baseline, so per-bin calibration equivalence is unproven —
-            // see docs/research/2026-09-04-project-audit.md L2.
+            // Full initialization preserves Cell's measured settling behavior.
+            beginState = radio.begin(freq, homeChannel.bw_khz, homeChannel.sf,
+                                     homeChannel.cr_denom, homeChannel.sync_word);
             if (beginState == RADIOLIB_ERR_NONE) beginState = radio.startReceive();
         }
         if (beginState != RADIOLIB_ERR_NONE) {
@@ -1846,7 +1907,10 @@ void radioTask(void *) {
         if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000)) == 0) {
             if (!paused) {
                 SpiBusLock lock(BUS_WAIT);
-                if (lock.held()) radio.startReceive();
+                // A re-arm that could not get the bus, or that the radio
+                // refused, leaves the chip deaf; saying so beats reporting
+                // Watch (audit A21).
+                homeArmed = lock.held() && radio.startReceive() == RADIOLIB_ERR_NONE;
             }
             continue;
         }
@@ -1875,7 +1939,12 @@ void radioTask(void *) {
                 // active choice that should be heard, not swallowed.
                 paused = false;
                 tracePaused = false;
-                radio.startReceive();
+                homeArmed = radio.startReceive() == RADIOLIB_ERR_NONE;
+            } else {
+                // The switch is dequeued and gone; the radio is still on the
+                // old channel, so nothing here may claim otherwise.
+                busMissCount++;
+                homeArmed = false;
             }
             continue;
         }
@@ -1886,11 +1955,15 @@ void radioTask(void *) {
             if (lock.held()) {
                 if (pauseReq) {
                     radio.sleep(true); // warm sleep — retains config, cheap to resume
+                    homeArmed = false;
                 } else {
-                    radio.startReceive(); // wakes a warm-sleeping SX126x automatically
+                    // Wakes a warm-sleeping SX126x automatically.
+                    homeArmed = radio.startReceive() == RADIOLIB_ERR_NONE;
                 }
                 paused = pauseReq;
                 tracePaused = pauseReq;
+            } else {
+                busMissCount++;
             }
             continue;
         }
@@ -2015,7 +2088,8 @@ void radioTask(void *) {
 
         Detection det = {};
         bool haveDetection = false;
-        bool readFailed = false;
+        RadioReadOutcome outcome = RadioReadOutcome::PACKET;
+        const uint32_t rxDoneMs = millis();
 
         {
             // Everything touching the SX1262 happens inside this one short
@@ -2029,8 +2103,8 @@ void radioTask(void *) {
             }
 
             haveDetection = readDetectionLocked(activeChannel, activeProfile, buf, sizeof(buf),
-                                                det, readFailed);
-            if (readFailed) crcErrorCount++;
+                                                det, rxDoneMs, outcome);
+            noteReadOutcome(outcome);
         } // bus released here, before any queue work
 
         if (haveDetection) {
@@ -2125,7 +2199,8 @@ bool radioTaskStart(const ChannelParams &channel, MissionProfile profile,
     if (!lock.held()) return false;
     radio.setDio1Action(onDio1Action);
     lastError = radio.startReceive();
-    return lastError == RADIOLIB_ERR_NONE;
+    homeArmed = lastError == RADIOLIB_ERR_NONE;
+    return homeArmed;
 }
 
 int radioLastError() {
@@ -2415,6 +2490,29 @@ uint16_t radioEnergyPeakCount() {
 bool radioEnergyPeakBinSet(uint16_t bin) {
     if (bin >= sizeof(energyPeakBinMask) * 8) return false;
     return (energyPeakBinMask[bin / 8] & (uint8_t)(1U << (bin % 8))) != 0;
+}
+
+bool radioHomeIsReady() {
+    // Both halves are required: an away action owns the radio, and a
+    // confirmed arm is what makes the other case Watch rather than a fault.
+    const bool away = discoveryActive || energyActive || cellActive || scopeActive ||
+                      focusActive || benchPassBCadActive || benchRssiWindowActive;
+    return homeArmed && !away && !tracePaused;
+}
+
+uint32_t radioReadErrorCount() {
+    return readErrorCount;
+}
+
+uint32_t radioRearmErrorCount() {
+    return rearmErrorCount;
+}
+
+bool radioSweepSnapshot(SweepSnapshot &out) {
+    portENTER_CRITICAL(&sweepSnapshotMux);
+    out = sweepSnapshotPublished;
+    portEXIT_CRITICAL(&sweepSnapshotMux);
+    return out.generation != 0;
 }
 
 bool radioEnergyPeakBinSetAtLastComplete(uint16_t bin) {

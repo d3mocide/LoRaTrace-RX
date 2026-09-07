@@ -253,7 +253,7 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
     size_t used = (size_t)n;
     static constexpr char HEX_DIGITS[] = "0123456789abcdef";
     for (uint16_t i = 0; i < det.raw_len; i++) {
-        if (used + 3 > outSize) return 0; // two hex chars, decoded comma, NUL
+        if (outSize - used < 4) return 0; // two hex chars, decoded comma, NUL
         const uint8_t byte = det.raw_packet[i];
         out[used++] = HEX_DIGITS[byte >> 4];
         out[used++] = HEX_DIGITS[byte & 0x0F];
@@ -261,6 +261,7 @@ inline size_t detectionFormatCsv(const Detection &det, char *out, size_t outSize
     // `decoded` stays deliberately empty until a complete payload decoder
     // is verified. raw_packet_hex is usable for offline protocol work even
     // when the frame payload is encrypted.
+    if (outSize - used < 2) return 0;
     out[used++] = ',';
     out[used] = '\0';
     return used;

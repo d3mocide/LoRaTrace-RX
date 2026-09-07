@@ -21,6 +21,8 @@ material once you're past that.
 - **[BRAND.md](BRAND.md)** — naming, tone, and on-device UI copy
   conventions.
 
+- **[v1.1.0 / V2 audit](research/2026-09-07-v1.1.0-v2-audit.md)** — security, capture integrity, resource findings, and roadmap recommendations (2026-09-07).
+
 ## Working / archival material
 
 Not onboarding reading — these are raw evidence and in-progress notes,

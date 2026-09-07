@@ -121,7 +121,11 @@ def main():
                         help="delay from candidate observation to TX for each pulse")
     parser.add_argument("--repeats", type=int, default=1,
                         help="quiet+active trial pairs per margin, for a mean rather than one sample")
+    parser.add_argument("--allow-transmit", action="store_true",
+                        help="explicitly authorize the controlled bench pulses")
     args = parser.parse_args()
+    if not args.allow_transmit:
+        parser.error("bench pulses require --allow-transmit")
 
     margins = [int(m) for m in args.margins.split(",") if m.strip() != ""]
     for margin in margins:

@@ -45,11 +45,30 @@ backported.
   reconnect after reset; explicit on-device disable or `LOW_PROFILE_OFF`
   turns it off. It can request existing Trace, Meshtastic/
   MeshCore profile, and Probe actions, but exposes no shell, files, arbitrary
-  RF configuration, WiFi/AP control, or direct radio access. Treat an enabled
+  RF configuration or direct radio access. It also exposes Sweep, SD retry,
+  and WiFi enable/disable commands; an enabled USB host can therefore expose
+  the AP. The fixed AP password risk above applies to that path too. Treat an enabled
   USB endpoint as physical-presence authorization, not as a secret channel.
   Bluetooth LE control is not implemented or advertised yet; it must not be
   added without the authenticated-pairing and measured-memory gate documented
   in `research/phase8-low-profile-harness-design.md`.
+
+## Passive decryption and operator keys
+
+Public-channel decryption and decryption using known operator-supplied keys
+are permitted by operator decision (2026-09-07). Brute-force, dictionary
+attacks, key guessing, and automated key recovery are out of scope. The
+firmware currently decrypts only Meshtastic public-default-key NodeInfo;
+operator-key support and general payload decoding are future work.
+
+Operator-key use must require explicit configuration and an on-device opt-in,
+disabled by default. Its implementation must define key import, storage,
+removal, and access controls within this device's physical-access limits.
+Keys must not appear in source control, serial diagnostics, capture CSVs,
+browser responses, or shareable exports. Preserve raw packets independently
+of derived plaintext. Treat decoded content as sensitive even on public
+channels, and never equate decryption or an advertised public key with an
+authenticated identity. MeshCore advert signatures are not verified today.
 
 ## Data sensitivity
 

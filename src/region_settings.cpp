@@ -4,6 +4,7 @@
 #include <SD.h>
 
 #include "spi_bus.h"
+#include "file_transaction.h"
 
 namespace {
 
@@ -11,20 +12,10 @@ constexpr const char *REGION_CONFIG_DIR = "/loratrace";
 constexpr const char *REGION_CONFIG_PATH = "/loratrace/region.txt";
 
 
-// Delete-then-recreate, not truncate-in-place — same reasoning
-// writeProfileConfigToSD()/writeDisplayConfigFile() document: a shorter
-// new file must not leave a trailing byte of the old one behind.
 bool writeRegionConfigFile(const RegionSettings &settings) {
-    SD.remove(REGION_CONFIG_PATH);
-    File f = SD.open(REGION_CONFIG_PATH, FILE_WRITE);
-    if (!f) return false;
-
-    f.println(F("# LoRaTrace RX — region setting"));
-    f.println(F("# region: US or GLOBAL (constrains Sweep's scanned band)"));
-    f.print(F("region="));
-    f.println(settings.region == Region::US ? "US" : "GLOBAL");
-    f.close();
-    return true;
+    char text[160];
+    const int n = snprintf(text, sizeof(text), "region=%s\n", settings.region == Region::US ? "US" : "GLOBAL");
+    return n > 0 && (size_t)n < sizeof(text) && replaceTextFile(SD, REGION_CONFIG_PATH, text, (size_t)n);
 }
 
 } // namespace
@@ -38,6 +29,7 @@ bool loadRegionSettingsFromSD(RegionSettings &settings) {
     if (!SD.exists(REGION_CONFIG_DIR)) {
         SD.mkdir(REGION_CONFIG_DIR);
     }
+    recoverTextFile(SD, REGION_CONFIG_PATH);
     if (!SD.exists(REGION_CONFIG_PATH)) {
         // First card seen by this firmware for the region setting — write
         // the current (struct-default) state so there's something to
@@ -52,8 +44,9 @@ bool loadRegionSettingsFromSD(RegionSettings &settings) {
 
     bool appliedAny = false;
     while (f.available()) {
-        String line = f.readStringUntil('\n');
-        if (applyRegionConfigLine(line.c_str(), settings)) appliedAny = true;
+        char line[192];
+        if (!readBoundedLine(f, line, sizeof(line))) continue;
+        if (applyRegionConfigLine(line, settings)) appliedAny = true;
     }
     f.close();
     return appliedAny;

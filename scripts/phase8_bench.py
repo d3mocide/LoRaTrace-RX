@@ -69,7 +69,11 @@ def main():
     parser.add_argument("--results", help="append-only JSONL scenario results")
     parser.add_argument("--cycles", type=int, default=1, help="Probe cycles to run (start with 1)")
     parser.add_argument("--arm-delay-ms", type=int, default=100, help="delay from candidate observation to TX")
+    parser.add_argument("--allow-transmit", action="store_true",
+                        help="explicitly authorize the controlled bench pulses")
     args = parser.parse_args()
+    if not args.allow_transmit:
+        parser.error("bench pulses require --allow-transmit")
     if not 1 <= args.cycles <= 1000:
         parser.error("--cycles must be 1..1000")
     if not 10 <= args.arm_delay_ms <= 5000:

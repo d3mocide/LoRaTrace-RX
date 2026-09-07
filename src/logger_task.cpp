@@ -10,6 +10,7 @@
 #include "cell_observation.h"
 #include "detection.h"
 #include "energy_observation.h"
+#include "file_transaction.h"
 #include "focus_observation.h"
 #include "gps_task.h"
 #include "memory_stats.h"
@@ -88,6 +89,11 @@ uint32_t batchRows = 0; // rows currently buffered but not yet on the card
 
 volatile uint32_t rowsWritten = 0;
 volatile uint32_t rowsDropped = 0;
+// A short write means bytes were committed but not all of them, so the row
+// can never be retried without duplicating the part that landed. Counted
+// separately from row drops for that reason (audit A02).
+volatile uint32_t shortWrites = 0;
+volatile uint32_t csvRepairs = 0;
 // Detection rows accepted into a batch without a fresh GPS position. The
 // wardriving quality number: a detection logged without one is a wasted data
 // point, and nothing on the device said so before (GPS card, 2026-09-06).
@@ -144,15 +150,24 @@ uint16_t highestRunIndexLocked() {
     return highest;
 }
 
-// Creates `path` with `header` as its first line if it doesn't exist yet.
-// Assumes the caller holds the bus and SD is mounted.
+// Creates `path` with `header` as its first line, or verifies that an
+// existing file is one of ours and ends on a row boundary. An existing file
+// used to be adopted unread, so an empty, truncated or foreign-schema file
+// silently became this run's evidence (audit A02). Assumes the caller holds
+// the bus and SD is mounted.
 bool ensureCsvLocked(const char *path, const char *header) {
-    if (SD.exists(path)) return true;
-    File f = SD.open(path, FILE_WRITE);
-    if (!f) return false;
-    f.println(header);
-    f.close();
-    return true;
+    switch (ensureCsvFile(SD, path, header)) {
+        case CsvFileState::READY:
+        case CsvFileState::CREATED:
+            return true;
+        case CsvFileState::REPAIRED: // partial last row closed
+        case CsvFileState::REPLACED: // wrong header, moved to <leaf>.bad
+            csvRepairs++;
+            return true;
+        case CsvFileState::FAILED:
+            break;
+    }
+    return false;
 }
 
 // Ensures all run CSVs exist with their header rows. When `remount` is true,
@@ -227,7 +242,13 @@ bool openLogsLocked(bool remount) {
 // The two failure modes need different handling by the caller, so they are
 // distinguished rather than collapsed into a bool: a busy bus means "try
 // again shortly", a file error means "the card is gone".
-enum class WriteResult { OK, BUS_BUSY, FILE_ERROR };
+enum class WriteResult { OK, BUS_BUSY, SHORT_WRITE, FILE_ERROR };
+
+// A short write is a failing or full card, not a transient: the caller must
+// stop writing rather than retry bytes that may already be on the media.
+inline bool writeFailedHard(WriteResult r) {
+    return r == WriteResult::FILE_ERROR || r == WriteResult::SHORT_WRITE;
+}
 
 // Appends `len` bytes to `path` in exactly one open/write/close, acquiring
 // the bus itself. The caller must NOT already hold the bus.
@@ -250,9 +271,20 @@ WriteResult appendToFile(const char *path, const char *data, size_t len,
         if (!f) {
             result = WriteResult::FILE_ERROR;
         } else {
-            f.write((const uint8_t *)data, len);
+            const size_t wrote = f.write((const uint8_t *)data, len);
+            if (wrote != len) {
+                // Terminate whatever landed so the truncated row cannot merge
+                // with the next append. Best-effort: the card that just short-
+                // wrote is unlikely to take this either.
+                if (wrote > 0 && data[wrote - 1] != '\n') f.write((const uint8_t *)"\n", 1);
+                shortWrites++;
+                result = WriteResult::SHORT_WRITE;
+            } else {
+                result = WriteResult::OK;
+            }
+            // close() commits at the API boundary; it is not a guarantee
+            // against power loss inside the card controller.
             f.close();
-            result = WriteResult::OK;
         }
     }
     const uint32_t elapsed = millis() - started;
@@ -270,6 +302,13 @@ void flushBatch() {
             // than discarding it — unlike the radio task, the logger is
             // allowed to be late, just not lossy.
             return;
+        case WriteResult::SHORT_WRITE:
+            // Part of this batch is on the card and part is not. Retrying
+            // would duplicate the committed part, so the whole batch is
+            // charged as dropped and the card is treated as gone.
+            sdReady = false;
+            rowsDropped += batchRows;
+            break;
         case WriteResult::FILE_ERROR:
             // The card went away mid-session. Drop this batch and fall back
             // to the retry path; buffering indefinitely would just consume
@@ -289,22 +328,42 @@ void flushBatch() {
     batchRows = 0;
 }
 
+// Attributes an observation to the GPS state that was current when the radio
+// recorded it, rather than the state current when the logger reached it. A
+// queue or SD stall used to move an observation along the driving route, and
+// a frozen clock kept stamping authoritative-looking UTC after GPS input
+// stopped (audit A07). Position and UTC are aged independently against the
+// event's own timestamp, because losing one does not imply losing the other.
+struct EventFix {
+    GpsFix fix;
+    bool position = false;
+    bool utc = false;
+};
+
+EventFix fixForEvent(uint32_t event_ms) {
+    EventFix out;
+    if (!gpsGetFixAt(event_ms, out.fix, pdMS_TO_TICKS(50))) return out;
+    out.position = gpsFixIsFresh(out.fix, event_ms, FIX_MAX_AGE_MS);
+    out.utc = gpsTimeIsFresh(out.fix, event_ms, FIX_MAX_AGE_MS);
+    return out;
+}
+
 // Samples every counter this firmware exposes and appends one health row.
 // Best-effort by design: a lost health row is worth exactly zero retries,
 // and must never cost the detection log a flush.
 void writeSessionRow(const char *reason) {
     if (!sdReady) return;
 
-    GpsFix fix;
-    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
     const uint32_t now = millis();
+    const EventFix stamped = fixForEvent(now);
+    const GpsFix &fix = stamped.fix;
 
     SessionStats s;
     s.run = runIndex;
     s.reason = reason;
     s.uptime_s = now / 1000;
 
-    s.has_fix = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+    s.has_fix = stamped.position;
     s.lat = fix.lat;
     s.lon = fix.lon;
     s.sats = fix.satellites;
@@ -319,6 +378,9 @@ void writeSessionRow(const char *reason) {
 
     s.rx = radioPacketCount();
     s.crc_errors = radioCrcErrorCount();
+    s.read_errors = radioReadErrorCount();
+    s.rearm_errors = radioRearmErrorCount();
+    s.home_ready = radioHomeIsReady();
     s.queue_drops = radioQueueDropCount();
     s.bus_misses = radioBusMissCount();
 
@@ -328,6 +390,8 @@ void writeSessionRow(const char *reason) {
     s.max_flush_ms = maxFlushMs;
     s.max_session_ms = maxSessionMs;
     s.sd_ready = sdReady;
+    s.sd_short_writes = shortWrites;
+    s.sd_csv_repairs = csvRepairs;
     s.bus_contention = spiBusContentionCount();
 
     const MemorySnapshot memory = memoryStatsSnapshot();
@@ -366,7 +430,7 @@ void writeSessionRow(const char *reason) {
     s.ui_redraw_mean_us = uiRedrawMeanUs();
 
     char timestamp[24];
-    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), stamped.utc, fix.year,
                              fix.month, fix.day, fix.hour, fix.minute, fix.second);
 
     // Static, not a stack local, and 512 rather than 320. Measured 2026-09-06
@@ -391,19 +455,17 @@ void appendDetection(const Detection &det) {
     // runs before any of the sdReady branches below.
     analyzerNoteDetection(det);
 
-    GpsFix fix;
-    bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
-
-    const uint32_t now = millis();
-    const bool fresh = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+    const EventFix stamped = fixForEvent(det.rx_millis);
+    const GpsFix &fix = stamped.fix;
+    const bool fresh = stamped.position;
 
     char timestamp[24];
-    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), stamped.utc, fix.year,
                              fix.month, fix.day, fix.hour, fix.minute, fix.second);
 
     char row[DETECTION_CSV_MAX_ROW];
     size_t n = detectionFormatCsv(det, row, sizeof(row), timestamp, fresh, fix.lat, fix.lon,
-                                  haveFix ? fix.fix_quality : 0, runIndex);
+                                  fix.fix_quality, runIndex);
     if (n == 0) {
         rowsDropped++;
         return;
@@ -451,19 +513,18 @@ void appendScanObservation(const ScanObservation &observation) {
         return;
     }
 
-    GpsFix fix;
-    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
-    const uint32_t now = millis();
-    const bool fresh = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+    const EventFix stamped = fixForEvent(observation.rx_millis);
+    const GpsFix &fix = stamped.fix;
+    const bool fresh = stamped.position;
 
     char timestamp[24];
-    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), stamped.utc, fix.year,
                              fix.month, fix.day, fix.hour, fix.minute, fix.second);
 
     char row[256];
     const size_t n = scanObservationFormatCsv(
         observation, row, sizeof(row), timestamp, fresh, fix.lat, fix.lon,
-        haveFix ? fix.fix_quality : 0, runIndex);
+        fix.fix_quality, runIndex);
     if (n == 0) {
         scanRowsDropped++;
         return;
@@ -475,7 +536,7 @@ void appendScanObservation(const ScanObservation &observation) {
         scanRowsWritten++;
     } else {
         scanRowsDropped++;
-        if (result == WriteResult::FILE_ERROR) sdReady = false;
+        if (writeFailedHard(result)) sdReady = false;
     }
 }
 
@@ -488,19 +549,18 @@ void appendEnergyObservation(const EnergyObservation &observation) {
         return;
     }
 
-    GpsFix fix;
-    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
-    const uint32_t now = millis();
-    const bool fresh = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+    const EventFix stamped = fixForEvent(observation.rx_millis);
+    const GpsFix &fix = stamped.fix;
+    const bool fresh = stamped.position;
 
     char timestamp[24];
-    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), stamped.utc, fix.year,
                              fix.month, fix.day, fix.hour, fix.minute, fix.second);
 
     char row[256];
     const size_t n = energyObservationFormatCsv(
         observation, row, sizeof(row), timestamp, fresh, fix.lat, fix.lon,
-        haveFix ? fix.fix_quality : 0, runIndex);
+        fix.fix_quality, runIndex);
     if (n == 0) {
         energyRowsDropped++;
         return;
@@ -512,7 +572,7 @@ void appendEnergyObservation(const EnergyObservation &observation) {
         energyRowsWritten++;
     } else {
         energyRowsDropped++;
-        if (result == WriteResult::FILE_ERROR) sdReady = false;
+        if (writeFailedHard(result)) sdReady = false;
     }
 }
 
@@ -525,19 +585,18 @@ void appendCellObservation(const CellObservation &observation) {
         return;
     }
 
-    GpsFix fix;
-    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
-    const uint32_t now = millis();
-    const bool fresh = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+    const EventFix stamped = fixForEvent(observation.rx_millis);
+    const GpsFix &fix = stamped.fix;
+    const bool fresh = stamped.position;
 
     char timestamp[24];
-    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), stamped.utc, fix.year,
                              fix.month, fix.day, fix.hour, fix.minute, fix.second);
 
     char row[256];
     const size_t n = cellObservationFormatCsv(
         observation, row, sizeof(row), timestamp, fresh, fix.lat, fix.lon,
-        haveFix ? fix.fix_quality : 0, runIndex);
+        fix.fix_quality, runIndex);
     if (n == 0) {
         cellRowsDropped++;
         return;
@@ -549,7 +608,7 @@ void appendCellObservation(const CellObservation &observation) {
         cellRowsWritten++;
     } else {
         cellRowsDropped++;
-        if (result == WriteResult::FILE_ERROR) sdReady = false;
+        if (writeFailedHard(result)) sdReady = false;
     }
 }
 
@@ -558,17 +617,16 @@ void appendFocusObservation(const FocusObservation &observation) {
         focusRowsDropped++;
         return;
     }
-    GpsFix fix;
-    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
-    const uint32_t now = millis();
-    const bool fresh = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+    const EventFix stamped = fixForEvent(observation.rx_millis);
+    const GpsFix &fix = stamped.fix;
+    const bool fresh = stamped.position;
     char timestamp[24];
-    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), stamped.utc, fix.year,
                              fix.month, fix.day, fix.hour, fix.minute, fix.second);
     char row[FOCUS_CSV_ROW_MAX];
     const size_t n = focusObservationFormatCsv(
         observation, row, sizeof(row), timestamp, fresh, fix.lat, fix.lon,
-        haveFix ? fix.fix_quality : 0, runIndex);
+        fix.fix_quality, runIndex);
     if (n == 0) {
         focusRowsDropped++;
         return;
@@ -578,7 +636,7 @@ void appendFocusObservation(const FocusObservation &observation) {
     if (result == WriteResult::OK) focusRowsWritten++;
     else {
         focusRowsDropped++;
-        if (result == WriteResult::FILE_ERROR) sdReady = false;
+        if (writeFailedHard(result)) sdReady = false;
     }
 }
 
@@ -587,16 +645,15 @@ void appendNodeIdentity(const NodeIdentity &identity) {
         identityRowsDropped++;
         return;
     }
-    GpsFix fix;
-    const bool haveFix = gpsGetFix(fix, pdMS_TO_TICKS(50));
-    const uint32_t now = millis();
-    const bool fresh = haveFix && gpsFixIsFresh(fix, now, FIX_MAX_AGE_MS);
+    const EventFix stamped = fixForEvent(identity.rx_millis);
+    const GpsFix &fix = stamped.fix;
+    const bool fresh = stamped.position;
     char timestamp[24];
-    detectionFormatTimestamp(timestamp, sizeof(timestamp), haveFix && fix.has_time, fix.year,
+    detectionFormatTimestamp(timestamp, sizeof(timestamp), stamped.utc, fix.year,
                              fix.month, fix.day, fix.hour, fix.minute, fix.second);
     char row[NODE_IDENTITY_CSV_MAX_ROW];
     const size_t n = nodeIdentityFormatCsv(identity, row, sizeof(row), timestamp, fresh,
-                                           fix.lat, fix.lon, haveFix ? fix.fix_quality : 0, runIndex);
+                                           fix.lat, fix.lon, fix.fix_quality, runIndex);
     if (n == 0) {
         identityRowsDropped++;
         return;
@@ -609,7 +666,7 @@ void appendNodeIdentity(const NodeIdentity &identity) {
         identityRowsWritten++;
     } else {
         identityRowsDropped++;
-        if (result == WriteResult::FILE_ERROR) sdReady = false;
+        if (writeFailedHard(result)) sdReady = false;
     }
 }
 

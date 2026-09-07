@@ -130,7 +130,11 @@ def main():
     parser.add_argument("--seed", type=int, default=None,
                          help="RNG seed for --order interleaved's per-round shuffle; recorded in "
                               "the results log regardless, so any run can be reproduced.")
+    parser.add_argument("--allow-transmit", action="store_true",
+                        help="explicitly authorize the controlled bench pulses")
     args = parser.parse_args()
+    if not args.allow_transmit:
+        parser.error("bench pulses require --allow-transmit")
     if not 0 <= args.quiet_cycles <= 100 or not 0 <= args.pulse_cycles <= 100:
         parser.error("cycle counts must be 0..100")
 

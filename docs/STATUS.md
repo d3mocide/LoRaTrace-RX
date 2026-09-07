@@ -53,13 +53,12 @@ gate or the two open Cell evidence items.
 
 The V2 product direction is adopted for planning, with its canonical workstream
 and gate policy in `docs/ROADMAP.md` and the detailed design in
-`docs/research/V2_DESIGN.md`. **Workstream 12 (Survey truth) is in
-Engineering.** Its bench-only first slice locks one-bin request, bounded RSSI
-summary, and `focus.csv` contracts; it has not added a production control or
-coverage label. The active
-[design-entry and acceptance plan](research/phase12-survey-truth-design.md)
-keeps radio-away budgets and coverage thresholds open until controlled evidence
-selects them.
+`docs/research/V2_DESIGN.md`. **Workstream 12 (Survey truth) closed in v1.1.0.** It ships a bounded
+one-bin Focus action and coverage labels. Portland field validation remains
+deferred, and the radio-away policy exception is limited to explicit single
+passes. The [design-entry and acceptance record](research/phase12-survey-truth-design.md)
+preserves the staged measurements below; descriptions of the bench-only first
+slice are historical, not current feature status.
 
 The bench image now has one bounded Core-1 Focus request and a Core-0
 `focus.csv` writer. Two paired 500 ms/eight-sample smoke checks at US Sweep
@@ -699,6 +698,22 @@ never the deepest path; and `-fstack-usage` on this project's own files cannot
 see the frames that make up the rest of it.
 
 ## What's still open
+
+- **v1.1.0 audit (2026-09-07):** the report is
+  [here](research/2026-09-07-v1.1.0-v2-audit.md); its repair status is the
+  dated section at the end of it. The first repair pass has landed in the
+  working tree and is **verified only by host tests and a clean build — no
+  hardware run yet.** Cell's missing per-bin retune (A01) is fixed in code;
+  Cell results from released v1.1.0 remain unreliable and any Cell data
+  captured on that build should be discarded, not reinterpreted.
+  Still open and untouched: the AP's fixed PSK and unauthenticated
+  state-changing endpoints (A10/A11), spreadsheet-safe export (A12), protocol
+  label honesty (A13), USB `WIFI_SET` idempotency (A15), release pinning
+  (A17), the run manifest (A18), fabricated `wifi_on`/`qualifying_count`
+  defaults in Focus/energy rows (A19), the radio command arbiter (A21 beyond
+  `home`), whole-action deadlines (A22), logger fair-drain (A23), HTTP
+  download bounds and the missing `cell.csv`/`focus.csv` (A24), and run/card
+  identity (A25).
 
 - ~~Bench SD card / boot-loop finding~~ — resolved 2026-09-03. The
   bench Cardputer's `task_wdt` boot-loop (see Phase 10 section above) was

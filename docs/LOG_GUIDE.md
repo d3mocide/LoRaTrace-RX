@@ -142,6 +142,29 @@ The first health checks are:
 `max_flush_ms` is the worst detection-batch SD bus hold. `max_session_ms` is
 the separate worst health-row write; do not use it to tune the batch size.
 
+Five columns added 2026-09-07 answer questions the older ones could not:
+
+- `home` is `armed` only when the radio was confirmed listening on the home
+  channel at the moment the row was written; it is `down` while a bounded
+  action owns the radio, while Trace is paused, and after a restore or re-arm
+  that failed. **A quiet run with `home=down` is not evidence that the band
+  was quiet.**
+- `read_err` and `rearm_err` split reception faults that `crc_err` used to
+  absorb: `crc_err` is now only a CRC rejection (the radio heard a corrupted
+  packet), `read_err` is our own side failing to read one, and `rearm_err`
+  counts re-arms the radio refused — each one is airtime the receiver spent
+  deaf.
+- `sd_short_writes` counts appends where the card accepted fewer bytes than
+  asked. Any nonzero value means rows were lost, usually a full or failing
+  card, and `sd` will have gone `down` at that point.
+- `sd_csv_repairs` counts CSVs this run had to close a partial last row on, or
+  set aside because their header was not ours. Nonzero means the card carried
+  damaged or foreign files before this run started; check for `.bad` files in
+  the run directory.
+
+None of these count RF the receiver never had a chance to hear. Unknown
+reception loss stays unknown.
+
 `ui_redraw_max_us` and `ui_redraw_mean_us` are the worst and mean cost of one
 full screen redraw since boot. The UI task runs on Core 0 and never touches the
 radio, so a slow frame cannot explain a missed packet on its own; what these

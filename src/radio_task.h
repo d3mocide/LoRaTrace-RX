@@ -1,4 +1,10 @@
 #pragma once
+#include "sweep_snapshot.h"
+
+bool radioSweepSnapshot(SweepSnapshot &out);
+bool radioHomeIsReady();
+uint32_t radioReadErrorCount();
+uint32_t radioRearmErrorCount();
 // LoRaTrace RX — radio task (Core 1, highest priority).
 //
 // Owns the SX1262 exclusively and implements HOME_LISTEN from docs/DESIGN.md §5:

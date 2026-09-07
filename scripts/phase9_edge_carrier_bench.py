@@ -126,7 +126,11 @@ def main():
     parser.add_argument("--arm-delay-ms", type=int, default=100)
     parser.add_argument("--repeats", type=int, default=3,
                         help="quiet+pulse trial pairs per candidate")
+    parser.add_argument("--allow-transmit", action="store_true",
+                        help="explicitly authorize the controlled bench pulses")
     args = parser.parse_args()
+    if not args.allow_transmit:
+        parser.error("bench pulses require --allow-transmit")
 
     if not 1 <= args.repeats <= 20:
         parser.error("--repeats must be 1..20")

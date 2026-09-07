@@ -15,7 +15,8 @@ constexpr uint8_t MESHCORE_PAYLOAD_ADVERT = 0x04;
 constexpr size_t MESHCORE_ADVERT_FIXED_BYTES = 32 + 4 + 64;
 
 inline bool meshcoreDecodeAdvertIdentity(const Detection &det, NodeIdentity &out) {
-    if (det.profile != (uint8_t)MissionProfile::MESHCORE || det.raw_len < 2) return false;
+    if (det.profile != (uint8_t)MissionProfile::MESHCORE || det.raw_len < 2 ||
+        det.raw_len > DETECTION_RAW_MAX_LEN) return false;
 
     const uint8_t header = det.raw_packet[0];
     if ((header >> 6) != 0 || ((header >> 2) & 0x0F) != MESHCORE_PAYLOAD_ADVERT) return false;

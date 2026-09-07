@@ -6,6 +6,7 @@ new Cardputer/bench-node harnesses cannot grow subtly different copies.
 """
 
 from datetime import datetime, timezone
+from collections import deque
 import json
 import pathlib
 import re
@@ -16,6 +17,9 @@ import serial
 
 CARD_MARKER = "@LTRX/1"
 TX_MARKER = "@LTTX/1"
+MAX_LINE_BYTES = 4096
+MAX_OBSERVED_FRAMES = 4096
+SENSITIVE_COMMANDS = frozenset({"WIFI_PASS", "KEY_SET", "KEY_IMPORT"})
 
 
 class ResultWriter:
@@ -44,7 +48,11 @@ def crc16(data: bytes) -> int:
 
 
 def frame(marker: str, sequence: int, command: str, argument: str) -> bytes:
+    if not 0 <= sequence <= 65535 or any(c.isspace() for c in command + argument):
+        raise ValueError("invalid control frame fields")
     body = f"{marker} {sequence} {command} {argument}".encode("ascii")
+    if len(body) > MAX_LINE_BYTES - 6:
+        raise ValueError("control frame too long")
     return body + f" {crc16(body):04X}\n".encode("ascii")
 
 
@@ -52,11 +60,11 @@ def parse_frame(line: str, marker: str):
     parts = line.strip().split(" ")
     if len(parts) != 5 or parts[0] != marker:
         return None
-    body = " ".join(parts[:-1]).encode("ascii", errors="strict")
     try:
+        body = " ".join(parts[:-1]).encode("ascii", errors="strict")
         sequence = int(parts[1])
         supplied_crc = int(parts[4], 16)
-    except ValueError:
+    except (ValueError, UnicodeError):
         return None
     if not 0 <= sequence <= 65535 or crc16(body) != supplied_crc:
         return None
@@ -107,25 +115,45 @@ class Endpoint:
         self.port.dtr = False
         self.port.rts = False
         self.opened_at = time.monotonic()
-        self.observed = []
+        self.observed = deque(maxlen=MAX_OBSERVED_FRAMES)
+        self._secrets = deque(maxlen=8)
+        self._discard_line = False
+        self.oversize_lines = 0
         self.rx_buffer = bytearray()
 
     def _poll_lines(self):
-        waiting = self.port.in_waiting
-        chunk = self.port.read(waiting or 1)
-        if chunk:
-            self.rx_buffer.extend(chunk)
+        chunk = self.port.read(min(self.port.in_waiting or 1, MAX_LINE_BYTES))
         lines = []
-        while b"\n" in self.rx_buffer:
-            raw, _, remainder = self.rx_buffer.partition(b"\n")
-            self.rx_buffer = bytearray(remainder)
-            lines.append(raw + b"\n")
+        for byte in chunk:
+            if byte == 10:
+                if not self._discard_line:
+                    lines.append(bytes(self.rx_buffer) + b"\n")
+                self.rx_buffer.clear()
+                self._discard_line = False
+            elif not self._discard_line:
+                if len(self.rx_buffer) >= MAX_LINE_BYTES:
+                    self.rx_buffer.clear()
+                    self._discard_line = True
+                    self.oversize_lines += 1
+                else:
+                    self.rx_buffer.append(byte)
         return lines
+
+    def _protect(self, command, argument):
+        if command in SENSITIVE_COMMANDS and argument != "-":
+            self._secrets.append(argument)
+
+    def _redact(self, text):
+        for secret in self._secrets:
+            text = text.replace(secret, "[REDACTED]")
+        return re.sub(r"(WIFI_PASS|KEY_SET|KEY_IMPORT)\s+\S+", r"\1 [REDACTED]", text)
 
     def close(self):
         self.port.close()
+        self._secrets.clear()
 
     def record(self, text: str):
+        text = self._redact(text)
         stamped = f"{datetime.now(timezone.utc).isoformat(timespec='milliseconds')} {self.label} {text}\n"
         self.log.write(stamped)
         self.log.flush()
@@ -134,6 +162,7 @@ class Endpoint:
     def send(self, command: str, argument: str):
         """Send one command without waiting for its asynchronous response."""
         self.sequence = (self.sequence + 1) & 0xFFFF
+        self._protect(command, argument)
         outgoing = frame(self.marker, self.sequence, command, argument)
         self.record("> " + outgoing.decode("ascii").rstrip())
         self.port.write(outgoing)
@@ -142,6 +171,7 @@ class Endpoint:
 
     def request(self, command: str, argument: str, timeout: float = 3.0):
         self.sequence = (self.sequence + 1) & 0xFFFF
+        self._protect(command, argument)
         outgoing = frame(self.marker, self.sequence, command, argument)
         deadline = time.monotonic() + timeout
         # Opening native USB-CDC resets an ESP32-S3. The first bytes written
@@ -172,7 +202,7 @@ class Endpoint:
                 text = raw.decode("utf-8", errors="replace").rstrip("\r\n")
                 self.record("< " + text)
                 parsed_frames = parse_frames(text, self.marker)
-                self.observed.extend(parsed_frames)
+                self.observed.extend((seq, op, self._redact(arg)) for seq, op, arg in parsed_frames)
                 parsed = next((item for item in parsed_frames if item[0] == self.sequence), None)
                 if parsed:
                     if retry_safe:
@@ -184,7 +214,7 @@ class Endpoint:
                                 stale_text = stale.decode("utf-8", errors="replace").rstrip("\r\n")
                                 self.record("< " + stale_text)
                             time.sleep(0.005)
-                    return parsed[1], parsed[2]
+                    return parsed[1], self._redact(parsed[2])
         raise TimeoutError(f"{self.label} did not answer {command} sequence {self.sequence}")
 
 

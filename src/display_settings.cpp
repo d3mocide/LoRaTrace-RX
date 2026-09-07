@@ -4,6 +4,7 @@
 #include <SD.h>
 
 #include "spi_bus.h"
+#include "file_transaction.h"
 
 namespace {
 
@@ -11,23 +12,10 @@ constexpr const char *DISPLAY_CONFIG_DIR = "/loratrace";
 constexpr const char *DISPLAY_CONFIG_PATH = "/loratrace/display.txt";
 
 
-// Delete-then-recreate, not truncate-in-place — same reasoning
-// writeProfileConfigToSD() documents: a shorter new file must not leave a
-// trailing byte of the old one behind.
 bool writeDisplayConfigFile(const DisplaySettings &settings) {
-    SD.remove(DISPLAY_CONFIG_PATH);
-    File f = SD.open(DISPLAY_CONFIG_PATH, FILE_WRITE);
-    if (!f) return false;
-
-    f.println(F("# LoRaTrace RX — display settings"));
-    f.println(F("# brightness_pct: 5-100 in 5% steps"));
-    f.println(F("# idle_timeout_index: 0=Off 1=30s 2=60s 3=2min 4=5min"));
-    f.print(F("brightness_pct="));
-    f.println(settings.brightness_pct);
-    f.print(F("idle_timeout_index="));
-    f.println(settings.idle_timeout_index);
-    f.close();
-    return true;
+    char text[160];
+    const int n = snprintf(text, sizeof(text), "brightness_pct=%u\nidle_timeout_index=%u\n", (unsigned)settings.brightness_pct, (unsigned)settings.idle_timeout_index);
+    return n > 0 && (size_t)n < sizeof(text) && replaceTextFile(SD, DISPLAY_CONFIG_PATH, text, (size_t)n);
 }
 
 } // namespace
@@ -41,6 +29,7 @@ bool loadDisplaySettingsFromSD(DisplaySettings &settings) {
     if (!SD.exists(DISPLAY_CONFIG_DIR)) {
         SD.mkdir(DISPLAY_CONFIG_DIR);
     }
+    recoverTextFile(SD, DISPLAY_CONFIG_PATH);
     if (!SD.exists(DISPLAY_CONFIG_PATH)) {
         // First card seen by this firmware for display settings — write
         // the current (struct-default) state so there's something to
@@ -55,8 +44,9 @@ bool loadDisplaySettingsFromSD(DisplaySettings &settings) {
 
     bool appliedAny = false;
     while (f.available()) {
-        String line = f.readStringUntil('\n');
-        if (applyDisplayConfigLine(line.c_str(), settings)) appliedAny = true;
+        char line[192];
+        if (!readBoundedLine(f, line, sizeof(line))) continue;
+        if (applyDisplayConfigLine(line, settings)) appliedAny = true;
     }
     f.close();
     return appliedAny;

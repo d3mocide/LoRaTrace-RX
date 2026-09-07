@@ -8,6 +8,7 @@
 #include "board_pins.h"
 #include "memory_stats.h"
 #include "nmea.h"
+#include "gps_history.h"
 #include "serial_lock.h"
 
 namespace {
@@ -16,6 +17,7 @@ HardwareSerial gpsSerial(1); // UART1; UART0 is the USB-CDC console
 
 SemaphoreHandle_t fixMutex = nullptr;
 GpsFix sharedFix; // guarded by fixMutex
+GpsHistory fixHistory;
 
 volatile uint32_t sentenceCount = 0;
 volatile uint32_t checksumErrors = 0;
@@ -48,6 +50,7 @@ bool systemTimeSet = false;
 // lifetime is obvious; sized by NMEA's 82-char spec limit.
 char lineBuf[NMEA_MAX_SENTENCE];
 size_t lineLen = 0;
+bool discardLine = false;
 
 void handleSentence(const char *s) {
     if (!nmeaChecksumValid(s)) {
@@ -102,6 +105,7 @@ void handleSentence(const char *s) {
 
     if (xSemaphoreTake(fixMutex, portMAX_DELAY) == pdTRUE) {
         sharedFix = updated;
+        if (updated.state_updated_ms == now) gpsHistoryPush(fixHistory, updated);
         xSemaphoreGive(fixMutex);
     }
 }
@@ -129,17 +133,21 @@ void gpsTask(void *) {
             didWork = true;
             char c = (char)gpsSerial.read();
             if (c == '\n' || c == '\r') {
-                if (lineLen > 0) {
+                if (!discardLine && lineLen > 0) {
                     lineBuf[lineLen] = '\0';
                     handleSentence(lineBuf);
                     lineLen = 0;
                 }
+                discardLine = false;
+                lineLen = 0;
                 continue;
             }
+            if (discardLine) continue;
             if (lineLen + 1 < sizeof(lineBuf)) {
                 lineBuf[lineLen++] = c;
             } else {
                 lineLen = 0; // oversize/garbled — resync at the next newline
+                discardLine = true;
                 oversizeDrops++;
             }
         }
@@ -174,6 +182,14 @@ bool gpsGetFix(GpsFix &out, TickType_t timeout) {
     out = sharedFix;
     xSemaphoreGive(fixMutex);
     return true;
+}
+
+bool gpsGetFixAt(uint32_t event_ms, GpsFix &out, TickType_t timeout) {
+    out = GpsFix{};
+    if (fixMutex == nullptr || xSemaphoreTake(fixMutex, timeout) != pdTRUE) return false;
+    const bool found = gpsHistoryAt(fixHistory, event_ms, out);
+    xSemaphoreGive(fixMutex);
+    return found;
 }
 
 uint32_t gpsSentenceCount() {

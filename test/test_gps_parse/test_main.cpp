@@ -30,9 +30,86 @@ void test_gga_with_fix_sets_position() {
     TEST_ASSERT_FLOAT_WITHIN(0.0005, 48.1173, fix.lat);
     TEST_ASSERT_FLOAT_WITHIN(0.0005, 11.5167, fix.lon);
     TEST_ASSERT_EQUAL_UINT32(1000, fix.updated_ms);
+    // GGA carries a clock but no date. Combining it with a previously
+    // retained RMC date is what makes a midnight rollover stamp yesterday's
+    // date on today's packets, so GGA is deliberately not a time source.
+    TEST_ASSERT_FALSE(fix.has_time);
+    TEST_ASSERT_EQUAL_UINT8(0, fix.hour);
+}
+
+void test_utc_comes_only_from_a_complete_rmc_pair() {
+    GpsFix fix;
+    TEST_ASSERT_TRUE(gpsApplySentence(fix, RMC_ACTIVE, 1000));
+    TEST_ASSERT_TRUE(fix.has_time);
     TEST_ASSERT_EQUAL_UINT8(12, fix.hour);
     TEST_ASSERT_EQUAL_UINT8(35, fix.minute);
     TEST_ASSERT_EQUAL_UINT8(19, fix.second);
+    TEST_ASSERT_EQUAL_UINT32(1000, fix.time_updated_ms);
+
+    // A later GGA must not advance the clock past the RMC that supplied it;
+    // the pair is what is trusted, not either half.
+    gpsApplySentence(fix, "$GNGGA,181140,4519.5000,N,12240.2500,W,1,09,0.9,50.0,M,0.0,M,,*48",
+                     2000);
+    TEST_ASSERT_EQUAL_UINT8(12, fix.hour);
+    TEST_ASSERT_EQUAL_UINT32(1000, fix.time_updated_ms);
+
+    // An RMC with a date but an unparseable time revokes UTC rather than
+    // leaving the old clock looking current.
+    TEST_ASSERT_TRUE(gpsApplySentence(fix, "$GPRMC,,A,4807.038,N,01131.000,E,,,230394,,*10", 3000));
+    TEST_ASSERT_FALSE(fix.has_time);
+}
+
+void test_utc_freshness_is_tracked_separately_from_position() {
+    GpsFix fix;
+    gpsApplySentence(fix, RMC_ACTIVE, 10000);
+    TEST_ASSERT_TRUE(gpsTimeIsFresh(fix, 12000, 10000));
+    // The A07 case: GPS input stops, so UTC must stop looking authoritative
+    // even though the struct still holds a plausible-looking timestamp.
+    TEST_ASSERT_FALSE(gpsTimeIsFresh(fix, 30000, 10000));
+
+    GpsFix never;
+    TEST_ASSERT_FALSE(gpsTimeIsFresh(never, 1000, 10000));
+}
+
+void test_quality_zero_gga_revokes_a_previous_position() {
+    // A GGA that reports no fix is authoritative no-fix evidence. Before
+    // this, the old position stayed usable until the ten-second age limit
+    // unless a void RMC happened to arrive too (audit A06).
+    GpsFix fix;
+    gpsApplySentence(fix, GGA_FIX, 1000);
+    TEST_ASSERT_TRUE(fix.has_position);
+
+    gpsApplySentence(fix, GGA_NOFIX, 1500);
+    TEST_ASSERT_FALSE(fix.has_position);
+    TEST_ASSERT_FALSE(gpsFixIsFresh(fix, 1600, 10000));
+}
+
+void test_coordinates_outside_the_globe_are_refused() {
+    double out = 0.0;
+    // 99 degrees of latitude is not a place; the old parser accepted it.
+    TEST_ASSERT_FALSE(nmeaCoordToDegrees("9900.000", 'N', &out));
+    TEST_ASSERT_FALSE(nmeaCoordToDegrees("19000.000", 'E', &out));
+    // Latitude is ddmm.mmmm and longitude dddmm.mmmm — the field's own
+    // width, not just its value, has to match the hemisphere's role.
+    TEST_ASSERT_FALSE(nmeaCoordToDegrees("4807.038", 'E', &out));
+    TEST_ASSERT_FALSE(nmeaCoordToDegrees("01131.000", 'N', &out));
+    TEST_ASSERT_FALSE(nmeaCoordToDegrees("4807.038", 'X', &out));
+    TEST_ASSERT_FALSE(nmeaCoordToDegrees("48O7.038", 'N', &out)); // letter O
+    TEST_ASSERT_FALSE(nmeaCoordToDegrees("4860.000", 'N', &out)); // 60 minutes
+    // The poles and the antimeridian themselves stay legal.
+    TEST_ASSERT_TRUE(nmeaCoordToDegrees("9000.000", 'S', &out));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001, -90.0, out);
+    TEST_ASSERT_TRUE(nmeaCoordToDegrees("18000.000", 'W', &out));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001, -180.0, out);
+}
+
+void test_hemisphere_must_match_its_field() {
+    // A receiver that swaps N/S into the longitude field must not produce a
+    // position at all, rather than one 90 degrees away.
+    GpsFix fix;
+    TEST_ASSERT_TRUE(gpsApplySentence(
+        fix, "$GPGGA,123519,4807.038,N,01131.000,N,1,08,0.9,545.4,M,46.9,M,,*4C", 1000));
+    TEST_ASSERT_FALSE(fix.has_position);
 }
 
 void test_gga_without_fix_never_sets_position() {
@@ -189,6 +266,10 @@ void test_time_and_date_field_validation() {
     TEST_ASSERT_TRUE(gpsParseDateField("230826", &y, &mo, &d));
     TEST_ASSERT_FALSE(gpsParseDateField("231326", &y, &mo, &d)); // month 13
     TEST_ASSERT_FALSE(gpsParseDateField("000826", &y, &mo, &d)); // day 0
+    TEST_ASSERT_FALSE(gpsParseDateField("310426", &y, &mo, &d)); // 31 April
+    TEST_ASSERT_FALSE(gpsParseDateField("300226", &y, &mo, &d)); // 30 February
+    TEST_ASSERT_FALSE(gpsParseDateField("290226", &y, &mo, &d)); // 2026 isn't leap
+    TEST_ASSERT_TRUE(gpsParseDateField("290228", &y, &mo, &d));  // 2028 is
 }
 
 void test_epoch_conversion_against_known_dates() {
@@ -251,6 +332,11 @@ int main(int, char **) {
     RUN_TEST(test_epoch_refuses_unusable_fixes);
     RUN_TEST(test_gga_with_fix_sets_position);
     RUN_TEST(test_gga_without_fix_never_sets_position);
+    RUN_TEST(test_utc_comes_only_from_a_complete_rmc_pair);
+    RUN_TEST(test_utc_freshness_is_tracked_separately_from_position);
+    RUN_TEST(test_quality_zero_gga_revokes_a_previous_position);
+    RUN_TEST(test_coordinates_outside_the_globe_are_refused);
+    RUN_TEST(test_hemisphere_must_match_its_field);
     RUN_TEST(test_southern_western_hemispheres_are_negative);
     RUN_TEST(test_rmc_supplies_the_date);
     RUN_TEST(test_two_digit_year_windowing_is_2000s);

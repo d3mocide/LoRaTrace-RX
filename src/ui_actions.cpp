@@ -39,21 +39,29 @@
 // measured 20ms spacing policy (focus_plan.h) and the dwell is the longest the
 // bounded request allows, which is what the field-level measurements used.
 bool selectFocusRequest(FocusRequest &request) {
-    request.region = radioEnergySweepRegion();
     request.bin_step = ENERGY_SWEEP_DEFAULT_STEP;
     request.requested_passes = FOCUS_BENCH_REQUESTED_PASSES;
     request.requested_dwell_ms = FOCUS_BENCH_DWELL_MAX_MS;
     request.requested_samples = focusSamplesForDwell(FOCUS_BENCH_DWELL_MAX_MS);
 
-    const EnergySweepBand band = energySweepBandForRegion(request.region);
-    const uint16_t bins = energyBinCount(band, request.bin_step);
-    for (uint16_t bin = 0; bin < bins; bin++) {
-        if (radioEnergyPeakBinSetAtLastComplete(bin)) {
+    // A peak is an index into the band the sweep that found it was using, so
+    // the snapshot's own region is what resolves it — reading the *current*
+    // Region here sent Focus to a frequency that was never the peak after an
+    // operator changed regions (audit A04). A partial lap still offers real
+    // peaks; only a stale-region one is refused.
+    SweepSnapshot sweep;
+    if (radioSweepSnapshot(sweep) && sweep.region == radioEnergySweepRegion() &&
+        sweep.step == ENERGY_SWEEP_DEFAULT_STEP) {
+        request.region = sweep.region;
+        for (uint16_t bin = 0; bin < sweep.bin_count; bin++) {
+            if (!sweepBit(sweep.peaks, bin)) continue;
             request.selection_bin_index = bin;
             request.selection_source = FocusSelectionSource::SWEEP_BIN;
             return focusRequestIsValid(request);
         }
     }
+    request.region = radioEnergySweepRegion();
+    const EnergySweepBand band = energySweepBandForRegion(request.region);
     const ChannelParams home = radioActiveChannel();
     request.selection_bin_index =
         energyBinIndexForFrequencyMhz(home.freq_mhz, band, request.bin_step);

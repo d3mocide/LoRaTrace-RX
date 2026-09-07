@@ -13,6 +13,7 @@
 // is a threshold nobody can trust.
 
 #include <stdint.h>
+#include "channel_plans.h"
 
 // --- The four constants §3.1 required be selected by measurement -----------
 //
@@ -83,7 +84,20 @@ struct FocusCoverage {
     uint16_t bin_index = FOCUS_COVERAGE_NO_BIN;
     uint16_t valid_passes = 0;
     uint32_t observation_ms = 0;
+    ChannelParams channel = {};
+    uint32_t frequency_khz = 0;
 };
+
+inline void focusCoverageContext(FocusCoverage &coverage, uint32_t frequency_khz,
+                                  const ChannelParams &channel) {
+    if (coverage.frequency_khz != frequency_khz || coverage.channel.bw_khz != channel.bw_khz ||
+        coverage.channel.sf != channel.sf || coverage.channel.cr_denom != channel.cr_denom ||
+        coverage.channel.sync_word != channel.sync_word) {
+        coverage = FocusCoverage{};
+        coverage.frequency_khz = frequency_khz;
+        coverage.channel = channel;
+    }
+}
 
 // Fold one terminated request into the accumulator. `valid` is the caller's own
 // judgement that the pass configured its frequency, produced its samples, and

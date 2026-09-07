@@ -82,3 +82,6 @@ bool channelCrInRange(uint8_t cr);
 // busy/missing/read-only).
 bool writeProfileConfigToSD(MissionProfile profile, const ChannelParams &params,
                             const ProfileOverrides &current);
+
+// Persisted presets, independently of the active boot configuration.
+bool readProfileConfigFromSD(ProfileOverrides &out);

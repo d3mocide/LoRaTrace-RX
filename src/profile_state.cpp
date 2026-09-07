@@ -4,6 +4,7 @@
 #include <SD.h>
 
 #include "spi_bus.h"
+#include "file_transaction.h"
 
 namespace {
 
@@ -29,20 +30,10 @@ bool tokenToProfile(const String &token, MissionProfile &profile) {
     return false;
 }
 
-// Delete-then-recreate, not truncate-in-place — same reasoning
-// writeDisplayConfigFile() documents: a shorter new file must not leave a
-// trailing byte of the old one behind.
 bool writeProfileStateFile(MissionProfile profile) {
-    SD.remove(PROFILE_STATE_PATH);
-    File f = SD.open(PROFILE_STATE_PATH, FILE_WRITE);
-    if (!f) return false;
-
-    f.println(F("# LoRaTrace RX — last active profile (menu-driven switches only)"));
-    f.println(F("# active_profile: meshtastic or meshcore"));
-    f.print(F("active_profile="));
-    f.println(profileToken(profile));
-    f.close();
-    return true;
+    char text[64];
+    int n = snprintf(text, sizeof(text), "active_profile=%s\n", profileToken(profile));
+    return n > 0 && (size_t)n < sizeof(text) && replaceTextFile(SD, PROFILE_STATE_PATH, text, n);
 }
 
 } // namespace
@@ -55,6 +46,7 @@ bool loadLastProfileFromSD(MissionProfile &profile) {
     if (!SD.exists(PROFILE_STATE_DIR)) {
         SD.mkdir(PROFILE_STATE_DIR);
     }
+    recoverTextFile(SD, PROFILE_STATE_PATH);
     if (!SD.exists(PROFILE_STATE_PATH)) {
         // First card seen by this firmware for profile state — write the
         // caller's current (default) profile so there's something to see
@@ -68,7 +60,9 @@ bool loadLastProfileFromSD(MissionProfile &profile) {
 
     bool applied = false;
     while (f.available()) {
-        String line = f.readStringUntil('\n');
+        char buffer[192];
+        if (!readBoundedLine(f, buffer, sizeof(buffer))) continue;
+        String line(buffer);
         line.trim();
         if (line.length() == 0 || line.startsWith("#")) continue;
         int eq = line.indexOf('=');

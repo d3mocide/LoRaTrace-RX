@@ -43,7 +43,14 @@ void analyzerNoteDetection(const Detection &det) {
 
 void analyzerNoteSweepComplete() {
     if (analyzerMutex == nullptr) return;
-    const uint16_t binCount = radioEnergyBinCount();
+
+    // One copy of one completed lap, rather than bin count, peak mask,
+    // capture bin and capture count fetched one call at a time: those could
+    // each come from a different lap, or pair a finished lap's peaks with a
+    // bin count the operator's new Region had already changed (audit A20).
+    SweepSnapshot sweep;
+    if (!radioSweepSnapshot(sweep)) return;
+    const uint16_t binCount = sweep.bin_count;
     if (binCount == 0) return;
 
     // Occupancy-only for this slice, not a full per-bin RSSI capture:
@@ -65,8 +72,8 @@ void analyzerNoteSweepComplete() {
     // use calls for it.
     int16_t bins[WATERFALL_MAX_BINS];
     for (uint16_t b = 0; b < binCount && b < WATERFALL_MAX_BINS; b++) {
-        bins[b] = radioEnergyPeakBinSetAtLastComplete(b) ? WATERFALL_RSSI_CEIL_DBM_X10
-                                                          : WATERFALL_RSSI_FLOOR_DBM_X10;
+        bins[b] = sweepBit(sweep.peaks, b) ? WATERFALL_RSSI_CEIL_DBM_X10
+                                           : WATERFALL_RSSI_FLOOR_DBM_X10;
     }
 
     // Packets actually decoded on the home channel during the between-lap
@@ -77,8 +84,8 @@ void analyzerNoteSweepComplete() {
     // Both are the same at-completion snapshots as the peak mask above, for
     // the same cross-core reason. See waterfall.h's WaterfallRow comment for
     // why the count belongs to the window *before* this row's lap.
-    const uint16_t captureBin = radioEnergyHomeBinAtLastComplete();
-    const uint16_t captures = radioEnergyCapturesAtLastComplete();
+    const uint16_t captureBin = sweep.capture_bin;
+    const uint16_t captures = sweep.captures;
 
     if (xSemaphoreTake(analyzerMutex, portMAX_DELAY) == pdTRUE) {
         waterfallHistoryPushRow(sharedWaterfallHistory, bins, binCount, millis(), captureBin,

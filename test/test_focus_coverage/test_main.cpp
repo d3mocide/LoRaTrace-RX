@@ -22,6 +22,14 @@ void notePasses(FocusCoverage &c, int count, uint16_t bin = BIN,
     for (int i = 0; i < count; i++) focusCoverageNote(c, bin, dwell, observed, valid);
 }
 
+// The two frequencies bin 43 resolves to, and the modem configuration each
+// was measured with. focus_coverage.h only has to agree that they are not the
+// same observation; the numbers themselves come from energy_plan.h's bands.
+constexpr uint32_t US_BIN43_KHZ = 912750;
+constexpr uint32_t GLOBAL_BIN43_KHZ = 878750;
+constexpr ChannelParams MESHTASTIC_HOME = {906.875f, 7, 250.0f, 5, 0x2B};
+constexpr ChannelParams NARROW_HOME = {906.875f, 7, 62.5f, 5, 0x2B};
+
 } // namespace
 
 void setUp() {}
@@ -134,8 +142,55 @@ void test_thresholds_are_ordered_and_reachable_by_the_shipped_dwell() {
     TEST_ASSERT_TRUE(SHIPPED_DWELL_MS >= FOCUS_COVERAGE_MIN_DWELL_MS);
 }
 
+void test_the_same_bin_in_another_region_is_another_observation() {
+    // The A04 collision: US bin 43 is 912.750MHz and Global bin 43 is
+    // 878.750MHz. Keyed on the index alone, changing Region handed the new
+    // frequency the old one's observation time and its label with it.
+    FocusCoverage c = fresh();
+    focusCoverageContext(c, US_BIN43_KHZ, MESHTASTIC_HOME);
+    notePasses(c, 3);
+    TEST_ASSERT_EQUAL(FocusCoverageLabel::REPEATED, focusCoverageLabelFor(c));
+
+    focusCoverageContext(c, GLOBAL_BIN43_KHZ, MESHTASTIC_HOME);
+    TEST_ASSERT_EQUAL(FocusCoverageLabel::INSUFFICIENT, focusCoverageLabelFor(c));
+    TEST_ASSERT_EQUAL_UINT16(0, c.valid_passes);
+    TEST_ASSERT_EQUAL_UINT32(0, c.observation_ms);
+
+    // ...and coming back does not restore it. Observation time is spent, not
+    // stored per frequency.
+    focusCoverageContext(c, US_BIN43_KHZ, MESHTASTIC_HOME);
+    TEST_ASSERT_EQUAL(FocusCoverageLabel::INSUFFICIENT, focusCoverageLabelFor(c));
+}
+
+void test_a_changed_receive_configuration_starts_over() {
+    // Bandwidth changes what the receiver could have heard, so passes taken
+    // at 250kHz are not observation time for the same bin at 62.5kHz.
+    FocusCoverage c = fresh();
+    focusCoverageContext(c, US_BIN43_KHZ, MESHTASTIC_HOME);
+    notePasses(c, 3);
+    TEST_ASSERT_EQUAL(FocusCoverageLabel::REPEATED, focusCoverageLabelFor(c));
+
+    focusCoverageContext(c, US_BIN43_KHZ, NARROW_HOME);
+    TEST_ASSERT_EQUAL(FocusCoverageLabel::INSUFFICIENT, focusCoverageLabelFor(c));
+}
+
+void test_repeating_the_same_context_accumulates_normally() {
+    // The context guard must not reset a genuine repeat of the same request,
+    // or coverage could never reach `repeated` at all.
+    FocusCoverage c = fresh();
+    for (int i = 0; i < 3; i++) {
+        focusCoverageContext(c, US_BIN43_KHZ, MESHTASTIC_HOME);
+        notePasses(c, 1);
+    }
+    TEST_ASSERT_EQUAL(FocusCoverageLabel::REPEATED, focusCoverageLabelFor(c));
+    TEST_ASSERT_EQUAL_UINT32(US_BIN43_KHZ, c.frequency_khz);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
+    RUN_TEST(test_the_same_bin_in_another_region_is_another_observation);
+    RUN_TEST(test_a_changed_receive_configuration_starts_over);
+    RUN_TEST(test_repeating_the_same_context_accumulates_normally);
     RUN_TEST(test_nothing_observed_is_insufficient);
     RUN_TEST(test_one_shipped_pass_is_sampled);
     RUN_TEST(test_three_shipped_passes_are_repeated);

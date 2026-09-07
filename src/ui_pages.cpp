@@ -1141,12 +1141,18 @@ void drawChannelBandMap(int16_t x, int16_t w, int16_t floorY, float tunedMhz) {
 
     // Sweep peaks first, so a capture tick on the same bin draws over it — a
     // decode is stronger evidence than energy, and should win the pixel.
-    const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
-    const uint16_t bins = energyBinCount(band, ENERGY_SWEEP_DEFAULT_STEP);
-    for (uint16_t b = 0; b < bins; b++) {
-        if (!radioEnergyPeakBinSetAtLastComplete(b)) continue;
-        const float mhz = energyBinFrequencyMhz(b, band, ENERGY_SWEEP_DEFAULT_STEP);
-        uiTft->drawFastVLine(x + (int16_t)((w - 1) * frac(mhz)), floorY - TICK_H, TICK_H, COL_WARN);
+    // Bins are resolved against the region the completed sweep actually used;
+    // against the current one, changing Region drew the old band's peaks at
+    // new frequencies (audit A04/A20).
+    SweepSnapshot sweep;
+    if (radioSweepSnapshot(sweep)) {
+        const EnergySweepBand band = energySweepBandForRegion(sweep.region);
+        for (uint16_t b = 0; b < sweep.bin_count; b++) {
+            if (!sweepBit(sweep.peaks, b)) continue;
+            const float mhz = energyBinFrequencyMhz(b, band, sweep.step);
+            uiTft->drawFastVLine(x + (int16_t)((w - 1) * frac(mhz)), floorY - TICK_H, TICK_H,
+                                 COL_WARN);
+        }
     }
 
     static CaptureHistory history;
@@ -1199,10 +1205,11 @@ void drawChannelPage() {
     uiTft->print("928");
 
     uint16_t peaks = 0;
-    const EnergySweepBand band = energySweepBandForRegion(radioEnergySweepRegion());
-    const uint16_t bins = energyBinCount(band, ENERGY_SWEEP_DEFAULT_STEP);
-    for (uint16_t b = 0; b < bins; b++) {
-        if (radioEnergyPeakBinSetAtLastComplete(b)) peaks++;
+    SweepSnapshot sweep;
+    if (radioSweepSnapshot(sweep)) {
+        for (uint16_t b = 0; b < sweep.bin_count; b++) {
+            if (sweepBit(sweep.peaks, b)) peaks++;
+        }
     }
 
     // Hero row: the tuned frequency, with the sweep's peak count riding the

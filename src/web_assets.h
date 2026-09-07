@@ -413,6 +413,7 @@ const char INDEX_HTML[] PROGMEM = R"WEBPAGE(<!doctype html>
           <div class="full"><label for="mt_sync_word">Sync word (hex, e.g. 0x2B)</label><input id="mt_sync_word" name="sync_word" type="text"></div>
         </div>
         <div class="form-actions"><button class="primary" type="submit">Save preset</button><div id="mt_configMsg" class="form-msg"></div></div>
+        <div id="mt_runningMsg" class="note"></div>
       </form>
     </div>
 
@@ -427,6 +428,7 @@ const char INDEX_HTML[] PROGMEM = R"WEBPAGE(<!doctype html>
           <div class="full"><label for="mc_sync_word">Sync word (hex, e.g. 0x12)</label><input id="mc_sync_word" name="sync_word" type="text"></div>
         </div>
         <div class="form-actions"><button class="primary" type="submit">Save preset</button><div id="mc_configMsg" class="form-msg"></div></div>
+        <div id="mc_runningMsg" class="note"></div>
       </form>
       <div class="note">Each channel preset is independent. Saves to /loratrace/config.txt and applies on the next boot; the running radio is not touched.</div>
     </div>
@@ -542,14 +544,34 @@ function fillPreset(prefix, c) {
   document.getElementById(prefix + '_sync_word').value = '0x' + c.sync_word.toString(16).toUpperCase().padStart(2, '0');
 }
 
-// Both presets come back from one GET — the device resolves each profile's
-// override-or-default itself (channel_plans.h's resolvedChannelForProfile,
-// same function a live profile switch uses), so the two panels always
-// reflect what the radio would actually do, not just what's on the card.
+// The GET returns two sets: `saved` is what is on the card, `active` is what
+// the radio booted with. The form edits `saved`, because that is what a save
+// merges into — filling it from `active` redisplayed boot values over an
+// operator's unrebooted save and reverted it on the next submit.
+function presetText(c) {
+  return c.freq_mhz.toFixed(3) + ' MHz  SF' + c.sf + '  BW' + c.bw_khz.toFixed(1) +
+    '  CR4/' + c.cr_denom + '  sync 0x' + c.sync_word.toString(16).toUpperCase();
+}
+
+function samePreset(a, b) {
+  return a.freq_mhz === b.freq_mhz && a.sf === b.sf && a.bw_khz === b.bw_khz &&
+    a.cr_denom === b.cr_denom && a.sync_word === b.sync_word;
+}
+
+function showRunning(prefix, saved, active) {
+  var el = document.getElementById(prefix + '_runningMsg');
+  if (!el) return;
+  if (samePreset(saved, active)) { el.textContent = ''; return; }
+  el.textContent = 'Radio is running ' + presetText(active) + ' — reboot to apply what is saved.';
+}
+
 function loadConfig() {
   fetch('/api/config').then(r => r.json()).then(function (c) {
-    fillPreset('mt', c.meshtastic);
-    fillPreset('mc', c.meshcore);
+    var saved = c.saved || c.active;
+    fillPreset('mt', saved.meshtastic);
+    fillPreset('mc', saved.meshcore);
+    showRunning('mt', saved.meshtastic, c.active.meshtastic);
+    showRunning('mc', saved.meshcore, c.active.meshcore);
     document.getElementById('mt_activeBadge').textContent = c.active_profile === 'meshtastic' ? 'active' : '';
     document.getElementById('mc_activeBadge').textContent = c.active_profile === 'meshcore' ? 'active' : '';
   }).catch(function () {});

@@ -24,7 +24,10 @@ not a laptop-tethered tool.
 > the antenna-switch init requires, and never will (`CLAUDE.md` house
 > rule). It observes and GPS-tags radio activity already in the air —
 > including other people's mesh traffic — for later analysis. It does not
-> inject, transmit, or decrypt anything not already in the clear. Operate
+> inject or transmit. Passive decryption is permitted for public channels and
+> known operator-supplied keys; brute-force key recovery is out of scope.
+> The current firmware decodes Meshtastic public-default-key NodeInfo;
+> operator-key support is not implemented. Operate
 > it the way you'd operate any RF-monitoring instrument: know your local
 > regulations and respect reasonable expectations of privacy.
 

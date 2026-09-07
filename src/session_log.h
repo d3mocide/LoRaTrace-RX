@@ -86,6 +86,16 @@ struct SessionStats {
     // batch buffer to fix a cost the batch buffer never paid.
     uint32_t max_session_ms = 0;
     bool sd_ready = false;
+    // Partial appends and header repairs. `sd` alone said "ok" through both
+    // of these before v1.1.1 (audit A02).
+    uint32_t sd_short_writes = 0;
+    uint32_t sd_csv_repairs = 0;
+    // Reception faults the old single crc_err column could not tell apart,
+    // and whether Watch was actually armed for this interval (audit A21/A26).
+    // "Nothing heard" means nothing unless `home` says we were listening.
+    uint32_t read_errors = 0;
+    uint32_t rearm_errors = 0;
+    bool home_ready = false;
     uint32_t bus_contention = 0;
 
     // --- System ---
@@ -187,7 +197,8 @@ constexpr const char *SESSION_CSV_HEADER =
     "identities_decoded,identity_drops,"
     "cell_observations,cell_observation_drops,cell_runs,cell_cancels,"
     "cell_failures,cell_recoveries,cell_last_away_ms,analyzer_static_bytes,"
-    "ui_redraw_max_us,ui_redraw_mean_us";
+    "ui_redraw_max_us,ui_redraw_mean_us,"
+    "sd_short_writes,sd_csv_repairs,read_err,rearm_err,home";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
 // detectionFormatTimestamp() the detection rows use, and is empty before
@@ -222,7 +233,8 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
-                     "%lu,%lu,%lu",
+                     "%lu,%lu,%lu,"
+                     "%lu,%lu,%lu,%lu,%s",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -279,7 +291,12 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.cell_last_away_ms,
                      (unsigned long)s.analyzer_static_bytes,
                      (unsigned long)s.ui_redraw_max_us,
-                     (unsigned long)s.ui_redraw_mean_us);
+                     (unsigned long)s.ui_redraw_mean_us,
+                     (unsigned long)s.sd_short_writes,
+                     (unsigned long)s.sd_csv_repairs,
+                     (unsigned long)s.read_errors,
+                     (unsigned long)s.rearm_errors,
+                     s.home_ready ? "armed" : "down");
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;

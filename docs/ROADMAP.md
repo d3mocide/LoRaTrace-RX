@@ -14,11 +14,10 @@ and what earns a release.
 
 V2 preserves the shipped foundation:
 
-- Receive-only; no transmit, beacon, injection, decryption, keys, or
-  protocol-client behavior. **Payload display was removed from this list on
-  2026-09-05** — see "Amended boundary: on-device payload display" below.
-  Decryption, keys, transmit and protocol-client behaviour remain prohibited
-  and are not affected by that change.
+- Receive-only; no transmit, beacon, injection, or protocol-client behavior.
+  Raw payload display is allowed (2026-09-05). Public-channel and known
+  operator-key decryption are allowed (2026-09-07); brute-force key recovery
+  is out of scope. See the amended boundaries below.
 - One radio-owner task on Core 1; at most one bounded acquisition action owns
   the SX1262. SD, display, GPS, and WiFi never block its real-time path.
 - Fixed/static storage, bounded queues, streaming metrics, and SD as the
@@ -51,17 +50,38 @@ Captures inspector is the concrete case: signal quality and framing detail are
 diagnostic, and the payload bytes alongside them are what make a capture
 interpretable in the field rather than back at a desk.
 
-**What did not change.** No decryption, no key handling, no transmit, no
-beaconing or injection, and no protocol-client behaviour. Bytes may be shown
-as received. Nothing may be decoded that requires a key, and nothing that is
-shown may be presented as a protocol identity that the evidence rules
-elsewhere in this document do not already permit.
+**What remains restricted.** No transmit, beaconing, injection, or
+protocol-client behaviour. Bytes may be shown as received; decryption follows
+the 2026-09-07 policy below. Neither readable bytes nor successful decryption
+alone establishes authenticated identity.
 
 **What this obliges.** Displaying payload makes the operator's screen a
 disclosure surface: a captured payload belongs to whoever sent it. Sharing and
 export features (Workstream 15) must treat displayed payload as at least as
 sensitive as location, and the redaction work there covers it rather than
 treating it as already-public because it was on screen.
+
+## Amended boundary: passive decryption and known keys
+
+**Operator decision, 2026-09-07.** Public-channel decryption and decryption
+using known operator-supplied keys are within project scope. Brute-force,
+dictionary attacks, key guessing, and automated key recovery are out of scope.
+This permission does not introduce active protocol participation.
+
+The shipping decoder uses Meshtastic's published default public-channel PSK
+for NodeInfo only; MeshCore adverts are parsed without signature verification.
+General plaintext decoding and operator-key support are not implemented.
+Future operator-key use requires explicit configuration and an on-device opt-in,
+disabled by default. This policy update does not change firmware defaults.
+
+Before implementing operator-key support, define key import, storage, removal,
+visibility, and bounded decoding costs. Keys must never enter source control,
+serial diagnostics, capture CSVs, browser responses, or shareable exports.
+Preserve raw observations separately from derived plaintext and record decoder
+provenance and authentication status without recording keys. Decoded content
+is sensitive even when its channel key is public; sharing must redact it along
+with location and identity. Validate malformed inputs and capture loss under
+maximum decode load. The physical-access limits in `SECURITY.md` still apply.
 
 ## Status and gate model
 
@@ -71,7 +91,7 @@ treating it as already-public because it was on screen.
 | **Design entry** | Scope and the measurement plan are being locked; there is no release claim. |
 | **Engineering** | Code and host validation are in progress. |
 | **Hardware pending** | The implementation gate is met, but device proof is incomplete. |
-| **Closed** | Every applicable gate has accepted evidence. |
+| **Closed** | Applicable gates have accepted evidence or an explicit, documented operator exception; exceptions remain visible and are not completed tests. |
 
 Every workstream passes these gates in order:
 
@@ -98,37 +118,13 @@ cost acceptable; the measurement is part of the decision.
 | **16 — Cell closeout** | Deferred bonus | Close the existing V1 Phase 11 evidence gap: a real tower-adjacent RSSI rise plus fresh SD verification of `cell.csv` and Cell's appended `session.csv` fields. This preserves V1 history; it does not renumber it. |
 | **17 — Sweep/Waterfall sampling review** | **Design entry** | Re-evaluate whether Sweep's per-bin sampling and Waterfall's presentation can support what they imply, using the measurement apparatus Workstream 12 built. Entry needs a two-baseline sensitivity measurement, not an argument from analogy. See below. |
 
-## Planned — v1.1.0-beta UI slice
+## Shipped — v1.1.0 operator UI slice
 
-Adopted 2026-09-05 from `docs/UI-Recommendations.html`, whose layout premises
-were checked against the firmware rather than taken on trust. It ships
-alongside Focus's first operator-facing surface because these touch the same
-screens; splitting them would mean two releases editing the same files.
-
-- **Focus Survey plate (P3)** — target frequency and bin, dwell progress,
-  valid/requested passes, elapsed observation time, the median/P90/peak
-  summary against the measured floor, request state and home-restore result,
-  and an abort. **Without the proposed "Operator Truth Badge"**: its
-  `SAMPLING`/`REPEATED`/`INSUFFICIENT` labels depend on coverage thresholds
-  that are still unselected, and "(High confidence)" is precisely the single
-  confidence word §3 of the design forbids. The plate reports what was
-  observed and declines to conclude.
-- **Slot 2 split Activity dashboard (P2)** — the rolling packet-rate sparkline
-  and triage cards. The proposal's `AWAY T ... 60s budget` displays a
-  radio-away budget nobody approved; §6.3 measured the cost and left the
-  policy to an operator decision. The displayed limit is therefore the
-  existing System > Tuning capture setting rather than an invented constant,
-  and moves to a real budget when one is chosen.
-- **Captures packet inspector (P4)** — signal quality, framing detail, and raw
-  received bytes, permitted by the amended boundary above.
-- **Palette switching (P5)** is not in this slice. It is cheap and useful but
-  unrelated to Focus, and it can ship on its own.
-
-Note for whoever implements this: the proposals describe a five-stop carousel
-with Activity in slot 2, which matches `MAIN_PAGES` in `ui_task.cpp`. A stale
-comment in `ui_pages.cpp` claimed four stops and was used during planning to
-wrongly contradict the proposal; it has been corrected. Check the code, not
-the prose.
+Focus, the Activity dashboard, and the Captures packet inspector shipped in
+v1.1.0. Coverage labels now use `focus_coverage.h`; they describe accumulated
+observation effort and never activity. The radio-away policy remains the
+explicit one-Enter-one-pass exception, which expires before automatic or
+multi-bin scheduling is introduced. Palette switching was outside this slice.
 
 ## Candidate — Workstream 17 (Sweep/Waterfall sampling review)
 
@@ -140,15 +136,16 @@ form of that statement, plus a fixture capable of testing it.
 What transfers from Workstream 12's evidence
 ([2026-09-04-phase12-focus-matrix.md](hardware-results/2026-09-04-phase12-focus-matrix.md)):
 
-- Detection requires the source's airtime to exceed the sampling spacing.
-  Sweep dwells on each bin for tens of ms with a handful of samples — a
-  shorter, sparser pass than the 100 ms / 6-sample arm that failed at both
-  measured signal levels.
-- Six samples per pass is below a usable floor, and 13 dB of link improvement
-  did not rescue it. That was a sampling limit, not a link limit.
-- A count of samples above an adaptive floor outperformed every extreme
-  statistic. Pass A currently keeps a per-bin average and peak and thresholds
-  on them; the peak is the noise-prone half of that pair.
+- Shorter bursts have fewer chances to overlap sparse samples. The 100 ms /
+  six-sample Focus arm failed the tested activity rule at both measured signal
+  levels; this does not establish a universal minimum sample count or require
+  every detectable burst to exceed sample spacing.
+- A median-relative sample count outperformed the tested summary statistics
+  under those fixture conditions. It did not establish a field-independent
+  activity rule. Pass A's own average/peak threshold needs separate testing.
+- Sweep's four samples per bin are not equivalent to continuous observation.
+  Evaluate actual spacing, receiver bandwidth, retune settling, and source
+  timing together rather than transferring a Focus threshold by analogy.
 
 What that does **not** establish, and why this is a candidate rather than a
 finding:
@@ -169,34 +166,29 @@ finding:
 Entry would need: a controlled sensitivity measurement of Pass A's per-bin
 sampling at two or more signal levels, reusing Workstream 12's transmitter
 fixture and `benchSweepFloorQuery`'s existing per-bin floor readback; and a
-decision about whether Waterfall should distinguish "sampled and quiet" from
-"barely sampled" in what it draws.
+decision about whether Waterfall should distinguish "sampled with no qualifying observation"
+from "insufficiently sampled" in what it draws.
 
 Rigorously sourced region packs are later candidates, not Workstream 16 and
 not V2.0 blockers. Each proposed pack needs a separate entry gate with source
 quality, regulatory/range rationale, fixed-table validation, and realistic
 hardware access.
 
-## Current work — Workstream 12
+## Workstream 12 closeout and next entry
 
-The workstream is in Engineering. Its bench-only first slice now exercises one
-bounded radio request, fixed statistics, and `focus.csv` persistence; it has
-not added a production control or coverage/activity claim. The plan sets the
-following constraints:
+Workstream 12 closed in v1.1.0 on 2026-09-07. Its production surface runs one
+selected bin per explicit request, uses a fixed histogram, writes `focus.csv`,
+and reports coverage without activity. See `focus_coverage.h` for the shipped
+thresholds and [the design-entry record](research/phase12-survey-truth-design.md)
+for the measurements and decisions. Earlier prototype descriptions in that
+record are historical stages, not the current release state.
 
-- One selected Sweep/Waterfall bin or fixed preset per request; no free-form
-  frequency entry, arbitrary range, or multi-bin list in the first slice.
-- `focus.csv` is an append-only result record, not raw sample history.
-- A fixed histogram/statistics accumulator supplies median, P90, and maximum
-  without heap allocation; actual static/queue/row budgets must be measured.
-- `insufficient`, `sampled`, and `repeated` cannot be displayed until a
-  controlled transmitter/RTL-SDR matrix selects their pass/time thresholds.
-- Portland metro, Oregon is the privacy-preserving field-validation area;
-  exact location and raw GPS-bearing artifacts remain private.
-
-Engineering may build a bench-only raw-counter prototype so the matrix can
-measure the open decisions. It may not present a coverage label or a “no
-activity” conclusion until the Device/claim gate closes.
+Portland field validation remains deferred by operator decision. The
+radio-away-budget exception applies only to one-Enter-one-pass Focus; Workstream
+13 must settle the policy before introducing scheduling. Workstream 17 is in
+Design entry. The [v1.1.0 audit](research/2026-09-07-v1.1.0-v2-audit.md)
+records newly found defects and proposed entry-gate improvements; workstream
+closure does not imply those defects are resolved.
 
 ## V2.0 composition release
 

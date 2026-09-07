@@ -51,7 +51,11 @@ def main():
     parser.add_argument("--results")
     parser.add_argument("--settle-seconds", type=float, default=1.0,
                         help="quiet interval between cases (default: 1.0)")
+    parser.add_argument("--allow-transmit", action="store_true",
+                        help="explicitly authorize the controlled bench pulses")
     args = parser.parse_args()
+    if not args.allow_transmit:
+        parser.error("bench pulses require --allow-transmit")
     if not 0.0 <= args.settle_seconds <= 10.0:
         parser.error("--settle-seconds must be 0..10")
     log_path = pathlib.Path(args.log)

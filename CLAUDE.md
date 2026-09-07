@@ -101,6 +101,11 @@ src/
   [x] analyzer_state.h / .cpp    # mutex-guarded Analyze state, Core 0 side
   [x] analyzer_budget.h          # ANALYZER_STATIC_BYTES vs the 8192 ceiling
   [x] bench_fault.h / .cpp       # bench-image-only fault/override hooks
+  --- added by the 2026-09-07 audit repair pass ---
+  [x] channel_config.h           # whole-token channel field parse + bandwidth allowlist (A08)
+  [x] file_transaction.h         # tmp/verify/backup text writes + CSV header validation (A02/A09)
+  [x] gps_history.h              # Core-0 fix ring, so an observation gets the fix current at its own rx time (A07)
+  [x] sweep_snapshot.h           # one coherent completed-sweep record (A20)
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native
   [x] test_focus_plan/           # one-bin request/source/selection math (phase 12)
@@ -116,6 +121,7 @@ test/
   [x] test_ui_menu/              # ui_menu.h's MenuState, recursive/depth-bounded (phase 6)
   [x] test_cell_plan/            # cell_plan.h's 869-894MHz bin math (phase 11)
   [x] test_cell_observation/     # CellObservation + cell.csv formatting (phase 11)
+  [x] test_file_transaction/     # fake-FS: interrupted settings writes, CSV header repair
 .github/workflows/
   [x] build.yml                  # pio run + pio test on every push/PR + rolling dev-latest release
   [x] release.yml                # vX.Y.Z tag -> draft GitHub Release with Launcher-ready .bin
@@ -155,6 +161,18 @@ docs/
   nothing from the target protocol while still hearing unrelated traffic
   that matches — that exact bug cost several bench sessions
   (docs/history/PROGRESS.md 2026-08-23).
+- **Passive decryption policy (operator decision, 2026-09-07).** Public-channel
+  decryption and decryption with known operator-supplied keys are permitted.
+  Brute-force, dictionary attacks, key guessing, and automated key recovery
+  are out of scope. Operator-key decryption must be an explicit on-device
+  opt-in, disabled until configured and enabled; it must not silently widen
+  the existing public-channel identity decoder. Never put operator keys in
+  source, serial diagnostics, CSVs, browser responses, or shareable exports.
+  Preserve received bytes separately from derived plaintext, and distinguish
+  successful decoding from authenticated identity. Any new decoder needs
+  bounded parsing, memory/CPU budgets, and capture-loss validation. This is
+  permission for a future feature, not a claim that operator-key support ships
+  today. See `SECURITY.md` and `docs/ROADMAP.md`.
 - **Don't assume MeshCore's encryption mirrors Meshtastic's default-PSK
   model** — it doesn't necessarily; MeshCore's own docs warn against this.
 - No large heap buffers. Detection struct is small (~40B); flush to SD
