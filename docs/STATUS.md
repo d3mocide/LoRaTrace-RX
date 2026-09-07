@@ -727,8 +727,8 @@ see the frames that make up the rest of it.
   5 ms all 101 did, and 10 ms added nothing. Fixed by `CELL_SETTLE_MS = 5`
   (~0.5 s per lap). **Cell data captured before this fix is unusable, including
   the "quiet" readings** — the settled median is −91 dBm against −117 dBm
-  unsettled. The fix is flashed but a lap on the production image has not been
-  checked yet.
+  unsettled. **Confirmed on the production image** (run0127): 101 of 101
+  bins written, 99 above −110 dBm, median −95.3 dBm, no comb, 0 drops.
 
 - ~~Bench SD card / boot-loop finding~~ — resolved 2026-09-03. The
   bench Cardputer's `task_wdt` boot-loop (see Phase 10 section above) was
