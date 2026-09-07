@@ -88,7 +88,14 @@ ProfileOverrides activeOverrides;
 struct PendingSwitch {
     MissionProfile profile;
     ChannelParams channel;
+    // A switch that could not get the SPI bus used to be dequeued and lost:
+    // the operator picked a profile, the radio stayed on the old one, and
+    // nothing said so (audit A21). Retried a bounded number of times, then
+    // given up on loudly rather than retried forever — a permanently held bus
+    // must not spin the highest-priority task on Core 1.
+    uint8_t attempts;
 };
+constexpr uint8_t PROFILE_SWITCH_MAX_ATTEMPTS = 3;
 QueueHandle_t profileSwitchQueue = nullptr;
 
 // Same one-slot-mailbox pattern, for Trace pause/standby
@@ -1999,6 +2006,24 @@ void performScopeAcquire(uint32_t freq_khz) {
     scopeActive = false;
 }
 
+// ulTaskNotifyTake(pdTRUE, ...) clears the count, so handling one mailbox and
+// looping consumed the notification that a *second* queued request was
+// relying on: it then waited for the 5s liveness timeout or the next packet
+// (audit A21). Every command path calls this before continuing, so the queues
+// drain at their own pace instead of at the pace of incoming traffic.
+void notifyIfCommandsPending() {
+    if (radioTaskHandle == nullptr) return;
+    const bool pending =
+        (profileSwitchQueue != nullptr && uxQueueMessagesWaiting(profileSwitchQueue) > 0) ||
+        (pauseQueue != nullptr && uxQueueMessagesWaiting(pauseQueue) > 0) ||
+        (discoveryQueue != nullptr && uxQueueMessagesWaiting(discoveryQueue) > 0) ||
+        (energySweepQueue != nullptr && uxQueueMessagesWaiting(energySweepQueue) > 0) ||
+        (cellSweepQueue != nullptr && uxQueueMessagesWaiting(cellSweepQueue) > 0) ||
+        (scopeAcquireQueue != nullptr && uxQueueMessagesWaiting(scopeAcquireQueue) > 0) ||
+        (focusRequestQueue != nullptr && uxQueueMessagesWaiting(focusRequestQueue) > 0);
+    if (pending) xTaskNotifyGive(radioTaskHandle);
+}
+
 void radioTask(void *) {
     memoryStatsRegisterCurrentTask(MemoryTask::RADIO);
     uint8_t buf[DETECTION_RAW_MAX_LEN];
@@ -2018,6 +2043,9 @@ void radioTask(void *) {
                 // Watch (audit A21).
                 homeArmed = lock.held() && radio.startReceive() == RADIOLIB_ERR_NONE;
             }
+            // A request queued while the notification was already consumed
+            // would otherwise wait out another full timeout.
+            notifyIfCommandsPending();
             continue;
         }
 
@@ -2047,11 +2075,18 @@ void radioTask(void *) {
                 tracePaused = false;
                 homeArmed = radio.startReceive() == RADIOLIB_ERR_NONE;
             } else {
-                // The switch is dequeued and gone; the radio is still on the
-                // old channel, so nothing here may claim otherwise.
+                // The radio is still on the old channel, so nothing here may
+                // claim otherwise — and the request is put back rather than
+                // dropped, up to a bounded number of attempts.
                 busMissCount++;
                 homeArmed = false;
+                if (swreq.attempts + 1 < PROFILE_SWITCH_MAX_ATTEMPTS &&
+                    profileSwitchQueue != nullptr) {
+                    swreq.attempts++;
+                    xQueueSendToFront(profileSwitchQueue, &swreq, 0);
+                }
             }
+            notifyIfCommandsPending();
             continue;
         }
 
@@ -2071,12 +2106,14 @@ void radioTask(void *) {
             } else {
                 busMissCount++;
             }
+            notifyIfCommandsPending();
             continue;
         }
 
         bool discoveryReq;
         if (discoveryQueue != nullptr && xQueueReceive(discoveryQueue, &discoveryReq, 0) == pdTRUE) {
             if (discoveryReq && !paused) performDiscoverySweep();
+            notifyIfCommandsPending();
             continue;
         }
 
@@ -2132,6 +2169,7 @@ void radioTask(void *) {
                 // exactly the fabricated column waterfall.h refuses.
                 energyHomeListenCaptureAtPrevComplete = energyHomeListenCaptureTotal;
             }
+            notifyIfCommandsPending();
             continue;
         }
 
@@ -2139,7 +2177,17 @@ void radioTask(void *) {
         if (focusRequestQueue != nullptr &&
             xQueueReceive(focusRequestQueue, &focusRequest, 0) == pdTRUE) {
             if (!paused) performFocusSurvey(focusRequest);
-            else focusPending = false; // a concurrent pause must not reserve Focus forever
+            else {
+                // A concurrent pause must not reserve Focus forever — but
+                // clearing the flag alone left the request with no terminal
+                // result at all, so a caller polling for one waited on
+                // something that had already been thrown away (audit A21).
+                focusPending = false;
+                // CANCELLED, not IDLE: a caller polling for an outcome needs a
+                // terminal state, and "never ran" is what actually happened.
+                focusState = FocusRuntimeState::CANCELLED;
+            }
+            notifyIfCommandsPending();
             continue;
         }
 
@@ -2158,6 +2206,7 @@ void radioTask(void *) {
                 } while (cellRepeatActive && cellState == CellSweepState::COMPLETE && !paused);
                 cellRepeatActive = false;
             }
+            notifyIfCommandsPending();
             continue;
         }
 
@@ -2169,6 +2218,7 @@ void radioTask(void *) {
             // Sweeps") — a UI wanting a continuously-refreshing Scope just
             // re-requests after each COMPLETE (ui_task.cpp, Stage 3).
             if (!paused) performScopeAcquire(scopeReqFreqKhz);
+            notifyIfCommandsPending();
             continue;
         }
 
@@ -2407,12 +2457,30 @@ ProfileOverrides radioActiveOverrides() {
     return activeOverrides; // same small-POD, no-lock convention as above
 }
 
+// True when some *other* bounded action is already queued but has not started.
+// Only Focus checked this; the rest looked at the active flags alone, so two
+// requests could both be accepted while neither action was running and then
+// run one after the other — instead of the second being visibly refused
+// (audit A21). The caller's own queue is excluded: overwriting a request of
+// the same kind is the existing toggle/replace behaviour, not a collision.
+bool anotherActionQueued(QueueHandle_t self) {
+    const QueueHandle_t queues[] = {
+        discoveryQueue, energySweepQueue, cellSweepQueue, scopeAcquireQueue,
+        focusRequestQueue, benchPassBCadQueue, benchRssiWindowQueue,
+    };
+    for (QueueHandle_t queue : queues) {
+        if (queue == nullptr || queue == self) continue;
+        if (uxQueueMessagesWaiting(queue) > 0) return true;
+    }
+    return false;
+}
+
 bool radioRequestProfileSwitch(MissionProfile profile) {
     if (profileSwitchQueue == nullptr || radioTaskHandle == nullptr) return false;
     // resolvedChannelForProfile(), not channelParamsForProfile() directly —
     // otherwise switching to a profile would always use its hardcoded
     // table, silently dropping any loaded SD/web override.
-    PendingSwitch req{profile, resolvedChannelForProfile(activeOverrides, profile)};
+    PendingSwitch req{profile, resolvedChannelForProfile(activeOverrides, profile), 0};
     xQueueOverwrite(profileSwitchQueue, &req);
     // Wakes the radio task immediately even if parked in the 5s liveness
     // wait — otherwise the switch could sit in the mailbox that long.
@@ -2442,7 +2510,10 @@ bool radioRequestDiscoverySweep() {
     // none can preempt another; see radioRequestEnergySweep()'s/
     // radioRequestCellSweep()'s/radioRequestScopeAcquire()'s matching
     // guards.
-    if (tracePaused || energyActive || cellActive || scopeActive || focusActive || focusPending) return false;
+    if (tracePaused || energyActive || cellActive || scopeActive || focusActive ||
+        focusPending || anotherActionQueued(discoveryQueue)) {
+        return false;
+    }
     const bool start = true;
     xQueueOverwrite(discoveryQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -2460,7 +2531,10 @@ bool radioRequestEnergySweep() {
         xTaskNotifyGive(radioTaskHandle);
         return true;
     }
-    if (tracePaused || discoveryActive || cellActive || scopeActive || focusActive || focusPending) return false;
+    if (tracePaused || discoveryActive || cellActive || scopeActive || focusActive ||
+        focusPending || anotherActionQueued(energySweepQueue)) {
+        return false;
+    }
     const bool start = true;
     xQueueOverwrite(energySweepQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -2489,8 +2563,10 @@ bool radioRequestEnergySweepRepeat() {
         }
         return true;
     }
-    if (energyActive || tracePaused || discoveryActive || cellActive || scopeActive || focusActive ||
-        focusPending) return false;
+    if (energyActive || tracePaused || discoveryActive || cellActive || scopeActive ||
+        focusActive || focusPending || anotherActionQueued(energySweepQueue)) {
+        return false;
+    }
     energyRepeatActive = true;
     energyRepeatCount = 0;
     const bool start = true;
@@ -2688,13 +2764,7 @@ bool radioRequestFocusSurvey(const FocusRequest &request) {
         return true;
     }
     if (focusPending || tracePaused || discoveryActive || energyActive || cellActive || scopeActive ||
-        benchPassBCadActive || benchRssiWindowActive ||
-        (discoveryQueue != nullptr && uxQueueMessagesWaiting(discoveryQueue) > 0) ||
-        (energySweepQueue != nullptr && uxQueueMessagesWaiting(energySweepQueue) > 0) ||
-        (cellSweepQueue != nullptr && uxQueueMessagesWaiting(cellSweepQueue) > 0) ||
-        (scopeAcquireQueue != nullptr && uxQueueMessagesWaiting(scopeAcquireQueue) > 0) ||
-        (benchPassBCadQueue != nullptr && uxQueueMessagesWaiting(benchPassBCadQueue) > 0) ||
-        (benchRssiWindowQueue != nullptr && uxQueueMessagesWaiting(benchRssiWindowQueue) > 0)) {
+        benchPassBCadActive || benchRssiWindowActive || anotherActionQueued(focusRequestQueue)) {
         return false;
     }
     if (xQueueOverwrite(focusRequestQueue, &request) != pdPASS) return false;
@@ -2753,7 +2823,10 @@ bool radioRequestCellSweep() {
     }
     // Mutually exclusive with Probe, Sweep, and Scope — same convention as
     // their own guards above.
-    if (tracePaused || discoveryActive || energyActive || scopeActive || focusActive || focusPending) return false;
+    if (tracePaused || discoveryActive || energyActive || scopeActive || focusActive ||
+        focusPending || anotherActionQueued(cellSweepQueue)) {
+        return false;
+    }
     const bool start = true;
     xQueueOverwrite(cellSweepQueue, &start);
     xTaskNotifyGive(radioTaskHandle);
@@ -2780,7 +2853,9 @@ bool radioRequestCellSweepRepeat() {
         return true;
     }
     if (cellActive || tracePaused || discoveryActive || energyActive || scopeActive || focusActive ||
-        focusPending) return false;
+        focusPending || anotherActionQueued(cellSweepQueue)) {
+        return false;
+    }
     cellRepeatActive = true;
     cellRepeatCount = 0;
     const bool start = true;
@@ -2854,7 +2929,10 @@ bool radioRequestScopeAcquire(uint32_t freq_khz) {
     }
     // Mutually exclusive with Probe, Sweep, and Cell — same convention as
     // their own guards above.
-    if (tracePaused || discoveryActive || energyActive || cellActive || focusActive || focusPending) return false;
+    if (tracePaused || discoveryActive || energyActive || cellActive || focusActive ||
+        focusPending || anotherActionQueued(scopeAcquireQueue)) {
+        return false;
+    }
     xQueueOverwrite(scopeAcquireQueue, &freq_khz);
     xTaskNotifyGive(radioTaskHandle);
     return true;
