@@ -128,7 +128,7 @@ constexpr MenuItem DISPLAY_GROUP_ITEMS[] = {
 // "SD: READY" rather than "Retry SD: RETRY" (2026-08-28 operator request).
 constexpr MenuItem CONNECTIVITY_GROUP_ITEMS[] = {
     {"WiFi", ItemKind::ACTION, MenuAction::WIFI_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
-    {"WiFi Key", ItemKind::ACTION, MenuAction::WIFI_KEY_SHOW, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"WiFi Key", ItemKind::INFO, MenuAction::WIFI_KEY_SHOW, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Serial Control", ItemKind::ACTION, MenuAction::SERIAL_CONTROL_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
 constexpr MenuItem DIAGNOSTICS_GROUP_ITEMS[] = {

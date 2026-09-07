@@ -118,7 +118,12 @@ enum class MenuAction : uint8_t {
     FOCUS_TOGGLE,
 };
 
-enum class ItemKind : uint8_t { ACTION, GROUP, SLIDER };
+// INFO rows open a screen that stays up until the operator leaves it, the
+// same enter/leave shape as SLIDER but with nothing to adjust. Added
+// 2026-09-07: the AP key was announced in a toast, and a toast is on screen
+// for TOAST_DURATION_MS — 1.4s, nowhere near long enough to copy twelve
+// characters onto a phone (operator, on hardware).
+enum class ItemKind : uint8_t { ACTION, GROUP, SLIDER, INFO };
 
 // One menu row, at any depth — root-level or nested inside any GROUP.
 // ACTION rows carry `action` and ignore the rest; GROUP rows carry a nested
@@ -160,6 +165,9 @@ public:
     // describe the list *behind* it (unchanged while inSlider(), so BACK
     // can return to exactly where it was).
     bool inSlider() const { return inSlider_; }
+    // True once SELECT has entered an INFO row. Same relationship to the
+    // list behind it as inSlider(), so BACK returns to exactly where it was.
+    bool inInfo() const { return inInfo_; }
 
     const MenuItem *currentList() const {
         return depth_ <= 1 ? roots_ : nodeAt(depth_ - 2).items;
@@ -181,11 +189,13 @@ public:
         depth_ = 1;
         for (uint8_t i = 0; i < MAX_DEPTH; i++) index_[i] = 0;
         inSlider_ = false;
+        inInfo_ = false;
     }
 
     void close() {
         depth_ = 0;
         inSlider_ = false;
+        inInfo_ = false;
     }
 
     // Feeds one key action into whichever level/mode is currently active.
@@ -198,6 +208,7 @@ public:
     MenuAction handle(KeyAction key) {
         if (depth_ == 0) return MenuAction::NONE;
         if (inSlider_) return handleSlider(key);
+        if (inInfo_) return handleInfo(key);
         return handleList(key);
     }
 
@@ -245,6 +256,12 @@ private:
                     inSlider_ = true;
                     break;
                 }
+                if (item.kind == ItemKind::INFO) {
+                    inInfo_ = true;
+                    // Fires once on entry so the caller can refresh whatever
+                    // it is about to display; the screen itself is passive.
+                    return item.action;
+                }
                 // GROUP — open its nested list, one level deeper.
                 if (item.itemCount > 0 && depth_ < MAX_DEPTH) {
                     depth_++;
@@ -277,10 +294,19 @@ private:
             case KeyAction::BACK:
             case KeyAction::SELECT:
                 inSlider_ = false;
+        inInfo_ = false;
                 break;
             default:
                 break;
         }
+        return MenuAction::NONE;
+    }
+
+    // Nothing to adjust, so every key that is not "leave" is a no-op — an
+    // INFO screen must not be dismissible by a stray NEXT/PREV while the
+    // operator is mid-way through typing what it shows.
+    MenuAction handleInfo(KeyAction key) {
+        if (key == KeyAction::BACK || key == KeyAction::SELECT) inInfo_ = false;
         return MenuAction::NONE;
     }
 
@@ -289,4 +315,5 @@ private:
     uint8_t depth_ = 0; // 0 = closed
     uint8_t index_[MAX_DEPTH] = {0};
     bool inSlider_ = false;
+    bool inInfo_ = false;
 };

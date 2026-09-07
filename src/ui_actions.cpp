@@ -144,20 +144,12 @@ void fireMenuAction(MenuAction action) {
             showToast(msg);
             break;
         }
-        case MenuAction::WIFI_KEY_SHOW: {
-            char key[AP_KEY_BUF];
-            wifiApKey(key, sizeof(key));
-            if (key[0] == '\0') {
-                showToast("WiFi key: enable WiFi first");
-            } else if (!wifiApKeyPersisted()) {
-                snprintf(msg, sizeof(msg), "Key %s (unsaved)", key);
-                showToast(msg);
-            } else {
-                snprintf(msg, sizeof(msg), "WiFi key: %s", key);
-                showToast(msg);
-            }
+        case MenuAction::WIFI_KEY_SHOW:
+            // Fired on entry to the INFO screen, which draws the credential
+            // itself and stays up until the operator leaves. Deliberately no
+            // toast: a toast lasts 1.4s and the key takes longer than that to
+            // type into a phone, which is what put this on its own screen.
             break;
-        }
         case MenuAction::DEBUG_TOGGLE:
             loggerDebugToggle();
             showToast(loggerDebugIsEnabled() ? "Debug ON" : "Debug OFF");

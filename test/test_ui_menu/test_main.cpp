@@ -267,8 +267,48 @@ void test_reopen_after_close_resets_to_first_root_item() {
     TEST_ASSERT_EQUAL_UINT8(0, menu.currentIndex());
 }
 
+void test_an_info_row_opens_a_screen_that_survives_stray_keys() {
+    // The AP key lives here (2026-09-07). It exists because a toast lasts
+    // 1.4s and the operator is copying twelve characters into a phone, so a
+    // stray NEXT/PREV must not dismiss it mid-way.
+    static const MenuItem INFO_ITEMS[] = {
+        {"WiFi Key", ItemKind::INFO, MenuAction::WIFI_KEY_SHOW, MenuAction::NONE,
+         MenuAction::NONE, nullptr, 0},
+    };
+    MenuState menu(INFO_ITEMS, 1);
+    menu.open();
+    TEST_ASSERT_FALSE(menu.inInfo());
+
+    // Entry fires the row's action once, so the caller can refresh.
+    TEST_ASSERT_EQUAL(MenuAction::WIFI_KEY_SHOW, menu.handle(KeyAction::SELECT));
+    TEST_ASSERT_TRUE(menu.inInfo());
+
+    TEST_ASSERT_EQUAL(MenuAction::NONE, menu.handle(KeyAction::NEXT));
+    TEST_ASSERT_EQUAL(MenuAction::NONE, menu.handle(KeyAction::PREV));
+    TEST_ASSERT_TRUE(menu.inInfo());
+
+    // BACK leaves it, returning to the list behind it rather than closing.
+    TEST_ASSERT_EQUAL(MenuAction::NONE, menu.handle(KeyAction::BACK));
+    TEST_ASSERT_FALSE(menu.inInfo());
+    TEST_ASSERT_TRUE(menu.isOpen());
+
+    // Enter leaves it too, same as a slider.
+    menu.handle(KeyAction::SELECT);
+    TEST_ASSERT_TRUE(menu.inInfo());
+    menu.handle(KeyAction::SELECT);
+    TEST_ASSERT_FALSE(menu.inInfo());
+
+    // Closing the menu from inside must not leave the flag set.
+    menu.handle(KeyAction::SELECT);
+    TEST_ASSERT_TRUE(menu.inInfo());
+    menu.close();
+    TEST_ASSERT_FALSE(menu.inInfo());
+    TEST_ASSERT_FALSE(menu.isOpen());
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
+    RUN_TEST(test_an_info_row_opens_a_screen_that_survives_stray_keys);
     RUN_TEST(test_starts_closed);
     RUN_TEST(test_open_lands_on_first_root_item);
     RUN_TEST(test_root_next_prev_wrap);

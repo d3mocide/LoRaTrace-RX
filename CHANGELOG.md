@@ -9,6 +9,18 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-07
 
+- **Audit repairs, part 3 (A10–A12, A15, A18, A19, A24, A25).** The AP's
+  shared `loratrace123` is gone — the key is per device, generated on first
+  use and readable only at **System > Connectivity > WiFi Key**, which is a
+  screen that stays up (a 1.4s toast could not be typed from — operator, on
+  hardware). State-changing HTTP endpoints require a per-session CSRF token
+  and an Origin check. `<leaf>?safe` is a spreadsheet-safe export;
+  `cell.csv`/`focus.csv` are downloadable at last; downloads are bounded to
+  their declared length. `WIFI_SET ON;ON` no longer cancels itself out
+  (verified on hardware). Runs get `manifest.txt` with per-boot provenance and
+  a 128-bit session id; `wifi_on` and `qualifying_count` are measured rather
+  than fabricated.
+
 - **Audit repairs, part 1 (A01–A09, A20, A21, A26 partial).** Cell now tunes
   per bin (it never called `begin()`/`setFrequency()`, so every bin reported
   the previous frequency). SD appends check byte counts and CSV headers are

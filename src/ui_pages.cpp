@@ -30,6 +30,7 @@
 #include "ui_labels.h"
 #include "version.h"
 #include "waterfall.h"
+#include "ap_credential.h"
 #include "wifi_task.h"
 
 namespace {
@@ -1609,8 +1610,7 @@ const char *menuEntryValue(MenuAction action) {
         case MenuAction::SELECT_MESHCORE:
             return radioActiveProfile() == MissionProfile::MESHCORE ? "ACTIVE" : "";
         case MenuAction::WIFI_TOGGLE: return wifiIsEnabled() ? "ON" : "OFF";
-        // No value: the key belongs in the toast the row fires, not on a
-        // list that is on screen whenever the menu is open.
+        // An INFO row draws no value; its own screen carries the key.
         case MenuAction::WIFI_KEY_SHOW: return "";
         case MenuAction::DEBUG_TOGGLE: return loggerDebugIsEnabled() ? "ON" : "OFF";
         case MenuAction::IDENTITY_CAPTURE_TOGGLE: return radioIdentityCaptureIsEnabled() ? "ON" : "OFF";
@@ -1834,7 +1834,10 @@ void drawMenuList() {
         if (row == 0 && start > 0) scrollHint = '^';
         else if (row == (uint8_t)(visible - 1) && (uint8_t)(start + visible) < count) scrollHint = 'v';
 
-        if (item.kind == ItemKind::SLIDER) {
+        if (item.kind == ItemKind::INFO) {
+            // The row itself says nothing; the screen it opens is the point.
+            drawMenuRow(y, item.label, "", selected, scrollHint);
+        } else if (item.kind == ItemKind::SLIDER) {
             char valueBuf[12];
             sliderValueLabel(item, valueBuf, sizeof(valueBuf));
             drawMenuRow(y, item.label, valueBuf, selected, scrollHint);
@@ -1885,6 +1888,52 @@ void drawMenuSlider() {
     // handleSlider(), 2026-08-29) — hint text updated so it doesn't go
     // silently out of date the moment a real, working key isn't mentioned.
     uiTft->print(",/. adjust   Enter/` back");
+}
+
+// INFO screen — currently only the AP credential. Stays up until the
+// operator leaves it, because the thing it exists for is being typed into
+// another device one character at a time. The key is drawn at text size 2
+// with its SSID above it; nothing here is logged, exported, or sent anywhere.
+void drawMenuInfo() {
+    char ssid[32] = {0};
+    char key[AP_KEY_BUF] = {0};
+    wifiApSsid(ssid, sizeof(ssid));
+    wifiApKey(key, sizeof(key));
+
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 8);
+    uiTft->print("NETWORK");
+    uiTft->setTextSize(2);
+    uiTft->setTextColor(COL_FG, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 20);
+    uiTft->print(ssid);
+
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(2, HEADER_H + 48);
+    uiTft->print("KEY");
+
+    uiTft->setTextSize(2);
+    if (key[0] == '\0') {
+        uiTft->setTextColor(COL_WARN, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 60);
+        uiTft->print("enable WiFi");
+    } else {
+        uiTft->setTextColor(COL_GOOD, COL_BG);
+        uiTft->setCursor(2, HEADER_H + 60);
+        uiTft->print(key);
+    }
+
+    uiTft->setTextSize(1);
+    uiTft->setTextColor(COL_DIM, COL_BG);
+    uiTft->setCursor(2, uiTft->height() - 19);
+    // Says plainly when this key will not survive a reboot, rather than
+    // letting an operator write down something that is about to change.
+    uiTft->print(key[0] != '\0' && !wifiApKeyPersisted() ? "not saved - changes on reboot"
+                                                          : "stays until you delete wifi.txt");
+    uiTft->setCursor(2, uiTft->height() - 9);
+    uiTft->print("Enter/` back");
 }
 
 // --- Field Analyzer (Phase 10) --------------------------------------------
@@ -2560,6 +2609,8 @@ void drawPage() {
 
     if (menu.isOpen() && menu.inSlider()) {
         drawMenuSlider();
+    } else if (menu.isOpen() && menu.inInfo()) {
+        drawMenuInfo();
     } else if (menu.isOpen()) {
         drawMenuList();
     } else {
