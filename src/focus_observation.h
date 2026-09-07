@@ -185,6 +185,11 @@ struct FocusObservation {
     // phase12-survey-truth-design.md §8). The number is here so a host with
     // ground truth can conclude what the device may not.
     uint16_t qualifying_count = 0;
+    // Sample slots abandoned because the bus made them arrive more than a
+    // whole slot late. They are skipped rather than taken back-to-back to
+    // catch up, so `sample_count` describes samples that really were spaced
+    // the way the row claims (audit A22).
+    uint16_t skipped_samples = 0;
     int16_t rssi_median_dbm_x10 = FOCUS_RSSI_NO_SAMPLE_DBM_X10;
     int16_t rssi_p90_dbm_x10 = FOCUS_RSSI_NO_SAMPLE_DBM_X10;
     int16_t rssi_peak_dbm_x10 = FOCUS_RSSI_NO_SAMPLE_DBM_X10;
@@ -219,7 +224,8 @@ constexpr const char *FOCUS_CSV_HEADER =
     "selection_source,selection_bin_index,freq_mhz,requested_passes,valid_passes,"
     "requested_dwell_ms,observation_ms,requested_samples,sample_count,"
     "rssi_median_dbm,rssi_p90_dbm,rssi_peak_dbm,qualifying_count,coverage,"
-    "request_status,home_restore,wifi_on,radio_status,partial_observation_ms";
+    "request_status,home_restore,wifi_on,radio_status,partial_observation_ms,"
+    "skipped_samples";
 
 inline void focusFormatRssiOrBlank(int16_t rssi_dbm_x10, char *out, size_t out_size) {
     if (rssi_dbm_x10 == FOCUS_RSSI_NO_SAMPLE_DBM_X10) {
@@ -254,7 +260,7 @@ inline size_t focusObservationFormatCsv(const FocusObservation &observation,
     // they were unmeasured.
     const int n = snprintf(
         out, out_size,
-        "%s,%s,%s,%u,%u,%lu,%s,%u,%s,%u,%.3f,%u,%u,%u,%lu,%u,%u,%s,%s,%s,%u,%s,%s,%u,%u,%d,%lu",
+        "%s,%s,%s,%u,%u,%lu,%s,%u,%s,%u,%.3f,%u,%u,%u,%lu,%u,%u,%s,%s,%s,%u,%s,%s,%u,%u,%d,%lu,%u",
         timestamp_utc ? timestamp_utc : "", latbuf, lonbuf,
         (unsigned)fix_quality, (unsigned)run, (unsigned long)observation.rx_millis,
         missionProfileName(observation.profile), (unsigned)observation.focus_id,
@@ -267,7 +273,8 @@ inline size_t focusObservationFormatCsv(const FocusObservation &observation,
         focusCoverageLabelName(observation.coverage),
         focusRequestStatusName(observation.request_status),
         (unsigned)observation.home_restore, (unsigned)observation.wifi_on,
-        (int)observation.radio_status, (unsigned long)observation.partial_observation_ms);
+        (int)observation.radio_status, (unsigned long)observation.partial_observation_ms,
+        (unsigned)observation.skipped_samples);
 
     if (n < 0 || (size_t)n >= out_size) return 0;
     return (size_t)n;

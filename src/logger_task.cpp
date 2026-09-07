@@ -106,6 +106,21 @@ volatile uint32_t rowsDropped = 0;
 // separately from row drops for that reason (audit A02).
 volatile uint32_t shortWrites = 0;
 volatile uint32_t csvRepairs = 0;
+// SD outage accounting (audit A26). The card being gone is exactly when a
+// health row cannot be written, so the outage has to be remembered in RAM and
+// reported once the card is back.
+uint32_t sdOutageStartedMs = 0;
+volatile uint32_t sdOutageCount = 0;
+volatile uint32_t sdLastOutageMs = 0;
+
+// Every path that loses the card goes through here, so the outage clock starts
+// exactly once no matter which writer noticed first.
+void noteSdDown() {
+    if (!sdReady) return;
+    sdReady = false;
+    sdOutageStartedMs = millis();
+    sdOutageCount++;
+}
 // Detection rows accepted into a batch without a fresh GPS position. The
 // wardriving quality number: a detection logged without one is a wasted data
 // point, and nothing on the device said so before (GPS card, 2026-09-06).
@@ -250,8 +265,11 @@ bool openLogsLocked(bool remount) {
 
     // Resolve the run once per power-on, not once per mount, so a card
     // pulled and reseated mid-drive rejoins the run it left rather than
-    // splitting one drive across two folders — the gap shows up as `sd`
-    // going down and back in this run's own health rows.
+    // splitting one drive across two folders. The outage itself is reported
+    // by the `reason=sd_recovered` row written on remount, carrying its
+    // duration — a health row cannot be written while the card is gone, so
+    // before that row existed an outage was only a silent gap between rows
+    // (audit A26).
     if (runIndex == 0) {
         const uint16_t highest = highestRunIndexLocked();
         runIndex = runNextIndex(highest);
@@ -376,14 +394,14 @@ void flushBatch() {
             // Part of this batch is on the card and part is not. Retrying
             // would duplicate the committed part, so the whole batch is
             // charged as dropped and the card is treated as gone.
-            sdReady = false;
+            noteSdDown();
             rowsDropped += batchRows;
             break;
         case WriteResult::FILE_ERROR:
             // The card went away mid-session. Drop this batch and fall back
             // to the retry path; buffering indefinitely would just consume
             // RAM on a device whose datastore is gone.
-            sdReady = false;
+            noteSdDown();
             rowsDropped += batchRows;
             break;
         case WriteResult::OK:
@@ -452,6 +470,8 @@ void writeSessionRow(const char *reason) {
     s.rearm_errors = radioRearmErrorCount();
     s.home_ready = radioHomeIsReady();
     s.session_id = sessionId;
+    s.sd_outages = sdOutageCount;
+    s.sd_last_outage_ms = sdLastOutageMs;
     s.queue_drops = radioQueueDropCount();
     s.bus_misses = radioBusMissCount();
 
@@ -607,7 +627,7 @@ void appendScanObservation(const ScanObservation &observation) {
         scanRowsWritten++;
     } else {
         scanRowsDropped++;
-        if (writeFailedHard(result)) sdReady = false;
+        if (writeFailedHard(result)) noteSdDown();
     }
 }
 
@@ -643,7 +663,7 @@ void appendEnergyObservation(const EnergyObservation &observation) {
         energyRowsWritten++;
     } else {
         energyRowsDropped++;
-        if (writeFailedHard(result)) sdReady = false;
+        if (writeFailedHard(result)) noteSdDown();
     }
 }
 
@@ -679,7 +699,7 @@ void appendCellObservation(const CellObservation &observation) {
         cellRowsWritten++;
     } else {
         cellRowsDropped++;
-        if (writeFailedHard(result)) sdReady = false;
+        if (writeFailedHard(result)) noteSdDown();
     }
 }
 
@@ -707,7 +727,7 @@ void appendFocusObservation(const FocusObservation &observation) {
     if (result == WriteResult::OK) focusRowsWritten++;
     else {
         focusRowsDropped++;
-        if (writeFailedHard(result)) sdReady = false;
+        if (writeFailedHard(result)) noteSdDown();
     }
 }
 
@@ -737,7 +757,7 @@ void appendNodeIdentity(const NodeIdentity &identity) {
         identityRowsWritten++;
     } else {
         identityRowsDropped++;
-        if (writeFailedHard(result)) sdReady = false;
+        if (writeFailedHard(result)) noteSdDown();
     }
 }
 
@@ -833,8 +853,17 @@ void loggerTask(void *) {
         // is recoverable; unattended retries are not.
         if (!sdReady && sdRetryRequested) {
             sdRetryRequested = false;
-            SpiBusLock lock(BUS_WAIT);
-            if (lock.held()) sdReady = openLogsLocked(true);
+            bool recovered = false;
+            {
+                SpiBusLock lock(BUS_WAIT);
+                if (lock.held()) recovered = openLogsLocked(true);
+            }
+            if (recovered) {
+                sdLastOutageMs = millis() - sdOutageStartedMs;
+                sdReady = true;
+                // First thing written to the recovered card: what was missed.
+                writeSessionRow("sd_recovered");
+            }
         }
 
         // Health row last, so it samples counters that include this pass's

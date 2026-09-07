@@ -52,10 +52,22 @@ constexpr uint8_t PASS_B_SF_BW_CANDIDATE_COUNT =
 // 8 strongest peaks, decided after the full sweep" — revised 2026-08-28
 // (operator observation: a deferred pass can arrive after a brief
 // transmitter has already gone quiet) to "the first 8 peaks encountered,
-// checked immediately upon discovery." Same worst-case cost either way: at
-// PASS_B_SF_BW_CANDIDATE_COUNT (10) combos x Probe's existing 300ms CAD
-// timeout, ~24s worst-case total across one Sweep run — revisable once the
-// hardware bench matrix exists.
+// checked immediately upon discovery."
+//
+// The cost note here used to read "~24s worst-case total across one Sweep
+// run", from 8 peaks x PASS_B_SF_BW_CANDIDATE_COUNT (10) combos x Probe's
+// 300ms CAD timeout. **That figure was wrong** (audit A22): it counted only
+// the CAD timeouts and ignored what a CAD *hit* costs. Every detection opens
+// a DISCOVERY_RX_WINDOW_MS receive window — 2500ms — so the same 80 attempts
+// bound at 80 x (300 + 2500) = 224s, before per-combo retune and SPI-bus
+// waits. Two orders of magnitude is the difference between "a pause" and
+// "the receiver is gone for four minutes".
+//
+// Note also what kind of number this is: a conservative arithmetic bound over
+// the slowest path, not a measurement of a typical sweep. Most peaks miss on
+// most combos and cost only the CAD timeout. Sweep's own whole-action budget
+// is what actually stops a lap running away (action_budget.h); this constant
+// bounds how much work is *attempted*, which is a different thing.
 constexpr uint16_t PASS_B_MAX_PEAKS_PER_SWEEP = 8;
 
 // Per-combo evidentiary weight, descriptive only -- never gates whether a

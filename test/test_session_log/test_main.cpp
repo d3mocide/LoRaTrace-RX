@@ -126,7 +126,7 @@ void test_row_with_fix_carries_position_and_counters() {
         "912,0,71,38,26,ok,0,"
         "58000,3,338496,301112,3765,2144,7,"
         "18,0,200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,"
-        "9,2,3,1,0,3,1500,7112,4820,1960,0,0,0,0,down,",
+        "9,2,3,1,0,3,1500,7112,4820,1960,0,0,0,0,down,,0,0",
         row);
 }
 
@@ -243,7 +243,7 @@ void test_phase7_memory_diagnostics_precede_probe_identity_and_cell_counters() {
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     const char *suffix =
         "200000,19,155,3000,2200,2100,5000,12,1,6,4,2,1,8,0,2,1900,11,1,9,2,3,1,0,3,1500,"
-        "7112,4820,1960,0,0,0,0,down,";
+        "7112,4820,1960,0,0,0,0,down,,0,0";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -259,7 +259,7 @@ void test_cell_diagnostics_precede_analyzer_static_bytes() {
     SessionStats s = healthySample();
     char row[320];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
-    const char *suffix = "9,2,3,1,0,3,1500,7112,4820,1960,0,0,0,0,down,";
+    const char *suffix = "9,2,3,1,0,3,1500,7112,4820,1960,0,0,0,0,down,,0,0";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -277,7 +277,7 @@ void test_ui_redraw_cost_precedes_the_sd_fault_columns() {
     char row[384];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     TEST_ASSERT_TRUE(n > 0);
-    const char *suffix = "12345,9100,2050,0,0,0,0,down,";
+    const char *suffix = "12345,9100,2050,0,0,0,0,down,,0,0";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -293,7 +293,7 @@ void test_sd_write_faults_precede_the_reception_columns() {
     char row[384];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     TEST_ASSERT_TRUE(n > 0);
-    const char *suffix = "4820,1960,3,1,0,0,down,";
+    const char *suffix = "4820,1960,3,1,0,0,down,,0,0";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
 }
@@ -312,9 +312,27 @@ void test_reception_faults_are_reported_separately() {
     char row[384];
     size_t n = sessionFormatCsv(s, row, sizeof(row), "");
     TEST_ASSERT_TRUE(n > 0);
-    const char *suffix = "5,2,armed,0123456789abcdef0123456789abcdef";
+    const char *suffix = "5,2,armed,0123456789abcdef0123456789abcdef,0,0";
     TEST_ASSERT_TRUE(n >= strlen(suffix));
     TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
+}
+
+void test_an_sd_outage_is_reported_rather_than_left_as_a_gap() {
+    // Audit A26: writeSessionRow() returns early while the card is missing,
+    // so an outage used to be nothing but a hole between two `sd=ok` rows —
+    // visible to a human reading the file, invisible to anything counting.
+    // The recovery row carries the outage instead.
+    SessionStats s = healthySample();
+    s.reason = "sd_recovered";
+    s.sd_outages = 2;
+    s.sd_last_outage_ms = 47000;
+    char row[416];
+    size_t n = sessionFormatCsv(s, row, sizeof(row), "");
+    TEST_ASSERT_TRUE(n > 0);
+    const char *suffix = "2,47000";
+    TEST_ASSERT_TRUE(n >= strlen(suffix));
+    TEST_ASSERT_EQUAL_STRING(suffix, row + n - strlen(suffix));
+    TEST_ASSERT_TRUE(strstr(row, "sd_recovered") != NULL);
 }
 
 void test_header_column_count_matches_a_rendered_row() {
@@ -402,6 +420,7 @@ int main(int, char **) {
     RUN_TEST(test_ui_redraw_cost_precedes_the_sd_fault_columns);
     RUN_TEST(test_sd_write_faults_precede_the_reception_columns);
     RUN_TEST(test_reception_faults_are_reported_separately);
+    RUN_TEST(test_an_sd_outage_is_reported_rather_than_left_as_a_gap);
     RUN_TEST(test_header_column_count_matches_a_rendered_row);
     RUN_TEST(test_plausible_long_run_row_fits_the_device_buffer);
     RUN_TEST(test_truncation_is_reported);

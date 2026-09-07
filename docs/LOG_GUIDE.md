@@ -181,6 +181,12 @@ Five columns added 2026-09-07 answer questions the older ones could not:
   damaged or foreign files before this run started; check for `.bad` files in
   the run directory.
 
+`sd_outages` and `sd_last_outage_ms` (added 2026-09-07, audit A26) count
+times the card went away this run and how long the most recent gap lasted. A
+health row cannot be written while the card is missing, so an outage used to be
+nothing but a hole between two `sd=ok` rows. A **`reason=sd_recovered`** row is
+now written the moment the card comes back, carrying the outage duration.
+
 `session_id` names the boot that wrote the row. A card reseated mid-drive
 rejoins the run directory it left on purpose, so the run number alone cannot
 separate two boots' rows; `manifest.txt` carries a matching block per boot.
@@ -240,6 +246,15 @@ Read the row in this order:
 - `qualifying_count` is the number of samples that sat above the pass's own
   median by the qualifying margin. It is the count that survived controlled
   measurement where every RSSI summary statistic failed.
+- `skipped_samples` (2026-09-07, audit A22) counts sample slots abandoned
+  because the SPI bus made them arrive more than a full slot late. They are
+  skipped rather than taken back-to-back to catch up, so `sample_count` and the
+  requested spacing describe samples that really were spaced that way. A
+  non-zero value means the pass was measured under contention — not that
+  anything was wrong with the signal.
+- `partial_observation_ms` is sampling time from a pass that did not qualify
+  for coverage credit. A cancelled or failed pass used to report
+  `observation_ms` 0 whatever it had actually sampled.
 
 Two things this file deliberately does not tell you:
 

@@ -1,5 +1,7 @@
 #include "radio_task.h"
 
+#include "action_budget.h"
+
 #include <Arduino.h>
 #include <RadioLib.h>
 
@@ -386,6 +388,20 @@ constexpr uint32_t ENERGY_SAMPLE_INTERVAL_MS = 1;
 // Cell/Sweep/Probe already established as reasonable for a field
 // instrument.
 constexpr uint32_t SCOPE_SAMPLE_INTERVAL_MS = 20;
+// Whole-action radio-away budgets (action_budget.h, audit A22). Each is the
+// nominal work plus room for contention, not a target: an action that reaches
+// its deadline stops starting new work and restores home. The restore
+// allowance is separate because abandoning a restore leaves the radio deaf.
+//
+// Scope: 240 samples x 20ms = 4.8s nominal. Before this, every one of those
+// samples could wait BUS_WAIT for the SPI bus and again for the display's
+// trace mutex, so the honest worst case was minutes.
+constexpr uint32_t SCOPE_ACQUISITION_BUDGET_MS = 9000;
+constexpr uint32_t ACTION_RESTORE_BUDGET_MS = 3000;
+// Cell: 101 bins x (full begin() + CELL_SETTLE_MS + 4 samples) measured at
+// 9.8-11.3s on hardware 2026-09-07; 20s leaves room for a contended bus
+// without letting a lap run indefinitely.
+constexpr uint32_t CELL_ACQUISITION_BUDGET_MS = 20000;
 
 uint8_t discoveryCadSymbolConfig() {
     switch (benchCadSymbols()) {
@@ -753,13 +769,15 @@ bool restoreHomeListen(const ChannelParams &homeChannel, MissionProfile homeProf
 
 void enqueueFocusObservation(const FocusRequest &request, const FocusRssiHistogram &histogram,
                              FocusRuntime &runtime, uint16_t focusId, bool restored,
-                             int16_t operationStatus, const ChannelParams &passChannel) {
+                             int16_t operationStatus, const ChannelParams &passChannel,
+                             uint16_t skippedSamples) {
     FocusObservation observation;
     observation.rx_millis = millis();
     observation.observation_ms = runtime.observation_ms;
     observation.partial_observation_ms = runtime.partial_observation_ms;
     observation.qualifying_count =
         focusHistogramCountAboveMedian(histogram, FOCUS_QUALIFYING_MARGIN_DBM_X10);
+    observation.skipped_samples = skippedSamples;
     observation.wifi_on = wifiActiveDuringAcquisition;
     observation.freq_mhz = focusRequestFrequencyMhz(request);
     observation.focus_id = focusId;
@@ -830,6 +848,7 @@ void performFocusSurvey(const FocusRequest &request) {
     const ChannelParams homeChannel = activeChannel;
     const MissionProfile homeProfile = activeProfile;
     const uint16_t focusId = ++focusNextId;
+    uint16_t skippedSamples = 0;
     FocusRssiHistogram histogram;
     const float frequency = focusRequestFrequencyMhz(request);
     // Consumed here, not at the delay below, so an armed stall cannot survive
@@ -857,6 +876,10 @@ void performFocusSurvey(const FocusRequest &request) {
     } else if (!skipSampling &&
                !applyFocusBenchFault(BenchFaultPoint::AFTER_RETUNE, runtime)) {
         const uint32_t passStarted = millis();
+        const uint32_t sampleSpacingMs =
+            request.requested_samples > 1
+                ? (uint32_t)request.requested_dwell_ms / (request.requested_samples - 1)
+                : request.requested_dwell_ms;
         // The dwell schedule alone does not bound radio-away time: every
         // sample waits on the shared SPI bus, so a contended bus stretches
         // the pass. Past this the request stops sampling and terminates as
@@ -889,6 +912,14 @@ void performFocusSurvey(const FocusRequest &request) {
                 vTaskDelay(1);
             }
             if (runtime.cancelled || runtime.timed_out) break;
+            // A slot the bus made more than a whole spacing late is abandoned,
+            // not taken immediately. Firing delayed samples back-to-back to
+            // catch up produced a burst whose real spacing was nothing like
+            // the spacing the row reports (audit A22).
+            if (!actionSampleIsOnTime(target, millis(), sampleSpacingMs)) {
+                skippedSamples++;
+                continue;
+            }
             float rssi = 0.0f;
             bool gotSample = false;
             {
@@ -926,7 +957,7 @@ void performFocusSurvey(const FocusRequest &request) {
     // A failed recovery is more actionable than the original request error.
     if (!restored) operationStatus = (int16_t)lastError;
     enqueueFocusObservation(request, histogram, runtime, focusId, restored, operationStatus,
-                            homeChannel);
+                            homeChannel, skippedSamples);
     focusState = runtime.state;
     focusLastAwayMs = millis() - awayStarted;
     focusCancelRequested = false;
@@ -1754,6 +1785,9 @@ void performCellSweep() {
     // discard.
     ulTaskNotifyTake(pdTRUE, 0);
 
+    const ActionBudget budget =
+        actionBudgetBegin(awayStarted, CELL_ACQUISITION_BUDGET_MS, ACTION_RESTORE_BUDGET_MS);
+
     // Iteration order is a bench-only knob for the A29 investigation; the row
     // still carries its true bin index either way, so a comb that follows
     // frequency under reversal is real RF and one that follows position is a
@@ -1763,6 +1797,14 @@ void performCellSweep() {
         const uint16_t bin = reversed ? (uint16_t)(totalBins - 1 - step) : step;
         if (cellAbortPending()) {
             aborted = true;
+            break;
+        }
+        // 101 bins is a work count, not a time bound: each bin's begin(),
+        // settle and four samples can each wait on a contended bus (A22).
+        if (actionBudgetAcquisitionExpired(budget, millis())) {
+            // A lap that ran out of budget did not complete, so it counts as a
+            // failure once, through the same path every other failure uses.
+            failed = true;
             break;
         }
         cellBinIndexState = bin;
@@ -1868,10 +1910,20 @@ void performScopeAcquire(uint32_t freq_khz) {
     // discard.
     ulTaskNotifyTake(pdTRUE, 0);
 
-    if (xSemaphoreTake(scopeTraceMutex, portMAX_DELAY) == pdTRUE) {
+    const ActionBudget budget =
+        actionBudgetBegin(awayStarted, SCOPE_ACQUISITION_BUDGET_MS, ACTION_RESTORE_BUDGET_MS);
+
+    // Bounded, not portMAX_DELAY: this mutex is held by Core 0's drawing code,
+    // and the radio task must never wait on it without end (audit A22). A
+    // trace that cannot be reset is not written to at all, rather than having
+    // this acquisition's samples pushed in alongside the previous one's.
+    bool traceReady = false;
+    if (xSemaphoreTake(scopeTraceMutex, BUS_WAIT) == pdTRUE) {
         scopeTraceReset(sharedScopeTrace, freq, (uint16_t)SCOPE_SAMPLE_INTERVAL_MS, awayStarted);
         xSemaphoreGive(scopeTraceMutex);
+        traceReady = true;
     }
+    if (!traceReady) failed = true;
 
     bool tuned = false;
     {
@@ -1894,23 +1946,34 @@ void performScopeAcquire(uint32_t freq_khz) {
     }
 
     bool aborted = false;
-    if (tuned) {
+    if (tuned && traceReady) {
         for (uint16_t s = 0; s < SCOPE_MAX_SAMPLES; s++) {
             if (scopeAbortPending()) {
                 aborted = true;
                 break;
             }
+            // A sample count is not a time bound; this is (audit A22).
+            if (actionBudgetAcquisitionExpired(budget, millis())) {
+                failed = true;
+                break;
+            }
+            float rssi = 0.0f;
+            bool gotSample = false;
             {
                 SpiBusLock lock(BUS_WAIT);
                 if (lock.held()) {
-                    const float rssi = radio.getRSSI(false); // instantaneous, not last-packet
-                    if (xSemaphoreTake(scopeTraceMutex, BUS_WAIT) == pdTRUE) {
-                        scopeTracePush(sharedScopeTrace, rssi);
-                        xSemaphoreGive(scopeTraceMutex);
-                    }
+                    rssi = radio.getRSSI(false); // instantaneous, not last-packet
+                    gotSample = true;
                 } else {
                     busMissCount++;
                 }
+            }
+            // Trace mutex taken only after the bus is released. Nesting them
+            // held the SX1262's bus for as long as Core 0's drawing code held
+            // this mutex, which is the shared-resource rule inverted.
+            if (gotSample && xSemaphoreTake(scopeTraceMutex, BUS_WAIT) == pdTRUE) {
+                scopeTracePush(sharedScopeTrace, rssi);
+                xSemaphoreGive(scopeTraceMutex);
             }
             vTaskDelay(pdMS_TO_TICKS(SCOPE_SAMPLE_INTERVAL_MS));
         }

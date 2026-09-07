@@ -100,6 +100,13 @@ struct SessionStats {
     // purpose, so the run number alone cannot separate two boots' rows;
     // manifest.txt carries the matching session block (audit A25).
     const char *session_id = "";
+    // SD outages this run, and how long the most recent one lasted. Health
+    // rows cannot be written while the card is gone, so an outage was
+    // previously only a *gap* between rows — visible if you were looking for
+    // it, invisible to anything counting (audit A26). A `reason=sd_recovered`
+    // row carries these the moment the card comes back.
+    uint32_t sd_outages = 0;
+    uint32_t sd_last_outage_ms = 0;
     uint32_t bus_contention = 0;
 
     // --- System ---
@@ -202,7 +209,8 @@ constexpr const char *SESSION_CSV_HEADER =
     "cell_observations,cell_observation_drops,cell_runs,cell_cancels,"
     "cell_failures,cell_recoveries,cell_last_away_ms,analyzer_static_bytes,"
     "ui_redraw_max_us,ui_redraw_mean_us,"
-    "sd_short_writes,sd_csv_repairs,read_err,rearm_err,home,session_id";
+    "sd_short_writes,sd_csv_repairs,read_err,rearm_err,home,session_id,"
+    "sd_outages,sd_last_outage_ms";
 
 // Renders one health row into `out`. `timestamp_utc` comes from the same
 // detectionFormatTimestamp() the detection rows use, and is empty before
@@ -238,7 +246,7 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,%lu,%lu,%lu,%lu,"
                      "%lu,%lu,%lu,"
-                     "%lu,%lu,%lu,%lu,%s,%s",
+                     "%lu,%lu,%lu,%lu,%s,%s,%lu,%lu",
                      timestamp_utc ? timestamp_utc : "",
                      (unsigned long)s.uptime_s,
                      s.reason ? s.reason : "",
@@ -301,7 +309,9 @@ inline size_t sessionFormatCsv(const SessionStats &s, char *out, size_t outSize,
                      (unsigned long)s.read_errors,
                      (unsigned long)s.rearm_errors,
                      s.home_ready ? "armed" : "down",
-                     s.session_id ? s.session_id : "");
+                     s.session_id ? s.session_id : "",
+                     (unsigned long)s.sd_outages,
+                     (unsigned long)s.sd_last_outage_ms);
 
     if (n < 0 || (size_t)n >= outSize) return 0; // truncated — drop the row
     return (size_t)n;
