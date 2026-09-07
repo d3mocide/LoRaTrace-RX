@@ -257,6 +257,20 @@ void handleFrame(const SerialControlFrame &frame) {
                 sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
             }
             break;
+        case SerialControlOpcode::BENCH_CELL:
+            // A29 investigation knobs (bench image only): ORDER=FWD|REV and
+            // SETTLE=<0-50>. The ACK echoes both so a fixture's log records
+            // the condition each lap actually ran under.
+            if (benchCellConfigure(frame.argument)) {
+                char argument[32] = {};
+                snprintf(argument, sizeof(argument), "ORDER=%s;SETTLE=%u",
+                         benchCellOrderReversed() ? "REV" : "FWD",
+                         (unsigned)benchCellSettleMs());
+                sendFrame(frame.sequence, SerialControlOpcode::ACK, argument);
+            } else {
+                sendFrame(frame.sequence, SerialControlOpcode::ERROR, "UNSUPPORTED");
+            }
+            break;
         case SerialControlOpcode::BENCH_SWEEP_SETTLE:
             if (benchSweepSettleConfigure(frame.argument)) {
                 char argument[20] = {};

@@ -1,5 +1,7 @@
 #include "bench_fault.h"
 
+#include "cell_plan.h"
+
 #include <string.h>
 
 #include "energy_observation.h"
@@ -24,6 +26,8 @@ volatile int16_t sweepMarginDbmX10 = ENERGY_DEFAULT_THRESHOLD_MARGIN_DBM_X10;
 // false = the shipped light retune; true = a full begin() at every bin.
 volatile bool sweepRetuneFullEveryBin = false;
 volatile uint16_t sweepSettleMs = ENERGY_SWEEP_SETTLE_DEFAULT_MS;
+bool cellOrderReversed = false;
+uint16_t cellSettleMs = CELL_SETTLE_MS;
 
 volatile EnergyObservationResult passBCadLastResult = EnergyObservationResult::RADIO_ERROR;
 volatile bool passBCadHaveResult = false;
@@ -147,6 +151,47 @@ unsigned char benchCadSymbols() {
     return 2;
 #else
     return cadSymbols;
+#endif
+}
+
+bool benchCellConfigure(const char *argument) {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    (void)argument;
+    return false;
+#else
+    if (argument == nullptr || argument[0] == '\0') return false;
+    if (strcmp(argument, "ORDER=FWD") == 0) { cellOrderReversed = false; return true; }
+    if (strcmp(argument, "ORDER=REV") == 0) { cellOrderReversed = true; return true; }
+    if (strncmp(argument, "SETTLE=", 7) == 0) {
+        const char *value = argument + 7;
+        if (*value == '\0') return false;
+        unsigned int parsed = 0;
+        for (const char *p = value; *p; ++p) {
+            if (*p < '0' || *p > '9') return false;
+            parsed = parsed * 10U + (unsigned int)(*p - '0');
+            if (parsed > 50U) return false;
+        }
+        cellSettleMs = (uint16_t)parsed;
+        return true;
+    }
+    return false;
+#endif
+}
+
+bool benchCellOrderReversed() {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    return false;
+#else
+    return cellOrderReversed;
+#endif
+}
+
+uint16_t benchCellSettleMs() {
+#if !defined(LORATRACE_BENCH_FAULTS)
+    // Production ships the measured value; only the bench image can vary it.
+    return CELL_SETTLE_MS;
+#else
+    return cellSettleMs;
 #endif
 }
 

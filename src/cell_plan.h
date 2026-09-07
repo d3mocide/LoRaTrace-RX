@@ -23,6 +23,27 @@
 // end, there's no rolloff caveat here.
 constexpr float CELL_SWEEP_BAND_LO_MHZ = 869.0f;
 constexpr float CELL_SWEEP_BAND_HI_MHZ = 894.0f;
+// Wait after startReceive() before the first RSSI sample of a bin.
+//
+// Measured 2026-09-07 on hardware (audit A29), two interleaved reps per
+// value, 101 bins each:
+//
+//   settle  valid bins  median      settle  valid bins  median
+//        0    33.5/101  -117.0 dBm       3    92.5/101   -98.0 dBm
+//        1    44.0/101  -111.8 dBm       5   101.0/101   -91.3 dBm
+//        2    83.5/101  -101.4 dBm      10   101.0/101   -90.8 dBm
+//
+// At 0 the receiver is sampled before it has settled, and two thirds of bins
+// return a floor value that belongs to no frequency in particular — which is
+// what produced the shifting 0.75MHz comb A29 describes. 5ms is the knee: it
+// is the smallest value where every bin reads, and 10ms buys nothing but ~1s
+// of lap time. Costs ~0.5s across a 101-bin lap.
+//
+// The same 5ms was found independently on 2026-09-04 while investigating the
+// light-retune port, then lost when that port was reverted (see the revert
+// note in radio_task.cpp's performCellSweep).
+constexpr uint16_t CELL_SETTLE_MS = 5;
+
 constexpr uint32_t CELL_SWEEP_BAND_LO_KHZ = 869000;
 constexpr uint32_t CELL_SWEEP_BAND_HI_KHZ = 894000;
 

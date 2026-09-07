@@ -52,6 +52,7 @@ enum class SerialControlOpcode : uint8_t {
     BENCH_SWEEP_MARGIN,
     BENCH_SWEEP_RETUNE,
     BENCH_SWEEP_SETTLE,
+    BENCH_CELL,
     BENCH_PASS_B_CAD,
     BENCH_SWEEP_FLOOR,
     BENCH_RSSI_WINDOW,
@@ -103,6 +104,7 @@ inline const char *serialControlOpcodeName(SerialControlOpcode opcode) {
         case SerialControlOpcode::BENCH_SWEEP_MARGIN: return "BENCH_SWEEP_MARGIN";
         case SerialControlOpcode::BENCH_SWEEP_RETUNE: return "BENCH_SWEEP_RETUNE";
         case SerialControlOpcode::BENCH_SWEEP_SETTLE: return "BENCH_SWEEP_SETTLE";
+        case SerialControlOpcode::BENCH_CELL: return "BENCH_CELL";
         case SerialControlOpcode::BENCH_PASS_B_CAD: return "BENCH_PASS_B_CAD";
         case SerialControlOpcode::BENCH_SWEEP_FLOOR: return "BENCH_SWEEP_FLOOR";
         case SerialControlOpcode::BENCH_RSSI_WINDOW: return "BENCH_RSSI_WINDOW";
@@ -138,6 +140,7 @@ inline SerialControlOpcode serialControlOpcodeFromName(const char *name) {
     if (strcmp(name, "BENCH_SWEEP_MARGIN") == 0) return SerialControlOpcode::BENCH_SWEEP_MARGIN;
     if (strcmp(name, "BENCH_SWEEP_RETUNE") == 0) return SerialControlOpcode::BENCH_SWEEP_RETUNE;
     if (strcmp(name, "BENCH_SWEEP_SETTLE") == 0) return SerialControlOpcode::BENCH_SWEEP_SETTLE;
+    if (strcmp(name, "BENCH_CELL") == 0) return SerialControlOpcode::BENCH_CELL;
     if (strcmp(name, "BENCH_PASS_B_CAD") == 0) return SerialControlOpcode::BENCH_PASS_B_CAD;
     if (strcmp(name, "BENCH_SWEEP_FLOOR") == 0) return SerialControlOpcode::BENCH_SWEEP_FLOOR;
     if (strcmp(name, "BENCH_RSSI_WINDOW") == 0) return SerialControlOpcode::BENCH_RSSI_WINDOW;

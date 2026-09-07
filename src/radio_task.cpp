@@ -1754,7 +1754,13 @@ void performCellSweep() {
     // discard.
     ulTaskNotifyTake(pdTRUE, 0);
 
-    for (uint16_t bin = 0; bin < totalBins; bin++) {
+    // Iteration order is a bench-only knob for the A29 investigation; the row
+    // still carries its true bin index either way, so a comb that follows
+    // frequency under reversal is real RF and one that follows position is a
+    // misattributed reading (bench_fault.h). Production always runs forward.
+    const bool reversed = benchCellOrderReversed();
+    for (uint16_t step = 0; step < totalBins; step++) {
+        const uint16_t bin = reversed ? (uint16_t)(totalBins - 1 - step) : step;
         if (cellAbortPending()) {
             aborted = true;
             break;
@@ -1782,6 +1788,16 @@ void performCellSweep() {
                                    (int16_t)beginState);
             failed = true;
             break;
+        }
+
+        // Settle before sampling. begin()'s own overhead was assumed to
+        // supply this; measurement says it does not, and without a real wait
+        // two thirds of bins return a floor value belonging to no particular
+        // frequency (cell_plan.h's CELL_SETTLE_MS table, audit A29). Outside
+        // any bus lock: the radio task never delays while holding it.
+        {
+            const uint16_t settleMs = benchCellSettleMs();
+            if (settleMs > 0) vTaskDelay(pdMS_TO_TICKS(settleMs));
         }
 
         EnergyBinStats stats;

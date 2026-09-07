@@ -83,6 +83,23 @@ bool benchSweepRetuneFullEveryBin();
 bool benchSweepSettleConfigure(const char *argument);
 uint16_t benchSweepSettleMs();
 
+// Bench-image-only controls for the A29 investigation (Cell attributes RSSI
+// to the wrong bins — docs/research/2026-09-07-v1.1.0-v2-audit.md §14).
+//
+// ORDER=REV runs a Cell lap from the top bin down while every row still
+// carries its true bin_index/freq_mhz. That is the discriminator: a comb that
+// stays at the same *frequencies* under reversal is real RF, and one that
+// stays at the same *iteration positions* is a reading attributed to the wrong
+// bin. No transmitter is involved — 869-894MHz is licensed cellular downlink
+// and this firmware is RX-only.
+//
+// SETTLE=<0-50> inserts a wait after startReceive() before the first sample,
+// which production does not do. Both are inert on the production image, so
+// Cell's shipped behaviour is unchanged by their existence.
+bool benchCellConfigure(const char *argument);
+bool benchCellOrderReversed();
+uint16_t benchCellSettleMs();
+
 // Bench-image-only gate for triggering one Pass B CAD attempt on demand
 // (research/phase9-sweep-pass-b-design.md's false-positive-vs-SF bench
 // matrix): production Pass B only ever runs at a real Pass-A peak, so this

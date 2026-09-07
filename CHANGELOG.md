@@ -16,7 +16,11 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
   100 ms pass; now a bounded batch per pass, 404/404 written. A10/A11/A15/A18/
   A24/A25 all exercised over the device's own AP. **New finding A29: Cell's
   per-bin RSSI is attributed to the wrong bins** — an exact 0.75 MHz comb that
-  shifts phase between laps. Cell data must not be used; see the audit's §14.
+  shifts phase between laps — **diagnosed and fixed the same day**: Cell was
+  sampling RSSI before the receiver had settled, so only 33 of 101 bins read
+  real values. `CELL_SETTLE_MS = 5` restores all 101 (measured sweep, two
+  interleaved reps). Cell data from before this is unusable, quiet readings
+  included.
 
 - **Audit repairs, part 3 (A10–A12, A15, A18, A19, A24, A25).** The AP's
   shared `loratrace123` is gone — the key is per device, generated on first

@@ -719,15 +719,16 @@ see the frames that make up the rest of it.
   across bins, no radio errors. **A23 is fixed and confirmed** (run0119): 404
   of 404 Cell rows written, drops 0, against 192 of 404 lost before.
 
-- **Cell is not usable, for a new reason (A29, 2026-09-07).** With tuning and
-  row loss both repaired, run0119 showed that Cell's strong bins form an exact
-  0.75 MHz comb that shifts phase entirely between laps: median lap-to-lap
-  spread 25.3 dB, only 11 of 101 bins stable within 3 dB, and zero overlap
-  between two pairs of laps 8 s apart. The value recorded against a bin does
-  not reliably correspond to that frequency. Cell samples RSSI with no settle
-  window after `startReceive()`. **Do not use any Cell data**, and do not fix
-  this by guessing a delay — see the audit's §14 for the controlled experiment
-  this needs.
+- **A29 found and fixed the same day (2026-09-07).** With tuning and row loss
+  repaired, Cell's strong bins formed a 0.75 MHz comb whose phase moved
+  randomly between laps. A controlled sweep on the bench image (two interleaved
+  reps per value) showed Cell was sampling RSSI before the receiver had settled
+  after each retune: at 0 ms only 33 of 101 bins produced a real reading, at
+  5 ms all 101 did, and 10 ms added nothing. Fixed by `CELL_SETTLE_MS = 5`
+  (~0.5 s per lap). **Cell data captured before this fix is unusable, including
+  the "quiet" readings** — the settled median is −91 dBm against −117 dBm
+  unsettled. The fix is flashed but a lap on the production image has not been
+  checked yet.
 
 - ~~Bench SD card / boot-loop finding~~ — resolved 2026-09-03. The
   bench Cardputer's `task_wdt` boot-loop (see Phase 10 section above) was
