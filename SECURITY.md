@@ -19,15 +19,24 @@ backported.
 ## Known attack surface
 
 - **WiFi AP + web UI (`wifi_task.cpp`), off by default.** When an operator
-  enables it from the on-device menu, the device starts a WPA2-PSK AP with
-  a **fixed default password** (`loratrace123`, hardcoded in
-  `wifi_task.cpp`). Anyone who has or guesses that password and is in RF
-  range can join the AP and reach the dashboard, settings endpoints, and
-  CSV downloads over plain HTTP — there is no separate login on top of the
-  WiFi PSK, and no TLS. Treat the AP as reachable by anyone within range
-  who knows (or brute-forces) the shared password; don't enable it around
-  people you don't want reading your run data or changing your channel
-  settings.
+  enables it from the on-device menu, the device starts a WPA2-PSK AP whose
+  key is **generated per device** on first use from the hardware RNG (12
+  characters, ~60 bits) and stored at `/loratrace/wifi.txt`. Read it on the
+  device at **System > Connectivity > WiFi Key**; it is deliberately not
+  available over serial, HTTP, or any export, and is not printed to the
+  boot log. To rotate it, delete `/loratrace/wifi.txt` and re-enable the AP.
+  If the card cannot be written the key still protects that session, but it
+  changes on reboot and the device says so.
+  Before 2026-09-07 this was a single hardcoded password shared by every
+  build (`loratrace123`); **anyone running a build from before then should
+  treat their AP as public.**
+  Beyond the PSK there is still no separate login and no TLS: anyone who
+  joins reaches the dashboard, settings endpoints, and CSV downloads over
+  plain HTTP. State-changing endpoints now require a per-AP-session
+  anti-CSRF token and pass an Origin check, so a web page the operator
+  happens to be browsing cannot silently reconfigure the device — that is a
+  defense against other sites, not against someone who has joined the AP.
+  Don't enable it around people you don't want reading your run data.
 - **SD card contents.** `detections.csv`/`session.csv`/run directories are
   plaintext CSV containing GPS coordinates and captured mesh metadata
   (node IDs, RSSI, etc. — see `detection.h`). Anyone with physical access

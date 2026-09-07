@@ -128,6 +128,7 @@ constexpr MenuItem DISPLAY_GROUP_ITEMS[] = {
 // "SD: READY" rather than "Retry SD: RETRY" (2026-08-28 operator request).
 constexpr MenuItem CONNECTIVITY_GROUP_ITEMS[] = {
     {"WiFi", ItemKind::ACTION, MenuAction::WIFI_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
+    {"WiFi Key", ItemKind::ACTION, MenuAction::WIFI_KEY_SHOW, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
     {"Serial Control", ItemKind::ACTION, MenuAction::SERIAL_CONTROL_TOGGLE, MenuAction::NONE, MenuAction::NONE, nullptr, 0},
 };
 constexpr MenuItem DIAGNOSTICS_GROUP_ITEMS[] = {
@@ -160,7 +161,7 @@ constexpr MenuItem TUNING_GROUP_ITEMS[] = {
 // Cross-check further down, once SYSTEM_GROUP_ITEMS exists, that its
 // "Tuning" row's itemCount actually matches this array's real length.
 constexpr MenuItem SYSTEM_GROUP_ITEMS[] = {
-    {"Connectivity", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, CONNECTIVITY_GROUP_ITEMS, 2},
+    {"Connectivity", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, CONNECTIVITY_GROUP_ITEMS, 3},
     {"Diagnostics", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DIAGNOSTICS_GROUP_ITEMS, 2},
     {"Display", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, DISPLAY_GROUP_ITEMS, 2},
     {"Tuning", ItemKind::GROUP, MenuAction::NONE, MenuAction::NONE, MenuAction::NONE, TUNING_GROUP_ITEMS, 3},

@@ -1609,6 +1609,9 @@ const char *menuEntryValue(MenuAction action) {
         case MenuAction::SELECT_MESHCORE:
             return radioActiveProfile() == MissionProfile::MESHCORE ? "ACTIVE" : "";
         case MenuAction::WIFI_TOGGLE: return wifiIsEnabled() ? "ON" : "OFF";
+        // No value: the key belongs in the toast the row fires, not on a
+        // list that is on screen whenever the menu is open.
+        case MenuAction::WIFI_KEY_SHOW: return "";
         case MenuAction::DEBUG_TOGGLE: return loggerDebugIsEnabled() ? "ON" : "OFF";
         case MenuAction::IDENTITY_CAPTURE_TOGGLE: return radioIdentityCaptureIsEnabled() ? "ON" : "OFF";
         case MenuAction::SD_RETRY: return loggerSdReady() ? "READY" : "RETRY";

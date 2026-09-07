@@ -523,17 +523,35 @@ function refreshRuns() {
     el.innerHTML = runs.slice().reverse().map(function (n) {
       var name = 'r' + String(n).padStart(4, '0');
       return '<article class="run"><div class="run-head"><span class="name">RUN ' + name +
-        '</span><span class="meta">5 CSV files</span></div><div class="run-files">' +
+        '</span><span class="meta">7 CSV files</span></div><div class="run-files">' +
         runFileLink(n, 'PACKETS', 'detections.csv') +
         runFileLink(n, 'HEALTH', 'session.csv') +
         runFileLink(n, 'PROBE', 'probe.csv') +
         runFileLink(n, 'ENERGY SWEEP', 'energy.csv') +
         runFileLink(n, 'NODES', 'nodes.csv') +
+        runFileLink(n, 'NODES (SAFE)', 'nodes.csv?safe') +
+        runFileLink(n, 'CELL', 'cell.csv') +
+        runFileLink(n, 'FOCUS', 'focus.csv') +
         '</div></article>';
     }).join('');
   }).catch(function () {
     document.getElementById('runList').innerHTML = '<div class="empty">Could not load run list.</div>';
   });
+}
+
+// Every state-changing request carries this AP session's token. The device
+// refuses the write without it, so a page another site opened cannot submit
+// a form here on the operator's behalf — it cannot read this value.
+var csrfToken = '';
+
+function loadSession() {
+  return fetch('/api/session').then(r => r.json()).then(function (s) {
+    csrfToken = s.csrf || '';
+  }).catch(function () { csrfToken = ''; });
+}
+
+function postForm(url, body) {
+  return fetch(url, { method: 'POST', headers: { 'X-CSRF-Token': csrfToken }, body: body });
 }
 
 function fillPreset(prefix, c) {
@@ -593,9 +611,13 @@ function loadOptions() {
 }
 
 function loadSettings() {
-  loadConfig();
-  loadDisplay();
-  loadOptions();
+  // The token first: without it every save below would be refused, and the
+  // operator would see "reload the page" instead of a saved setting.
+  loadSession().then(function () {
+    loadConfig();
+    loadDisplay();
+    loadOptions();
+  });
 }
 
 // One handler bound to both preset forms — the only per-form difference is
@@ -609,7 +631,7 @@ document.querySelectorAll('#configForm-meshtastic, #configForm-meshcore').forEac
     msg.className = 'form-msg'; msg.textContent = 'Saving…';
     var body = new URLSearchParams(new FormData(e.target));
     body.set('profile', form.dataset.profile);
-    fetch('/api/config', { method: 'POST', body: body })
+    postForm('/api/config', body)
       .then(r => r.json().then(function (j) { return { ok: r.ok, j: j }; }))
       .then(function (res) {
         if (res.ok && res.j.ok) {
@@ -630,7 +652,7 @@ document.getElementById('displayForm').addEventListener('submit', function (e) {
   e.preventDefault();
   var msg = document.getElementById('displayMsg');
   msg.className = 'form-msg'; msg.textContent = 'Saving…';
-  fetch('/api/display', { method: 'POST', body: new URLSearchParams(new FormData(e.target)) })
+  postForm('/api/display', new URLSearchParams(new FormData(e.target)))
     .then(r => r.json().then(function (j) { return { ok: r.ok, j: j }; }))
     .then(function (res) {
       if (res.ok && res.j.ok) {
@@ -654,7 +676,7 @@ document.getElementById('optionsForm').addEventListener('submit', function (e) {
     identity_capture: document.getElementById('identity_capture').checked ? '1' : '0',
     verbose_debug: document.getElementById('verbose_debug').checked ? '1' : '0'
   });
-  fetch('/api/options', { method: 'POST', body: body })
+  postForm('/api/options', body)
     .then(r => r.json().then(function (j) { return { ok: r.ok, j: j }; }))
     .then(function (res) {
       if (res.ok && res.j.ok) {

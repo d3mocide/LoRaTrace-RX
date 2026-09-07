@@ -42,6 +42,17 @@ void wifiToggle();
 // iteration of lag while wifi_task does the real WiFi.softAP() call).
 bool wifiIsEnabled();
 
+// Requested vs actual, kept apart on purpose: the AP starts and stops on
+// wifiTask's own Core 0 loop, so a caller that reads the actual state to
+// decide what to request races that loop (audit A15). Request an absolute
+// state; poll wifiIsEnabled() to see it take effect.
+void wifiRequestEnabled(bool enabled);
+bool wifiIsRequested();
+
+// An operator asked for the AP to go down while it is still up — long
+// synchronous work such as a CSV download checks this and abandons.
+bool wifiShutdownRequested();
+
 // Connected station count, 0 whenever the AP is off.
 uint8_t wifiClientCount();
 
@@ -50,6 +61,11 @@ uint8_t wifiClientCount();
 // before the AP has ever been started — it's pure formatting, no radio
 // involved — so main.cpp's boot splash can show it without turning WiFi on.
 void wifiApSsid(char *buf, size_t bufLen);
+
+// This device's own AP key, for the on-device display that lets an operator
+// join. Deliberately not reachable over HTTP, serial, or any export.
+void wifiApKey(char *buf, size_t bufLen);
+bool wifiApKeyPersisted();
 
 // The AP's default IP once started — ESP32's softAP default when no custom
 // AP network config is applied (this code never calls WiFi.softAPConfig()).

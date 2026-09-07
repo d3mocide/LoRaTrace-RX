@@ -44,6 +44,10 @@ enum class MenuAction : uint8_t {
     SELECT_MESHTASTIC,
     SELECT_MESHCORE,
     WIFI_TOGGLE,
+    // Shows this device's own AP key on screen. Its own row because there is
+    // nowhere else to read it: the key is per device (audit A10) and is
+    // deliberately kept out of serial, HTTP and every export.
+    WIFI_KEY_SHOW,
     DEBUG_TOGGLE,
     IDENTITY_CAPTURE_TOGGLE,
     SD_RETRY,

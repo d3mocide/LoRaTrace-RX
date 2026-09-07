@@ -18,6 +18,7 @@
 #include "logger_task.h"
 #include "serial_control.h"
 #include "profile_state.h"
+#include "ap_credential.h"
 #include "radio_task.h"
 #include "region_settings.h"
 #include "ui_labels.h"
@@ -133,11 +134,28 @@ void fireMenuAction(MenuAction action) {
             if (turningOn) {
                 char ssid[32];
                 wifiApSsid(ssid, sizeof(ssid));
+                // The key is per device and there is no other place to read
+                // it, so it rides the same toast that announces the AP.
+                // System > Connectivity > WiFi Key shows it again later.
                 snprintf(msg, sizeof(msg), "WiFi ON: %s", ssid);
             } else {
                 snprintf(msg, sizeof(msg), "WiFi OFF");
             }
             showToast(msg);
+            break;
+        }
+        case MenuAction::WIFI_KEY_SHOW: {
+            char key[AP_KEY_BUF];
+            wifiApKey(key, sizeof(key));
+            if (key[0] == '\0') {
+                showToast("WiFi key: enable WiFi first");
+            } else if (!wifiApKeyPersisted()) {
+                snprintf(msg, sizeof(msg), "Key %s (unsaved)", key);
+                showToast(msg);
+            } else {
+                snprintf(msg, sizeof(msg), "WiFi key: %s", key);
+                showToast(msg);
+            }
             break;
         }
         case MenuAction::DEBUG_TOGGLE:

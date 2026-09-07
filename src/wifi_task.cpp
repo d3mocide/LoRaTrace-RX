@@ -11,6 +11,9 @@
 
 #include "battery.h"
 #include "channel_config.h"
+#include "ap_credential.h"
+#include "csv_safe_export.h"
+#include "file_transaction.h"
 #include "config.h"
 #include "display_settings.h"
 #include "gps_task.h"
@@ -25,15 +28,24 @@
 
 namespace {
 
-// WPA2-PSK, not open: this device is out in the field capturing other
-// people's mesh traffic, and an open AP would let anyone nearby reconfigure
-// the radio or pull your logs. Fixed default rather than SD-configurable
-// for now (see SECURITY.md) — a cheap, natural follow-up, not in scope here.
-constexpr const char *WIFI_AP_PASSWORD = "loratrace123";
 
 WebServer server(80);
 volatile bool apRequested = false;
 bool apActive = false;
+
+// Per-AP-session anti-CSRF token. A browser that can reach this AP will
+// happily submit an attacker page's form to it; the response is unreadable
+// cross-origin, but the write still lands (audit A11). Regenerated on every
+// AP start, so a token never outlives the session it was issued for.
+char csrfToken[33] = {0};
+
+void csrfTokenRegenerate() {
+    static const char DIGITS[] = "0123456789abcdef";
+    for (size_t i = 0; i < sizeof(csrfToken) - 1; i++) {
+        csrfToken[i] = DIGITS[esp_random() & 0x0F];
+    }
+    csrfToken[sizeof(csrfToken) - 1] = '\0';
+}
 
 // Computed once and cached rather than recomputed on every use — a real
 // hardware run showed the AP-started log line print with the SSID missing
@@ -41,6 +53,10 @@ bool apActive = false;
 // and nothing should touch a local buffer between fill and print), but one
 // long-lived buffer, filled once, removes the whole category of doubt.
 char cachedSsid[32] = {0};
+
+// False when the key could not be written to the card: it still protects
+// this session, but the operator must be told it will not survive a reboot.
+bool apKeyPersisted = false;
 
 const char *ssidCached() {
     if (cachedSsid[0] == '\0') {
@@ -219,7 +235,14 @@ void streamCsvFile(const char *path, const char *downloadName) {
 
     uint8_t buf[CSV_CHUNK_SIZE];
     size_t offset = 0;
+    bool complete = false;
     while (offset < fileSize) {
+        // Never more than the length already declared. A run file this AP is
+        // serving is usually still being appended to, and reading a full
+        // chunk regardless of what remains sent more bytes than the
+        // Content-Length promised (audit A24).
+        const size_t want =
+            (fileSize - offset) < sizeof(buf) ? (fileSize - offset) : sizeof(buf);
         // File::read() returns int and can be negative on error — read into
         // a signed local first. Assigning a -1 error straight into a size_t
         // would turn "read failed" into "read 4 billion bytes" and send
@@ -229,9 +252,13 @@ void streamCsvFile(const char *path, const char *downloadName) {
             SpiBusLock lock(BUS_WAIT);
             if (!lock.held()) break; // bus busy — client gets a short/incomplete file, not a stall
             File f = SD.open(path); // read mode, same default as above
-            if (!f) break;
-            f.seek(offset);
-            readLen = f.read(buf, sizeof(buf));
+            // An unchecked seek reads from wherever the handle happened to
+            // be, which would repeat or skip a section of the file silently.
+            if (!f || !f.seek(offset)) {
+                f.close();
+                break;
+            }
+            readLen = f.read(buf, want);
             f.close();
         }
         if (readLen <= 0) break;
@@ -240,11 +267,23 @@ void streamCsvFile(const char *path, const char *downloadName) {
         const size_t written = client.write(buf, (size_t)readLen);
         if (written != (size_t)readLen) break;
         offset += written;
+        complete = offset >= fileSize;
+
+        // An operator turning the AP off should not have to wait out a
+        // multi-megabyte transfer; the download is abandoned, not finished.
+        if (!complete && wifiShutdownRequested()) break;
 
         // WiFiClient::write() can spend multiple seconds retrying a full TCP
         // socket. Yield between successful chunks so the Core 0 idle task can
         // service the watchdog during a large SD download.
         vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    if (!complete) {
+        // Abort rather than return: the body is short of the Content-Length
+        // already sent, and a client must see a broken transfer instead of a
+        // file that looks whole (audit A24).
+        WiFiClient client = server.client();
+        client.stop();
     }
     memoryStatsLog("csv-download-after");
 }
@@ -253,20 +292,122 @@ void streamCsvFile(const char *path, const char *downloadName) {
 // rather than relying on WebServer's path-pattern support, since that's a
 // version-specific feature this codebase's pinned core (2.0.17) shouldn't
 // be assumed to have — and the shape here is small and fixed anyway.
+// Same file, rendered so a spreadsheet cannot execute a node name that
+// arrived over the air (csv_safe_export.h, audit A12). Two passes: the
+// transformed length is not knowable without doing the transform, and a
+// Content-Length that disagrees with the body is its own bug. The canonical
+// file on the card is never touched — this is a second view of it.
+void streamSafeCsvFile(const char *path, const char *downloadName) {
+    char line[CSV_SAFE_LINE_MAX];
+    char safe[CSV_SAFE_LINE_MAX];
+    size_t total = 0;
+    bool measured = false;
+    {
+        SpiBusLock lock(BUS_WAIT);
+        if (!lock.held()) {
+            server.send(503, "text/plain", "SD busy, try again");
+            return;
+        }
+        File f = SD.open(path);
+        if (!f) {
+            server.send(404, "text/plain", "not found");
+            return;
+        }
+        measured = true;
+        while (f.available()) {
+            size_t written = 0;
+            // A line too long to read whole, or too long once neutralised,
+            // makes the export incomplete — better to refuse than to ship a
+            // file with a row quietly missing.
+            if (!readBoundedLine(f, line, sizeof(line)) ||
+                !csvSafeLine(line, safe, sizeof(safe), written)) {
+                measured = false;
+                break;
+            }
+            total += written + 1; // the newline this line will carry
+        }
+        f.close();
+    }
+    if (!measured) {
+        server.send(500, "text/plain", "row too long for a safe export");
+        return;
+    }
+
+    char disposition[64];
+    snprintf(disposition, sizeof(disposition), "attachment; filename=\"%s\"", downloadName);
+    server.sendHeader("Content-Disposition", disposition);
+    server.setContentLength(total);
+    server.send(200, "text/csv", "");
+
+    size_t sent = 0;
+    {
+        SpiBusLock lock(BUS_WAIT);
+        File f = lock.held() ? SD.open(path) : File();
+        while (f && f.available()) {
+            size_t written = 0;
+            if (!readBoundedLine(f, line, sizeof(line)) ||
+                !csvSafeLine(line, safe, sizeof(safe), written)) {
+                break;
+            }
+            safe[written] = '\n';
+            WiFiClient client = server.client();
+            if (!client.connected()) break;
+            if (client.write((const uint8_t *)safe, written + 1) != written + 1) break;
+            sent += written + 1;
+        }
+        if (f) f.close();
+    }
+    if (sent != total) {
+        // Short of the declared length: abort so the client sees a broken
+        // transfer rather than a file that looks whole (same rule as A24).
+        WiFiClient client = server.client();
+        client.stop();
+    }
+}
+
+// The seven files a run directory holds. cell.csv and focus.csv were missing
+// from the allowlist and the page, so two of the run's own outputs could not
+// be retrieved over the AP at all (audit A24).
+const char *const RUN_CSV_LEAVES[] = {
+    "detections.csv", "session.csv", "probe.csv", "energy.csv",
+    "nodes.csv",      "cell.csv",    "focus.csv",
+};
+
+bool runCsvLeafAllowed(const char *leaf) {
+    for (const char *known : RUN_CSV_LEAVES) {
+        if (strcmp(leaf, known) == 0) return true;
+    }
+    return false;
+}
+
 void handleNotFound() {
     const String uri = server.uri();
     if (uri.startsWith("/api/runs/")) {
         int idx = 0;
         char leaf[32] = {0};
+        // run_log.h numbers runs 1..RUN_INDEX_MAX; anything else is not a run
+        // this device could have written, and must not be narrowed into one.
         if (sscanf(uri.c_str(), "/api/runs/%d/%31s", &idx, leaf) == 2 && idx > 0 &&
-            (strcmp(leaf, "detections.csv") == 0 || strcmp(leaf, "session.csv") == 0 ||
-             strcmp(leaf, "probe.csv") == 0 || strcmp(leaf, "energy.csv") == 0 ||
-             strcmp(leaf, "nodes.csv") == 0)) {
+            idx <= (int)RUN_INDEX_MAX) {
+            // "<leaf>?safe" asks for the spreadsheet-safe rendering. sscanf's
+            // %s stops at whitespace, not '?', so the query rides in `leaf`.
+            char *query = strchr(leaf, '?');
+            const bool wantSafe = query != nullptr && strcmp(query, "?safe") == 0;
+            if (query != nullptr) *query = '\0';
+            if (!runCsvLeafAllowed(leaf)) {
+                server.send(404, "text/plain", "not found");
+                return;
+            }
             char path[RUN_PATH_MAX];
             if (runFilePath(path, sizeof(path), CHANNEL_CONFIG_DIR, (uint16_t)idx, leaf) > 0) {
-                char downloadName[48];
-                snprintf(downloadName, sizeof(downloadName), "run%04u_%s", (unsigned)idx, leaf);
-                streamCsvFile(path, downloadName);
+                char downloadName[56];
+                snprintf(downloadName, sizeof(downloadName), "run%04u_%s%s", (unsigned)idx,
+                         wantSafe ? "safe_" : "", leaf);
+                if (wantSafe) {
+                    streamSafeCsvFile(path, downloadName);
+                } else {
+                    streamCsvFile(path, downloadName);
+                }
                 return;
             }
         }
@@ -302,6 +443,43 @@ bool parseUint8Arg(const char *name, uint8_t min, uint8_t max, uint8_t &value) {
     if (end == raw.c_str() || *end != '\0' || parsed < min || parsed > max) return false;
     value = (uint8_t)parsed;
     return true;
+}
+
+// A cross-origin form can be submitted, but it cannot read /api/session's
+// reply to learn the token, and browsers that do send Origin on a POST are
+// checked against the AP's own host too. Neither check alone is enough:
+// Origin is absent on some requests, and CORS does not prevent the write.
+bool originIsSelf() {
+    if (!server.hasHeader("Origin")) return true; // absent, not forged
+    const String origin = server.header("Origin");
+    if (origin == "null") return false;
+    const String host = server.hostHeader();
+    return host.length() > 0 && origin.endsWith(host) &&
+           (origin.startsWith("http://") || origin.startsWith("https://"));
+}
+
+// Answers the request itself and returns false when a state change must not
+// proceed. Every POST handler starts with this.
+bool stateChangeAllowed() {
+    if (!originIsSelf()) {
+        server.send(403, "application/json", "{\"ok\":false,\"error\":\"bad origin\"}");
+        return false;
+    }
+    const String supplied =
+        server.hasHeader("X-CSRF-Token") ? server.header("X-CSRF-Token") : server.arg("csrf");
+    if (csrfToken[0] == '\0' || supplied != csrfToken) {
+        server.send(403, "application/json", "{\"ok\":false,\"error\":\"reload the page\"}");
+        return false;
+    }
+    return true;
+}
+
+// The token this AP session accepts. A cross-origin caller can trigger this
+// request but cannot read what it returns, which is what makes it a secret.
+void handleSession() {
+    char json[64];
+    snprintf(json, sizeof(json), "{\"csrf\":\"%s\"}", csrfToken);
+    server.send(200, "application/json", json);
 }
 
 // Two different things a caller can mean by "the config", reported as two
@@ -355,6 +533,7 @@ void handleConfigGet() {
 // would apply as a *Meshtastic* override on the next boot — profile label
 // and radio config would disagree. Naming the target explicitly fixes it.
 void handleConfigPost() {
+    if (!stateChangeAllowed()) return;
     if (!server.hasArg("profile")) {
         server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing profile\"}");
         return;
@@ -423,6 +602,7 @@ void handleDisplayGet() {
 }
 
 void handleDisplayPost() {
+    if (!stateChangeAllowed()) return;
     uint8_t brightness = 0;
     uint8_t idleIndex = 0;
     if (!parseUint8Arg("brightness_pct", 5, 100, brightness) || brightness % 5 != 0 ||
@@ -454,6 +634,7 @@ void handleOptionsGet() {
 }
 
 void handleOptionsPost() {
+    if (!stateChangeAllowed()) return;
     uint8_t identity = 0;
     uint8_t debug = 0;
     if (!parseUint8Arg("identity_capture", 0, 1, identity) ||
@@ -477,6 +658,7 @@ void registerRoutes() {
     if (routesRegistered) return;
 
     server.on("/", HTTP_GET, handleRoot);
+    server.on("/api/session", HTTP_GET, handleSession);
     server.on("/api/status", HTTP_GET, handleStatus);
     server.on("/api/runs", HTTP_GET, handleRuns);
     server.on("/api/config", HTTP_GET, handleConfigGet);
@@ -486,6 +668,9 @@ void registerRoutes() {
     server.on("/api/options", HTTP_GET, handleOptionsGet);
     server.on("/api/options", HTTP_POST, handleOptionsPost);
     server.onNotFound(handleNotFound);
+    // WebServer keeps only the headers it is told to keep.
+    static const char *COLLECTED[] = {"Origin", "X-CSRF-Token"};
+    server.collectHeaders(COLLECTED, sizeof(COLLECTED) / sizeof(COLLECTED[0]));
     routesRegistered = true;
 }
 
@@ -493,8 +678,14 @@ void startAp() {
     memoryStatsLog("wifi-start-before");
     const char *ssid = ssidCached();
 
+    csrfTokenRegenerate();
+    // Per device, not per firmware build (audit A10). apKeyLoad() persists on
+    // first use, so this is the same key across reboots unless the operator
+    // deletes /loratrace/wifi.txt.
+    char key[AP_KEY_BUF];
+    apKeyPersisted = apKeyLoad(key, sizeof(key));
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(ssid, WIFI_AP_PASSWORD);
+    WiFi.softAP(ssid, key);
     registerRoutes();
     server.begin();
     apActive = true;
@@ -502,8 +693,12 @@ void startAp() {
     // One buffer, one print call, under the Serial lock — an earlier
     // unlocked version of this exact line printed with the SSID missing,
     // and torn again even after a buffer-only fix (see serial_lock.h).
-    char line[64];
-    snprintf(line, sizeof(line), "[wifi] AP started: %s @ %s", ssid, WIFI_AP_IP);
+    // The key is deliberately absent here. A serial console is the one place
+    // a capture-session transcript is most likely to be shared, and the
+    // operator reads the key off the device's own screen instead.
+    char line[96];
+    snprintf(line, sizeof(line), "[wifi] AP started: %s @ %s%s", ssid, WIFI_AP_IP,
+             apKeyPersisted ? "" : " (key not saved to SD — it will change on reboot)");
     {
         SerialLock lock(pdMS_TO_TICKS(200));
         if (lock.held()) serialPrintln(line);
@@ -577,12 +772,27 @@ bool wifiTaskStart() {
     return ok == pdPASS;
 }
 
+void wifiRequestEnabled(bool enabled) {
+    // One owned requested state. Read-then-toggle against the *actual* state
+    // meant two ON commands issued before the AP finished starting cancelled
+    // each other out, and an OFF during startup did nothing (audit A15).
+    apRequested = enabled;
+}
+
 void wifiToggle() {
     apRequested = !apRequested;
 }
 
 bool wifiIsEnabled() {
     return apActive;
+}
+
+bool wifiIsRequested() {
+    return apRequested;
+}
+
+bool wifiShutdownRequested() {
+    return !apRequested && apActive;
 }
 
 uint8_t wifiClientCount() {
@@ -593,4 +803,15 @@ void wifiApSsid(char *buf, size_t bufLen) {
     if (buf == nullptr || bufLen == 0) return;
     strncpy(buf, ssidCached(), bufLen - 1);
     buf[bufLen - 1] = '\0';
+}
+
+void wifiApKey(char *buf, size_t bufLen) {
+    if (buf == nullptr || bufLen == 0) return;
+    // Loaded on first AP start; before that there is nothing to show yet.
+    strncpy(buf, apKeyCurrent(), bufLen - 1);
+    buf[bufLen - 1] = '\0';
+}
+
+bool wifiApKeyPersisted() {
+    return apKeyPersisted;
 }

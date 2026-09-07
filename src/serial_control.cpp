@@ -552,16 +552,18 @@ void handleFrame(const SerialControlFrame &frame) {
             }
             break;
         case SerialControlOpcode::WIFI_SET:
-            // Mirrors ui_actions.cpp's own MenuAction::WIFI_TOGGLE handler:
-            // wifiToggle() only flips a *requested* flag, the actual state
-            // change happens later on wifiTask's own Core 0 loop, so this
-            // is fire-and-forget the same way -- poll STATUS's WIFI field
-            // to see when it actually took effect.
+            // Absolute request, not a read-then-toggle: the state change
+            // happens later on wifiTask's own Core 0 loop, so reading
+            // wifiIsEnabled() first made ON;ON before startup finished cancel
+            // out and OFF-during-startup do nothing (audit A15). Still
+            // fire-and-forget -- poll STATUS's WIFI field for the actual
+            // state. Repeating a command, including a host retry with a new
+            // sequence id, now lands on the same requested state.
             if (strcmp(frame.argument, "ON") == 0) {
-                if (!wifiIsEnabled()) wifiToggle();
+                wifiRequestEnabled(true);
                 sendFrame(frame.sequence, SerialControlOpcode::ACK, "QUEUED_ON");
             } else if (strcmp(frame.argument, "OFF") == 0) {
-                if (wifiIsEnabled()) wifiToggle();
+                wifiRequestEnabled(false);
                 sendFrame(frame.sequence, SerialControlOpcode::ACK, "QUEUED_OFF");
             } else {
                 sendFrame(frame.sequence, SerialControlOpcode::ERROR, "BAD_ARGUMENT");
