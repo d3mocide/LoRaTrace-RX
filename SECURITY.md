@@ -51,6 +51,17 @@ backported.
   ref, and every published flash part ships a SHA256SUMS and BUILDINFO file.
   The web flasher's CDN script remains an unvendored dependency.
 
+- **Bench transmitter fixture (`bench/heltec-v4r8-transmitter/`).** Not part
+  of the shipping RX-only firmware, but it *is* a transmitter, and its
+  optional TCP bridge (port 4227) puts it on a network. Since 2026-09-07 a
+  networked client must authorize with a per-bridge-start token before any
+  command but `HELLO` is accepted; the token is printed only over that
+  fixture's USB console, is never stored or sent over the bridge, and a
+  session expires after 20 minutes or on disconnect, which also quiets the
+  radio. That is defence in depth, not permission to expose the port — keep
+  the bridge on a trusted bench network and turn it off when idle. Every
+  transmit-capable harness also requires an explicit `--allow-transmit`.
+
 - **Physical access.** This is a handheld embedded device with no secure
   boot / flash encryption configured. Physical possession of the hardware
   is assumed to grant full read/write access to firmware and stored data;

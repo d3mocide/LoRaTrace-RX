@@ -19,7 +19,7 @@ CARD_MARKER = "@LTRX/1"
 TX_MARKER = "@LTTX/1"
 MAX_LINE_BYTES = 4096
 MAX_OBSERVED_FRAMES = 4096
-SENSITIVE_COMMANDS = frozenset({"WIFI_PASS", "KEY_SET", "KEY_IMPORT"})
+SENSITIVE_COMMANDS = frozenset({"WIFI_PASS", "KEY_SET", "KEY_IMPORT", "AUTH"})
 
 
 class ResultWriter:
@@ -168,6 +168,23 @@ class Endpoint:
         self.port.write(outgoing)
         self.port.flush()
         return self.sequence
+
+    def authorize(self, token: str, timeout: float = 5.0):
+        """Present a bridge session token (audit A16).
+
+        The Heltec fixture refuses every transmit-capable command from a
+        network client until this succeeds; the token is printed once over
+        that fixture's USB console at each bridge start and is never sent back
+        over the bridge. A serial-attached fixture needs no token -- physical
+        possession of the cable is the authorization -- so this is a no-op
+        when no token is supplied.
+        """
+        if not token:
+            return False
+        opcode, argument = self.request("AUTH", token, timeout=timeout)
+        if opcode != "ACK":
+            raise RuntimeError(f"{self.label} refused the bridge token: {opcode} {argument}")
+        return True
 
     def request(self, command: str, argument: str, timeout: float = 3.0):
         self.sequence = (self.sequence + 1) & 0xFFFF

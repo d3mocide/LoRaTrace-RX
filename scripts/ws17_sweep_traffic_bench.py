@@ -81,6 +81,8 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cardputer-port", required=True)
     parser.add_argument("--heltec-port", help="quieted if given; never armed")
+    parser.add_argument("--bridge-token", default="",
+                        help="session token for a networked (socket://) transmitter bridge; printed on that fixture's USB console at bridge start")
     parser.add_argument("--log", required=True)
     parser.add_argument("--results", required=True)
     parser.add_argument("--laps", type=int, default=120, help="total laps, alternating settle")
@@ -104,6 +106,9 @@ def main():
                 # Not a source here. Quieted explicitly so a leftover beacon
                 # from earlier work cannot be mistaken for repeater traffic.
                 transmitter = Endpoint("heltec", args.heltec_port, TX_MARKER, log)
+                # A networked bridge refuses transmit commands until authorized
+                # (audit A16); a serial fixture needs no token.
+                transmitter.authorize(args.bridge_token)
                 require_ack(transmitter, "HELLO", "-", timeout=25.0)
                 require_ack(transmitter, "QUIET", "-", timeout=8.0)
                 print("bench transmitter quieted; this run transmits nothing")

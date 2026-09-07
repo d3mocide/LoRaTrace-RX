@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_random.h>
 #include <Preferences.h>
 #include <RadioLib.h>
 #include <U8g2lib.h>
@@ -136,12 +137,21 @@ bool beaconActive = false;
 // serial_for_url(), which accepts socket://host:port.
 //
 // SECURITY: this listens on the local network and its commands key a
-// transmitter. It is off unless explicitly enabled, but once enabled there is
-// no authentication -- anything that can reach the port can trigger a pulse.
-// That is acceptable only because this is a bench fixture on a trusted LAN,
-// output is capped at TX_POWER_DBM, and every transmit path is bounded. Do
-// not expose the port beyond a trusted network, and turn the bridge off
-// (WIFI_OFF) when the fixture is not in use.
+// transmitter. It is off unless explicitly enabled, and since 2026-09-07
+// (audit A16) a connected client must authorize before anything but HELLO is
+// honoured: the bridge generates a token at each start, prints it once over
+// USB, and refuses every transmit-capable command until a client presents it.
+//
+// The token is per boot and per bridge start, never stored, and never sent
+// over the bridge itself -- reading it requires the USB cable, which is the
+// same trust anchor that enables the bridge in the first place. A session
+// expires after BRIDGE_SESSION_MS and on disconnect, so a forgotten fixture
+// stops accepting commands on its own rather than staying open indefinitely.
+//
+// This is defence in depth, not a reason to expose the port. Output is capped
+// at TX_POWER_DBM and every transmit path is bounded; still, do not put this
+// on an untrusted network, and turn the bridge off (WIFI_OFF) when the
+// fixture is not in use.
 //
 // Credentials live in NVS, set once over USB, and are never stored in the
 // repository. The frame grammar splits on spaces, so an SSID or password
@@ -150,8 +160,36 @@ constexpr uint16_t WIFI_BRIDGE_PORT = 4227;
 constexpr char WIFI_NVS_NAMESPACE[] = "lttxwifi";
 constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 15000;
 
+// 20 minutes: long enough for a full bench matrix, short enough that a
+// fixture left powered on a bench does not stay commandable overnight.
+constexpr uint32_t BRIDGE_SESSION_MS = 20UL * 60UL * 1000UL;
+constexpr size_t BRIDGE_TOKEN_LEN = 12;
+
 WiFiServer bridgeServer(WIFI_BRIDGE_PORT);
 WiFiClient bridgeClient;
+char bridgeToken[BRIDGE_TOKEN_LEN + 1] = {};
+bool bridgeAuthorized = false;
+uint32_t bridgeAuthorizedAtMs = 0;
+
+// Unambiguous alphabet: the operator reads this off a USB console and types
+// it into a shell.
+void bridgeTokenGenerate() {
+    static const char DIGITS[] = "abcdefghjkmnpqrstuvwxyz23456789";
+    for (size_t i = 0; i < BRIDGE_TOKEN_LEN; ++i) {
+        bridgeToken[i] = DIGITS[esp_random() % (sizeof(DIGITS) - 1)];
+    }
+    bridgeToken[BRIDGE_TOKEN_LEN] = '\0';
+    bridgeAuthorized = false;
+}
+
+bool bridgeSessionValid() {
+    if (!bridgeAuthorized) return false;
+    if ((uint32_t)(millis() - bridgeAuthorizedAtMs) > BRIDGE_SESSION_MS) {
+        bridgeAuthorized = false;
+        return false;
+    }
+    return true;
+}
 char bridgeInput[FRAME_MAX] = {};
 size_t bridgeInputLength = 0;
 bool wifiEnabled = false;
@@ -535,6 +573,28 @@ void handle(char *line) {
     uint16_t sequence = 0;
     if (!parseU16(sequenceText, sequence)) return;
 
+    // AUTH is the one command a bridge client may send unauthorized, and
+    // HELLO stays open so a fixture can be identified before authorizing.
+    // Everything else -- including STATUS, which reveals the armed state --
+    // requires a live session (audit A16). Commands arriving over USB are
+    // already authorized by physical possession of the cable.
+    const bool overBridge = replyStream != &Serial;
+    if (overBridge && strcmp(command, "AUTH") == 0) {
+        if (bridgeToken[0] != '\0' && strcmp(argument, bridgeToken) == 0) {
+            bridgeAuthorized = true;
+            bridgeAuthorizedAtMs = millis();
+            reply(sequence, "ACK", "AUTHORIZED");
+        } else {
+            bridgeAuthorized = false;
+            reply(sequence, "ERROR", "BAD_TOKEN");
+        }
+        return;
+    }
+    if (overBridge && strcmp(command, "HELLO") != 0 && !bridgeSessionValid()) {
+        reply(sequence, "ERROR", "UNAUTHORIZED");
+        return;
+    }
+
     if (strcmp(command, "HELLO") == 0) {
         reply(sequence, "ACK", "V4R8;SX1262;MAXM9");
     } else if (strcmp(command, "STATUS") == 0) {
@@ -715,8 +775,13 @@ void pollWifi() {
         bridgeServer.begin();
         bridgeServer.setNoDelay(true);  // Frames are tiny; Nagle would add latency.
         bridgeListening = true;
+        // New token per bridge start. Printed here and nowhere else: over USB
+        // only, never over the bridge, never stored (audit A16).
+        bridgeTokenGenerate();
         Serial.printf("[lttx] bridge listening on %s:%u\n",
                       WiFi.localIP().toString().c_str(), (unsigned)WIFI_BRIDGE_PORT);
+        Serial.printf("[lttx] bridge token %s (valid %lu minutes per session)\n", bridgeToken,
+                      (unsigned long)(BRIDGE_SESSION_MS / 60000UL));
     }
 
     if (!bridgeClient || !bridgeClient.connected()) {
@@ -725,6 +790,11 @@ void pollWifi() {
             if (bridgeClient) bridgeClient.stop();
             bridgeClient = incoming;
             bridgeInputLength = 0;
+            // A new connection is a new session. Anything the previous client
+            // authorized does not carry over, and a transmitter must never be
+            // left armed for whoever connects next.
+            bridgeAuthorized = false;
+            quietAll();
         }
     }
     while (bridgeClient && bridgeClient.available() > 0) {

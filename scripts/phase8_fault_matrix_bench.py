@@ -47,6 +47,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cardputer-port", required=True)
     parser.add_argument("--heltec-port", required=True)
+    parser.add_argument("--bridge-token", default="",
+                        help="session token for a networked (socket://) transmitter bridge; printed on that fixture's USB console at bridge start")
     parser.add_argument("--log", required=True)
     parser.add_argument("--results")
     parser.add_argument("--settle-seconds", type=float, default=1.0,
@@ -64,6 +66,9 @@ def main():
     with log_path.open("a", encoding="utf-8") as log:
         card = Endpoint("cardputer", args.cardputer_port, CARD_MARKER, log)
         transmitter = Endpoint("heltec", args.heltec_port, TX_MARKER, log)
+        # A networked bridge refuses transmit commands until authorized
+        # (audit A16); a serial fixture needs no token.
+        transmitter.authorize(args.bridge_token)
         try:
             identity = require_ack(card, "HELLO", "-", timeout=15.0)
             if "BENCH=1" not in identity:

@@ -57,6 +57,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cardputer-port", required=True)
     parser.add_argument("--heltec-port", help="optional V4R8 port; required to exercise RX_WAIT")
+    parser.add_argument("--bridge-token", default="",
+                        help="session token for a networked (socket://) transmitter bridge; printed on that fixture's USB console at bridge start")
     parser.add_argument("--log", required=True)
     parser.add_argument("--results")
     parser.add_argument("--point", required=True, choices=sorted(POINTS))
@@ -88,6 +90,9 @@ def main():
                 raise RuntimeError("--heltec-port is required for RX_WAIT fault hooks")
             if args.heltec_port:
                 transmitter = Endpoint("heltec", args.heltec_port, TX_MARKER, log)
+                # A networked bridge refuses transmit commands until authorized
+                # (audit A16); a serial fixture needs no token.
+                transmitter.authorize(args.bridge_token)
                 require_ack(transmitter, "HELLO", "-")
                 require_ack(transmitter, "CONFIG", "LONG_MODERATE")
             for cycle in range(1, args.cycles + 1):
