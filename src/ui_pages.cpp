@@ -1149,7 +1149,7 @@ void drawChannelBandMap(int16_t x, int16_t w, int16_t floorY, float tunedMhz) {
         uiTft->drawFastVLine(x + (int16_t)((w - 1) * frac(mhz)), floorY - TICK_H, TICK_H, COL_WARN);
     }
 
-    CaptureHistory history;
+    static CaptureHistory history;
     if (analyzerCaptureHistorySnapshot(history, pdMS_TO_TICKS(20))) {
         CaptureSummary entry;
         for (uint8_t i = 0; i < history.count; i++) {
@@ -1232,7 +1232,7 @@ void drawChannelPage() {
     // title says DECODED rather than YIELD for exactly that reason: on a card
     // about this channel, "yield" would claim an attribution the number cannot
     // support.
-    NodeRoster roster;
+    static NodeRoster roster;
     uint8_t nodes = 0;
     if (analyzerNodeRosterSnapshot(roster, pdMS_TO_TICKS(20))) {
         for (uint8_t i = 0; i < NODE_ROSTER_MAX_ENTRIES; i++) {
@@ -1716,7 +1716,7 @@ void drawActivitySummary() {
     // Last decoded packet. RSSI and SNR are real here, which is why this card
     // replaced the proposal's "CAD HIT ... +8.5dB SNR": CAD returns a binary
     // detected/free/timeout from the modem and yields no SNR at all.
-    CaptureHistory history;
+    static CaptureHistory history;
     CaptureSummary latest;
     bool havePacket = analyzerCaptureHistorySnapshot(history) &&
                       captureHistoryEntryAt(history, 0, latest);
@@ -1894,12 +1894,12 @@ void drawMenuSlider() {
 // previously duplicated the whole layout between them. They now differ only in
 // what they put in the cards, which is the only thing that actually differs.
 void drawMeterPage() {
-    ScopeTrace trace;
+    static ScopeTrace trace;
     const bool haveTrace = radioScopeTraceSnapshot(trace, 0) && trace.count > 0;
     int8_t scopeSample = 0;
     const bool haveScopeSample = haveTrace && scopeTraceSampleAt(trace, 0, scopeSample);
 
-    CaptureHistory captures;
+    static CaptureHistory captures;
     CaptureSummary latest;
     const bool haveCapture = analyzerCaptureHistorySnapshot(captures, pdMS_TO_TICKS(50)) &&
                              captureHistoryEntryAt(captures, 0, latest);
@@ -2046,7 +2046,7 @@ void drawWaterfallPage() {
     uint32_t totalHits = 0;
     uint32_t totalCaptures = 0;
     uint16_t latestBinCount = 0;
-    WaterfallRow row;
+    static WaterfallRow row;
     for (uint8_t r = 0; r < rowCount; r++) {
         if (!analyzerWaterfallRowSnapshot(r, row, pdMS_TO_TICKS(50))) break;
         if (r == 0) latestBinCount = row.bin_count;
@@ -2134,7 +2134,7 @@ void drawWaterfallPage() {
 
     constexpr int16_t ROW_H = 4;
     constexpr int16_t ROWS_BOTTOM = PLOT_Y + PLOT_H - 2;
-    uint8_t columns[PLOT_W];
+    static uint8_t columns[PLOT_W];
     for (uint8_t r = 0; r < rowCount; r++) {
         const int16_t y = PLOT_Y + 2 + (int16_t)r * ROW_H;
         if (y + ROW_H > ROWS_BOTTOM) break;
@@ -2179,7 +2179,7 @@ void drawWaterfallPage() {
 // (§8.2). ui_task.cpp requests the actual SCOPE_ACQUIRE; this only ever
 // renders whatever ScopeTrace it's handed.
 void drawScopePage() {
-    ScopeTrace trace;
+    static ScopeTrace trace;
     const bool have = radioScopeTraceSnapshot(trace, pdMS_TO_TICKS(50));
     const bool running = radioScopeAcquireIsActive();
     const bool holdExpired = !running && scopeTerminalShownAt != 0 &&
@@ -2269,7 +2269,7 @@ void drawScopePage() {
 // construction and printing it would be decoration. "AFC: +1.4kHz" is not
 // captured at RX at all.
 void drawCaptureInspector() {
-    CaptureHistory history;
+    static CaptureHistory history;
     CaptureSummary cap;
     const uint8_t idx = captureInspectIndex();
     if (!analyzerCaptureHistorySnapshot(history, pdMS_TO_TICKS(50)) ||
@@ -2359,7 +2359,7 @@ void drawCapturesPage() {
         drawCaptureInspector();
         return;
     }
-    CaptureHistory history;
+    static CaptureHistory history;
     const bool have = analyzerCaptureHistorySnapshot(history, pdMS_TO_TICKS(50));
     if (!have || history.count == 0) {
         drawEmptyView("NO CAPTURES YET", "fills while Watch runs");
@@ -2398,7 +2398,7 @@ void drawCapturesPage() {
 // Recency-sorted for display only; the roster itself has no order beyond
 // slot index (its own LRU eviction doesn't need one).
 void drawNodesPage() {
-    NodeRoster roster;
+    static NodeRoster roster;
     if (!analyzerNodeRosterSnapshot(roster, pdMS_TO_TICKS(50))) {
         drawEmptyView("NO NODES YET", "fills while Watch runs");
         return;

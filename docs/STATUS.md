@@ -630,6 +630,44 @@ and the WiFi-off/on resource matrix. `LOG_GUIDE.md` now
 documents `focus.csv`, unblocked by the operator control the card-view work
 shipped.
 
+## 8-hour soak (run0089) — memory bounded; three findings
+
+**2026-09-07**, production `7a0b70c`, 8.00 h of back-to-back sweeps with WiFi
+off then on, plus an accidental 7.6 h idle tail on battery
+([full writeup](hardware-results/2026-09-07-phase9-soak-run0089.md)).
+
+**The gate passed.** 4,112 laps, 0 failures, home restored every lap, every drop
+and error counter zero. Free heap moved in two discrete steps — UI canvas at
+0.02 h, WiFi AP at 4.02 h — then sat at 153,928 bytes unchanged for 10.7 hours.
+`heap_largest` flat alongside it. The idle tail is what makes this conclusive: a
+leak would have shown where nothing was allocating.
+
+Three things it caught that were not what it was looking for:
+
+- **Pass-B spent 3.90 h of the 8 and promoted nothing** (`PBA=15680, PBD=0`).
+  Sweep away time is 80.2% Pass-B, 19.8% Pass-A; a 0-peak lap costs 833 ms and
+  each peak adds 6–11 s. At 60.8% radio-away, the proportionality result from
+  phase12 §6.3 implies ~2,650 packets not heard, for zero promotions. Not a
+  defect — Pass-B promotes off-grid packets and the traffic here was on the home
+  channel — but it is the cost half of a cost/benefit question, measured. Belongs
+  to Workstream 17.
+- **The UI task was at 93% of its 4 KB stack** (`ui_stack_free` 288 B).
+  `-fstack-usage` traced it to snapshot structs held as stack locals in draw
+  functions (`CaptureHistory` 516 B, `NodeRoster` 672 B, and others). All are now
+  function-static — only `ui_task` draws — taking the worst draw chain from
+  1,312 B to 592 B at a cost of 1.5% RAM. The 288 B was the deepest path
+  *exercised*; pages not displayed during the run never contributed, so the true
+  margin was thinner than measured.
+- **The redraw instrumentation added the day before overflowed at 7.4 h.**
+  `uiRedrawTotalUs` was a uint32 of microseconds; the mean went visibly wrong at
+  8.01 h. Now uint64, with frame count exposed for windowed means. The max was
+  unaffected: 223 ms worst frame, flat after 4.92 h.
+
+The stack, overflow and session-buffer fixes are built and host-tested but **not
+yet flashed** — the board was disconnected to read the card. The open follow-up
+is re-checking `ui_stack_free` after deliberately walking every card view, which
+this run could not measure.
+
 ## What's still open
 
 - ~~Bench SD card / boot-loop finding~~ — resolved 2026-09-03. The

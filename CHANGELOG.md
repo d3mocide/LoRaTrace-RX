@@ -7,6 +7,17 @@ fresh from the documentation restructuring below and stays terse —
 one or two lines per entry, newest first. For the current state of the
 project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
+## 2026-09-07
+
+- **8-hour soak passed; three findings.** 4,112 laps, 0 failures, heap flat for
+  10.7h after two discrete allocation steps — bounded memory confirmed by an
+  accidental idle tail. Pass-B spent 3.90h of the 8 and promoted nothing
+  (`PBA=15680, PBD=0`), which is a Workstream 17 cost measurement rather than a
+  defect. The UI task was at 93% of its 4KB stack; snapshot structs held as
+  stack locals in draw functions are now function-static, taking the worst draw
+  chain from 1,312B to 592B (RAM 18.3% -> 19.8%). The redraw counters added the
+  day before overflowed a uint32 of microseconds at 7.4h — now uint64.
+
 ## 2026-09-06
 
 - **W12 coverage campaign run.** 80 bench passes across four dwells: all

@@ -562,7 +562,12 @@ KeyAction pollKeyAction() {
 // and a per-page table would cost more RAM than the answer is worth. Serial
 // Control's STATUS carries it, so a fixture can sample it without a display.
 volatile uint32_t uiRedrawMaxUs = 0;
-volatile uint32_t uiRedrawTotalUs = 0;
+// uint64: at the measured ~2.6 fps and ~62 ms mean, a uint32 of microseconds
+// wraps in about 7.4 hours — run0089 caught it doing exactly that just before
+// the 8-hour mark, where the reported mean fell from 62,781 to 5,306 us. The
+// max is a running maximum and was unaffected; only the mean was wrong, and
+// only after the wrap.
+volatile uint64_t uiRedrawTotalUs = 0;
 volatile uint32_t uiRedrawCount = 0;
 
 void fullRedraw() {
@@ -955,6 +960,9 @@ uint32_t uiRedrawMeanUs() {
     const uint32_t n = uiRedrawCount;
     return n ? (uint32_t)(uiRedrawTotalUs / n) : 0;
 }
+// Frame count is exposed so a host can tell a genuine mean from one computed
+// over too few frames, and can difference two samples for a windowed mean
+// rather than reading the since-boot average.
 uint32_t uiRedrawFrames() { return uiRedrawCount; }
 void uiRedrawStatsReset() {
     uiRedrawMaxUs = 0;
