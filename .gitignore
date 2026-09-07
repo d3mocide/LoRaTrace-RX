@@ -18,3 +18,9 @@ __pycache__/
 # regenerate with `pio run -e cardputer-adv -t compiledb` when it goes stale
 # (new source file, changed includes/build flags).
 compile_commands.json
+
+# Fuzzing (audit A27): binaries, the corpus libFuzzer grows, and crash
+# reproducers. Keep the harnesses and scripts/fuzz.sh; the rest is generated.
+fuzz/build/
+fuzz/corpus/
+fuzz/artifacts/

@@ -106,6 +106,12 @@ src/
   [x] file_transaction.h         # tmp/verify/backup text writes + CSV header validation (A02/A09)
   [x] gps_history.h              # Core-0 fix ring, so an observation gets the fix current at its own rx time (A07)
   [x] sweep_snapshot.h           # one coherent completed-sweep record (A20)
+fuzz/
+  [x] fuzz_detection.cpp         # Meshtastic header + detections.csv formatter at every capacity
+  [x] fuzz_nmea.cpp              # NMEA sentence -> GpsFix, asserts a claimed position is on Earth
+  [x] fuzz_identity.cpp          # MeshCore advert decode + varint (NOT the mbedtls AES path)
+  [x] fuzz_csv_safe.cpp          # spreadsheet-safe export; asserts the security property itself
+  scripts/fuzz.sh runs all four under ASan+UBSan; see docs/HARDWARE_TESTING.md
 test/
   [x] test_channel_plans/        # host-native unit tests, pio test -e native
   [x] test_focus_plan/           # one-bin request/source/selection math (phase 12)

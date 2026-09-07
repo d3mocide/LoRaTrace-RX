@@ -20,13 +20,19 @@
 // keeps the read and the transform buffers obviously the same size.
 constexpr size_t CSV_SAFE_LINE_MAX = 1024;
 
-// True when the whole field parses as a plain decimal number. Needed because
-// half the columns here are negative dBm readings, and prefixing those would
-// corrupt every RSSI value to protect against a formula they cannot be.
+// True when the whole field parses as a plain negative decimal number.
+// Deliberately narrow: it exists only so the '-' exemption below can be safe,
+// and half the columns in these files are negative dBm readings.
+//
+// A leading '+' is NOT exempted, even though "+8" is arithmetically a number.
+// No formatter in this firmware emits one — printf writes no sign for positive
+// values unless asked — so a '+'-leading field can only have come from
+// radio-supplied text, and Excel does enter "+8" in formula mode. Surfaced by
+// fuzzing (audit A27).
 inline bool csvFieldIsNumber(const char *field, size_t len) {
     if (field == nullptr || len == 0) return false;
     size_t i = 0;
-    if (field[i] == '-' || field[i] == '+') i++;
+    if (field[i] == '-') i++;
     bool digits = false, dot = false;
     for (; i < len; ++i) {
         if (field[i] >= '0' && field[i] <= '9') { digits = true; continue; }
@@ -91,11 +97,19 @@ inline bool csvSafeLine(const char *in, char *out, size_t outSize, size_t &writt
             bodyLen > 0 && csvFieldNeedsNeutralising(probe, 1) &&
             !csvFieldIsNumber(body, bodyLen);
 
+        // Adding quotes to a field that did not have them means taking
+        // responsibility for escaping what is inside it. Copying the body
+        // verbatim produced broken quoting whenever an unquoted field held a
+        // '"' — the row desynchronised and later fields escaped neutralisation
+        // (found by fuzzing, audit A27). A field that arrived quoted is
+        // already escaped by whoever wrote it, so it is copied as-is.
+        const bool addingQuotes = neutralise && !quoted;
         if (neutralise || quoted) {
             if (!put('"')) return false;
         }
         if (neutralise && !put('\'')) return false;
         for (const char *q = body; q < end; ++q) {
+            if (addingQuotes && *q == '"' && !put('"')) return false;
             if (!put(*q)) return false;
         }
         if (neutralise || quoted) {
@@ -107,11 +121,17 @@ inline bool csvSafeLine(const char *in, char *out, size_t outSize, size_t &writt
         if (!put(',')) return false;
         p++;
     }
-    // Anything trailing a closing quote (there should be nothing) is copied
-    // rather than dropped: an export must not quietly lose bytes.
-    for (; *p != '\0'; ++p) {
-        if (!put(*p)) return false;
-    }
+    // A field must end at a comma or at the end of the line. Anything else
+    // means the input is not CSV this function can reason about — and the
+    // earlier version copied that remainder through verbatim, which walked
+    // straight past neutralisation: `""=,@",,,` came out with an unquoted
+    // field starting with '@' (found by fuzzing, audit A27).
+    //
+    // Refused rather than repaired. The caller's contract is "safe to open in
+    // a spreadsheet", and a row this function cannot parse is a row it cannot
+    // promise that for; streamSafeCsvFile() turns a refusal into a failed
+    // export rather than a file that looks complete.
+    if (*p != '\0') return false;
     out[w] = '\0';
     written = w;
     return true;

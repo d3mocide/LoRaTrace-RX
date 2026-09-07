@@ -23,9 +23,13 @@ static const char *safe(const char *in) {
 
 void test_negative_numbers_are_left_alone() {
     // The reason this is not simply "prefix anything starting with -".
-    TEST_ASSERT_EQUAL_STRING("1,-95.5,-12,+3,0", safe("1,-95.5,-12,+3,0"));
+    TEST_ASSERT_EQUAL_STRING("1,-95.5,-12,0", safe("1,-95.5,-12,0"));
     TEST_ASSERT_TRUE(csvFieldIsNumber("-95.5", 5));
-    TEST_ASSERT_TRUE(csvFieldIsNumber("+3", 2));
+    // A leading '+' is not a number for this purpose: nothing here writes one,
+    // so it can only be radio-supplied text, and Excel enters "+8" as a
+    // formula. Found by fuzzing (audit A27).
+    TEST_ASSERT_FALSE(csvFieldIsNumber("+3", 2));
+    TEST_ASSERT_EQUAL_STRING("1,\"'+3\",0", safe("1,+3,0"));
     TEST_ASSERT_FALSE(csvFieldIsNumber("-95.5.1", 7));
     TEST_ASSERT_FALSE(csvFieldIsNumber("-", 1));
     TEST_ASSERT_FALSE(csvFieldIsNumber("", 0));
@@ -74,6 +78,34 @@ void test_a_line_that_does_not_fit_is_refused() {
     TEST_ASSERT_EQUAL_size_t(0, n);
 }
 
+void test_adding_quotes_escapes_what_is_already_inside() {
+    // Found by fuzzing (audit A27). Wrapping an unquoted field in quotes
+    // without doubling the quotes inside it broke the row's quoting, and
+    // everything after it stopped being parsed as the field it was — so a
+    // later field could carry a formula through unneutralised.
+    TEST_ASSERT_EQUAL_STRING("\"'\tm\"\"\",x", safe("\tm\",x"));
+    TEST_ASSERT_EQUAL_STRING("\"'=a\"\"b\"\"c\",x", safe("=a\"b\"c,x"));
+    // A field that arrived quoted is already escaped by its writer, so it is
+    // copied through rather than double-escaped.
+    TEST_ASSERT_EQUAL_STRING("1,\"'=say \"\"hi\"\"\",x", safe("1,\"=say \"\"hi\"\"\",x"));
+}
+
+void test_input_that_is_not_parseable_csv_is_refused() {
+    // Found by fuzzing (audit A27). A closing quote followed by anything other
+    // than a comma used to fall into a "copy the rest verbatim" path that
+    // bypassed neutralisation entirely, so `""=,@",,,` came out with an
+    // unquoted field beginning with '@'. A row this function cannot parse is a
+    // row it cannot promise is spreadsheet-safe, so it refuses.
+    char out[128];
+    size_t n = 0;
+    TEST_ASSERT_FALSE(csvSafeLine("\"\"=,@\",,,", out, sizeof(out), n));
+    TEST_ASSERT_FALSE(csvSafeLine("\"a\"b,c", out, sizeof(out), n));
+    // Well-formed quoting is still accepted, including an empty quoted field.
+    TEST_ASSERT_TRUE(csvSafeLine("\"\",a", out, sizeof(out), n));
+    TEST_ASSERT_EQUAL_STRING("\"\",a", out);
+    TEST_ASSERT_TRUE(csvSafeLine("\"a\",b", out, sizeof(out), n));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_negative_numbers_are_left_alone);
@@ -82,5 +114,7 @@ int main(int, char **) {
     RUN_TEST(test_whitespace_hidden_formulas_are_caught);
     RUN_TEST(test_ordinary_rows_are_unchanged);
     RUN_TEST(test_a_line_that_does_not_fit_is_refused);
+    RUN_TEST(test_adding_quotes_escapes_what_is_already_inside);
+    RUN_TEST(test_input_that_is_not_parseable_csv_is_refused);
     return UNITY_END();
 }
