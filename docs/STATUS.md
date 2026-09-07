@@ -655,7 +655,9 @@ Three things it caught that were not what it was looking for:
   `-fstack-usage` traced it to snapshot structs held as stack locals in draw
   functions (`CaptureHistory` 516 B, `NodeRoster` 672 B, and others). All are now
   function-static — only `ui_task` draws — taking the worst draw chain from
-  1,312 B to 592 B at a cost of 1.5% RAM. The 288 B was the deepest path
+  1,312 B to 592 B at a cost of 1.5% RAM. The stack itself went 4096 -> 5120
+  (60% used at the estimated peak, against 93% measured before either change);
+  the old size had no recorded rationale, and now does. The 288 B was the deepest path
   *exercised*; pages not displayed during the run never contributed, so the true
   margin was thinner than measured.
 - **The redraw instrumentation added the day before overflowed at 7.4 h.**

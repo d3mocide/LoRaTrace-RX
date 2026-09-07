@@ -1112,7 +1112,24 @@ bool uiTaskStart(Arduino_GFX *gfx, const DisplaySettings &settings) {
         keys.flush(); // discard boot-time noise
     }
 
-    BaseType_t ok = xTaskCreatePinnedToCore(uiTask, "ui", 4096, nullptr, 1, nullptr, 0);
+    // 5120, raised from 4096 on 2026-09-07 with a measurement behind it — the
+    // old number had no recorded rationale at all. run0089's 8-hour soak read
+    // ui_stack_free at 288 B, a 93% high-water mark reached in the first two
+    // minutes: never an overflow, but no margin either, on a task that has
+    // already crashed once from a large draw-path local (the ~5.5 KB
+    // WaterfallHistory, see drawWaterfallPage()).
+    //
+    // Moving the snapshot structs to BSS took ~720 B off the worst draw chain
+    // (1,312 -> 592 B), which puts the estimated peak near 3,088 B. At 4096
+    // that is still 75% used; at 5120 it is 60%, which leaves room for a deep
+    // path the soak never exercised without being so generous that a real
+    // regression stops showing up in the watermark.
+    //
+    // Only ~1,312 B of that peak is this project's own frames. The rest is
+    // GFX internals, snprintf and FreeRTOS entry, none of which -fstack-usage
+    // can see — which is why the number is set from a measured watermark
+    // rather than from summing call frames.
+    BaseType_t ok = xTaskCreatePinnedToCore(uiTask, "ui", 5120, nullptr, 1, nullptr, 0);
     return ok == pdPASS;
 }
 
