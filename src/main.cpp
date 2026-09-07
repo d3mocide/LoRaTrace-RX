@@ -112,11 +112,14 @@ constexpr UBaseType_t SCAN_OBSERVATION_QUEUE_DEPTH = 16;
 // Probe's ~9-candidate CAD sweep ever could — a starting choice, not a
 // measured one, same as SCAN_OBSERVATION_QUEUE_DEPTH above.
 constexpr UBaseType_t ENERGY_OBSERVATION_QUEUE_DEPTH = 32;
-// Cell's own bin count (101 at 869-894MHz, cell_plan.h) is small and
-// every bin is logged (not peak-filtered), so a depth this shallow already
-// covers a full sweep between logger drains — a starting choice, not a
-// measured one, same as the other queue depths here.
-constexpr UBaseType_t CELL_OBSERVATION_QUEUE_DEPTH = 16;
+// Every Cell bin is logged (101 at 869-894MHz, cell_plan.h), not
+// peak-filtered. 16 -> 32 on 2026-09-07, and the old note here — that a
+// depth this shallow "already covers a full sweep between logger drains" —
+// was wrong: measured on hardware, Cell emits 101 rows in ~5.6 s and lost
+// 192 of 404 (audit A23). 32 is still not a full lap; the logger's bounded
+// fair drain is what actually keeps up, and this is the burst absorber in
+// front of it.
+constexpr UBaseType_t CELL_OBSERVATION_QUEUE_DEPTH = 32;
 constexpr UBaseType_t FOCUS_OBSERVATION_QUEUE_DEPTH = 4;
 // How long the completed boot checklist stays on screen before uiTaskStart()
 // takes over the panel with the main status pages.

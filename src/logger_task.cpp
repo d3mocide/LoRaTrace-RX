@@ -741,6 +741,31 @@ void appendNodeIdentity(const NodeIdentity &identity) {
     }
 }
 
+// One row per auxiliary queue per pass, with the loop's own 100 ms wait on
+// the detection queue, capped each auxiliary file at roughly ten rows a
+// second. Cell emits 101 rows in ~5.6 s — 18 rows/s — so a third of every
+// Cell lap never reached the card. Measured on hardware 2026-09-07:
+// cell_observation_drops 192 against 404 enqueued, with CELL_OBSERVATION_
+// QUEUE_DEPTH 16 absorbing only the first moments of the burst (audit A23).
+//
+// Bounded rather than "drain until empty": one queue must not be able to
+// hold the pass, and each append is its own short SD bus transaction, so a
+// long run of them would keep the radio waiting. A pass that leaves work
+// behind says so, and the caller skips the next blocking wait instead of
+// sleeping on a backlog.
+constexpr uint8_t AUX_DRAIN_PER_PASS = 8;
+
+template <typename T, typename Append>
+bool drainAuxQueue(QueueHandle_t queue, Append append) {
+    if (queue == nullptr) return false;
+    T record;
+    for (uint8_t i = 0; i < AUX_DRAIN_PER_PASS; i++) {
+        if (xQueueReceive(queue, &record, 0) != pdTRUE) return false;
+        append(record);
+    }
+    return uxQueueMessagesWaiting(queue) > 0;
+}
+
 void loggerTask(void *) {
     memoryStatsRegisterCurrentTask(MemoryTask::LOGGER);
     // The config reader mounted the card a moment ago during setup(). Keep
@@ -763,51 +788,31 @@ void loggerTask(void *) {
     // once per completed sweep, not once per bin.
     uint32_t lastAnalyzerSweepSeen = radioEnergySweepCount();
 
+    bool auxBacklog = false;
     for (;;) {
         Detection det;
         // Wake either on a detection or on the flush interval, whichever
-        // comes first — so a quiet period still commits buffered rows.
-        if (xQueueReceive(detectionQueue, &det, pdMS_TO_TICKS(100)) == pdTRUE) {
+        // comes first — so a quiet period still commits buffered rows. The
+        // wait is skipped while an auxiliary queue still holds rows: sleeping
+        // 100 ms on a survey backlog is what dropped a third of a Cell lap.
+        const TickType_t detectionWait = auxBacklog ? 0 : pdMS_TO_TICKS(100);
+        if (xQueueReceive(detectionQueue, &det, detectionWait) == pdTRUE) {
             appendDetection(det);
         }
 
-        // CAD observations are deliberately a separate queue and file. They
-        // are not packet detections and must never change RX/log counters.
-        if (scanObservationQueue != nullptr) {
-            ScanObservation observation;
-            if (xQueueReceive(scanObservationQueue, &observation, 0) == pdTRUE) {
-                appendScanObservation(observation);
-            }
-        }
-
-        // Sweep peak observations, same non-blocking drain shape as Probe's
-        // above — a separate queue and file, never packet detections.
-        if (energyObservationQueue != nullptr) {
-            EnergyObservation observation;
-            if (xQueueReceive(energyObservationQueue, &observation, 0) == pdTRUE) {
-                appendEnergyObservation(observation);
-            }
-        }
-
-        if (identityQueue != nullptr) {
-            NodeIdentity identity;
-            if (xQueueReceive(identityQueue, &identity, 0) == pdTRUE) appendNodeIdentity(identity);
-        }
-
-        // Cell readings, same non-blocking drain shape as Probe/Sweep
-        // above — a separate queue and file, never packet detections.
-        if (cellObservationQueue != nullptr) {
-            CellObservation observation;
-            if (xQueueReceive(cellObservationQueue, &observation, 0) == pdTRUE) {
-                appendCellObservation(observation);
-            }
-        }
-        if (focusObservationQueue != nullptr) {
-            FocusObservation observation;
-            if (xQueueReceive(focusObservationQueue, &observation, 0) == pdTRUE) {
-                appendFocusObservation(observation);
-            }
-        }
+        // Every auxiliary queue is a separate file and must never change
+        // RX/log counters. Each drains a bounded batch per pass; the flags
+        // OR together into "somebody still has work".
+        auxBacklog = false;
+        auxBacklog |= drainAuxQueue<ScanObservation>(scanObservationQueue,
+                                                     appendScanObservation);
+        auxBacklog |= drainAuxQueue<EnergyObservation>(energyObservationQueue,
+                                                       appendEnergyObservation);
+        auxBacklog |= drainAuxQueue<NodeIdentity>(identityQueue, appendNodeIdentity);
+        auxBacklog |= drainAuxQueue<CellObservation>(cellObservationQueue,
+                                                     appendCellObservation);
+        auxBacklog |= drainAuxQueue<FocusObservation>(focusObservationQueue,
+                                                      appendFocusObservation);
 
         const uint32_t analyzerSweepRuns = radioEnergySweepCount();
         if (analyzerSweepRuns != lastAnalyzerSweepSeen) {
