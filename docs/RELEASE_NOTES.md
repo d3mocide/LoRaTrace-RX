@@ -24,6 +24,63 @@ Versions before `v1.0.6` predate this file; their history is in
 
 ---
 
+## v1.1.2
+
+A follow-up to v1.1.1 that finishes the audit it came from. Nothing here
+changes how you use the device day to day; most of it is the receiver being
+harder to knock off the air, and the logs being honest about it.
+
+**Re-export anything you took with "NODES (SAFE)" on v1.1.1.** Fuzzing found
+two ways that export could produce a file that was not actually
+spreadsheet-safe: certain unusual rows fell through a path that skipped the
+protection entirely, and adding quotes around a name that already contained a
+quote broke the row so later columns stopped being read as the columns they
+were. Neither could be triggered by files this device writes — its own writer
+never produces those shapes — but if you exported from anything else, or want
+to be sure, take the export again on this build. A row this device now cannot
+safely convert is refused outright rather than exported looking fine.
+
+**The radio can no longer be held off the air by the screen.** Scope waited on
+a display lock without any limit, and while holding the radio's own bus. On a
+busy card that could stall reception. Scope and Cell now also stop and return
+to listening if they exceed their time budget, instead of running as long as
+the work happens to take.
+
+**Focus stops pretending about sample timing.** If the card or the screen
+delayed a sample past its slot, Focus used to take it late and count it
+anyway, so a row claimed an even spacing the measurement never had. Late slots
+are now skipped and counted in a new `skipped_samples` column in `focus.csv`.
+A non-zero value means that pass ran under contention — not that anything was
+wrong with the signal.
+
+**An SD card dropping out is now recorded, not just implied.** A health row
+cannot be written while the card is missing, so an outage was previously only
+a gap between rows. When the card comes back, the device writes a
+`reason=sd_recovered` row saying how long it was gone, and `session.csv` gains
+`sd_outages` and `sd_last_outage_ms`.
+
+**Pressing two action keys quickly now refuses the second.** Before, both
+could be accepted while neither had started, and they would run one after the
+other — so an action you thought you had cancelled ran a minute later. Related:
+a profile switch that could not get the card bus used to be dropped silently,
+leaving the radio on the old profile with nothing saying so; it is retried
+now.
+
+**Bench fixture users:** the Heltec transmitter's network bridge now requires a
+token before it accepts any command. It is printed on that fixture's USB
+console when the bridge starts, and the bench scripts take it as
+`--bridge-token`. A fixture connected by USB cable needs nothing new.
+Sessions expire after 20 minutes and when the client disconnects, and a new
+connection quiets the transmitter rather than inheriting whatever the last one
+armed.
+
+**Known issues, unchanged from v1.1.1.** The AP has no login beyond the Wi-Fi
+key and no encryption. The full-card and failing-card paths are handled in
+code but still have not been forced on real hardware. Cell's field validation
+against a known tower is still deferred.
+
+---
+
 ## v1.1.1
 
 **Your Wi-Fi password changes with this update, and you cannot get the new one

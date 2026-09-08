@@ -277,7 +277,61 @@
 // PATCH, not MINOR -- a UI reorganization within already-closed phase
 // scope, no new capability. Not yet hardware-verified on real hardware;
 // flag before calling this done.
-#define FIRMWARE_VERSION "1.1.1"
+#define FIRMWARE_VERSION "1.1.2"
+
+// 1.1.2: the rest of the v1.1.0 audit's open findings — A16, A22, A26, A27,
+// and the repair half of A21. PATCH again: still no workstream closed, and
+// v1.2.0 stays reserved for Workstream 13.
+//
+// The headline is that **fuzzing found two real defects in code written hours
+// earlier**, in csv_safe_export.h — the one function in this release whose
+// entire purpose is a security property, with unit tests already passing:
+// - a closing quote followed by anything but a comma fell into a "copy the
+//   rest verbatim" path that bypassed neutralisation, so `""=,@",,,` emerged
+//   with an unquoted field beginning with '@';
+// - wrapping an unquoted field in quotes did not double the quotes already
+//   inside it, breaking the row's quoting so later fields stopped being parsed
+//   as the fields they were.
+// Neither was reachable from files this firmware writes, because its own
+// writers emit well-formed CSV. Both were reachable by pointing the export at
+// anything else, which is exactly the contract A27 asked for. Worth
+// remembering the next time unit tests passing feels like enough for a
+// function whose job is a security property.
+//
+// A22 replaced operation counts with wall-clock deadlines (action_budget.h).
+// Counting operations was never a bound: Scope's 240 samples at 20ms read as
+// ~5s, and every one of them could wait BUS_WAIT for the SPI bus and again for
+// the display's trace mutex. Applying the budget surfaced two more defects:
+// - Scope waited portMAX_DELAY on a mutex Core 0's drawing code holds, and in
+//   its sampling loop took that mutex *while holding the SPI bus* — the
+//   shared-resource rule inverted, the radio's bus hostage to the UI.
+// - Pass B's documented cost was wrong by two orders of magnitude. "~24s
+//   worst-case" counted 80 CAD timeouts and ignored that every CAD *hit*
+//   opens a 2500ms receive window: the same attempts bound at 224s.
+// Probe and Sweep deliberately did NOT get budgets. Scope and Cell got
+// numbers because A23's work measured them; inventing values for the other
+// two would be the guessing this audit keeps telling us not to do.
+//
+// A26: writeSessionRow() returns early while the card is missing, so the
+// comment promising `sd` "going down and back in this run's own health rows"
+// described something the code structurally could not do. Outages are counted
+// and timed in RAM and reported by a `reason=sd_recovered` row.
+//
+// A21's repairable half, with the arbiter itself left to W13 as the audit
+// intends. ulTaskNotifyTake(pdTRUE, ...) clears the count, so handling one
+// mailbox consumed the notification a second queued request depended on — it
+// then waited for the 5s liveness timeout or the next packet. A profile
+// switch that lost the SPI bus was dequeued and lost outright. Both fixed and
+// verified on hardware.
+//
+// A16 puts a per-bridge-start token on the bench transmitter's TCP bridge.
+// Off-by-default was the only boundary it had, and off-by-default stops being
+// a boundary the moment someone turns it on.
+//
+// Verified on hardware: the A21 command paths (Sweep completes, profile switch
+// applies). Everything else is host tests, sanitizer runs and clean builds.
+// Not exercised on hardware: a forced full/failing card, and the Scope budget
+// actually expiring.
 
 // 1.1.1: repair pass over the v1.1.0 audit
 // (docs/research/2026-09-07-v1.1.0-v2-audit.md), plus one defect the repairs

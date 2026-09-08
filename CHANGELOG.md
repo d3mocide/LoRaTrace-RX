@@ -9,6 +9,12 @@ project (not a log of how it got there), see [docs/STATUS.md](docs/STATUS.md).
 
 ## 2026-09-07
 
+- **v1.1.2.** Finishes the audit: A16, A22, A26, A27 and the repair half of
+  A21. Fuzzing found two real defects in the safe-export shipped hours earlier
+  in v1.1.1; Scope no longer waits unbounded on a UI lock while holding the SPI
+  bus; Pass B's documented cost was wrong by 10x; SD outages are reported
+  rather than implied. See `docs/RELEASE_NOTES.md`.
+
 - **v1.1.1.** Repair pass over the v1.1.0 audit, plus A29 which the repairs
   made measurable. Operator-visible: the AP key is per device now (the shared
   `loratrace123` is gone), Cell produces usable data for the first time, and
